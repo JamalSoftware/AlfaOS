@@ -108,15 +108,23 @@ export default async function UsersPage() {
                     {formatDate(user.createdAt)}
                   </td>
                   <td className="px-5 py-3 text-right">
-                    <UserToggleButton
-                      user={{
-                        id: user.id,
-                        name: user.name,
-                        email: user.email,
-                        profile: user.profile,
-                        active: user.active,
-                      }}
-                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <Link
+                        href={`/usuarios/${user.id}/editar`}
+                        className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+                      >
+                        Editar
+                      </Link>
+                      <UserToggleButton
+                        user={{
+                          id: user.id,
+                          name: user.name,
+                          email: user.email,
+                          profile: user.profile,
+                          active: user.active,
+                        }}
+                      />
+                    </div>
                   </td>
                 </tr>
               ))}

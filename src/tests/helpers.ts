@@ -9,6 +9,7 @@ const PASSWORD_HASH = bcrypt.hashSync(TEST_PASSWORD, 10);
 const COOKIE_NAME = "alfaos_session";
 
 export async function resetDatabase(): Promise<void> {
+  await prisma.loginAttempt.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.eRPIntegration.deleteMany();
   await prisma.user.deleteMany();
@@ -102,11 +103,14 @@ export async function createTokenFor(userId: string): Promise<string> {
 
 export function apiRequest(
   url: string,
-  options: { method?: string; body?: unknown } = {},
+  options: {
+    method?: string;
+    body?: unknown;
+    headers?: Record<string, string>;
+  } = {},
   token?: string,
 ): Request {
-  const { method = "GET", body } = options;
-  const headers: Record<string, string> = {};
+  const { method = "GET", body, headers = {} } = options;
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
   }

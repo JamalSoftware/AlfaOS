@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 interface TestResult {
   ok: boolean;
@@ -10,6 +11,7 @@ interface TestResult {
 }
 
 export function TestConnectionButton() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +32,7 @@ export function TestConnectionButton() {
         return;
       }
       setResult(payload?.data?.result ?? null);
+      router.refresh();
     } catch {
       setError("Erro de conexão. Tente novamente.");
     } finally {

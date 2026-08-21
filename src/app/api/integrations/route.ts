@@ -1,17 +1,16 @@
-import { AccessProfile, ERPProvider } from "@prisma/client";
+import { AccessProfile } from "@prisma/client";
 import { z } from "zod";
 import { jsonError, jsonOk, runApi } from "@/lib/api";
 import { logAudit } from "@/lib/audit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/session";
-import { getERPAdapter } from "@/integrations";
 
-const schema = z.object({
-  provider: z.nativeEnum(ERPProvider).optional(),
+const updateSchema = z.object({
+  enabled: z.boolean(),
 });
 
-export async function POST(request: Request) {
+export async function PATCH(request: Request) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
     if (csrfBlocked) {
@@ -26,50 +25,40 @@ export async function POST(request: Request) {
       return jsonError("Acesso negado. Requer perfil ADMIN.", 403);
     }
 
-    let provider: ERPProvider = "MOCK";
+    let body: unknown;
     try {
-      const body = await request.json();
-      const parsed = schema.safeParse(body);
-      if (parsed.success && parsed.data.provider) {
-        provider = parsed.data.provider;
-      }
+      body = await request.json();
     } catch {
-      // No body or invalid body: fall back to the configured default.
+      return jsonError("Corpo da requisição inválido.", 400);
     }
 
-    const adapter = getERPAdapter(provider);
-    const result = await adapter.testConnection();
+    const parsed = updateSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonError("Dados inválidos.", 400);
+    }
 
-    // A successful test is NOT an automatic activation. The integration
-    // only becomes enabled through an explicit enable/disable action.
+    const { enabled } = parsed.data;
+
     const integration = await prisma.eRPIntegration.upsert({
       where: { companyId: session.companyId },
-      update: {
-        provider,
-        lastTestedAt: new Date(),
-        lastTestStatus: result.ok ? "OK" : "ERROR",
-      },
+      update: { enabled },
       create: {
         companyId: session.companyId,
-        provider,
-        name: provider === "MOCK" ? "Mock ERP" : "ReceitaNet",
-        enabled: false,
-        lastTestedAt: new Date(),
-        lastTestStatus: result.ok ? "OK" : "ERROR",
+        provider: "MOCK",
+        name: "Mock ERP",
+        enabled,
       },
     });
 
     await logAudit({
       companyId: session.companyId,
       userId: session.id,
-      action: "ERP.TEST_CONNECTION",
+      action: enabled ? "ERP.ENABLED" : "ERP.DISABLED",
       entity: "ERPIntegration",
       entityId: integration.id,
-      details: `Provider ${provider}: ${result.ok ? "conectado" : "falhou"}`,
     });
 
     return jsonOk({
-      result,
       integration: {
         id: integration.id,
         provider: integration.provider,

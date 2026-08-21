@@ -1,6 +1,7 @@
 import { AccessProfile } from "@prisma/client";
 import { z } from "zod";
-import { jsonError, jsonOk } from "@/lib/api";
+import { jsonError, jsonOk, runApi } from "@/lib/api";
+import { assertSameOrigin } from "@/lib/csrf";
 import { getSessionUser } from "@/lib/session";
 import {
   createCompanyUser,
@@ -19,52 +20,60 @@ const createUserSchema = z.object({
 });
 
 export async function GET(request: Request) {
-  const session = await getSessionUser(request);
-  if (!session) {
-    return jsonError("Não autenticado.", 401);
-  }
-  if (session.profile !== AccessProfile.ADMIN) {
-    return jsonError("Acesso negado. Requer perfil ADMIN.", 403);
-  }
+  return runApi(async () => {
+    const session = await getSessionUser(request);
+    if (!session) {
+      return jsonError("Não autenticado.", 401);
+    }
+    if (session.profile !== AccessProfile.ADMIN) {
+      return jsonError("Acesso negado. Requer perfil ADMIN.", 403);
+    }
 
-  const users = await listCompanyUsers(session.companyId);
-  return jsonOk({ users });
+    const users = await listCompanyUsers(session.companyId);
+    return jsonOk({ users });
+  });
 }
 
 export async function POST(request: Request) {
-  const session = await getSessionUser(request);
-  if (!session) {
-    return jsonError("Não autenticado.", 401);
-  }
-  if (session.profile !== AccessProfile.ADMIN) {
-    return jsonError("Acesso negado. Requer perfil ADMIN.", 403);
-  }
+  return runApi(async () => {
+    const csrfBlocked = assertSameOrigin(request);
+    if (csrfBlocked) {
+      return csrfBlocked;
+    }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return jsonError("Corpo da requisição inválido.", 400);
-  }
+    const session = await getSessionUser(request);
+    if (!session) {
+      return jsonError("Não autenticado.", 401);
+    }
+    if (session.profile !== AccessProfile.ADMIN) {
+      return jsonError("Acesso negado. Requer perfil ADMIN.", 403);
+    }
 
-  const parsed = createUserSchema.safeParse(body);
-  if (!parsed.success) {
-    return jsonError("Dados inválidos.", 400, parsed.error.flatten());
-  }
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonError("Corpo da requisição inválido.", 400);
+    }
 
-  const { name, email, password, profile } = parsed.data;
+    const parsed = createUserSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonError("Dados inválidos.", 400, parsed.error.flatten());
+    }
 
-  const available = await ensureEmailAvailable(session.companyId, email);
-  if (!available) {
-    return jsonError("Já existe um usuário com este e-mail.", 409);
-  }
+    const { name, email, password, profile } = parsed.data;
 
-  const user = await createCompanyUser(session.companyId, {
-    name,
-    email,
-    password,
-    profile,
-  }, session.id);
+    const available = await ensureEmailAvailable(session.companyId, email);
+    if (!available) {
+      return jsonError("Já existe um usuário com este e-mail.", 409);
+    }
 
-  return jsonOk({ user }, 201);
+    const user = await createCompanyUser(
+      session.companyId,
+      { name, email, password, profile },
+      session.id,
+    );
+
+    return jsonOk({ user }, 201);
+  });
 }

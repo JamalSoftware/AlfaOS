@@ -32,6 +32,18 @@ model Company {
   @@map("companies")
 }
 
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  email     String
+  ip        String?
+  success   Boolean
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+  @@map("login_attempts")
+}
+
 model User {
   id           String        @id @default(cuid())
   companyId    String
@@ -48,13 +60,14 @@ model User {
 
   @@index([companyId])
   @@index([email])
+  @@index([companyId, profile, active])
   @@map("users")
 }
 
 model AuditLog {
   id        String   @id @default(cuid())
   companyId String
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
   userId    String?
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   action    String

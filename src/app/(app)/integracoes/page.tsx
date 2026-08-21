@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { requirePageProfile } from "@/lib/guards";
 import { prisma } from "@/lib/prisma";
 import { TestConnectionButton } from "./TestConnectionButton";
+import { IntegrationToggle } from "./IntegrationToggle";
 
 export const metadata: Metadata = {
   title: "Integrações",
@@ -18,12 +19,36 @@ function formatDate(date: Date | null): string {
   }).format(date);
 }
 
+function testStatusBadge(status: string | null) {
+  if (status === "OK") {
+    return (
+      <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+        Sucesso
+      </span>
+    );
+  }
+  if (status === "ERROR") {
+    return (
+      <span className="inline-flex items-center rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
+        Falha
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+      Nunca testado
+    </span>
+  );
+}
+
 export default async function IntegrationsPage() {
   const session = await requirePageProfile(["ADMIN"]);
 
   const integration = await prisma.eRPIntegration.findUnique({
     where: { companyId: session.companyId },
   });
+
+  const enabled = integration?.enabled ?? false;
 
   return (
     <div>
@@ -35,7 +60,7 @@ export default async function IntegrationsPage() {
       </div>
 
       <div className="max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-5 flex items-center justify-between">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold text-slate-900">
               {integration?.name ?? "Mock ERP"}
@@ -44,33 +69,41 @@ export default async function IntegrationsPage() {
               Provedor: {integration?.provider ?? "MOCK"}
             </p>
           </div>
-          <span
-            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-              integration?.enabled
-                ? "bg-emerald-50 text-emerald-700"
-                : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            {integration?.enabled ? "Ativa" : "Inativa"}
-          </span>
+          <div className="flex flex-wrap items-center gap-3">
+            <span
+              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                enabled
+                  ? "bg-emerald-50 text-emerald-700"
+                  : "bg-slate-100 text-slate-600"
+              }`}
+              data-testid="integration-enabled"
+            >
+              {enabled ? "Habilitada" : "Desabilitada"}
+            </span>
+            <IntegrationToggle enabled={enabled} />
+          </div>
         </div>
 
         <dl className="mb-5 space-y-3 border-t border-slate-100 pt-4">
-          <div className="flex justify-between text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <dt className="text-slate-500">Último teste</dt>
             <dd className="font-medium text-slate-900">
               {formatDate(integration?.lastTestedAt ?? null)}
             </dd>
           </div>
-          <div className="flex justify-between text-sm">
-            <dt className="text-slate-500">Status do último teste</dt>
-            <dd className="font-medium text-slate-900">
-              {integration?.lastTestStatus ?? "Nunca testado"}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <dt className="text-slate-500">Resultado do último teste</dt>
+            <dd data-testid="integration-last-test">
+              {testStatusBadge(integration?.lastTestStatus ?? null)}
             </dd>
           </div>
         </dl>
 
         <TestConnectionButton />
+        <p className="mt-3 text-xs text-slate-500">
+          O teste de conexão verifica a conectividade com o ERP, mas não
+          habilita a integração. A habilitação é uma ação separada e explícita.
+        </p>
       </div>
 
       <div className="mt-6 max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
