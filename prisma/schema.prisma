@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccessProfile {
+  ADMIN
+  DISPATCHER
+  TECHNICIAN
+}
+
+enum ERPProvider {
+  MOCK
+  RECEITANET
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  document  String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users         User[]
+  auditLogs     AuditLog[]
+  erpIntegration ERPIntegration?
+
+  @@map("companies")
+}
+
+model User {
+  id           String        @id @default(cuid())
+  companyId    String
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name         String
+  email        String        @unique
+  passwordHash String
+  profile      AccessProfile @default(TECHNICIAN)
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  auditLogs AuditLog[]
+
+  @@index([companyId])
+  @@index([email])
+  @@map("users")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String?
+  entityId  String?
+  details   String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+model ERPIntegration {
+  id             String      @id @default(cuid())
+  companyId      String      @unique
+  company        Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  provider       ERPProvider @default(MOCK)
+  name           String      @default("Mock ERP")
+  baseUrl        String?
+  apiKey         String?
+  config         Json?
+  enabled        Boolean     @default(false)
+  lastTestedAt   DateTime?
+  lastTestStatus String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@map("erp_integrations")
+}
