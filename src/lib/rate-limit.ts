@@ -1,6 +1,7 @@
 import {
   LOGIN_MAX_FAILED_ATTEMPTS,
   LOGIN_MAX_FAILED_ATTEMPTS_BY_IP,
+  LOGIN_MAX_FAILED_ATTEMPTS_GLOBAL,
   LOGIN_WINDOW_SECONDS,
 } from "./constants";
 import { prisma } from "./prisma";
@@ -12,19 +13,162 @@ import { prisma } from "./prisma";
  * multiple instances. It considers:
  *   - the email/identifier;
  *   - the client IP;
+ *   - the whole deployment (global ceiling);
  *   - a sliding time window.
  *
  * Legitimate users are never permanently blocked: the counter resets once
  * the window passes. Passwords are never stored — only the outcome flag.
  */
 
-export function getClientIp(request: Request): string | null {
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) {
-    const first = forwarded.split(",")[0]?.trim();
-    if (first) return first;
+/** Value used when no client IP can be established. Never rate-limited on. */
+export const UNKNOWN_CLIENT_IP = "unknown";
+
+export interface ClientIp {
+  /** Resolved address, or UNKNOWN_CLIENT_IP when undeterminable. */
+  value: string;
+  /**
+   * True only when `value` really identifies a single client. The per-IP
+   * limit is applied (and the value persisted) only in that case.
+   */
+  trusted: boolean;
+}
+
+/**
+ * Number of trusted reverse proxies in front of the app (`TRUSTED_PROXY_HOPS`,
+ * default 0). Read per call so deployments — and tests — can change it without
+ * reloading the module.
+ */
+function trustedProxyHops(): number {
+  const parsed = Number.parseInt(process.env.TRUSTED_PROXY_HOPS ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
   }
-  return request.headers.get("x-real-ip");
+  return parsed;
+}
+
+function isIpv4(value: string): boolean {
+  const parts = value.split(".");
+  return (
+    parts.length === 4 &&
+    parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
+  );
+}
+
+function isIpv6(value: string): boolean {
+  const address = value.split("%")[0] ?? "";
+  if (!address.includes(":")) return false;
+
+  const halves = address.split("::");
+  if (halves.length > 2) return false;
+
+  const parseGroups = (chunk: string): string[] | null => {
+    if (chunk === "") return [];
+    const groups = chunk.split(":");
+    return groups.some((group) => group === "") ? null : groups;
+  };
+
+  const head = parseGroups(halves[0] ?? "");
+  const tail = halves.length === 2 ? parseGroups(halves[1] ?? "") : [];
+  if (!head || !tail) return false;
+
+  const groups = [...head, ...tail];
+  const last = groups[groups.length - 1];
+  const hasEmbeddedIpv4 = last !== undefined && last.includes(".");
+  if (hasEmbeddedIpv4 && !isIpv4(last)) return false;
+
+  const hexGroups = hasEmbeddedIpv4 ? groups.slice(0, -1) : groups;
+  if (!hexGroups.every((group) => /^[0-9a-fA-F]{1,4}$/.test(group))) {
+    return false;
+  }
+
+  // An embedded IPv4 literal occupies two 16-bit groups.
+  const size = groups.length + (hasEmbeddedIpv4 ? 1 : 0);
+  // "::" must stand for at least one omitted group.
+  return halves.length === 2 ? size <= 7 : size === 8;
+}
+
+/**
+ * Accepts an address only if it really looks like an IP. Also tolerates the
+ * `[v6]:port` / `v4:port` shapes some proxies emit.
+ */
+function normalizeIp(raw: string): string | null {
+  let value = raw.trim();
+  if (value === "") return null;
+
+  const bracketed = /^\[([^\]]+)\](?::\d+)?$/.exec(value);
+  if (bracketed) {
+    value = bracketed[1] ?? "";
+  } else if (/^\d{1,3}(?:\.\d{1,3}){3}:\d+$/.test(value)) {
+    value = value.split(":")[0] ?? "";
+  }
+
+  if (isIpv4(value) || isIpv6(value)) {
+    return value.toLowerCase();
+  }
+  return null;
+}
+
+/**
+ * IP of the actual TCP connection, when the runtime exposes it.
+ *
+ * Limitation: the Next.js 14 App Router does not give route handlers access to
+ * the socket. `NextRequest.ip` is only populated when the hosting adapter fills
+ * it in (e.g. Vercel), and it is never client-settable. On a self-hosted
+ * `next start` there is no reliable connection IP at all — hence the sentinel.
+ */
+function connectionIp(request: Request): string | null {
+  const candidate = (request as Request & { ip?: unknown }).ip;
+  return typeof candidate === "string" ? normalizeIp(candidate) : null;
+}
+
+/**
+ * Resolves the client IP used for rate limiting.
+ *
+ * `x-forwarded-for` is attacker-controlled unless a reverse proxy we trust
+ * rewrote it, so it is only read when `TRUSTED_PROXY_HOPS >= 1`:
+ *   - 0 (default) → the header is ignored entirely.
+ *   - N           → each trusted proxy appends the peer it received the request
+ *                   from, so the outermost one wrote the real client address at
+ *                   `chain[chain.length - N]` (Express `trust proxy = N`
+ *                   semantics). Everything to its left is client-supplied and
+ *                   is never selected.
+ *
+ * When nothing can be established the sentinel is returned with
+ * `trusted: false` and the per-IP limit is skipped — an undifferentiated
+ * fallback bucket must never become a global login kill switch. The per-e-mail
+ * limit still applies. See docs/SECURITY.md.
+ */
+export function getClientIp(request: Request): ClientIp {
+  const hops = trustedProxyHops();
+
+  if (hops > 0) {
+    const forwarded = request.headers.get("x-forwarded-for");
+    if (forwarded) {
+      const chain = forwarded
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry !== "");
+      const index = chain.length - hops;
+      if (index >= 0) {
+        const candidate = normalizeIp(chain[index] ?? "");
+        if (candidate) {
+          return { value: candidate, trusted: true };
+        }
+      }
+    }
+  }
+
+  const connection = connectionIp(request);
+  if (connection) {
+    return { value: connection, trusted: true };
+  }
+
+  return { value: UNKNOWN_CLIENT_IP, trusted: false };
+}
+
+/** Only a trusted, differentiated address may drive the per-IP limit. */
+function limitableIp(ip: ClientIp | null): string | null {
+  return ip && ip.trusted ? ip.value : null;
 }
 
 function windowStart(): Date {
@@ -33,42 +177,69 @@ function windowStart(): Date {
 
 export async function countRecentFailures(
   email: string,
-  ip: string | null,
-): Promise<{ byEmail: number; byIp: number }> {
+  ip: ClientIp | null,
+): Promise<{ byEmail: number; byIp: number; global: number }> {
   const since = windowStart();
+  const trackedIp = limitableIp(ip);
 
-  const [byEmail, byIp] = await Promise.all([
+  const [byEmail, byIp, global] = await Promise.all([
     prisma.loginAttempt.count({
       where: { email, success: false, createdAt: { gte: since } },
     }),
-    ip
+    trackedIp
       ? prisma.loginAttempt.count({
-          where: { ip, success: false, createdAt: { gte: since } },
+          where: { ip: trackedIp, success: false, createdAt: { gte: since } },
         })
       : Promise.resolve(0),
+    // No email/ip filter on purpose: this is the only counter an attacker
+    // cannot dodge by rotating either dimension. See isLoginBlocked below.
+    prisma.loginAttempt.count({
+      where: { success: false, createdAt: { gte: since } },
+    }),
   ]);
 
-  return { byEmail, byIp };
+  return { byEmail, byIp, global };
 }
 
+/**
+ * Decides whether the request must be rejected *before* any password hashing.
+ *
+ * Three independent ceilings, any of which blocks:
+ *   - per e-mail (default 5): classic per-account brute force.
+ *   - per IP (default 20): one noisy client spraying many accounts. Applies
+ *     only when a trusted client IP could be established, so it is inert on a
+ *     self-hosted deployment without `TRUSTED_PROXY_HOPS`.
+ *   - global (default 200): everything else. An anonymous flood using a new
+ *     random e-mail per request keeps `byEmail` at 0 forever and, without a
+ *     trusted proxy, `byIp` at 0 as well — yet each request still costs a
+ *     bcrypt cost-12 comparison, which `bcryptjs` runs synchronously on the
+ *     Node event loop (~350ms), starving every tenant. The global counter is
+ *     the only one such a flood cannot avoid.
+ *
+ * Callers MUST run this before `verifyPassword`, otherwise the CPU is already
+ * spent by the time the request is rejected.
+ */
 export async function isLoginBlocked(
   email: string,
-  ip: string | null,
+  ip: ClientIp | null,
 ): Promise<boolean> {
   const counts = await countRecentFailures(email, ip);
   return (
     counts.byEmail >= LOGIN_MAX_FAILED_ATTEMPTS ||
-    counts.byIp >= LOGIN_MAX_FAILED_ATTEMPTS_BY_IP
+    counts.byIp >= LOGIN_MAX_FAILED_ATTEMPTS_BY_IP ||
+    counts.global >= LOGIN_MAX_FAILED_ATTEMPTS_GLOBAL
   );
 }
 
 export async function recordLoginAttempt(
   email: string,
-  ip: string | null,
+  ip: ClientIp | null,
   success: boolean,
 ): Promise<void> {
   await prisma.loginAttempt.create({
-    data: { email, ip, success },
+    // The sentinel is stored as NULL so the table never accumulates a single
+    // undifferentiated bucket that a future counter could block on.
+    data: { email, ip: limitableIp(ip), success },
   });
 
   // Opportunistic cleanup: prune attempts older than two windows.
@@ -78,4 +249,4 @@ export async function recordLoginAttempt(
   });
 }
 
-export { LOGIN_MAX_FAILED_ATTEMPTS };
+export { LOGIN_MAX_FAILED_ATTEMPTS, LOGIN_MAX_FAILED_ATTEMPTS_GLOBAL };

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { POST as login } from "@/app/api/auth/login/route";
 import { GET as listUsers } from "@/app/api/users/route";
+import { prisma } from "@/lib/prisma";
 import {
   apiRequest,
   createTokenFor,
@@ -72,7 +73,35 @@ describe("Autenticação", () => {
     expect(res.status).toBe(401);
     const payload = await res.json();
     expect(payload.ok).toBe(false);
-    expect(payload.error).toContain("inativo");
+    // Mensagem genérica: não revela que a conta existe (anti-enumeração).
+    expect(payload.error).toBe("Credenciais inválidas.");
+  });
+
+  it("3c. usuário inativo, inexistente e senha errada são indistinguíveis", async () => {
+    const cases = [
+      { email: "inactive@alfa.test", password: TEST_PASSWORD },
+      { email: "naoexiste@alfa.test", password: TEST_PASSWORD },
+      { email: "admin@alfa.test", password: "SenhaTotalmenteErrada@999" },
+    ];
+
+    const responses = [];
+    for (const body of cases) {
+      const res = await login(
+        apiRequest("/api/auth/login", { method: "POST", body }),
+      );
+      responses.push({ status: res.status, payload: await res.json() });
+    }
+
+    for (const response of responses) {
+      expect(response.status).toBe(401);
+      expect(response.payload.error).toBe("Credenciais inválidas.");
+    }
+
+    // O motivo real continua auditado internamente.
+    const blocked = await prisma.auditLog.findFirst({
+      where: { action: "AUTH.LOGIN_BLOCKED", userId: fixture.inactiveA.id },
+    });
+    expect(blocked).not.toBeNull();
   });
 
   it("3b. usuário inativo com token válido não acessa APIs protegidas", async () => {

@@ -123,6 +123,11 @@ export default async function UsersPage() {
                           profile: user.profile,
                           active: user.active,
                         }}
+                        disabledReason={
+                          user.id === session.id
+                            ? "Você não pode desativar a própria conta."
+                            : undefined
+                        }
                       />
                     </div>
                   </td>

@@ -9,7 +9,8 @@ export const metadata: Metadata = {
 };
 
 export default async function NewTechnicianPage() {
-  const session = await requirePageProfile(["ADMIN", "DISPATCHER"]);
+  // Must match POST /api/technicians, which is ADMIN-only.
+  const session = await requirePageProfile(["ADMIN"]);
   const candidates = await listTechnicianCandidates(session.companyId);
 
   return (

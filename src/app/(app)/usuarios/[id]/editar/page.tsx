@@ -47,6 +47,7 @@ export default async function EditUserPage({
             profile: user.profile,
             active: user.active,
           }}
+          isSelf={user.id === session.id}
         />
       </div>
     </div>

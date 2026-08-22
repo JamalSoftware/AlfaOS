@@ -1,10 +1,13 @@
+import bcrypt from "bcryptjs";
 import { describe, it, expect, beforeEach } from "vitest";
 import { GET as listUsers } from "@/app/api/users/route";
 import { PATCH as patchUser } from "@/app/api/users/[id]/route";
+import { prisma } from "@/lib/prisma";
 import {
   apiRequest,
   createTokenFor,
   seedTestData,
+  TEST_PASSWORD,
   type TestFixture,
 } from "./helpers";
 
@@ -63,11 +66,29 @@ describe("Revalidação imediata de sessão", () => {
   });
 
   it("token de admin rebaixado deixa de acessar rota de admin", async () => {
-    const adminToken = await createTokenFor(fixture.adminA.id);
+    // O rebaixamento tem que partir de OUTRO admin: auto-rebaixar-se é
+    // recusado (403) desde a proteção contra auto-travamento — ver
+    // docs/SECURITY.md §12 e user-edit.test.ts.
+    const other = await prisma.user.create({
+      data: {
+        companyId: fixture.companyA.id,
+        name: "Administrador Dois",
+        email: "admin2@alfa.test",
+        profile: "ADMIN",
+        active: true,
+        passwordHash: bcrypt.hashSync(TEST_PASSWORD, 10),
+      },
+      select: { id: true },
+    });
 
+    const demotedToken = await createTokenFor(other.id);
+    const allowed = await listUsers(apiRequest("/api/users", {}, demotedToken));
+    expect(allowed.status).toBe(200);
+
+    const adminToken = await createTokenFor(fixture.adminA.id);
     const demote = await patchUser(
       apiRequest(
-        `/api/users/${fixture.adminA.id}`,
+        `/api/users/${other.id}`,
         {
           method: "PATCH",
           body: { profile: "TECHNICIAN" },
@@ -75,11 +96,11 @@ describe("Revalidação imediata de sessão", () => {
         },
         adminToken,
       ),
-      { params: { id: fixture.adminA.id } },
+      { params: { id: other.id } },
     );
     expect(demote.status).toBe(200);
 
-    const denied = await listUsers(apiRequest("/api/users", {}, adminToken));
+    const denied = await listUsers(apiRequest("/api/users", {}, demotedToken));
     expect(denied.status).toBe(403);
   });
 });

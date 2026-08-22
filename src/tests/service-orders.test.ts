@@ -7,7 +7,7 @@ import { GET as getOrder } from "@/app/api/service-orders/[id]/route";
 import { POST as assignOrder } from "@/app/api/service-orders/[id]/assign/route";
 import { POST as syncOrders } from "@/app/api/integrations/sync/route";
 import { prisma } from "@/lib/prisma";
-import { assignTechnician } from "@/lib/service-orders";
+import { assignTechnician, importServiceOrder } from "@/lib/service-orders";
 import { DomainError } from "@/lib/errors";
 import {
   apiRequest,
@@ -164,6 +164,108 @@ describe("Ordens de serviço", () => {
       where: { companyId: fixture.companyA.id },
     });
     expect(total).toBe(3);
+  });
+
+  it("importServiceOrder concorrente para o mesmo externalId grava um único registro", async () => {
+    // Mesma OS (mesmo externalId), clientes distintos para que a corrida caia
+    // na criação da OS e não no upsert do cliente.
+    const input = (customerExternalId: string) => ({
+      externalProvider: "MOCK",
+      externalId: "MOCK-RACE-1",
+      externalNumber: "99001",
+      type: "INSTALACAO",
+      description: "OS importada em corrida",
+      priority: "NORMAL" as const,
+      scheduledAt: null,
+      customer: { externalId: customerExternalId, name: "Cliente Corrida" },
+    });
+
+    const results = await Promise.all([
+      importServiceOrder(fixture.companyA.id, fixture.adminA.id, input("MOCK-CUST-RACE-A")),
+      importServiceOrder(fixture.companyA.id, fixture.adminA.id, input("MOCK-CUST-RACE-B")),
+    ]);
+
+    // Exatamente uma das chamadas cria; a outra vira update.
+    expect(results.filter((result) => result.created)).toHaveLength(1);
+    expect(new Set(results.map((r) => r.serviceOrder.id)).size).toBe(1);
+
+    const orders = await prisma.serviceOrder.findMany({
+      where: { companyId: fixture.companyA.id, externalId: "MOCK-RACE-1" },
+    });
+    expect(orders).toHaveLength(1);
+    expect(orders[0]?.externalNumber).toBe("99001");
+    expect(orders[0]?.status).toBe("PENDING");
+
+    const events = await prisma.serviceOrderEvent.findMany({
+      where: { serviceOrderId: orders[0]?.id },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.event).toBe("SERVICE_ORDER_IMPORTED");
+
+    const audited = await prisma.auditLog.count({
+      where: {
+        companyId: fixture.companyA.id,
+        action: "SERVICE_ORDER.IMPORTED",
+      },
+    });
+    expect(audited).toBe(1);
+  });
+
+  it("Syncs concorrentes da mesma OS não duplicam nem quebram a timeline", async () => {
+    await enableMockERP(fixture.companyA.id);
+    const token = await createTokenFor(fixture.adminA.id);
+
+    const [first, second] = await Promise.all([
+      syncOrders(apiRequest("/api/integrations/sync", { method: "POST" }, token)),
+      syncOrders(apiRequest("/api/integrations/sync", { method: "POST" }, token)),
+    ]);
+
+    // Nenhum 500 escapando da corrida.
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const [firstPayload, secondPayload] = await Promise.all([
+      first.json(),
+      second.json(),
+    ]);
+    // Cada OS é criada exatamente uma vez, entre as duas execuções.
+    expect(
+      firstPayload.data.sync.created + secondPayload.data.sync.created,
+    ).toBe(3);
+    expect(
+      firstPayload.data.sync.updated + secondPayload.data.sync.updated,
+    ).toBe(3);
+
+    const imported = await prisma.serviceOrder.findMany({
+      where: { companyId: fixture.companyA.id, source: "IMPORTED" },
+    });
+    expect(imported).toHaveLength(3);
+    expect(new Set(imported.map((os) => os.externalId)).size).toBe(3);
+    for (const order of imported) {
+      expect(order.status).toBe("PENDING");
+      expect(order.externalNumber).not.toBeNull();
+
+      // Timeline: exatamente um evento de importação, nenhum órfão.
+      const events = await prisma.serviceOrderEvent.findMany({
+        where: { serviceOrderId: order.id },
+      });
+      expect(events).toHaveLength(1);
+      expect(events[0]?.event).toBe("SERVICE_ORDER_IMPORTED");
+    }
+
+    // Auditoria: uma entrada de importação por OS.
+    const audited = await prisma.auditLog.count({
+      where: {
+        companyId: fixture.companyA.id,
+        action: "SERVICE_ORDER.IMPORTED",
+      },
+    });
+    expect(audited).toBe(3);
+
+    const orphanEvents = await prisma.serviceOrderEvent.count({
+      where: { companyId: fixture.companyA.id, event: "SERVICE_ORDER_IMPORTED" },
+    });
+    expect(orphanEvents).toBe(3);
   });
 
   it("Reimportação não sobrescreve technician_id, status nem timeline", async () => {

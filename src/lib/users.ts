@@ -1,5 +1,6 @@
 import { AccessProfile, type User } from "@prisma/client";
 import { logAudit } from "./audit";
+import { conflict } from "./errors";
 import { hashPassword } from "./password";
 import { prisma } from "./prisma";
 
@@ -118,9 +119,35 @@ export async function updateCompanyUser(
     data.passwordHash = await hashPassword(input.password);
   }
 
-  const updated = await prisma.user.update({
-    where: { id: userId },
-    data,
+  // Would this write strip the company of an active ADMIN? Only then is the
+  // "last administrator" check worth running — an edit that does not remove
+  // admin rights must never be refused, not even in a company that somehow
+  // already has no active ADMIN.
+  const removesActiveAdmin =
+    existing.profile === AccessProfile.ADMIN &&
+    existing.active &&
+    (input.active === false ||
+      (input.profile !== undefined && input.profile !== AccessProfile.ADMIN));
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const user = await tx.user.update({ where: { id: userId }, data });
+
+    if (removesActiveAdmin) {
+      // Counted after the update so it sees this transaction's own write:
+      // whatever is left is exactly what the company would be left with.
+      const remainingAdmins = await tx.user.count({
+        where: { companyId, profile: AccessProfile.ADMIN, active: true },
+      });
+      if (remainingAdmins === 0) {
+        // Rolls the update back. Without this, a company can be left with no
+        // one able to manage users, and there is no in-app recovery path.
+        throw conflict(
+          "Não é possível remover o último administrador ativo da empresa.",
+        );
+      }
+    }
+
+    return user;
   });
 
   await logAudit({
@@ -135,8 +162,13 @@ export async function updateCompanyUser(
   return toPublicUser(updated);
 }
 
+/**
+ * E-mail uniqueness is intentionally global, not per company: login takes only
+ * e-mail + password (there is no company selector), so the address must resolve
+ * to exactly one account. Hence no `companyId` scope here — it would contradict
+ * `User.email @unique` in the schema.
+ */
 export async function ensureEmailAvailable(
-  companyId: string,
   email: string,
   excludeUserId?: string,
 ): Promise<boolean> {

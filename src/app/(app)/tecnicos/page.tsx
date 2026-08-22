@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { AccessProfile } from "@prisma/client";
 import { requirePageProfile } from "@/lib/guards";
 import { listCompanyTechnicians } from "@/lib/technicians";
 import { EmptyState } from "@/components/EmptyState";
@@ -23,6 +24,8 @@ interface PageProps {
 
 export default async function TechniciansPage({ searchParams }: PageProps) {
   const session = await requirePageProfile(["ADMIN", "DISPATCHER"]);
+  // Only ADMIN can create technicians (POST /api/technicians).
+  const isAdmin = session.profile === AccessProfile.ADMIN;
 
   const search = typeof searchParams.search === "string" ? searchParams.search : "";
   const activeRaw = typeof searchParams.active === "string" ? searchParams.active : "";
@@ -55,12 +58,14 @@ export default async function TechniciansPage({ searchParams }: PageProps) {
             Vincule usuários com perfil Técnico da sua empresa.
           </p>
         </div>
-        <Link
-          href="/tecnicos/novo"
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
-        >
-          Novo técnico
-        </Link>
+        {isAdmin && (
+          <Link
+            href="/tecnicos/novo"
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+          >
+            Novo técnico
+          </Link>
+        )}
       </div>
 
       <form

@@ -17,9 +17,16 @@ interface EditUserFormProps {
     profile: string;
     active: boolean;
   };
+  /**
+   * True when the admin is editing their own account. Perfil/status are then
+   * locked: deactivating or demoting yourself drops your session on the next
+   * request and, for a company's only ADMIN, locks everyone out for good.
+   * The API refuses the same edits (403) — this only avoids a dead end.
+   */
+  isSelf?: boolean;
 }
 
-export function EditUserForm({ user }: EditUserFormProps) {
+export function EditUserForm({ user, isSelf = false }: EditUserFormProps) {
   const router = useRouter();
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
@@ -111,8 +118,9 @@ export function EditUserForm({ user }: EditUserFormProps) {
         <select
           id="profile"
           value={profile}
+          disabled={isSelf}
           onChange={(e) => setProfile(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
         >
           {PROFILES.map((p) => (
             <option key={p.value} value={p.value}>
@@ -142,17 +150,29 @@ export function EditUserForm({ user }: EditUserFormProps) {
         />
       </div>
 
-      <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 px-3 py-2.5">
+      <label
+        className={`flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2.5 ${
+          isSelf ? "cursor-not-allowed bg-slate-50" : "cursor-pointer"
+        }`}
+      >
         <input
           type="checkbox"
           checked={active}
+          disabled={isSelf}
           onChange={(e) => setActive(e.target.checked)}
-          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-100"
+          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-100 disabled:cursor-not-allowed"
         />
         <span className="text-sm font-medium text-slate-700">
           Usuário ativo
         </span>
       </label>
+
+      {isSelf && (
+        <p className="text-xs text-slate-500">
+          Perfil de acesso e status não podem ser alterados na própria conta.
+          Peça a outro administrador da empresa.
+        </p>
+      )}
 
       {error && (
         <div

@@ -1,10 +1,16 @@
 import type {
+  ServiceOrder,
   ServiceOrderPriority,
   ServiceOrderStatus,
 } from "@prisma/client";
 import { ServiceOrderSource } from "@prisma/client";
 import { logAudit } from "./audit";
-import { badRequest, conflict, notFound } from "./errors";
+import {
+  badRequest,
+  conflict,
+  isUniqueConstraintError,
+  notFound,
+} from "./errors";
 import { prisma } from "./prisma";
 
 // ---------------------------------------------------------------------------
@@ -346,6 +352,16 @@ export async function importServiceOrder(
     },
   };
 
+  // Fields refreshed on every re-import. Never touches status, technicianId,
+  // assignedAt or the timeline.
+  const externalData = {
+    externalNumber: input.externalNumber?.trim() || null,
+    type: input.type.trim(),
+    subtype: input.subtype?.trim() || null,
+    description: input.description.trim(),
+    scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
+  };
+
   const existing = await prisma.serviceOrder.findUnique({
     where: uniqueKey,
   });
@@ -353,13 +369,7 @@ export async function importServiceOrder(
   if (existing) {
     const updated = await prisma.serviceOrder.update({
       where: { id: existing.id },
-      data: {
-        externalNumber: input.externalNumber?.trim() || null,
-        type: input.type.trim(),
-        subtype: input.subtype?.trim() || null,
-        description: input.description.trim(),
-        scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
-      },
+      data: externalData,
     });
     return {
       serviceOrder: await withRelations(companyId, updated.id),
@@ -367,41 +377,60 @@ export async function importServiceOrder(
     };
   }
 
-  const order = await prisma.$transaction(async (tx) => {
-    const created = await tx.serviceOrder.create({
-      data: {
-        companyId,
-        externalProvider: input.externalProvider,
-        externalId: input.externalId,
-        externalNumber: input.externalNumber?.trim() || null,
-        customerId: customer.id,
-        type: input.type.trim(),
-        subtype: input.subtype?.trim() || null,
-        description: input.description.trim(),
-        priority: input.priority,
-        status: "PENDING",
-        source: ServiceOrderSource.IMPORTED,
-        scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
-      },
-    });
-
-    await tx.serviceOrderEvent.create({
-      data: {
-        companyId,
-        serviceOrderId: created.id,
-        userId: actorId,
-        event: "SERVICE_ORDER_IMPORTED",
-        metadata: {
-          externalNumber: created.externalNumber,
-          type: created.type,
-          priority: created.priority,
-          source: input.externalProvider,
+  /**
+   * Creation is racy by nature: two concurrent syncs of the same externalId
+   * both see "not found". The insert + timeline event run in one transaction
+   * and the unique index (companyId, externalProvider, externalId) is the
+   * arbiter — the loser's transaction rolls back whole (no orphan event) and
+   * is retried as an update, so there is no duplicate row and no duplicate
+   * SERVICE_ORDER_IMPORTED event.
+   */
+  let order: ServiceOrder;
+  try {
+    order = await prisma.$transaction(async (tx) => {
+      const created = await tx.serviceOrder.create({
+        data: {
+          companyId,
+          externalProvider: input.externalProvider,
+          externalId: input.externalId,
+          customerId: customer.id,
+          priority: input.priority,
+          status: "PENDING",
+          source: ServiceOrderSource.IMPORTED,
+          ...externalData,
         },
-      },
-    });
+      });
 
-    return created;
-  });
+      await tx.serviceOrderEvent.create({
+        data: {
+          companyId,
+          serviceOrderId: created.id,
+          userId: actorId,
+          event: "SERVICE_ORDER_IMPORTED",
+          metadata: {
+            externalNumber: created.externalNumber,
+            type: created.type,
+            priority: created.priority,
+            source: input.externalProvider,
+          },
+        },
+      });
+
+      return created;
+    });
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) {
+      throw error;
+    }
+    const updated = await prisma.serviceOrder.update({
+      where: uniqueKey,
+      data: externalData,
+    });
+    return {
+      serviceOrder: await withRelations(companyId, updated.id),
+      created: false,
+    };
+  }
 
   await logAudit({
     companyId,
@@ -521,7 +550,7 @@ export async function assignTechnician(
   orderId: string,
   technicianId: string,
 ): Promise<PublicServiceOrder> {
-  await prisma.$transaction(async (tx) => {
+  const assigned = await prisma.$transaction(async (tx) => {
     const os = await tx.serviceOrder.findFirst({
       where: { id: orderId, companyId },
     });
@@ -593,7 +622,7 @@ export async function assignTechnician(
       },
     });
 
-    return os.id;
+    return { id: technician.id, name: technician.user.name };
   });
 
   await logAudit({
@@ -602,7 +631,7 @@ export async function assignTechnician(
     action: "SERVICE_ORDER.ASSIGNED",
     entity: "ServiceOrder",
     entityId: orderId,
-    details: `OS atribuída/trocada para o técnico ${orderId.slice(0, 8)}`,
+    details: `OS atribuída/trocada para o técnico ${assigned.name}`,
   });
 
   return withRelations(companyId, orderId);

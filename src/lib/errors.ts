@@ -30,3 +30,16 @@ export function conflict(message: string): DomainError {
 export function forbidden(message: string): DomainError {
   return new DomainError(403, message);
 }
+
+/**
+ * True for Prisma's "Unique constraint failed" (P2002). Used by writes that
+ * let the database arbitrate a race instead of checking-then-inserting.
+ */
+export function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}

@@ -9,15 +9,20 @@ import {
   listCompanyUsers,
 } from "@/lib/users";
 
-const createUserSchema = z.object({
-  name: z.string().min(2, "Nome deve ter ao menos 2 caracteres.").max(120),
-  email: z.string().email("E-mail inválido.").max(255),
-  password: z
-    .string()
-    .min(8, "Senha deve ter ao menos 8 caracteres.")
-    .max(128),
-  profile: z.nativeEnum(AccessProfile),
-});
+// `.strict()`: unknown fields are rejected instead of ignored, like every
+// other write schema in the project. This is the route that creates/edits
+// ADMIN accounts, so it gets the mass-assignment guard too.
+const createUserSchema = z
+  .object({
+    name: z.string().min(2, "Nome deve ter ao menos 2 caracteres.").max(120),
+    email: z.string().email("E-mail inválido.").max(255),
+    password: z
+      .string()
+      .min(8, "Senha deve ter ao menos 8 caracteres.")
+      .max(128),
+    profile: z.nativeEnum(AccessProfile),
+  })
+  .strict();
 
 export async function GET(request: Request) {
   return runApi(async () => {
@@ -63,7 +68,7 @@ export async function POST(request: Request) {
 
     const { name, email, password, profile } = parsed.data;
 
-    const available = await ensureEmailAvailable(session.companyId, email);
+    const available = await ensureEmailAvailable(email);
     if (!available) {
       return jsonError("Já existe um usuário com este e-mail.", 409);
     }

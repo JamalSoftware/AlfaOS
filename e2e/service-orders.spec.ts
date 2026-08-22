@@ -66,7 +66,7 @@ test("critério de aceite: sync, atribuição e ownership do técnico", async ({
   await page.goto(orderUrl);
   await page.getByLabel("Técnico").selectOption({ label: "Tecnico Alfa" });
   await page.getByRole("button", { name: "Atribuir OS" }).click();
-  await expect(page.getByText("Atribuída").first()).toBeVisible();
+  await expect(page.locator('span:text-is("Atribuída")')).toBeVisible();
   await expect(page.getByText("Técnico atribuído")).toBeVisible();
 
   await logout(page);
@@ -88,6 +88,6 @@ test("critério de aceite: sync, atribuição e ownership do técnico", async ({
   await syncERP(page);
   await expect(page.locator("tbody tr")).toHaveCount(3);
   await page.getByRole("link", { name: "10001" }).click();
-  await expect(page.getByText("Atribuída").first()).toBeVisible();
+  await expect(page.locator('span:text-is("Atribuída")')).toBeVisible();
   await expect(page.getByText("Tecnico Alfa").first()).toBeVisible();
 });

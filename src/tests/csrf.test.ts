@@ -75,6 +75,43 @@ describe("Proteção CSRF (same-origin)", () => {
     expect(res.status).toBe(403);
   });
 
+  it("rejeita POST de logout com Origin de terceiros (403)", async () => {
+    const token = await createTokenFor(fixture.adminA.id);
+    const { POST: logout } = await import("@/app/api/auth/logout/route");
+    const res = await logout(
+      apiRequest(
+        "/api/auth/logout",
+        { method: "POST", headers: { Origin: "https://evil.example.com" } },
+        token,
+      ),
+    );
+
+    expect(res.status).toBe(403);
+    // A sessão não pode ser derrubada por um site de terceiros.
+    expect(
+      res.headers.getSetCookie().some((c) => c.startsWith("alfaos_session=")),
+    ).toBe(false);
+  });
+
+  it("aceita POST de logout de mesmo host", async () => {
+    const token = await createTokenFor(fixture.adminA.id);
+    const { POST: logout } = await import("@/app/api/auth/logout/route");
+    const res = await logout(
+      apiRequest(
+        "/api/auth/logout",
+        { method: "POST", headers: { Origin: "http://localhost" } },
+        token,
+      ),
+    );
+
+    expect(res.status).toBe(307);
+    expect(
+      res.headers
+        .getSetCookie()
+        .some((c) => c.startsWith("alfaos_session=") && c.includes("Max-Age=0")),
+    ).toBe(true);
+  });
+
   it("aceita POST com Origin de mesmo host", async () => {
     const token = await createTokenFor(fixture.adminA.id);
     const res = await createUser(

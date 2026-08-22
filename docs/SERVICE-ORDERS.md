@@ -57,10 +57,13 @@ implementado neste checkpoint é a atribuição/troca
   Carlos Souza — Suporte/NORMAL).
 - `POST /api/integrations/sync` exige integração habilitada (senão `400`).
 - **Idempotência**: a correspondência é feita por
-  `companyId + externalProvider + externalId` (cliente via upsert, OS via
-  `findUnique`). Na primeira sync criam-se 3 OS; reimportações atualizam dados
-  externos e reportam "0 criadas, 3 atualizadas" — nunca duplicam, e **não**
-  sobrescrevem `status`/`technicianId`/timeline locais.
+  `companyId + externalProvider + externalId` (cliente via `upsert`; OS via
+  `create` numa transação com fallback em `P2002`, para ficar atômica sob
+  syncs concorrentes — ver [SECURITY.md §8](SECURITY.md)). Na primeira sync
+  criam-se 3 OS; reimportações atualizam dados externos e reportam "0
+  criadas, 3 atualizadas" — nunca duplicam, e **não** sobrescrevem
+  `status`/`technicianId`/timeline locais, mesmo com duas sincronizações
+  simultâneas da mesma OS.
 
 ## 6. Endpoints
 
