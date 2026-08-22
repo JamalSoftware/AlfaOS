@@ -79,4 +79,8 @@ test("administrador acessa integrações e altera estado", async ({ page }) => {
   const initiallyEnabled = (await status.textContent())?.trim() === "Habilitada";
   await toggle.click();
   await expect(status).toHaveText(initiallyEnabled ? "Desabilitada" : "Habilitada");
+
+  // Restore the original state so subsequent tests are not affected.
+  await toggle.click();
+  await expect(status).toHaveText(initiallyEnabled ? "Habilitada" : "Desabilitada");
 });

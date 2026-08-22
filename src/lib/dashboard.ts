@@ -1,4 +1,3 @@
-import { AccessProfile } from "@prisma/client";
 import { prisma } from "./prisma";
 
 export interface DashboardRecentActivity {
@@ -18,14 +17,43 @@ export interface DashboardStats {
   recentActivity: DashboardRecentActivity[];
 }
 
-/**
- * The OS counters are zero because the Service Order module is not
- * implemented yet (no OS table exists). No fake data is used.
- */
-export async function getDashboardStats(companyId: string): Promise<DashboardStats> {
-  const [tecnicosAtivos, recentLogs] = await Promise.all([
-    prisma.user.count({
-      where: { companyId, profile: AccessProfile.TECHNICIAN, active: true },
+export async function getDashboardStats(
+  companyId: string,
+): Promise<DashboardStats> {
+  const now = new Date();
+  const startOfDay = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  );
+  const endOfDay = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + 1,
+  );
+
+  const [
+    osPendentes,
+    osEmAtendimento,
+    osConcluidasHoje,
+    tecnicosAtivos,
+    recentLogs,
+  ] = await Promise.all([
+    prisma.serviceOrder.count({
+      where: { companyId, status: "PENDING" },
+    }),
+    prisma.serviceOrder.count({
+      where: { companyId, status: { in: ["ASSIGNED", "IN_PROGRESS"] } },
+    }),
+    prisma.serviceOrder.count({
+      where: {
+        companyId,
+        status: "COMPLETED",
+        completedAt: { gte: startOfDay, lt: endOfDay },
+      },
+    }),
+    prisma.technician.count({
+      where: { companyId, active: true },
     }),
     prisma.auditLog.findMany({
       where: { companyId },
@@ -36,9 +64,9 @@ export async function getDashboardStats(companyId: string): Promise<DashboardSta
   ]);
 
   return {
-    osPendentes: 0,
-    osEmAtendimento: 0,
-    osConcluidasHoje: 0,
+    osPendentes,
+    osEmAtendimento,
+    osConcluidasHoje,
     tecnicosAtivos,
     recentActivity: recentLogs.map((log) => ({
       id: log.id,

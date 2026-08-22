@@ -9,6 +9,10 @@ const PASSWORD_HASH = bcrypt.hashSync(TEST_PASSWORD, 10);
 const COOKIE_NAME = "alfaos_session";
 
 export async function resetDatabase(): Promise<void> {
+  await prisma.serviceOrderEvent.deleteMany();
+  await prisma.serviceOrder.deleteMany();
+  await prisma.technician.deleteMany();
+  await prisma.customer.deleteMany();
   await prisma.loginAttempt.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.eRPIntegration.deleteMany();
@@ -22,6 +26,7 @@ export interface TestFixture {
   adminA: { id: string };
   dispatcherA: { id: string };
   techA: { id: string };
+  techB: { id: string };
   inactiveA: { id: string };
   adminB: { id: string };
 }
@@ -72,6 +77,12 @@ export async function seedTestData(): Promise<TestFixture> {
     "tech@alfa.test",
     "TECHNICIAN",
   );
+  const techB = await createUser(
+    companyA.id,
+    "Tecnico Beta",
+    "tech2@alfa.test",
+    "TECHNICIAN",
+  );
   const inactiveA = await createUser(
     companyA.id,
     "Inativo Alfa",
@@ -92,6 +103,7 @@ export async function seedTestData(): Promise<TestFixture> {
     adminA: { id: adminA.id },
     dispatcherA: { id: dispatcherA.id },
     techA: { id: techA.id },
+    techB: { id: techB.id },
     inactiveA: { id: inactiveA.id },
     adminB: { id: adminB.id },
   };

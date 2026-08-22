@@ -72,6 +72,13 @@ async function main() {
     password: DEMO_PASSWORD,
   });
   await upsertUser({
+    companyId: companyA.id,
+    name: "Tecnico Beta",
+    email: "tech2@alfatelecom.local",
+    profile: AccessProfile.TECHNICIAN,
+    password: DEMO_PASSWORD,
+  });
+  await upsertUser({
     companyId: companyB.id,
     name: "Administrador Empresa B",
     email: "admin@empresatesteb.local",
@@ -81,11 +88,12 @@ async function main() {
 
   await prisma.eRPIntegration.upsert({
     where: { companyId: companyA.id },
-    update: {},
+    update: { provider: "MOCK", name: "Mock ERP", enabled: true },
     create: {
       companyId: companyA.id,
       provider: "MOCK",
       name: "Mock ERP",
+      enabled: true,
     },
   });
 

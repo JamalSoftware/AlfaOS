@@ -1,7 +1,8 @@
-# Segurança — AlfaOS (v0.1.1-hardening)
+# Segurança — AlfaOS (v0.2-service-orders)
 
-Este documento descreve as medidas de segurança implementadas no checkpoint de
-hardening (`v0.1.1-hardening`) sobre a fundação `v0.1-foundation`.
+Este documento descreve as medidas de segurança implementadas nos checkpoints
+de hardening (`v0.1.1-hardening`) e do núcleo operacional de Ordens de Serviço
+(`v0.2-service-orders`) sobre a fundação `v0.1-foundation`.
 
 ## 1. Autenticação e sessão
 
@@ -71,6 +72,9 @@ hardening (`v0.1.1-hardening`) sobre a fundação `v0.1-foundation`.
 
 - `runApi` centraliza o tratamento: erros internos são logados no servidor
   (mensagem apenas, sem stack/SQL/Prisma) e o cliente recebe `500` genérico.
+- `DomainError` (`notFound`/`badRequest`/`conflict`/`forbidden`) permite que o
+  domínio sinalize erros de negócio que são traduzidos em status HTTP corretos
+  (`404/400/409/403`) sem vazar detalhes internos.
 - Mensagens de erro de negócio não revelam a existência de recursos de outras
   empresas (multi-tenancy usa `404` em vez de `403/404` informativo quando o
   recurso pertence a outra empresa).
@@ -79,16 +83,42 @@ hardening (`v0.1.1-hardening`) sobre a fundação `v0.1-foundation`.
 
 - Todos os acessos a dados de empresa passam por `session.companyId`.
 - Usuários de empresas diferentes são inalcançáveis (scope com `404`).
+- Clientes, técnicos e OS são sempre consultados com escopo `companyId`.
 - Auditoria e rate limit também são isolados por empresa/sessão.
 
-## 8. Configuração de produção
+## 8. Proteção de Ordens de Serviço (v0.2-service-orders)
+
+- **Mass assignment bloqueado**: toda rota nova usa **Zod `.strict()`** —
+  campos desconhecidos no corpo são rejeitados (`400`). O frontend nunca envia
+  `companyId`, `status`, timestamps nem `externalProvider`; esses valores são
+  resolvidos no servidor.
+- **Ownership**: a OS detalhada, a atribuição e "Minhas OS" validam que
+  recurso e ator pertencem à **mesma empresa**. OS/técnico de outra empresa →
+  `404`.
+- **"Minhas OS" resolve o técnico no servidor**: `technician_id` é derivado da
+  sessão (`session → user → technician`); o cliente nunca informa o vínculo.
+  Um técnico de outra empresa não acessa OS locais.
+- **Atribuição restrita**: só aceita técnico **ativo** da mesma empresa
+  (inativo → `400`; outra empresa → `404`). Vincular usuário que já é técnico
+  → `409`.
+- **Otimistic locking**: atribuição usa `updateMany({ id, updatedAt })`; se
+  outro request alterou a OS primeiro → `409` "modificada por outra
+  requisição". Evita sobrescrita silenciosa em escritas concorrentes.
+- **Timeline imutável**: status e atribuição só mudam pela máquina de estados
+  central (`ALLOWED_STATUS_TRANSITIONS`); cada mutação grava um
+  `ServiceOrderEvent` na mesma transação — nunca status sem rastro.
+- **Idempotência do sync**: reimportar o ERP usa `externalId` e apenas
+  atualiza dados externos; **nunca** sobrescreve `status`, `technicianId` nem
+  timeline locais.
+
+## 9. Configuração de produção
 
 1. Gere um `AUTH_SECRET` forte: `openssl rand -base64 48`.
 2. Use PostgreSQL gerenciado com TLS e credenciais fortes.
 3. Sirva por HTTPS (HSTS é emitido em produção).
 4. Aplique as migrations: `npx prisma migrate deploy`.
 
-## 9. Melhorias futuras rastreadas
+## 10. Melhorias futuras rastreadas
 
 - CSP com nonce (remover `'unsafe-inline'` de `script-src`).
 - 2FA / TOTP para contas administrativas.

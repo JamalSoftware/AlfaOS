@@ -1,5 +1,4 @@
 import {
-  notImplemented,
   type ERPConnectionResult,
   type ERPIntegrationContract,
 } from "./contract";
@@ -25,17 +24,5 @@ export class ReceitanetAdapter implements ERPIntegrationContract {
         "Integração com o ReceitaNet ainda não implementada. " +
         "Aguardando documentação oficial da API.",
     };
-  }
-
-  fetchClients(): Promise<unknown> {
-    return notImplemented(this.provider, "fetchClients");
-  }
-
-  fetchServiceOrders(): Promise<unknown> {
-    return notImplemented(this.provider, "fetchServiceOrders");
-  }
-
-  pushServiceOrder(): Promise<unknown> {
-    return notImplemented(this.provider, "pushServiceOrder");
   }
 }

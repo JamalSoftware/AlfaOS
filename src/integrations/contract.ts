@@ -27,6 +27,38 @@ export interface ERPClientPayload {
   phone?: string;
 }
 
+export type ERPServiceOrderPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
+
+export interface ERPServiceOrderCustomer {
+  externalId: string;
+  name: string;
+  document?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  number?: string;
+  complement?: string;
+  district?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+}
+
+export interface ERPServiceOrderPayload {
+  externalId: string;
+  externalNumber?: string;
+  type: string;
+  subtype?: string;
+  description: string;
+  priority?: ERPServiceOrderPriority;
+  scheduledAt?: string;
+  customer: ERPServiceOrderCustomer;
+}
+
+export interface ERPListServiceOrdersResult {
+  orders: ERPServiceOrderPayload[];
+}
+
 export interface ERPIntegrationContract {
   readonly provider: string;
 
@@ -36,21 +68,11 @@ export interface ERPIntegrationContract {
    */
   testConnection(): Promise<ERPConnectionResult>;
 
-  // ------------------------------------------------------------------
-  // Methods below are placeholders for the future integration surface.
-  // They will be implemented as the official documentation becomes
-  // available. Default implementations return "not implemented" errors
-  // so that the contract can evolve without breaking existing adapters.
-  // ------------------------------------------------------------------
-
-  fetchClients?(params?: Record<string, unknown>): Promise<unknown>;
-  fetchServiceOrders?(params?: Record<string, unknown>): Promise<unknown>;
-  pushServiceOrder?(payload: Record<string, unknown>): Promise<unknown>;
-}
-
-export function notImplemented(provider: string, method: string): never {
-  throw new Error(
-    `${provider} adapter: method "${method}" not implemented. ` +
-      "It will be implemented once the official ERP API documentation is available.",
-  );
+  /**
+   * Lists open service orders available for import.
+   * Returns a normalized, provider-agnostic payload.
+   */
+  listServiceOrders?(
+    params?: Record<string, unknown>,
+  ): Promise<ERPListServiceOrdersResult>;
 }

@@ -18,6 +18,26 @@ enum ERPProvider {
   RECEITANET
 }
 
+enum ServiceOrderPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ServiceOrderStatus {
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ServiceOrderSource {
+  MANUAL
+  IMPORTED
+}
+
 model Company {
   id        String   @id @default(cuid())
   name      String
@@ -28,6 +48,10 @@ model Company {
   users         User[]
   auditLogs     AuditLog[]
   erpIntegration ERPIntegration?
+  customers     Customer[]
+  technicians   Technician[]
+  serviceOrders ServiceOrder[]
+  serviceOrderEvents ServiceOrderEvent[]
 
   @@map("companies")
 }
@@ -57,11 +81,119 @@ model User {
   updatedAt    DateTime      @updatedAt
 
   auditLogs AuditLog[]
+  technicians Technician[]
+  serviceOrderEvents ServiceOrderEvent[]
 
   @@index([companyId])
   @@index([email])
   @@index([companyId, profile, active])
   @@map("users")
+}
+
+model Customer {
+  id               String   @id @default(cuid())
+  companyId        String
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  externalProvider String?
+  externalId       String?
+  name             String
+  document         String?
+  phone            String?
+  secondaryPhone   String?
+  email            String?
+  address          String?
+  number           String?
+  complement       String?
+  district         String?
+  city             String?
+  state            String?
+  zipCode          String?
+  latitude         Decimal?
+  longitude        Decimal?
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  serviceOrders ServiceOrder[]
+
+  @@unique([companyId, externalProvider, externalId])
+  @@index([companyId, name])
+  @@index([companyId, document])
+  @@index([companyId, active])
+  @@map("customers")
+}
+
+model Technician {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  phone     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  serviceOrders ServiceOrder[]
+
+  @@unique([userId])
+  @@index([companyId])
+  @@index([companyId, active])
+  @@map("technicians")
+}
+
+model ServiceOrder {
+  id               String              @id @default(cuid())
+  companyId        String
+  company          Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  externalProvider String?
+  externalId       String?
+  externalNumber   String?
+  customerId       String
+  customer         Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  technicianId     String?
+  technician       Technician?         @relation(fields: [technicianId], references: [id], onDelete: Restrict)
+  type             String
+  subtype          String?
+  description      String              @db.Text
+  priority         ServiceOrderPriority @default(NORMAL)
+  status           ServiceOrderStatus  @default(PENDING)
+  source           ServiceOrderSource  @default(MANUAL)
+  scheduledAt      DateTime?
+  assignedAt       DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  cancelledAt      DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  events ServiceOrderEvent[]
+
+  @@unique([companyId, externalProvider, externalId])
+  @@index([companyId, status])
+  @@index([companyId, priority])
+  @@index([companyId, scheduledAt])
+  @@index([companyId, createdAt])
+  @@index([customerId])
+  @@index([technicianId])
+  @@map("service_orders")
+}
+
+model ServiceOrderEvent {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  event          String
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+
+  @@index([serviceOrderId, createdAt])
+  @@index([companyId, createdAt])
+  @@map("service_order_events")
 }
 
 model AuditLog {
