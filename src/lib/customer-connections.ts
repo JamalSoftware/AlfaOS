@@ -1,5 +1,5 @@
 import { AccessProfile, type CustomerConnection } from "@prisma/client";
-import { logAudit } from "./audit";
+import { logAudit, logAuditRequired } from "./audit";
 import {
   ConnectionCredentialUnavailableError,
   decryptConnectionCredential,
@@ -12,8 +12,10 @@ import {
   forbidden,
   isUniqueConstraintError,
   notFound,
+  serviceUnavailable,
 } from "./errors";
 import { prisma } from "./prisma";
+import { technicianExecutionIssue } from "./technicians";
 
 /**
  * Conexões de acesso do cliente e a revelação controlada da senha.
@@ -325,12 +327,46 @@ export async function revealConnectionPasswordForOrder(
   if (actor.profile === AccessProfile.TECHNICIAN) {
     const technician = await prisma.technician.findFirst({
       where: { userId: actor.userId, companyId },
-      select: { id: true },
+      select: {
+        id: true,
+        companyId: true,
+        active: true,
+        user: { select: { companyId: true, active: true, profile: true } },
+      },
     });
-    // Não-técnico e não-dono recebem o MESMO 404 da OS inexistente.
+
+    /**
+     * Posse ANTES de elegibilidade, deliberadamente.
+     *
+     * Invertida, a ordem viraria oráculo: um técnico inelegível receberia
+     * 403 em toda OS existente da empresa e 404 nas inexistentes,
+     * aprendendo quais ids existem. Checando a posse primeiro, não-técnico
+     * e não-dono continuam recebendo o MESMO 404 da OS inexistente.
+     */
     if (!technician || order.technicianId !== technician.id) {
       throw notFound("Ordem de serviço não encontrada.");
     }
+
+    /**
+     * MESMA regra de elegibilidade operacional da escrita de execução —
+     * reutilizada, não copiada.
+     *
+     * Antes desta correção o reveal verificava apenas a posse. Um técnico
+     * desativado (`Technician.active = false` com `User.active = true`,
+     * estado que a API de técnicos produz normalmente) seguia extraindo a
+     * senha PPPoE de todas as OS ainda atribuídas a ele, enquanto a escrita
+     * de execução já lhe era negada com 403 — o ADMIN via o bloqueio
+     * parcial e concluía, razoavelmente, que o acesso tinha sido revogado.
+     *
+     * Ler uma senha não é da mesma classe que ler um registro: produz uma
+     * capacidade durável que sobrevive à revogação. Desativar um técnico
+     * precisa revogá-la.
+     */
+    const issue = technicianExecutionIssue(companyId, technician);
+    if (issue) {
+      throw forbidden(issue);
+    }
+
     if (
       !(REVEALABLE_ORDER_STATUSES as readonly string[]).includes(order.status)
     ) {
@@ -378,20 +414,47 @@ export async function revealConnectionPasswordForOrder(
   );
 
   /**
-   * Auditar SEMPRE que a senha sai do servidor.
+   * Auditoria OBRIGATÓRIA, antes de a senha sair da função.
    *
-   * Só identificadores. Nem a senha, nem o ciphertext, nem o IV, nem a tag —
-   * e nem o `username`: ele não é necessário para investigar (o `connectionId`
-   * o identifica) e é dado de acesso do cliente.
+   * O decrypt já aconteceu, e não há problema nisso: o texto claro está
+   * apenas em memória do servidor. O que não pode acontecer é ele chegar ao
+   * cliente sem que exista registro de que chegou — esta linha é a ÚNICA
+   * evidência de que o segredo foi divulgado, ao contrário de toda outra
+   * auditoria do sistema, onde a mudança de estado também fica gravada na
+   * própria entidade.
+   *
+   * Daí `logAuditRequired` e não `logAudit`: aqui a falha precisa derrubar a
+   * operação em vez de ser engolida.
+   *
+   * O conteúdo continua sendo só identificadores. Nem a senha, nem o
+   * ciphertext, nem o IV, nem a tag — e nem o `username`: ele não é
+   * necessário para investigar (o `connectionId` o identifica) e é dado de
+   * acesso do cliente.
    */
-  await logAudit({
-    companyId,
-    userId: actor.userId,
-    action: "PPPOE_CREDENTIAL_VIEWED",
-    entity: "CustomerConnection",
-    entityId: connection.id,
-    details: `Senha revelada · cliente ${connection.customerId} · OS ${order.id} · perfil ${actor.profile}`,
-  });
+  try {
+    await logAuditRequired({
+      companyId,
+      userId: actor.userId,
+      action: "PPPOE_CREDENTIAL_VIEWED",
+      entity: "CustomerConnection",
+      entityId: connection.id,
+      details: `Senha revelada · cliente ${connection.customerId} · OS ${order.id} · perfil ${actor.profile}`,
+    });
+  } catch (error) {
+    /**
+     * Registra a falha de INFRAESTRUTURA, nunca o segredo — que está em
+     * escopo nesta função e jamais pode entrar num log. Só a mensagem do
+     * erro do banco é impressa, e ela não contém a senha.
+     */
+    console.error(
+      "[audit:required] falha ao registrar PPPOE_CREDENTIAL_VIEWED:",
+      error instanceof Error ? error.message : "erro desconhecido",
+    );
+    // Sem fallback silencioso: a senha simplesmente não é devolvida.
+    throw serviceUnavailable(
+      "Não foi possível registrar o acesso à credencial. Tente novamente.",
+    );
+  }
 
   return password;
 }

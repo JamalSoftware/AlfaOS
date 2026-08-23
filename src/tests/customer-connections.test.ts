@@ -956,3 +956,289 @@ describe("Constraint de identidade externa da OS", () => {
     ).rejects.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regressões do endurecimento final (auditoria da v0.5.1)
+// ---------------------------------------------------------------------------
+
+describe("H-1 — elegibilidade do técnico no reveal", () => {
+  /**
+   * Reprodução exata do achado: o ADMIN desativa o técnico, a sessão do User
+   * continua válida, a OS continua atribuída — e a senha NÃO pode mais sair.
+   *
+   * Antes da correção este caminho devolvia 200 com o texto claro, enquanto a
+   * escrita de execução já era negada com 403. O bloqueio parcial fazia o ADMIN
+   * concluir que o acesso tinha sido revogado quando não tinha.
+   */
+  it("ADMIN desativa o Technician: sessão segue válida e o reveal falha", async () => {
+    const { order, connection, technician } = await scenario();
+    const token = await createTokenFor(fixture.techA.id);
+
+    const call = () =>
+      revealPassword(
+        apiRequest(
+          `/api/service-orders/${order.id}/connection-password`,
+          { method: "POST", body: { connectionId: connection.id } },
+          token,
+        ),
+        { params: { id: order.id } },
+      );
+
+    // Controle positivo: enquanto ativo, revela.
+    const antes = await call();
+    expect(antes.status).toBe(200);
+    expect((await antes.json()).data.password).toBe(SECRET);
+
+    // ADMIN desativa SOMENTE o técnico. O User permanece ativo.
+    await prisma.technician.update({
+      where: { id: technician.id },
+      data: { active: false },
+    });
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { id: fixture.techA.id },
+      select: { active: true },
+    });
+    expect(user.active).toBe(true);
+
+    const depois = await call();
+    expect(depois.status).toBe(403);
+    expect(await depois.text()).not.toContain(SECRET);
+
+    // A OS não foi reatribuída nem teve o histórico alterado.
+    const row = await prisma.serviceOrder.findUniqueOrThrow({
+      where: { id: order.id },
+    });
+    expect(row.technicianId).toBe(technician.id);
+    expect(row.status).toBe("ASSIGNED");
+  });
+
+  it("reativar o Technician devolve a capacidade de revelar", async () => {
+    const { order, connection, technician } = await scenario();
+    const token = await createTokenFor(fixture.techA.id);
+    const call = () =>
+      revealPassword(
+        apiRequest(
+          `/api/service-orders/${order.id}/connection-password`,
+          { method: "POST", body: { connectionId: connection.id } },
+          token,
+        ),
+        { params: { id: order.id } },
+      );
+
+    await prisma.technician.update({
+      where: { id: technician.id },
+      data: { active: false },
+    });
+    expect((await call()).status).toBe(403);
+
+    await prisma.technician.update({
+      where: { id: technician.id },
+      data: { active: true },
+    });
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.password).toBe(SECRET);
+  });
+
+  it("User desativado continua sendo 401, não 403", async () => {
+    const { order, connection } = await scenario();
+    const token = await createTokenFor(fixture.techA.id);
+    await prisma.user.update({
+      where: { id: fixture.techA.id },
+      data: { active: false },
+    });
+
+    const res = await revealPassword(
+      apiRequest(
+        `/api/service-orders/${order.id}/connection-password`,
+        { method: "POST", body: { connectionId: connection.id } },
+        token,
+      ),
+      { params: { id: order.id } },
+    );
+    expect(res.status).toBe(401);
+    expect(await res.text()).not.toContain(SECRET);
+  });
+
+  it("técnico inelegível NÃO ganha oráculo: OS de outro dono segue 404", async () => {
+    const { order, connection, technician } = await scenario();
+    // Desativa o dono e passa a atacar com OUTRO técnico, também inelegível.
+    await prisma.technician.update({
+      where: { id: technician.id },
+      data: { active: false },
+    });
+    const outro = await prisma.technician.findFirstOrThrow({
+      where: { userId: fixture.techB.id },
+    });
+    await prisma.technician.update({
+      where: { id: outro.id },
+      data: { active: false },
+    });
+
+    const token = await createTokenFor(fixture.techB.id);
+    const res = await revealPassword(
+      apiRequest(
+        `/api/service-orders/${order.id}/connection-password`,
+        { method: "POST", body: { connectionId: connection.id } },
+        token,
+      ),
+      { params: { id: order.id } },
+    );
+    // 404 e não 403: a posse é checada ANTES da elegibilidade, então um técnico
+    // inelegível não consegue distinguir "OS existe" de "OS não existe".
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain(SECRET);
+  });
+});
+
+describe("M-1 — auditoria obrigatória no reveal", () => {
+  function breakAudit() {
+    const original = prisma.auditLog.create;
+    // @ts-expect-error — substituição deliberada para o teste
+    prisma.auditLog.create = async () => {
+      throw new Error("audit storage down");
+    };
+    return () => {
+      prisma.auditLog.create = original;
+    };
+  }
+
+  it("auditoria OK: senha devolvida e exatamente UM evento", async () => {
+    const { order, connection } = await scenario();
+    const token = await createTokenFor(fixture.techA.id);
+
+    const res = await revealPassword(
+      apiRequest(
+        `/api/service-orders/${order.id}/connection-password`,
+        { method: "POST", body: { connectionId: connection.id } },
+        token,
+      ),
+      { params: { id: order.id } },
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.password).toBe(SECRET);
+    expect(
+      await prisma.auditLog.count({
+        where: { action: "PPPOE_CREDENTIAL_VIEWED" },
+      }),
+    ).toBe(1);
+  });
+
+  it("auditoria falha: a senha NÃO é devolvida", async () => {
+    const { order, connection } = await scenario();
+    const token = await createTokenFor(fixture.techA.id);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const restore = breakAudit();
+    try {
+      const res = await revealPassword(
+        apiRequest(
+          `/api/service-orders/${order.id}/connection-password`,
+          { method: "POST", body: { connectionId: connection.id } },
+          token,
+        ),
+        { params: { id: order.id } },
+      );
+
+      // 503: a operação era legítima, o pré-requisito de infraestrutura falhou.
+      expect(res.status).toBe(503);
+      const body = await res.text();
+      expect(body).not.toContain(SECRET);
+      // Sem fallback silencioso: nada de `password` no corpo, nem vazio.
+      expect(body).not.toContain("password");
+    } finally {
+      restore();
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("auditoria falha: nenhum segredo em corpo, log ou mensagem de erro", async () => {
+    const { order, connection } = await scenario();
+    const token = await createTokenFor(fixture.techA.id);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const restore = breakAudit();
+    try {
+      const res = await revealPassword(
+        apiRequest(
+          `/api/service-orders/${order.id}/connection-password`,
+          { method: "POST", body: { connectionId: connection.id } },
+          token,
+        ),
+        { params: { id: order.id } },
+      );
+      const body = await res.text();
+
+      const written = [
+        ...errorSpy.mock.calls,
+        ...logSpy.mock.calls,
+        ...warnSpy.mock.calls,
+      ]
+        .flat()
+        .map((v) => (v instanceof Error ? `${v.message} ${v.stack ?? ""}` : String(v)))
+        .join(" ");
+
+      expect(written).not.toContain(SECRET);
+      expect(body).not.toContain(SECRET);
+      // A falha PRECISA ser observável pelo operador — silêncio seria pior.
+      expect(written).toContain("PPPOE_CREDENTIAL_VIEWED");
+    } finally {
+      restore();
+      errorSpy.mockRestore();
+      logSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("também falha fechado pelo domínio, não só pela rota", async () => {
+    const { order, connection } = await scenario();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const restore = breakAudit();
+    try {
+      const err = await expectDomainError(
+        revealConnectionPasswordForOrder(
+          fixture.companyA.id,
+          { userId: fixture.techA.id, profile: "TECHNICIAN" },
+          order.id,
+          connection.id,
+        ),
+        503,
+      );
+      expect(err.message).not.toContain(SECRET);
+    } finally {
+      restore();
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("concorrência: cada revelação bem-sucedida tem o seu registro", async () => {
+    const { order, connection } = await scenario();
+    const token = await createTokenFor(fixture.techA.id);
+
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        revealPassword(
+          apiRequest(
+            `/api/service-orders/${order.id}/connection-password`,
+            { method: "POST", body: { connectionId: connection.id } },
+            token,
+          ),
+          { params: { id: order.id } },
+        ),
+      ),
+    );
+
+    const ok = responses.filter((r) => r.status === 200).length;
+    const bodies = await Promise.all(responses.map((r) => r.json()));
+    expect(ok).toBe(10);
+    expect(bodies.every((b) => b.data.password === SECRET)).toBe(true);
+
+    // Um evento por revelação — nem a menos (perda de rastro) nem a mais.
+    expect(
+      await prisma.auditLog.count({
+        where: { action: "PPPOE_CREDENTIAL_VIEWED" },
+      }),
+    ).toBe(ok);
+  });
+});
+

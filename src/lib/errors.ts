@@ -32,6 +32,17 @@ export function forbidden(message: string): DomainError {
 }
 
 /**
+ * 503 — a operação é legítima, mas um pré-requisito de infraestrutura falhou.
+ *
+ * Distinto de 500: não houve erro de programação nem estado inválido; algo de
+ * que a operação depende está indisponível, e uma nova tentativa pode
+ * funcionar.
+ */
+export function serviceUnavailable(message: string): DomainError {
+  return new DomainError(503, message);
+}
+
+/**
  * True for Prisma's "Unique constraint failed" (P2002). Used by writes that
  * let the database arbitrate a race instead of checking-then-inserting.
  */

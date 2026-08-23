@@ -525,19 +525,40 @@ para segurança:
   seria cacheável e não passaria pela proteção Same-Origin. Resposta
   `no-store` com **apenas** a senha no corpo.
 - **Autorização** — sessão válida; `companyId` da sessão; TECHNICIAN precisa
-  ser o técnico da OS **e** a OS estar em `ASSIGNED`/`IN_PROGRESS`; a conexão
-  precisa pertencer ao cliente daquela OS. Outro técnico, outro tenant, outro
-  cliente e conexão inativa recebem **404**, nunca 403 — 403 confirmaria a
-  existência. Status inadequado devolve 403, porque aí a OS já é visível ao
-  técnico e escondê-la seria mentir sobre um recurso que ele acessa.
-  DISPATCHER nunca recebe plaintext.
+  ser o técnico da OS, estar **operacionalmente elegível** e a OS estar em
+  `ASSIGNED`/`IN_PROGRESS`; a conexão precisa pertencer ao cliente daquela
+  OS. Outro técnico, outro tenant, outro cliente e conexão inativa recebem
+  **404**, nunca 403 — 403 confirmaria a existência. Status inadequado e
+  técnico inelegível devolvem 403, porque aí a OS já é visível ao técnico e
+  escondê-la seria mentir sobre um recurso que ele acessa. DISPATCHER nunca
+  recebe plaintext.
+- **Elegibilidade é a MESMA regra da escrita de execução**
+  (`technicianExecutionIssue`), reutilizada e não copiada: `Technician.active`
+  + `User` existente, ativo e com perfil TECHNICIAN + mesma empresa. Até a
+  auditoria final da `v0.5.1` o reveal checava apenas a posse, e um técnico
+  desativado seguia extraindo a senha das OS ainda atribuídas a ele enquanto
+  a escrita já lhe era negada — o bloqueio parcial fazia o ADMIN concluir que
+  o acesso tinha sido revogado. Ler uma senha não é da mesma classe que ler
+  um registro: produz uma capacidade que sobrevive à revogação.
+- **A posse é verificada ANTES da elegibilidade.** Invertida, a ordem viraria
+  oráculo: um técnico inelegível receberia 403 em toda OS existente da
+  empresa e 404 nas inexistentes.
 - **Nada do cliente HTTP decide dono.** O schema é strict e tem um campo só
   (`connectionId`); `companyId`, `customerId` e `technicianId` no corpo
   resultam em 400.
-- **AuditLog** grava `PPPOE_CREDENTIAL_VIEWED` com ator, empresa, cliente,
-  conexão e OS. Nunca senha, ciphertext, IV, tag, chave — nem o `username`,
-  que não é necessário para investigar (o id da conexão identifica) e é dado
-  de acesso do cliente. Revelação negada **não** gera o evento.
+- **AuditLog OBRIGATÓRIO e fail-closed.** Grava `PPPOE_CREDENTIAL_VIEWED`
+  com ator, empresa, cliente, conexão e OS. Nunca senha, ciphertext, IV,
+  tag, chave — nem o `username`, que não é necessário para investigar (o id
+  da conexão identifica) e é dado de acesso do cliente. Revelação negada
+  **não** gera o evento.
+
+  Este caminho usa `logAuditRequired`, não `logAudit`: se a escrita falhar, a
+  exceção propaga e a senha **não é devolvida** (503). `logAudit` engole a
+  falha de propósito e continua fazendo isso em todo o resto do sistema — lá
+  a linha de auditoria é suplementar, porque a mudança de estado também fica
+  gravada na entidade. Aqui ela é a **única** evidência de que o segredo saiu
+  do servidor, e perdê-la é perder o fato inteiro. O decrypt pode ocorrer
+  antes; o que não pode é o texto claro chegar ao cliente sem registro.
 - **Plaintext fora da resposta inicial.** A senha nunca entra em props de
   Server Component nem no HTML servido — verificado por E2E que inspeciona
   `page.content()` na OS e na tela administrativa, inclusive após reload.
@@ -550,6 +571,30 @@ para segurança:
 4. Aplique as migrations: `npx prisma migrate deploy`.
 
 ## 10. Melhorias futuras rastreadas
+
+Dívida registrada na auditoria final da `v0.5.1`, deliberadamente NÃO
+corrigida naquele ciclo (só H-1 e M-1 entraram):
+
+- **Unicidade case-insensitive de `ServiceOrderType`** (L-1). A checagem
+  case-insensitive é de aplicação e não é atômica; a unique
+  `(companyId, name)` do Postgres é case-sensitive e não arbitra a corrida.
+  Uma corrida real criou quatro variantes de caixa do mesmo nome. É
+  qualidade de dado, não segurança: mesma empresa, só ADMIN, e tipos são
+  rótulos. Correção: índice único funcional em `(companyId, lower(name))`.
+- **Sem throttle na revelação de credencial** (I-1). Um técnico autorizado
+  pode automatizar a extração das senhas das OS atribuídas a ele. Limitado
+  ao próprio escopo e integralmente auditado — cada revelação gera um
+  `PPPOE_CREDENTIAL_VIEWED`.
+- **OS INTERNAL com identidade externa fica sujeita a sobrescrita por
+  import** (I-2). A origem corretamente não é reescrita, mas os campos
+  externos são. Inalcançável pela aplicação: nenhuma rota grava
+  `externalProvider`/`externalId` numa OS e os schemas são strict.
+- **Painel de conexões mostra apenas a primeira ativa.** A escolha é
+  determinística e o reveal exige `connectionId` explícito e validado, então
+  não há risco de revelar a credencial errada — mas um cliente com duas
+  conexões tem a segunda invisível na OS.
+- **Área de transferência.** A senha copiada pelo técnico permanece no
+  clipboard do aparelho sem expiração; fora do alcance do servidor.
 
 - CSP com nonce (remover `'unsafe-inline'` de `script-src`).
 - 2FA / TOTP para contas administrativas.
