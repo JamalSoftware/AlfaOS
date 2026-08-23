@@ -623,6 +623,109 @@ describe("Evidências", () => {
     );
   });
 
+  /**
+   * Regression for L-1: the count check used to run before the claim, so its
+   * correctness depended on every evidence-creating path routing through the
+   * same claim — true today, but not provable at the check's own call site.
+   * This fires several concurrent uploads at the exact boundary (one slot
+   * left) across multiple rounds and requires the invariant to hold every
+   * time: never more rows than the cap, and never a file on disk without a
+   * committed row (or a row without its file).
+   */
+  it("concorrência não fura o teto de evidências (múltiplas rodadas)", async () => {
+    const CONCURRENT_ATTEMPTS = 5;
+    const ROUNDS = 3;
+
+    for (let round = 0; round < ROUNDS; round++) {
+      const s = await scenario();
+      let v = s.orderVersion;
+      // Fill to one below the cap sequentially — setup, not the race itself.
+      for (let i = 0; i < EVIDENCE_MAX_PER_ORDER - 1; i++) {
+        await addEvidence(fixture.companyA.id, fixture.techA.id, s.order.id, {
+          data: PNG,
+          declaredMimeType: "image/png",
+          originalName: `pre${round}-${i}.png`,
+          expectedOrderVersion: v,
+        });
+        v += 1;
+      }
+
+      const filesBefore = await countFiles(storageRoot);
+
+      // The race: several concurrent uploads all contending for the one
+      // remaining slot, all reading the same version — the "duas operações
+      // encadeadas" scenario from the audit, stressed with more than two.
+      const results = await Promise.allSettled(
+        Array.from({ length: CONCURRENT_ATTEMPTS }, (_, i) =>
+          addEvidence(fixture.companyA.id, fixture.techA.id, s.order.id, {
+            data: PNG,
+            declaredMimeType: "image/png",
+            originalName: `race${round}-${i}.png`,
+            expectedOrderVersion: v,
+          }),
+        ),
+      );
+
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rowCount = await prisma.serviceOrderEvidence.count({
+        where: { serviceOrderId: s.order.id },
+      });
+      const filesAfter = await countFiles(storageRoot);
+
+      expect(rowCount, `round ${round}: excedeu o teto`).toBeLessThanOrEqual(
+        EVIDENCE_MAX_PER_ORDER,
+      );
+      // Exactly one slot was open, so exactly one of the N contenders may win
+      // the compare-and-set — this is the CAS proving itself, not a new claim.
+      expect(fulfilled.length, `round ${round}: vencedores simultâneos`).toBe(1);
+      expect(rowCount, `round ${round}: teto não preenchido`).toBe(
+        EVIDENCE_MAX_PER_ORDER,
+      );
+      // No orphan file from a loser, no missing file for the winner.
+      expect(
+        filesAfter - filesBefore,
+        `round ${round}: arquivos ≠ linhas`,
+      ).toBe(fulfilled.length);
+    }
+  });
+
+  it("concorrência com o teto já atingido: todas rejeitadas, nenhum arquivo escrito", async () => {
+    const s = await scenario();
+    let v = s.orderVersion;
+    for (let i = 0; i < EVIDENCE_MAX_PER_ORDER; i++) {
+      await addEvidence(fixture.companyA.id, fixture.techA.id, s.order.id, {
+        data: PNG,
+        declaredMimeType: "image/png",
+        originalName: `full${i}.png`,
+        expectedOrderVersion: v,
+      });
+      v += 1;
+    }
+
+    const filesBefore = await countFiles(storageRoot);
+    // Every one of these will win the CAS in turn (the winner's own rejection
+    // rolls its claim back, so `v` stays valid for the next contender) and then
+    // be rejected by the cap check itself — proving the cap check, not the
+    // version check, is what stops them here.
+    const results = await Promise.allSettled(
+      Array.from({ length: 5 }, (_, i) =>
+        addEvidence(fixture.companyA.id, fixture.techA.id, s.order.id, {
+          data: PNG,
+          declaredMimeType: "image/png",
+          originalName: `overflow${i}.png`,
+          expectedOrderVersion: v,
+        }),
+      ),
+    );
+
+    expect(results.every((r) => r.status === "rejected")).toBe(true);
+    const rowCount = await prisma.serviceOrderEvidence.count({
+      where: { serviceOrderId: s.order.id },
+    });
+    expect(rowCount).toBe(EVIDENCE_MAX_PER_ORDER);
+    expect(await countFiles(storageRoot)).toBe(filesBefore);
+  });
+
   it("remove evidência e apaga o arquivo", async () => {
     const s = await scenario();
     const ev = await addEvidence(fixture.companyA.id, fixture.techA.id, s.order.id, {

@@ -209,12 +209,20 @@ export interface AddEvidenceInput {
 /**
  * Attaches a photo to an in-progress order.
  *
- * The bytes are written to storage BEFORE the transaction and removed again if
- * the transaction fails. Writing inside would hold the row lock across a
- * filesystem call; the compensating delete keeps the two consistent, and an
- * orphaned file (process dies between write and rollback) costs disk, never
- * correctness — the row is the source of truth and nothing links to a file
- * without one.
+ * `storage.put` runs INSIDE the transaction, after the claim has already
+ * secured the row lock — it is not hoisted out. If the transaction fails
+ * after the write (the cap check below, a later DB error, the commit itself),
+ * the `catch` block deletes the orphaned file; the row is the source of
+ * truth, and nothing references a file without a committed row pointing at
+ * it. An orphaned file from a mid-write crash costs disk, never correctness.
+ *
+ * This does mean the row lock on the order is held across a local filesystem
+ * write, which is fine for `LocalFileStorageAdapter` (fast, no network) but
+ * is a real cost to reconsider if `FileStorageContract` ever grows a
+ * network-backed adapter (S3/R2/MinIO): holding a Postgres row lock across a
+ * network round trip would widen the window every other child mutation of
+ * this order has to wait through. Not a problem today — flagged for whoever
+ * adds that adapter, not fixed here.
  */
 export async function addEvidence(
   companyId: string,
@@ -253,21 +261,40 @@ export async function addEvidence(
     const created = await prisma.$transaction(async (tx) => {
       await loadInProgressOwnedOrder(tx, companyId, actorUserId, orderId);
 
-      const existing = await tx.serviceOrderEvidence.count({
-        where: { serviceOrderId: orderId, companyId },
-      });
-      if (existing >= EVIDENCE_MAX_PER_ORDER) {
-        throw badRequest(
-          `Limite de ${EVIDENCE_MAX_PER_ORDER} imagens por OS atingido.`,
-        );
-      }
-
+      // Claim FIRST, count SECOND. `claimOrderForChildMutation`'s `UPDATE`
+      // holds a row-exclusive Postgres lock on this order until the
+      // transaction ends, so once it succeeds we are — provably, not just by
+      // convention — the only writer touching this order's children until we
+      // commit or roll back. A count taken before the claim only reflects
+      // "committed as of a moment that has already passed by the time we act
+      // on it"; a concurrent claimant on the same version can't create a
+      // second row (the CAS lets only one of them through), but the ordering
+      // still meant the cap's correctness depended on every future
+      // evidence-creating code path remembering to route through this same
+      // claim — a non-local invariant that is easy to violate by accident
+      // later (a bulk-import script, an admin tool) without ever tripping a
+      // version conflict. Counting only after the claim makes the check
+      // locally sound: nothing else can be racing us here, so what we see IS
+      // current, not "current as of when we looked".
       await claimOrderForChildMutation(
         tx,
         companyId,
         orderId,
         input.expectedOrderVersion,
       );
+
+      const existing = await tx.serviceOrderEvidence.count({
+        where: { serviceOrderId: orderId, companyId },
+      });
+      if (existing >= EVIDENCE_MAX_PER_ORDER) {
+        // Thrown after the claim already ran: Prisma aborts the interactive
+        // transaction on a thrown error, and Postgres rolls back everything
+        // in it — including the version bump the claim just made. The order
+        // is left exactly as it was; hitting the cap costs nothing.
+        throw badRequest(
+          `Limite de ${EVIDENCE_MAX_PER_ORDER} imagens por OS atingido.`,
+        );
+      }
 
       await storage.put(storageKey, input.data, sniffed);
       wrote = true;

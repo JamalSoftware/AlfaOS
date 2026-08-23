@@ -2,13 +2,38 @@ import bcrypt from "bcryptjs";
 import type { AccessProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createSessionToken } from "@/lib/auth";
+import { assertTestDatabase } from "../../e2e/test-db-guard";
 
 export const TEST_PASSWORD = "TestPassword@123";
 const PASSWORD_HASH = bcrypt.hashSync(TEST_PASSWORD, 10);
 
 const COOKIE_NAME = "alfaos_session";
 
+/**
+ * The exact `DATABASE_URL` value `resetDatabase()` has already verified, or
+ * `undefined` if it has not run yet in this process.
+ *
+ * `resetDatabase()` runs in `beforeEach` for nearly every test — over 200
+ * times across the suite. Re-validating on every call would mean 200+ extra
+ * Prisma connections just to check a value that cannot change mid-run
+ * (`setup.ts` sets it once per worker, before any test file's imports
+ * resolve). Caching after the first success keeps the guarantee that matters
+ * — the very first destructive call in this process always validates before
+ * touching anything — without paying for it 200 more times.
+ */
+let verifiedDatabaseUrl: string | undefined;
+
 export async function resetDatabase(): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (databaseUrl !== verifiedDatabaseUrl) {
+    // Guard FIRST, before the first deleteMany ever runs. No silent fallback:
+    // if TEST_DATABASE_URL is misconfigured and DATABASE_URL ends up pointing
+    // at `alfaos_dev` (or anywhere not ending in `_test`), this throws instead
+    // of truncating whatever `prisma` happens to be connected to.
+    await assertTestDatabase(databaseUrl, "DATABASE_URL (Vitest)");
+    verifiedDatabaseUrl = databaseUrl;
+  }
+
   await prisma.serviceOrderEvidence.deleteMany();
   await prisma.serviceOrderMaterialUsage.deleteMany();
   await prisma.serviceOrderSignature.deleteMany();
