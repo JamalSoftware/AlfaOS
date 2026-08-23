@@ -166,6 +166,11 @@ model ServiceOrder {
   cancelledAt      DateTime?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
+  /// Optimistic-lock token. Bumped on every write that changes the order, and
+  /// used as the compare-and-set predicate by `assignTechnician`. `updatedAt`
+  /// cannot serve this purpose: Prisma maps DateTime to `timestamp(3)`, so two
+  /// writes in the same millisecond both match and one is silently lost.
+  version          Int                 @default(0)
 
   events ServiceOrderEvent[]
 

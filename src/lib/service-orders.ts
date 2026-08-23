@@ -12,6 +12,7 @@ import {
   notFound,
 } from "./errors";
 import { prisma } from "./prisma";
+import { technicianAssignmentIssue } from "./technicians";
 
 // ---------------------------------------------------------------------------
 // Centralized labels (single source of truth for the UI).
@@ -362,6 +363,14 @@ export async function importServiceOrder(
     scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
   };
 
+  // A re-import is a real modification of the row, so it bumps `version` too.
+  // Otherwise an assignment holding a read from before the sync would still
+  // pass its compare-and-set and write over fields it never saw.
+  const externalUpdate = {
+    ...externalData,
+    version: { increment: 1 },
+  };
+
   const existing = await prisma.serviceOrder.findUnique({
     where: uniqueKey,
   });
@@ -369,7 +378,7 @@ export async function importServiceOrder(
   if (existing) {
     const updated = await prisma.serviceOrder.update({
       where: { id: existing.id },
-      data: externalData,
+      data: externalUpdate,
     });
     return {
       serviceOrder: await withRelations(companyId, updated.id),
@@ -424,7 +433,7 @@ export async function importServiceOrder(
     }
     const updated = await prisma.serviceOrder.update({
       where: uniqueKey,
-      data: externalData,
+      data: externalUpdate,
     });
     return {
       serviceOrder: await withRelations(companyId, updated.id),
@@ -560,13 +569,29 @@ export async function assignTechnician(
 
     const technician = await tx.technician.findFirst({
       where: { id: technicianId, companyId },
-      include: { user: { select: { name: true } } },
+      include: {
+        user: {
+          select: {
+            name: true,
+            companyId: true,
+            active: true,
+            profile: true,
+          },
+        },
+      },
     });
     if (!technician) {
       throw notFound("Técnico não encontrado nesta empresa.");
     }
-    if (!technician.active) {
-      throw badRequest("Somente técnicos ativos podem receber OS.");
+
+    // Assignability is more than `Technician.active`: the linked User must also
+    // exist, be active, still hold the TECHNICIAN profile and belong to this
+    // company. Same rule the dropdown uses (`listActiveTechnicianOptions`), so
+    // the UI never offers an option this would reject. Existing assignments are
+    // untouched — this only gates NEW ones.
+    const issue = technicianAssignmentIssue(companyId, technician);
+    if (issue) {
+      throw badRequest(issue);
     }
 
     const allowed = ALLOWED_STATUS_TRANSITIONS[os.status];
@@ -583,12 +608,25 @@ export async function assignTechnician(
     const wasAssigned = os.status === "ASSIGNED" && os.technicianId !== null;
     const event = wasAssigned ? "TECHNICIAN_CHANGED" : "TECHNICIAN_ASSIGNED";
 
+    // Optimistic lock on an explicit version counter.
+    //
+    // This used to compare `updatedAt`. Prisma maps DateTime to Postgres
+    // `timestamp(3)`, so two writes landing in the same millisecond both
+    // satisfied the predicate and the second silently overwrote the first — a
+    // lost update, and exactly the case the old test tolerated. `version` is a
+    // monotonic integer bumped on every write, so the compare-and-set is
+    // decided by identity, never by clock resolution.
+    //
+    // Postgres serialises the two UPDATEs on the row lock: the loser re-checks
+    // the predicate against the winner's committed row, sees a bumped version,
+    // matches nothing and gets a deterministic 409.
     const result = await tx.serviceOrder.updateMany({
-      where: { id: os.id, updatedAt: os.updatedAt },
+      where: { id: os.id, version: os.version },
       data: {
         technicianId: technician.id,
         status: "ASSIGNED",
         assignedAt: wasAssigned ? os.assignedAt : new Date(),
+        version: { increment: 1 },
       },
     });
 

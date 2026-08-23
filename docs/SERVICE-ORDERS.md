@@ -9,7 +9,7 @@ entregue no checkpoint `v0.2-service-orders`.
 | --- | --- |
 | `Customer` | Cliente do provedor, sempre escopado por `companyId`. |
 | `Technician` | Técnico vinculado a um `User` da mesma empresa. `userId` é único (um usuário só pode ser técnico uma vez) e `active` controla disponibilidade para atribuição. |
-| `ServiceOrder` | OS com `number`, `customerId`, `type`, `description`, `priority`, `status`, origem opcional `externalProvider`/`externalId` (importação ERP). |
+| `ServiceOrder` | OS com `number`, `customerId`, `type`, `description`, `priority`, `status`, origem opcional `externalProvider`/`externalId` (importação ERP) e `version` (token de lock otimista, ver §3.1). |
 | `ServiceOrderEvent` | Timeline imutável da OS (`SERVICE_ORDER_IMPORTED`, `TECHNICIAN_ASSIGNED`, mudanças de status). Gravada na mesma transação das mutações. |
 
 Campos de origem externa (`externalProvider`, `externalId`) não aparecem nos
@@ -31,12 +31,60 @@ implementado neste checkpoint é a atribuição/troca
 
 ## 3. Atribuição de técnico
 
-- Regras: o técnico deve existir, estar **ativo** e pertencer à **mesma
-  empresa** da OS. Violação de empresa → `404`; técnico inativo → `400`.
-- **Otimistic locking**: a atualização usa
-  `updateMany({ where: { id, updatedAt: os.updatedAt } })`. Se `count !== 1`,
-  outra requisição modificou a OS → `409` "A OS foi modificada por outra
-  requisição. Recarregue e tente novamente."
+### 3.1. Quem pode receber uma NOVA atribuição
+
+Um `Technician` só é elegível quando **todas** as condições valem:
+
+| Condição | Por quê |
+| --- | --- |
+| `Technician.active` | Disponibilidade operacional declarada pelo gestor. |
+| O `User` vinculado existe | Sem usuário não há pessoa a quem atribuir. |
+| `User.active` | Conta desativada não deve continuar recebendo trabalho. |
+| `User.profile = TECHNICIAN` | Quem virou DISPATCHER/ADMIN não é mais técnico. |
+| Técnico **e** usuário na empresa da OS | Isolamento multi-tenant. |
+
+Antes só `Technician.active` era verificado, dos dois lados (atribuição e
+dropdown). Como desativar um usuário ou trocar seu perfil **não** altera a linha
+`Technician`, uma conta revogada continuava elegível — corrigido em
+`v0.2.2-pre-v03-hardening`.
+
+A regra vive em um lugar só (`src/lib/technicians.ts`) e é consumida pelas duas
+pontas:
+
+- `assignableTechnicianWhere(companyId)` — fragmento `where` usado por
+  `listActiveTechnicianOptions` (dropdown);
+- `technicianAssignmentIssue(companyId, technician)` — mesma regra, mas devolve
+  o **motivo** para `assignTechnician` produzir mensagem acionável.
+
+Assim a UI nunca oferece uma opção que a API recusaria.
+
+**Códigos**: inelegível → `400` com o motivo; técnico de outra empresa → `404`
+(não confirma existência de recurso alheio).
+
+**Histórico é preservado.** A elegibilidade é **derivada na leitura**, nunca
+sincronizada de volta para `Technician.active`. Desativar um usuário não
+reescreve nada: OS já atribuídas continuam mostrando o técnico, a timeline fica
+intacta e "Minhas OS" segue coerente. A regra bloqueia **apenas novas
+atribuições**.
+
+### 3.2. Controle de concorrência (lock otimista por versão)
+
+- A atualização usa `updateMany({ where: { id, version: os.version } })` com
+  `data: { ..., version: { increment: 1 } }`. Se `count !== 1`, outra requisição
+  modificou a OS → `409` "A OS foi modificada por outra requisição. Recarregue e
+  tente novamente."
+- **Por que não `updatedAt`.** O predicado anterior era
+  `updateMany({ where: { id, updatedAt: os.updatedAt } })`. `DateTime` do Prisma
+  mapeia para `timestamp(3)` no Postgres — resolução de **1 ms**. Duas escritas
+  concorrentes no mesmo milissegundo produziam o mesmo `updatedAt`, as duas
+  passavam pelo predicado e a segunda sobrescrevia a primeira **em silêncio**
+  (lost update). Um inteiro monotônico decide por identidade, não por relógio.
+- A reimportação do ERP também incrementa `version` — é uma escrita real na
+  linha, e ignorá-la deixaria uma atribuição com leitura anterior ao sync passar
+  por cima de campos que nunca viu.
+- O compare-and-set é **servidor-side**: `assignTechnician` lê e escreve dentro
+  da mesma transação. `version` ainda não é exposto na API pública; expor para
+  lock fim-a-fim está registrado em `docs/SECURITY.md` §10.
 - A troca de técnico é permitida a partir de `ASSIGNED` e grava novo evento na
   timeline.
 - OS + evento de atribuição são gravados na **mesma transação** Prisma.

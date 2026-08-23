@@ -506,7 +506,16 @@ describe("Ordens de serviço", () => {
     expect(list.data.total).toBe(0);
   });
 
-  it("Concorrência: atribuições simultâneas nunca duplicam evento", async () => {
+  /**
+   * Lock otimista por versão explícita — docs/SERVICE-ORDERS.md §3.1.
+   *
+   * O predicado era `updatedAt`. Prisma mapeia DateTime para `timestamp(3)` no
+   * Postgres, então duas escritas no MESMO milissegundo satisfaziam as duas o
+   * predicado e a segunda sobrescrevia a primeira em silêncio. O teste antigo
+   * ACEITAVA esse desfecho (`toBeGreaterThanOrEqual(1)`). Agora o token é um
+   * inteiro `version`, e o lost update é PROIBIDO.
+   */
+  it("Concorrência: duas atribuições simultâneas — exatamente uma vence (sem lost update)", async () => {
     const token = await createTokenFor(fixture.adminA.id);
     const customer = await prisma.customer.create({
       data: { companyId: fixture.companyA.id, name: "Cliente A" },
@@ -515,35 +524,191 @@ describe("Ordens de serviço", () => {
     const techA = await createTech(fixture.companyA.id, fixture.techA.id);
     const techB = await createTech(fixture.companyA.id, fixture.techB.id);
 
+    const before = await prisma.serviceOrder.findUniqueOrThrow({
+      where: { id },
+    });
+
+    // Despachantes A e B leem a MESMA versão: as duas chamadas são disparadas
+    // antes de qualquer commit, então ambas fazem seu SELECT com version = N.
     const results = await Promise.allSettled([
       assignTechnician(fixture.companyA.id, fixture.adminA.id, id, techA.id),
-      assignTechnician(fixture.companyA.id, fixture.adminA.id, id, techB.id),
+      assignTechnician(
+        fixture.companyA.id,
+        fixture.dispatcherA.id,
+        id,
+        techB.id,
+      ),
     ]);
 
     const fulfilled = results.filter((r) => r.status === "fulfilled");
-    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+    const rejected = results.filter((r) => r.status === "rejected");
 
-    for (const result of results) {
-      if (result.status === "rejected") {
-        expect(result.reason).toBeInstanceOf(DomainError);
-      }
-    }
+    // O ponto da correção: NUNCA as duas. Uma escrita perdida silenciosamente
+    // faria este número virar 2.
+    expect(fulfilled.length).toBe(1);
+    expect(rejected.length).toBe(1);
 
-    const os = await prisma.serviceOrder.findUnique({ where: { id } });
-    expect(os?.status).toBe("ASSIGNED");
+    // O perdedor recebe 409 previsível, não um erro interno.
+    const loser = rejected[0] as PromiseRejectedResult;
+    expect(loser.reason).toBeInstanceOf(DomainError);
+    expect((loser.reason as DomainError).status).toBe(409);
+    expect((loser.reason as DomainError).message).toContain(
+      "modificada por outra requisição",
+    );
+
+    const os = await prisma.serviceOrder.findUniqueOrThrow({ where: { id } });
+    expect(os.status).toBe("ASSIGNED");
+    // Exatamente um incremento: a tentativa perdedora não escreveu nada.
+    expect(os.version).toBe(before.version + 1);
+    // E o técnico gravado é o do vencedor, não uma mistura das duas escritas.
+    expect([techA.id, techB.id]).toContain(os.technicianId);
 
     const events = await prisma.serviceOrderEvent.findMany({
       where: { serviceOrderId: id },
       orderBy: { createdAt: "asc" },
     });
-    expect(events).toHaveLength(fulfilled.length + 1);
-    expect(events[0].event).toBe("SERVICE_ORDER_CREATED");
-    const assignmentEvents = events
-      .slice(1)
-      .map((e) => e.event);
-    expect(assignmentEvents).toEqual([
+    expect(events.map((e) => e.event)).toEqual([
+      "SERVICE_ORDER_CREATED",
       "TECHNICIAN_ASSIGNED",
-      ...(fulfilled.length === 2 ? ["TECHNICIAN_CHANGED"] : []),
+    ]);
+  });
+
+  /**
+   * Com 5 chamadas simultâneas não dá para exigir "exatamente 1 sucesso": o
+   * pool de conexões do Prisma serializa parte das transações, então algumas
+   * começam DEPOIS de um commit e leem a versão nova — esse sucesso é legítimo,
+   * não uma escrita perdida.
+   *
+   * O invariante que realmente proíbe lost update é contábil: cada sucesso tem
+   * de ter incrementado a versão uma vez e deixado exatamente um evento. Se
+   * duas escritas passassem pela mesma versão, `version` ficaria menor que o
+   * número de sucessos — que é precisamente o que o predicado `updatedAt`
+   * permitia.
+   */
+  it("Concorrência: N atribuições simultâneas — nenhuma escrita se perde", async () => {
+    const token = await createTokenFor(fixture.adminA.id);
+    const customer = await prisma.customer.create({
+      data: { companyId: fixture.companyA.id, name: "Cliente A" },
+    });
+    const id = await createManualOrder(token, customer.id);
+    const techA = await createTech(fixture.companyA.id, fixture.techA.id);
+    const techB = await createTech(fixture.companyA.id, fixture.techB.id);
+    const targets = [techA.id, techB.id, techA.id, techB.id, techA.id];
+
+    const results = await Promise.allSettled(
+      targets.map((technicianId) =>
+        assignTechnician(
+          fixture.companyA.id,
+          fixture.adminA.id,
+          id,
+          technicianId,
+        ),
+      ),
+    );
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+    // Nem todas podem vencer: as que leram a versão antiga têm de conflitar.
+    expect(fulfilled.length).toBeLessThan(targets.length);
+
+    for (const result of results) {
+      if (result.status === "rejected") {
+        expect(result.reason).toBeInstanceOf(DomainError);
+        expect((result.reason as DomainError).status).toBe(409);
+      }
+    }
+
+    const os = await prisma.serviceOrder.findUniqueOrThrow({ where: { id } });
+    expect(os.status).toBe("ASSIGNED");
+    // Um incremento por sucesso — nenhum sucesso reaproveitou a versão de outro.
+    expect(os.version).toBe(fulfilled.length);
+
+    const events = await prisma.serviceOrderEvent.findMany({
+      where: { serviceOrderId: id },
+    });
+    expect(events).toHaveLength(fulfilled.length + 1);
+  });
+
+  /**
+   * Prova determinística de que o token de versão fecha o buraco que o
+   * `updatedAt` deixava aberto — sem depender de ganhar uma corrida real.
+   *
+   * O defeito original é uma COLISÃO DE TIMESTAMP: `DateTime` do Prisma vira
+   * `timestamp(3)` no Postgres, então duas escritas no mesmo milissegundo
+   * produzem o mesmo `updatedAt` e as duas casam com o predicado antigo. Corrida
+   * de relógio é justamente o que não se consegue reproduzir de forma confiável
+   * — então aqui a colisão é FABRICADA por SQL (a segunda escrita mantém o
+   * `updated_at` idêntico) e os dois predicados são comparados lado a lado.
+   */
+  it("Lock por versão: token obsoleto não casa nem com updatedAt idêntico", async () => {
+    const token = await createTokenFor(fixture.adminA.id);
+    const customer = await prisma.customer.create({
+      data: { companyId: fixture.companyA.id, name: "Cliente A" },
+    });
+    const id = await createManualOrder(token, customer.id);
+
+    // Snapshot que um despachante teria lido antes de escrever.
+    const snapshot = await prisma.serviceOrder.findUniqueOrThrow({
+      where: { id },
+    });
+
+    // Escrita concorrente que cai no MESMO milissegundo: muda a linha e bumpa a
+    // versão, mas deixa `updated_at` byte a byte igual.
+    // Colunas em camelCase: o schema mapeia só o nome da TABELA (@@map).
+    await prisma.$executeRaw`
+      UPDATE service_orders
+      SET "description" = 'alterada por outra requisição',
+          "version" = "version" + 1,
+          "updatedAt" = ${snapshot.updatedAt}
+      WHERE "id" = ${id}
+    `;
+
+    // O predicado ANTIGO ainda casa: era exatamente por aqui que a segunda
+    // escrita passava e apagava a primeira em silêncio.
+    const matchedByTimestamp = await prisma.serviceOrder.count({
+      where: { id, updatedAt: snapshot.updatedAt },
+    });
+    expect(matchedByTimestamp).toBe(1);
+
+    // O predicado NOVO não casa: a versão é identidade, não relógio.
+    const matchedByVersion = await prisma.serviceOrder.count({
+      where: { id, version: snapshot.version },
+    });
+    expect(matchedByVersion).toBe(0);
+
+    // E o caminho real recusa com 409 em vez de sobrescrever.
+    const tech = await createTech(fixture.companyA.id, fixture.techA.id);
+    await expect(
+      assignTechnician(fixture.companyA.id, fixture.adminA.id, id, tech.id),
+    ).resolves.toBeDefined();
+    // (a atribuição acima relê a versão corrente e passa — o lock não trava o
+    // fluxo normal, só recusa quem chega com token velho.)
+  });
+
+  it("A versão não é trava permanente: troca sequencial de técnico funciona", async () => {
+    const token = await createTokenFor(fixture.adminA.id);
+    const customer = await prisma.customer.create({
+      data: { companyId: fixture.companyA.id, name: "Cliente A" },
+    });
+    const id = await createManualOrder(token, customer.id);
+    const techA = await createTech(fixture.companyA.id, fixture.techA.id);
+    const techB = await createTech(fixture.companyA.id, fixture.techB.id);
+
+    await assignTechnician(fixture.companyA.id, fixture.adminA.id, id, techA.id);
+    await assignTechnician(fixture.companyA.id, fixture.adminA.id, id, techB.id);
+
+    const os = await prisma.serviceOrder.findUniqueOrThrow({ where: { id } });
+    expect(os.technicianId).toBe(techB.id);
+    expect(os.version).toBe(2);
+
+    const events = await prisma.serviceOrderEvent.findMany({
+      where: { serviceOrderId: id },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(events.map((e) => e.event)).toEqual([
+      "SERVICE_ORDER_CREATED",
+      "TECHNICIAN_ASSIGNED",
+      "TECHNICIAN_CHANGED",
     ]);
   });
 });

@@ -1,7 +1,6 @@
 import {
   LOGIN_MAX_FAILED_ATTEMPTS,
   LOGIN_MAX_FAILED_ATTEMPTS_BY_IP,
-  LOGIN_MAX_FAILED_ATTEMPTS_GLOBAL,
   LOGIN_WINDOW_SECONDS,
 } from "./constants";
 import { prisma } from "./prisma";
@@ -13,8 +12,11 @@ import { prisma } from "./prisma";
  * multiple instances. It considers:
  *   - the email/identifier;
  *   - the client IP;
- *   - the whole deployment (global ceiling);
  *   - a sliding time window.
+ *
+ * Every dimension is *attributable*: a counter only ever blocks the identifier
+ * that produced the failures. There is deliberately NO deployment-wide counter
+ * — see `isLoginBlocked` and docs/SECURITY.md §2.2.
  *
  * Legitimate users are never permanently blocked: the counter resets once
  * the window passes. Passwords are never stored — only the outcome flag.
@@ -178,11 +180,11 @@ function windowStart(): Date {
 export async function countRecentFailures(
   email: string,
   ip: ClientIp | null,
-): Promise<{ byEmail: number; byIp: number; global: number }> {
+): Promise<{ byEmail: number; byIp: number }> {
   const since = windowStart();
   const trackedIp = limitableIp(ip);
 
-  const [byEmail, byIp, global] = await Promise.all([
+  const [byEmail, byIp] = await Promise.all([
     prisma.loginAttempt.count({
       where: { email, success: false, createdAt: { gte: since } },
     }),
@@ -191,33 +193,35 @@ export async function countRecentFailures(
           where: { ip: trackedIp, success: false, createdAt: { gte: since } },
         })
       : Promise.resolve(0),
-    // No email/ip filter on purpose: this is the only counter an attacker
-    // cannot dodge by rotating either dimension. See isLoginBlocked below.
-    prisma.loginAttempt.count({
-      where: { success: false, createdAt: { gte: since } },
-    }),
   ]);
 
-  return { byEmail, byIp, global };
+  return { byEmail, byIp };
 }
 
 /**
  * Decides whether the request must be rejected *before* any password hashing.
  *
- * Three independent ceilings, any of which blocks:
+ * Two ceilings, both *attributable* — each one only ever blocks the identifier
+ * that actually produced the failures:
  *   - per e-mail (default 5): classic per-account brute force.
  *   - per IP (default 20): one noisy client spraying many accounts. Applies
  *     only when a trusted client IP could be established, so it is inert on a
  *     self-hosted deployment without `TRUSTED_PROXY_HOPS`.
- *   - global (default 200): everything else. An anonymous flood using a new
- *     random e-mail per request keeps `byEmail` at 0 forever and, without a
- *     trusted proxy, `byIp` at 0 as well — yet each request still costs a
- *     bcrypt cost-12 comparison, which `bcryptjs` runs synchronously on the
- *     Node event loop (~350ms), starving every tenant. The global counter is
- *     the only one such a flood cannot avoid.
  *
- * Callers MUST run this before `verifyPassword`, otherwise the CPU is already
- * spent by the time the request is rejected.
+ * There is intentionally NO deployment-wide counter. A ceiling on "all recent
+ * failures regardless of e-mail and IP" is reachable by any anonymous caller —
+ * a fresh random e-mail per request needs no valid account and never touches
+ * the per-e-mail counter — and once tripped it denies login to every tenant for
+ * a whole window. Blocked requests are also free (they never reach
+ * `recordLoginAttempt`), so the attacker can hold the block open indefinitely
+ * at negligible cost. That is a kill switch, not a rate limit.
+ *
+ * The CPU-exhaustion risk that motivated the global ceiling is handled at its
+ * real source instead: `src/lib/password.ts` caps concurrent bcrypt work and
+ * applies bounded back-pressure. See docs/SECURITY.md §2.2.
+ *
+ * Callers MUST still run this before `verifyPassword`: an attributable block
+ * should not pay for hashing it already knows it will discard.
  */
 export async function isLoginBlocked(
   email: string,
@@ -226,8 +230,7 @@ export async function isLoginBlocked(
   const counts = await countRecentFailures(email, ip);
   return (
     counts.byEmail >= LOGIN_MAX_FAILED_ATTEMPTS ||
-    counts.byIp >= LOGIN_MAX_FAILED_ATTEMPTS_BY_IP ||
-    counts.global >= LOGIN_MAX_FAILED_ATTEMPTS_GLOBAL
+    counts.byIp >= LOGIN_MAX_FAILED_ATTEMPTS_BY_IP
   );
 }
 
@@ -249,4 +252,4 @@ export async function recordLoginAttempt(
   });
 }
 
-export { LOGIN_MAX_FAILED_ATTEMPTS, LOGIN_MAX_FAILED_ATTEMPTS_GLOBAL };
+export { LOGIN_MAX_FAILED_ATTEMPTS, LOGIN_MAX_FAILED_ATTEMPTS_BY_IP };

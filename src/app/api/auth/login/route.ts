@@ -88,9 +88,13 @@ export async function POST(request: Request) {
     const ip = getClientIp(request);
 
     // Runs BEFORE the user lookup and before verifyPassword on purpose: the
-    // bcrypt comparison below costs ~350ms of synchronous event-loop time, so
-    // rejecting after it would leave the DoS wide open. Every ceiling
-    // (e-mail, IP, global) is evaluated here.
+    // bcrypt comparison below costs ~350ms of CPU, so an already-blocked
+    // identifier should never pay for it. Both ceilings evaluated here are
+    // attributable (per e-mail, per IP) — there is no deployment-wide counter
+    // any anonymous caller could trip on everyone else's behalf. The CPU-
+    // exhaustion side of the problem is bounded by the bcrypt admission gate in
+    // `@/lib/password`, which turns a flood into a 503 instead of a global
+    // lockout. See docs/SECURITY.md §2.2.
     if (await isLoginBlocked(email, ip)) {
       const blockedUser = await prisma.user.findUnique({ where: { email } });
       if (blockedUser) {

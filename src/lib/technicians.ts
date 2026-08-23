@@ -100,14 +100,93 @@ export interface TechnicianCandidate {
   email: string;
 }
 
+// ---------------------------------------------------------------------------
+// Assignability — the single definition of "may receive a NEW service order"
+// ---------------------------------------------------------------------------
+
 /**
- * Lightweight list of active technicians (for filter dropdowns).
+ * A `Technician` row is only half of the identity: the person behind it is the
+ * linked `User`, and that user can be deactivated or moved off the TECHNICIAN
+ * profile at any moment without the technician row changing. Checking only
+ * `Technician.active` therefore let a revoked account keep receiving work.
+ *
+ * Eligibility is DERIVED at read time rather than synchronised into
+ * `Technician.active` on every user edit: a derived rule cannot drift, needs no
+ * migration, and — importantly — is not destructive. Deactivating a user does
+ * not rewrite the technician row, so existing orders, their assignee and their
+ * whole timeline stay exactly as they were. The rule only gates NEW
+ * assignments; it never invalidates history.
+ *
+ * All of these must hold:
+ *   - `Technician.active`
+ *   - the linked `User` exists
+ *   - `User.active`
+ *   - `User.profile === TECHNICIAN`
+ *   - technician and user both belong to the order's company
+ */
+export function assignableTechnicianWhere(companyId: string) {
+  return {
+    companyId,
+    active: true,
+    user: {
+      companyId,
+      active: true,
+      profile: AccessProfile.TECHNICIAN,
+    },
+  };
+}
+
+export interface TechnicianEligibilityCheck {
+  companyId: string;
+  active: boolean;
+  user: {
+    companyId: string;
+    active: boolean;
+    profile: AccessProfile;
+  } | null;
+}
+
+/**
+ * Mirror of `assignableTechnicianWhere` that explains WHY a technician is not
+ * assignable, so the API can return an actionable message instead of a blank
+ * "not found". Returns null when the technician is assignable.
+ */
+export function technicianAssignmentIssue(
+  companyId: string,
+  technician: TechnicianEligibilityCheck,
+): string | null {
+  if (technician.companyId !== companyId) {
+    return "Técnico não pertence a esta empresa.";
+  }
+  if (!technician.active) {
+    return "Somente técnicos ativos podem receber OS.";
+  }
+  if (!technician.user) {
+    return "O técnico não possui usuário vinculado e não pode receber novas OS.";
+  }
+  if (technician.user.companyId !== companyId) {
+    return "O usuário vinculado ao técnico pertence a outra empresa.";
+  }
+  if (!technician.user.active) {
+    return "O usuário vinculado ao técnico está inativo e não pode receber novas OS.";
+  }
+  if (technician.user.profile !== AccessProfile.TECHNICIAN) {
+    return "O usuário vinculado não tem mais o perfil Técnico e não pode receber novas OS.";
+  }
+  return null;
+}
+
+/**
+ * Lightweight list of technicians that may receive a new OS (dropdowns).
+ *
+ * Uses the same rule as `assignTechnician`, so the UI can never offer an option
+ * the service layer would reject.
  */
 export async function listActiveTechnicianOptions(
   companyId: string,
 ): Promise<{ id: string; name: string }[]> {
   const technicians = await prisma.technician.findMany({
-    where: { companyId, active: true },
+    where: assignableTechnicianWhere(companyId),
     include: { user: { select: { name: true } } },
     orderBy: { createdAt: "asc" },
   });

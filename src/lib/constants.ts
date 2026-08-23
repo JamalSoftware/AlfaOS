@@ -24,19 +24,16 @@ export const LOGIN_MAX_FAILED_ATTEMPTS_BY_IP = Number(
 );
 
 /**
- * Ceiling on ALL recent failed logins, regardless of e-mail or IP.
+ * `LOGIN_MAX_FAILED_ATTEMPTS_GLOBAL` used to live here: a ceiling on ALL recent
+ * failed logins regardless of e-mail and IP. It was removed in
+ * v0.2.2-pre-v03-hardening because it was reachable by any anonymous caller
+ * (a fresh random e-mail per request needs no valid account) and, once tripped,
+ * denied login to every tenant for a whole window — an authentication kill
+ * switch, not a rate limit.
  *
- * Last line of defence against an anonymous flood that evades both other
- * limits (a fresh random e-mail per request keeps the per-e-mail counter at 0,
- * and the per-IP counter is inert whenever no trusted client IP can be
- * established — the default on self-hosted `next start`). Without it every
- * such request pays a full bcrypt (cost 12, ~350ms of *synchronous* CPU in
- * `bcryptjs`), which saturates the Node event loop for every tenant.
- *
- * Default 200 = 10x the per-IP limit and 40x the per-e-mail limit, i.e. 200
- * failed logins across the whole deployment inside LOGIN_WINDOW_SECONDS
- * (900s). See docs/SECURITY.md §2.2 for the trade-off analysis.
+ * The CPU-exhaustion risk it was meant to cover is now handled at its source by
+ * the bcrypt admission gate in `src/lib/password.ts`
+ * (`BCRYPT_MAX_CONCURRENCY` / `BCRYPT_MAX_QUEUE`). The environment variable is
+ * no longer read anywhere; leaving it set in a `.env` has no effect.
+ * See docs/SECURITY.md §2.2.
  */
-export const LOGIN_MAX_FAILED_ATTEMPTS_GLOBAL = Number(
-  process.env.LOGIN_MAX_FAILED_ATTEMPTS_GLOBAL ?? 200,
-);

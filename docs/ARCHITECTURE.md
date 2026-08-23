@@ -103,7 +103,13 @@ Modelos atuais:
 - `Technician` — técnicos vinculados a um `User` da mesma empresa
   (`userId` único, `active` para controle de disponibilidade).
 - `ServiceOrder` — OS com status (`PENDING/ASSIGNED/IN_PROGRESS/COMPLETED/
-  CANCELLED`), prioridade, `externalProvider`/`externalId` para origem ERP.
+  CANCELLED`), prioridade, `externalProvider`/`externalId` para origem ERP e
+  `version Int @default(0)` — token de lock otimista incrementado a cada
+  escrita relevante (atribuição e reimportação do ERP). Substituiu `updatedAt`
+  como predicado de compare-and-set: `DateTime` mapeia para `timestamp(3)`, de
+  modo que duas escritas no mesmo milissegundo passavam ambas pelo predicado e
+  uma se perdia em silêncio. Migration aditiva
+  `20260822234652_add_service_order_version_lock` (default `0`, não destrutiva).
 - `ServiceOrderEvent` — timeline imutável da OS (importação, atribuição,
   mudança de status) gravada na mesma transação das mutações.
 
@@ -117,8 +123,14 @@ notificações, GPS, OLT, IA e a ReceitaNet real.
   `PENDING → ASSIGNED/CANCELLED`, `ASSIGNED → ASSIGNED/IN_PROGRESS/CANCELLED`,
   `IN_PROGRESS → COMPLETED/CANCELLED`.
 - Atribuição/troca via `POST /api/service-orders/[id]/assign` com
-  **otimistic locking**: `updateMany({ id, updatedAt })` → se `count !== 1`
-  retorna `409` ("modificada por outra requisição").
+  **optimistic locking por versão**: `updateMany({ id, version })` +
+  `data: { version: { increment: 1 } }` → se `count !== 1` retorna `409`
+  ("modificada por outra requisição"). Determinístico: decidido por identidade,
+  não por resolução de relógio.
+- Elegibilidade do técnico para nova atribuição definida em
+  `src/lib/technicians.ts` (`assignableTechnicianWhere` +
+  `technicianAssignmentIssue`) e consumida pelas duas pontas — o serviço de
+  atribuição e o dropdown — para que UI e API nunca discordem.
 - OS + evento gravados na **mesma transação** (nunca status sem timeline).
 - "Minhas OS" resolve o técnico no servidor via sessão (`technician_id` nunca
   vem do cliente) e valida que técnico e OS pertencem à mesma empresa.
@@ -146,3 +158,15 @@ notificações, GPS, OLT, IA e a ReceitaNet real.
 
 - Banco de teste: `alfaos_test` (migrations aplicadas via globalSetup).
 - E2E usa `npm run e2e` (levanta o app com `DATABASE_URL` de teste e seed).
+- **Isolamento do banco no E2E** (endurecido em `v0.2.2-pre-v03-hardening`): a
+  suíte sobe **sempre** o próprio servidor (`reuseExistingServer: false`) em uma
+  **porta dedicada** (`E2E_PORT`, padrão `3100`), então um `next dev` do
+  desenvolvedor na 3000 nunca é adotado. Antes, `reuseExistingServer:
+  !process.env.CI` adotava esse servidor — que roda com o `DATABASE_URL` de
+  desenvolvimento — e a suíte inteira (syncs de ERP, criação de usuários,
+  atribuições) escrevia no banco de dev. Além disso, `e2e/test-db-guard.ts`
+  recusa fail-fast qualquer banco cujo nome não termine em `_test`, verificando
+  a alegação da connection string contra `current_database()` na conexão viva.
+  O guard roda em três pontos: no preflight do `webServer` (no ambiente exato do
+  servidor), no `globalSetup` (antes de qualquer operação destrutiva) e dentro
+  do próprio `e2e/reset-db.ts`.

@@ -26,10 +26,15 @@ de hardening (`v0.1.1-hardening`) e do núcleo operacional de Ordens de Serviço
   deslizante de `LOGIN_WINDOW_SECONDS` (padrão 900s) → `429`.
 - **Por IP**: `LOGIN_MAX_FAILED_ATTEMPTS_BY_IP` (padrão 20) falhas → `429`.
   Só se aplica quando um IP confiável pôde ser estabelecido (ver 2.1).
-- **Global**: `LOGIN_MAX_FAILED_ATTEMPTS_GLOBAL` (padrão 200) falhas na mesma
-  janela, somando todos os e-mails e todos os IPs → `429` (ver 2.2).
+- **Não existe teto global.** Todo contador aqui é **atribuível**: só bloqueia o
+  identificador que efetivamente produziu as falhas. O antigo
+  `LOGIN_MAX_FAILED_ATTEMPTS_GLOBAL` foi **removido** em
+  `v0.2.2-pre-v03-hardening` — era acionável por qualquer anônimo e derrubava o
+  login de todos os tenants (ver 2.2).
+- O custo de CPU do bcrypt, que era a justificativa do teto global, é contido na
+  origem por um **portão de admissão** em `src/lib/password.ts` (ver 2.2).
 - Nenhum bloqueio é permanente; a janela expira sozinha.
-- Os três tetos são avaliados em `isLoginBlocked`, chamado **antes** do
+- Os dois tetos são avaliados em `isLoginBlocked`, chamado **antes** do
   `prisma.user.findUnique` e **antes** do `verifyPassword` — rejeitar depois do
   bcrypt não protegeria nada (o custo já teria sido pago).
 - Tentativas bloqueadas geram auditoria `AUTH.RATE_LIMITED` **uma vez por
@@ -98,60 +103,91 @@ diferenciado por alvo.
   o proxy mais externo estiver comprovadamente sobrescrevendo (não apenas
   acrescentando) o header vindo do cliente.
 
-### 2.2. Teto global de falhas (DoS anônimo por bcrypt)
+### 2.2. DoS anônimo por bcrypt — portão de admissão (substitui o teto global)
 
-**Variável de ambiente: `LOGIN_MAX_FAILED_ATTEMPTS_GLOBAL`** (inteiro, padrão
-`200`) — total de falhas de login recentes, **somando todos os e-mails e todos
-os IPs**, dentro de `LOGIN_WINDOW_SECONDS`.
+> **Mudança em `v0.2.2-pre-v03-hardening`.** Esta seção descrevia um teto global
+> (`LOGIN_MAX_FAILED_ATTEMPTS_GLOBAL`, padrão 200). Esse teto **foi removido**.
+> O texto abaixo descreve por que ele era pior que o problema que resolvia e o
+> que ficou no lugar.
 
-**O ataque que ele fecha.** Para não vazar a existência de contas por timing, o
-login roda `bcrypt.compare` **sempre**, inclusive contra o hash dummy quando o
-e-mail não existe (ver seção 2). A biblioteca usada é `bcryptjs` — JS puro, que
-**bloqueia o event loop** (usa `setImmediate`, não a threadpool do libuv);
-custo 12 gasta ~350ms de CPU síncrona por comparação. Um atacante anônimo que
+**O ataque.** Para não vazar a existência de contas por timing, o login roda
+`bcrypt.compare` **sempre**, inclusive contra o hash dummy quando o e-mail não
+existe (ver seção 2). Cada tentativa custa ~350ms de CPU (custo 12, `bcryptjs`,
+JS puro) na única thread que atende todos os tenants. Um atacante anônimo que
 mande `POST /api/auth/login` em loop **com um e-mail aleatório novo a cada
-requisição** escapa dos dois limites anteriores:
+requisição** escapa dos dois limites atribuíveis:
 
 - o contador **por e-mail** fica sempre em 0 (e-mail inédito a cada tentativa);
 - o contador **por IP** não é aplicado quando `getClientIp` devolve
-  `trusted: false` — o que é o caso **por padrão** em `next start`
-  self-hosted sem `TRUSTED_PROXY_HOPS`, já que o App Router do Next.js 14 não
-  expõe o IP da conexão (`NextRequest.ip` fica `undefined`).
+  `trusted: false` — o caso **padrão** em `next start` self-hosted sem
+  `TRUSTED_PROXY_HOPS`, já que o App Router do Next.js 14 não expõe o IP da
+  conexão (`NextRequest.ip` fica `undefined`).
 
-Com ~3 req/s isso satura o event loop do processo inteiro e derruba a resposta
-de **todos os tenants**, não só do alvo. O teto global é o único contador que
-esse flood não consegue driblar: ele não depende de conhecer e-mails válidos
-nem de haver um IP confiável.
+**Por que o teto global foi removido.** Ele era acionável por qualquer um, sem
+credencial nenhuma: ~200 requisições com e-mails aleatórios (nenhuma conta
+precisa existir) e **todo login do deployment passava a receber `429`** —
+inclusive usuários legítimos com senha correta — por uma janela inteira de 15
+minutos. Pior: a requisição bloqueada retornava `429` **antes** de
+`recordLoginAttempt`, então sustentar o bloqueio custava ao atacante quase nada,
+enquanto o `429` vs `401` ainda servia de oráculo para saber se o bloqueio
+seguia de pé. Isso é um **interruptor de autenticação**, não um rate limit: a
+defesa contra a negação de serviço *era* a negação de serviço.
 
-**Por que 200.** Uma ordem de grandeza acima do limite por IP (20) e duas acima
-do limite por e-mail (5). Em números: 200 falhas em 900s é ~0,22 falha/s
-sustentada; como cada e-mail só contribui com 5 falhas antes de ser bloqueado
-por conta própria, chegar a 200 exige ao menos 40 e-mails distintos falhando na
-mesma janela de 15 minutos — muito acima do que um deployment multi-tenant
-normal produz, e bem abaixo da taxa que satura uma CPU. Um flood a 3 req/s
-atinge o teto em ~67s e é cortado a partir daí.
+**O que ficou no lugar: portão de admissão do bcrypt** (`src/lib/password.ts`).
+O problema é consumo de CPU, então o limite passou a ser sobre a CPU, não sobre
+um contador histórico de falhas:
 
-**Trade-off assumido (importante).** Diferente dos outros dois, este teto é
-deliberadamente um **interruptor global**: enquanto está estourado, todo login
-recebe `429`, inclusive o de usuários legítimos com senha correta. A seção 2.1
-evita exatamente esse efeito para o balde de IP não diferenciado; aqui ele é
-aceito porque (a) o valor é alto o bastante para que atingi-lo signifique
-ataque em curso, não uso normal; (b) a alternativa é o event loop saturado, em
-que *nenhum* request (login ou não) é atendido — degradação pior; (c) o
-bloqueio é temporário e se dissolve sozinho quando a janela desliza; (d) nenhum
-conta é travada nem exige intervenção manual. Operadores de deployments muito
-grandes devem elevar o valor via env var.
+| Variável | Padrão | Papel |
+| --- | --- | --- |
+| `BCRYPT_MAX_CONCURRENCY` | `2` | Hashes/comparações simultâneos. |
+| `BCRYPT_MAX_QUEUE` | `32` | Chamadores em fila FIFO. Acima disso → `503` imediato, sem gastar CPU. |
 
-**Custo do contador.** É um `COUNT` sem filtro de e-mail/ip sobre
-`login_attempts`. A tabela não cresce sob flood: requisições bloqueadas
-retornam `429` **sem** gravar `LoginAttempt`, então o número de linhas na
-janela fica limitado ao próprio teto (~200), além da limpeza oportunista que
-apaga tudo com mais de duas janelas. Por isso não foi criado índice novo.
+Como funciona:
+
+1. Até `BCRYPT_MAX_CONCURRENCY` operações rodam ao mesmo tempo. O event loop
+   sempre sobra para o resto da aplicação.
+2. O excedente espera em **FIFO**, então um login legítimo no meio de um flood é
+   **atendido** (mais devagar), não negado.
+3. Passando da fila, a requisição é recusada na hora com `503` e **zero CPU**.
+
+Números medidos na suíte (`src/tests/login-flood.test.ts`): com 20 logins
+simultâneos, o pico de bcrypt concorrente é **2** com o portão e **20** sem ele.
+Vinte comparações em voo dividem a mesma CPU e multiplicam por 20 a latência de
+qualquer login honesto — é esse colapso que o portão evita.
+
+**A diferença essencial.** A contrapressão é **instantânea e reversível**: não
+existe janela, não existe estado que o atacante consiga deixar para trás. Assim
+que o flood para, o portão está vazio e o próximo login passa no mesmo
+milissegundo. O teto global, ao contrário, mantinha todo mundo fora por 15
+minutos depois do último pacote do atacante.
+
+**Trade-off que permanece.** Sob saturação real e sustentada, parte das
+requisições recebe `503` — inclusive, eventualmente, de usuários legítimos. Isso
+é inerente a um endpoint CPU-bound e **não é evitável** por configuração; o que
+mudou é que (a) a degradação é proporcional e temporária em vez de um bloqueio
+de janela inteira, (b) o resto da aplicação continua respondendo, e (c) nada do
+que um anônimo faz deixa estado que exclua terceiros depois. O `503` também não
+distingue conta existente de inexistente, então não reabre enumeração.
+
+**Dimensionar a fila.** A espera de pior caso é aproximadamente
+`(BCRYPT_MAX_QUEUE / BCRYPT_MAX_CONCURRENCY) * 350ms` — com os padrões, ~5,6s.
+Mantenha abaixo do timeout HTTP do cliente. Aumentar `BCRYPT_MAX_CONCURRENCY`
+**não** aumenta a vazão (a CPU é a mesma): só espalha o mesmo trabalho por mais
+requisições e piora a latência de todas.
+
+**Sem serviço externo.** O portão é em processo (a aplicação é single-instance
+por design). Nada de Redis. Em um futuro multi-instância, cada processo tem seu
+próprio portão — o que continua correto, já que o recurso protegido (a CPU
+daquele processo) também é por processo.
 
 **Não foi trocada a biblioteca de hash.** Migrar `bcryptjs` para o binding
-nativo (que usa threadpool) ou para argon2 invalidaria os hashes já gravados no
-banco e está fora do escopo desta correção — o freio aqui é sobre **taxa de
-requisição**, não sobre o custo do hash. Fica registrado na seção 10.
+nativo (que usa a threadpool do libuv) ou para argon2 invalidaria os hashes já
+gravados e continua fora de escopo. Registrado na seção 10. Correção pontual ao
+texto anterior desta seção: o `bcryptjs` **assíncrono** não bloqueia o loop de
+ponta a ponta — ele fatia o trabalho em blocos de ~100ms e cede com
+`setImmediate` entre eles. O custo de CPU é real do mesmo jeito; o que muda é
+que o dano do flood aparece como colapso de latência agregada, não como um
+congelamento único.
 
 ## 3. Proteção CSRF
 
@@ -224,12 +260,29 @@ requisição**, não sobre o custo do hash. Fica registrado na seção 10.
 - **"Minhas OS" resolve o técnico no servidor**: `technician_id` é derivado da
   sessão (`session → user → technician`); o cliente nunca informa o vínculo.
   Um técnico de outra empresa não acessa OS locais.
-- **Atribuição restrita**: só aceita técnico **ativo** da mesma empresa
-  (inativo → `400`; outra empresa → `404`). Vincular usuário que já é técnico
-  → `409`.
-- **Otimistic locking**: atribuição usa `updateMany({ id, updatedAt })`; se
-  outro request alterou a OS primeiro → `409` "modificada por outra
-  requisição". Evita sobrescrita silenciosa em escritas concorrentes.
+- **Elegibilidade do técnico para NOVA atribuição** (endurecido em
+  `v0.2.2-pre-v03-hardening`): checar `Technician.active` não bastava. O `User`
+  vinculado é quem representa a pessoa, e ele pode ser desativado ou trocar de
+  perfil sem que a linha do técnico mude — então uma **conta revogada continuava
+  recebendo trabalho**. Agora exige-se, em conjunto: `Technician.active`, o
+  `User` existir, `User.active`, `User.profile = TECHNICIAN`, e técnico **e**
+  usuário pertencerem à empresa da OS. Inelegível → `400` com motivo explícito;
+  técnico de outra empresa → `404` (não confirma existência).
+  A mesma regra alimenta o dropdown (`listActiveTechnicianOptions`), então a UI
+  nunca oferece opção que a API recusaria.
+  A regra é **derivada na leitura**, não sincronizada: desativar um usuário não
+  reescreve `Technician` nem toca em OS já atribuídas — o histórico e a timeline
+  permanecem intactos e o técnico continua aparecendo nas OS antigas. Só novas
+  atribuições são bloqueadas.
+- **Optimistic locking por versão explícita** (corrigido em
+  `v0.2.2-pre-v03-hardening`): a atribuição usava
+  `updateMany({ id, updatedAt })`. `DateTime` do Prisma vira `timestamp(3)` no
+  Postgres (resolução de 1ms), então duas escritas no mesmo milissegundo
+  satisfaziam ambas o predicado e uma era **perdida em silêncio**. O token agora
+  é `ServiceOrder.version` (inteiro, `@default(0)`), incrementado a cada escrita
+  e usado como compare-and-set: `where: { id, version }` +
+  `data: { version: { increment: 1 } }`. O perdedor recebe `409` determinístico,
+  decidido por identidade e não por relógio.
 - **Timeline imutável**: status e atribuição só mudam pela máquina de estados
   central (`ALLOWED_STATUS_TRANSITIONS`); cada mutação grava um
   `ServiceOrderEvent` na mesma transação — nunca status sem rastro.
@@ -261,8 +314,14 @@ requisição**, não sobre o custo do hash. Fica registrado na seção 10.
 - Registro de expiração e rotação de sessão em nível de servidor.
 - Rate limit por conta em rotas de escrita.
 - Tirar o bcrypt do event loop (binding nativo com threadpool, worker thread ou
-  fila) — hoje o custo síncrono é contido apenas pelo teto global da seção 2.2.
-  Exige rehash progressivo dos hashes existentes.
+  fila) — hoje o custo é apenas **limitado** pelo portão de admissão da seção
+  2.2, não removido da thread principal. Exige rehash progressivo dos hashes
+  existentes.
+- Expor `ServiceOrder.version` na API para que o cliente envie a versão que leu
+  (lock otimista fim-a-fim). Hoje o compare-and-set é inteiramente
+  servidor-side: `assignTechnician` lê e escreve dentro da mesma transação, o
+  que fecha a janela entre requisições concorrentes mas não a janela entre o
+  que o operador viu na tela e o que ele clicou.
 - Fluxo de recuperação de administrador (CLI/console de suporte). Hoje o
   travamento é apenas **prevenido** (seção 12); não existe caminho de
   recuperação se uma empresa ficar sem ADMIN ativo por outro meio.
