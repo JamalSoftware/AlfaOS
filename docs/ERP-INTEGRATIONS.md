@@ -64,6 +64,13 @@ escrita e leitura. `getCredential(companyId)` devolve o token em claro
 segredo é armazenado. A coluna `apiKey` permanece apenas como legacy: nada a
 escreve, conteúdo preexistente não é migrado, e ela é limpa a cada save.
 
+Cada credencial é **vinculada criptograficamente** a `(companyId, provider)`
+via AAD do AES-GCM — um ciphertext movido para outra empresa ou outro provider
+falha na verificação em vez de decriptar. Consequência operacional para quem
+escrever o primeiro adapter real: **trocar o `provider` de uma integração
+invalida a credencial existente**, que precisará ser reconfigurada. Detalhe em
+`docs/SECURITY.md` §8.4.
+
 **Isso não desbloqueia a integração.** Credencial configurada não significa
 integração validada, ReceitaNet online nem autenticação confirmada — sem
 endpoint documentado não há contra o que autenticar, e a UI declara essa

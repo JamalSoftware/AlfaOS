@@ -8,6 +8,11 @@ process.env.SESSION_COOKIE_NAME =
 // Throwaway AES-256 key so credential tests can encrypt. Test-only value with
 // no production meaning; tests that need the "key missing" path unset it
 // explicitly and restore it afterwards.
+//
+// Deliberately decodes to readable ASCII ("vitest-only-aes256-key-32-byte!!")
+// rather than random bytes: found out of context, the value itself says it is
+// a fixture. Production never reaches this file — it is a Vitest `setupFiles`
+// entry, and the cipher reads the environment with no fallback default.
 process.env.ERP_CREDENTIAL_ENCRYPTION_KEY =
   process.env.ERP_CREDENTIAL_ENCRYPTION_KEY ??
-  "nWjS+3ke5kdnaLCB8o9wuQa67WabX/SEBPcd1pLZDLE=";
+  "dml0ZXN0LW9ubHktYWVzMjU2LWtleS0zMi1ieXRlISE=";

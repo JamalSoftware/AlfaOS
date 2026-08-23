@@ -324,7 +324,13 @@ describe("Snapshot", () => {
       ),
     );
     // Upsert on the composite key: concurrent writers converge on one row.
-    expect(results.some((r) => r.status === "fulfilled")).toBe(true);
+    //
+    // `every`, not `some`: refresh is not a compare-and-set where one writer
+    // must lose — all of them should succeed. A probe of 96 concurrent
+    // invocations (N=4, 8 and 12) produced zero rejections, so tolerating a
+    // failure here would only hide an unrelated regression.
+    expect(results.every((r) => r.status === "fulfilled")).toBe(true);
+    // And the invariant that actually matters: still exactly one snapshot.
     expect(
       await prisma.customerDiagnosticSnapshot.count({
         where: { customerId: customer.id },

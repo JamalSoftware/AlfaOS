@@ -125,7 +125,16 @@ export async function saveCredential(
 
   // Throws CredentialEncryptionUnavailableError when the key is absent or
   // malformed — nothing below runs, so nothing is written.
-  const encrypted = encryptCredential(token);
+  //
+  // The binding context comes from the row we just read under a tenant-scoped
+  // query: `companyId` is the caller's session company (never the request
+  // body) and `provider` is whatever the integration actually is. Nothing the
+  // client sends can influence either, which is what makes the binding
+  // meaningful rather than decorative.
+  const encrypted = encryptCredential(token, {
+    companyId,
+    provider: integration.provider,
+  });
 
   const saved = await prisma.eRPIntegration.update({
     // Scoped by BOTH id and companyId: the id came from a tenant-filtered read
@@ -240,6 +249,7 @@ export async function getCredential(
   const integration = await prisma.eRPIntegration.findFirst({
     where: { companyId },
     select: {
+      provider: true,
       credentialCiphertext: true,
       credentialIv: true,
       credentialAuthTag: true,
@@ -254,9 +264,21 @@ export async function getCredential(
     return null;
   }
 
-  return decryptCredential({
-    ciphertext: integration.credentialCiphertext,
-    iv: integration.credentialIv,
-    authTag: integration.credentialAuthTag,
-  });
+  // The AAD is rebuilt from the row's real identity — the `companyId` this
+  // function was scoped by, and the provider stored on that same row. A
+  // ciphertext transplanted from another company or another provider verifies
+  // against THIS identity and fails, which is the whole point of the binding.
+  //
+  // Credentials written before the binding existed (no AAD) also fail here, on
+  // purpose: there is deliberately NO unbound fallback, because accepting one
+  // would keep the transplant vector alive. Such credentials must be
+  // reconfigured — see docs/SECURITY.md §8.4.
+  return decryptCredential(
+    {
+      ciphertext: integration.credentialCiphertext,
+      iv: integration.credentialIv,
+      authTag: integration.credentialAuthTag,
+    },
+    { companyId, provider: integration.provider },
+  );
 }

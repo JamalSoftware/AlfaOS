@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { createCipheriv, randomBytes } from "node:crypto";
 import {
   GET as getCredential,
   PUT as putCredential,
@@ -6,6 +7,7 @@ import {
 } from "@/app/api/integrations/credential/route";
 import { prisma } from "@/lib/prisma";
 import {
+  buildCredentialAad,
   credentialLast4,
   CredentialEncryptionUnavailableError,
   decryptCredential,
@@ -45,27 +47,32 @@ async function integrationFor(companyId: string, provider: "MOCK" | "RECEITANET"
 // Cipher
 // ---------------------------------------------------------------------------
 
+/** The binding context used across the cipher tests. */
+const CTX_A = { companyId: "company_aaa", provider: "RECEITANET" };
+const CTX_B = { companyId: "company_bbb", provider: "RECEITANET" };
+const CTX_A_MOCK = { companyId: "company_aaa", provider: "MOCK" };
+
 describe("Criptografia de credenciais (AES-256-GCM)", () => {
-  it("encrypt → decrypt devolve o texto original", () => {
-    const enc = encryptCredential(TOKEN);
-    expect(decryptCredential(enc)).toBe(TOKEN);
+  it("encrypt → decrypt com o MESMO companyId + provider funciona", () => {
+    const enc = encryptCredential(TOKEN, CTX_A);
+    expect(decryptCredential(enc, CTX_A)).toBe(TOKEN);
   });
 
   it("o mesmo token cifrado duas vezes gera ciphertext e IV diferentes", () => {
-    const a = encryptCredential(TOKEN);
-    const b = encryptCredential(TOKEN);
+    const a = encryptCredential(TOKEN, CTX_A);
+    const b = encryptCredential(TOKEN, CTX_A);
     // Without a fresh IV per encryption, an observer of the database could tell
     // that two companies configured the same credential.
     expect(a.ciphertext).not.toBe(b.ciphertext);
     expect(a.iv).not.toBe(b.iv);
     expect(a.authTag).not.toBe(b.authTag);
     // Both still decrypt to the same plaintext.
-    expect(decryptCredential(a)).toBe(TOKEN);
-    expect(decryptCredential(b)).toBe(TOKEN);
+    expect(decryptCredential(a, CTX_A)).toBe(TOKEN);
+    expect(decryptCredential(b, CTX_A)).toBe(TOKEN);
   });
 
   it("o ciphertext não contém o token em texto puro", () => {
-    const enc = encryptCredential(TOKEN);
+    const enc = encryptCredential(TOKEN, CTX_A);
     const blob = `${enc.ciphertext}${enc.iv}${enc.authTag}`;
     expect(blob).not.toContain(TOKEN);
     expect(Buffer.from(enc.ciphertext, "base64").toString("utf8")).not.toContain(
@@ -74,13 +81,13 @@ describe("Criptografia de credenciais (AES-256-GCM)", () => {
   });
 
   it("chave errada falha", () => {
-    const enc = encryptCredential(TOKEN);
+    const enc = encryptCredential(TOKEN, CTX_A);
     const original = process.env.ERP_CREDENTIAL_ENCRYPTION_KEY;
     process.env.ERP_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString(
       "base64",
     );
     try {
-      expect(() => decryptCredential(enc)).toThrow(
+      expect(() => decryptCredential(enc, CTX_A)).toThrow(
         CredentialEncryptionUnavailableError,
       );
     } finally {
@@ -89,29 +96,29 @@ describe("Criptografia de credenciais (AES-256-GCM)", () => {
   });
 
   it("ciphertext alterado falha", () => {
-    const enc = encryptCredential(TOKEN);
+    const enc = encryptCredential(TOKEN, CTX_A);
     const bytes = Buffer.from(enc.ciphertext, "base64");
     bytes[0] ^= 0xff;
     expect(() =>
-      decryptCredential({ ...enc, ciphertext: bytes.toString("base64") }),
+      decryptCredential({ ...enc, ciphertext: bytes.toString("base64") }, CTX_A),
     ).toThrow(CredentialEncryptionUnavailableError);
   });
 
   it("auth tag alterada falha", () => {
-    const enc = encryptCredential(TOKEN);
+    const enc = encryptCredential(TOKEN, CTX_A);
     const tag = Buffer.from(enc.authTag, "base64");
     tag[0] ^= 0xff;
     expect(() =>
-      decryptCredential({ ...enc, authTag: tag.toString("base64") }),
+      decryptCredential({ ...enc, authTag: tag.toString("base64") }, CTX_A),
     ).toThrow(CredentialEncryptionUnavailableError);
   });
 
   it("IV alterado falha", () => {
-    const enc = encryptCredential(TOKEN);
+    const enc = encryptCredential(TOKEN, CTX_A);
     const iv = Buffer.from(enc.iv, "base64");
     iv[0] ^= 0xff;
     expect(() =>
-      decryptCredential({ ...enc, iv: iv.toString("base64") }),
+      decryptCredential({ ...enc, iv: iv.toString("base64") }, CTX_A),
     ).toThrow(CredentialEncryptionUnavailableError);
   });
 
@@ -120,7 +127,7 @@ describe("Criptografia de credenciais (AES-256-GCM)", () => {
     try {
       delete process.env.ERP_CREDENTIAL_ENCRYPTION_KEY;
       expect(isCredentialEncryptionConfigured()).toBe(false);
-      expect(() => encryptCredential(TOKEN)).toThrow(
+      expect(() => encryptCredential(TOKEN, CTX_A)).toThrow(
         CredentialEncryptionUnavailableError,
       );
 
@@ -128,7 +135,7 @@ describe("Criptografia de credenciais (AES-256-GCM)", () => {
       process.env.ERP_CREDENTIAL_ENCRYPTION_KEY =
         Buffer.alloc(16, 1).toString("base64");
       expect(isCredentialEncryptionConfigured()).toBe(false);
-      expect(() => encryptCredential(TOKEN)).toThrow(
+      expect(() => encryptCredential(TOKEN, CTX_A)).toThrow(
         CredentialEncryptionUnavailableError,
       );
     } finally {
@@ -142,7 +149,7 @@ describe("Criptografia de credenciais (AES-256-GCM)", () => {
       delete process.env.ERP_CREDENTIAL_ENCRYPTION_KEY;
       let message = "";
       try {
-        encryptCredential(TOKEN);
+        encryptCredential(TOKEN, CTX_A);
       } catch (e) {
         message = (e as Error).message;
       }
@@ -157,6 +164,59 @@ describe("Criptografia de credenciais (AES-256-GCM)", () => {
     expect(credentialLast4(TOKEN)).toBe("A9F2");
     expect(credentialLast4(TOKEN)).toHaveLength(4);
     expect(credentialLast4("abcd")).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AAD binding — regression for the audit's ciphertext-swap attack
+// ---------------------------------------------------------------------------
+
+describe("Binding criptográfico (AAD) a companyId + provider", () => {
+  it("companyId diferente => decrypt FALHA", () => {
+    const enc = encryptCredential(TOKEN, CTX_A);
+    // Exactly the transplant the audit performed: same bytes, other company.
+    expect(() => decryptCredential(enc, CTX_B)).toThrow(
+      CredentialEncryptionUnavailableError,
+    );
+  });
+
+  it("provider diferente => decrypt FALHA", () => {
+    const enc = encryptCredential(TOKEN, CTX_A);
+    expect(() => decryptCredential(enc, CTX_A_MOCK)).toThrow(
+      CredentialEncryptionUnavailableError,
+    );
+  });
+
+  it("controle positivo: companyId e provider corretos continuam funcionando", () => {
+    // Without this, the two negative tests above could pass on a cipher that
+    // simply never decrypts anything.
+    expect(decryptCredential(encryptCredential(TOKEN, CTX_A), CTX_A)).toBe(TOKEN);
+    expect(decryptCredential(encryptCredential(TOKEN, CTX_B), CTX_B)).toBe(TOKEN);
+    expect(
+      decryptCredential(encryptCredential(TOKEN, CTX_A_MOCK), CTX_A_MOCK),
+    ).toBe(TOKEN);
+  });
+
+  it("o AAD é determinístico e não é ambíguo entre pares distintos", () => {
+    expect(buildCredentialAad(CTX_A).equals(buildCredentialAad(CTX_A))).toBe(true);
+    expect(buildCredentialAad(CTX_A).equals(buildCredentialAad(CTX_B))).toBe(false);
+
+    // Length prefixes are what stop a delimiter in one field from producing the
+    // same AAD as a different (company, provider) pair.
+    const collidingA = { companyId: "ab", provider: "c:d" };
+    const collidingB = { companyId: "ab:c", provider: "d" };
+    expect(
+      buildCredentialAad(collidingA).equals(buildCredentialAad(collidingB)),
+    ).toBe(false);
+  });
+
+  it("o AAD não é armazenado junto do ciphertext", () => {
+    const enc = encryptCredential(TOKEN, CTX_A);
+    const blob = `${enc.ciphertext}${enc.iv}${enc.authTag}`;
+    // It is recomputed from the row's identity on decrypt; persisting it would
+    // let an attacker transplant the binding along with the bytes.
+    expect(blob).not.toContain(CTX_A.companyId);
+    expect(blob).not.toContain(CTX_A.provider);
   });
 });
 
@@ -277,6 +337,115 @@ describe("ERPCredentialService", () => {
     expect(serialized).not.toMatch(/ciphertext|authTag|"iv"/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Ciphertext swap — the audit's attack, end to end through the service
+// ---------------------------------------------------------------------------
+
+describe("Ataque de transplante de ciphertext (regressão da auditoria)", () => {
+  it("transplantar ciphertext de A para B: B NÃO consegue ler o token de A", async () => {
+    await integrationFor(fixture.companyA.id);
+    await integrationFor(fixture.companyB.id);
+    await saveCredential(fixture.companyA.id, fixture.adminA.id, TOKEN);
+    await saveCredential(fixture.companyB.id, fixture.adminB.id, OTHER_TOKEN);
+
+    // Positive control first: each company reads its own.
+    expect(await readCredential(fixture.companyA.id)).toBe(TOKEN);
+    expect(await readCredential(fixture.companyB.id)).toBe(OTHER_TOKEN);
+
+    const rowA = await prisma.eRPIntegration.findFirstOrThrow({
+      where: { companyId: fixture.companyA.id },
+    });
+    const rowB = await prisma.eRPIntegration.findFirstOrThrow({
+      where: { companyId: fixture.companyB.id },
+    });
+
+    // The exact transplant the audit performed: A's encrypted bytes written
+    // into B's row, simulating an attacker with direct database write access.
+    await prisma.eRPIntegration.update({
+      where: { id: rowB.id },
+      data: {
+        credentialCiphertext: rowA.credentialCiphertext,
+        credentialIv: rowA.credentialIv,
+        credentialAuthTag: rowA.credentialAuthTag,
+        credentialLast4: rowA.credentialLast4,
+      },
+    });
+
+    // Before the AAD this returned A's token. Now the tag check fails.
+    await expect(readCredential(fixture.companyB.id)).rejects.toBeInstanceOf(
+      CredentialEncryptionUnavailableError,
+    );
+
+    // A's own credential is untouched by the attack.
+    expect(await readCredential(fixture.companyA.id)).toBe(TOKEN);
+  });
+
+  it("transplantar ciphertext entre PROVIDERS: decrypt falha", async () => {
+    const integration = await integrationFor(fixture.companyA.id, "RECEITANET");
+    await saveCredential(fixture.companyA.id, fixture.adminA.id, TOKEN);
+    expect(await readCredential(fixture.companyA.id)).toBe(TOKEN);
+
+    // Same company, same row, same bytes — only the provider changes.
+    await prisma.eRPIntegration.update({
+      where: { id: integration.id },
+      data: { provider: "MOCK" },
+    });
+
+    await expect(readCredential(fixture.companyA.id)).rejects.toBeInstanceOf(
+      CredentialEncryptionUnavailableError,
+    );
+
+    // Restoring the real provider makes it readable again — proving the
+    // failure came from the binding, not from corruption.
+    await prisma.eRPIntegration.update({
+      where: { id: integration.id },
+      data: { provider: "RECEITANET" },
+    });
+    expect(await readCredential(fixture.companyA.id)).toBe(TOKEN);
+  });
+
+  it("credencial sem AAD (formato antigo) falha: não há fallback inseguro", async () => {
+    const integration = await integrationFor(fixture.companyA.id);
+    // Simulates a credential written before the binding existed. Accepting it
+    // would keep the transplant vector alive, so it must fail closed.
+    const unbound = encryptCredentialWithoutAad(TOKEN);
+    await prisma.eRPIntegration.update({
+      where: { id: integration.id },
+      data: {
+        credentialCiphertext: unbound.ciphertext,
+        credentialIv: unbound.iv,
+        credentialAuthTag: unbound.authTag,
+        credentialLast4: "A9F2",
+        credentialUpdatedAt: new Date(),
+      },
+    });
+
+    await expect(readCredential(fixture.companyA.id)).rejects.toBeInstanceOf(
+      CredentialEncryptionUnavailableError,
+    );
+
+    // Reconfiguring fixes it — the documented recovery path.
+    await saveCredential(fixture.companyA.id, fixture.adminA.id, TOKEN);
+    expect(await readCredential(fixture.companyA.id)).toBe(TOKEN);
+  });
+});
+
+/** Reproduces the pre-AAD encryption, to prove old ciphertexts are rejected. */
+function encryptCredentialWithoutAad(plaintext: string) {
+  const key = Buffer.from(process.env.ERP_CREDENTIAL_ENCRYPTION_KEY!, "base64");
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const ciphertext = Buffer.concat([
+    cipher.update(plaintext, "utf8"),
+    cipher.final(),
+  ]);
+  return {
+    ciphertext: ciphertext.toString("base64"),
+    iv: iv.toString("base64"),
+    authTag: cipher.getAuthTag().toString("base64"),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // AuditLog

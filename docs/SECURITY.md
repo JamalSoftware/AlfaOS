@@ -439,6 +439,24 @@ para segurança:
   nem de contador. É isso que faz o mesmo token cifrado duas vezes gerar
   ciphertexts diferentes — sem isso, quem lesse o banco saberia que duas
   empresas configuraram a mesma credencial.
+- **Binding criptográfico (AAD) a `companyId` + `provider`.** O AAD tem o
+  formato versionado e com prefixo de comprimento
+  `alfaos:erp-credential:v1:<len>:<companyId>:<len>:<provider>` — os prefixos
+  impedem que dois pares distintos colidam no mesmo AAD, mesmo que algum campo
+  venha a conter o delimitador. Ele **não é armazenado**: é reconstruído no
+  decrypt a partir da identidade real da linha, e é exatamente isso que faz um
+  ciphertext transplantado falhar. A auditoria da v0.5 provou que, sem AAD,
+  copiar `ciphertext`+`iv`+`authTag` da Empresa A para a linha da B permitia B
+  ler o token de A; com o binding, o mesmo ataque é rejeitado. O contexto é
+  **obrigatório na assinatura** de `encryptCredential`/`decryptCredential`, de
+  modo que esquecer o binding é erro de compilação, não descuido silencioso.
+  `companyId` vem sempre da sessão e `provider` da própria linha — nunca do
+  cliente.
+- **Sem fallback para ciphertext sem AAD.** Credenciais gravadas antes do
+  binding falham no decrypt de propósito: aceitá-las manteria o vetor de
+  transplante vivo. Elas precisam ser **reconfiguradas** pelo ADMIN. Como a
+  v0.5 não foi publicada, isso afeta no máximo credenciais criadas em
+  desenvolvimento.
 - **Chave mestra em `ERP_CREDENTIAL_ENCRYPTION_KEY`**, apenas em variável de
   ambiente. Nunca no banco, nunca no Git, nunca em log ou mensagem de erro.
   Deve decodificar (base64) para exatamente 32 bytes; se estiver presente e
