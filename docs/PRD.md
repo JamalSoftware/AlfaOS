@@ -3,12 +3,13 @@
 **Produto:** AlfaOS  
 **Documento:** PRD Mestre 2.0  
 **Objetivo:** Fonte principal de contexto funcional e técnico para desenvolvimento assistido por IA  
-**Status atual:** Baseline `v0.3-technician-execution` implementada, aguardando auditoria independente. `v0.4` (fechamento) não iniciada.  
+**Status atual:** Baseline `v0.5-receitanet-diagnostics` (commit `e4fc701`), auditada e endurecida. Core operacional fechado ponta a ponta: criação, atribuição, execução, fechamento com evidências e diagnóstico de conectividade.  
 **Arquitetura:** SaaS multiempresa preparado para múltiplos ERPs  
 **Primeiro cliente:** Alfa Telecom  
+**Premissa central:** o AlfaOS é o sistema de execução e gestão operacional das Ordens de Serviço. ERPs são origem, fonte de dados do cliente ou destino de sincronização — nunca o motor operacional. Ver Parte III (seções 121+).  
 **Produto futuro:** SaaS comercial para provedores de internet e empresas com equipes técnicas — plataforma operacional completa (Core + Field App + Technician Toolkit + Network Intelligence), não apenas um sistema de abertura/fechamento de OS.
 
-> Este documento representa a **visão do produto**. Ele não autoriza implementação automática de nenhuma funcionalidade — ver seção 119 "Princípio de Escopo". A Parte II (seções 72+) registra a visão de longo prazo com classificação explícita de prioridade; a Parte I (seções 1–71) permanece a base funcional/técnica do Core já em desenvolvimento.
+> Este documento representa a **visão do produto**. Ele não autoriza implementação automática de nenhuma funcionalidade — ver seção 119 "Princípio de Escopo". A Parte II (seções 72–120) registra a visão de longo prazo com classificação explícita de prioridade; a Parte I (seções 1–71) permanece a base funcional/técnica do Core já em desenvolvimento; a Parte III (seções 121+) fixa a propriedade da Ordem de Serviço e a posição dos ERPs na arquitetura.
 
 ---
 
@@ -359,6 +360,12 @@ Checkpoints existentes:
 v0.1-foundation
 v0.1.1-hardening
 v0.2-service-orders
+v0.2.1-audit-fixes
+v0.2.2-pre-v03-hardening
+v0.2.3-pre-v03-hardening
+v0.3-technician-execution
+v0.4-service-order-closing
+v0.5-receitanet-diagnostics
 ```
 
 ## v0.1-foundation
@@ -874,6 +881,8 @@ Nunca afirmar que endpoints do MockERP são endpoints do ReceitaNet.
 
 # 27. RECEITANET
 
+> **Superada quanto ao estado factual pela seção 129.** Esta seção descreve o que se sabia antes de os OpenAPI oficiais serem localizados. Mantida por rastreabilidade histórica; para o estado atual das APIs (URA, Chatbot, CallCenter, Central do Assinante) leia a seção 129. A seção 64 continua valendo integralmente.
+
 ReceitaNet será o primeiro ERP real integrado.
 
 Já foram identificadas APIs oficiais para funcionalidades relacionadas a:
@@ -1069,22 +1078,21 @@ Após conclusão permitir gerar comprovante contendo:
 
 # 35. VERSÃO 0.5 — RECEITANET
 
-Depois que documentação oficial estiver disponível:
+**Status: entregue como `v0.5-receitanet-diagnostics`, com escopo menor do que o planejado nesta seção.**
 
-```text
-v0.5-receitanet
-```
+O que a v0.5 entregou:
 
-Implementar:
+- fundação de integração (contrato, capabilities, normalização de erro, timeout);
+- diagnóstico de conectividade do cliente com snapshot preservado;
+- credenciais de ERP cifradas em AES-256-GCM, vinculadas a `(companyId, provider)`;
+- MockERP como provider funcional.
 
-- autenticação;
-- leitura;
-- importação;
-- atualização;
-- fechamento;
-- logs;
-- retries;
-- idempotência.
+O que **não** foi entregue, e por quê:
+
+- importação, atualização e fechamento contra o ReceitaNet real. Na época não havia documentação oficial; hoje há quatro OpenAPI (seção 129), mas nenhum deles oferece listagem de OS por empresa, delta sync ou webhook — ou seja, o mecanismo de descoberta de OS externa continua inexistente.
+- retries automáticos, deliberadamente adiados.
+
+A continuação está no roadmap revisado da seção 131.
 
 ---
 
@@ -1783,45 +1791,35 @@ Manutenibilidade > código descartável
 
 # 68. PRIORIDADE ATUAL DO PROJETO
 
-**Atualizado.** O projeto já passou de `v0.2-service-orders` → `v0.2.1-audit-fixes` → `v0.2.2-pre-v03-hardening` → `v0.2.3-pre-v03-hardening` → `v0.3-technician-execution` (commit `c852732`).
+**Atualizado.** A baseline vigente é `v0.5-receitanet-diagnostics` (commit `e4fc701`), auditada e endurecida. As versões v0.3, v0.4 e v0.5 foram concluídas e auditadas de forma independente.
 
-`v0.3-technician-execution` está **implementada, mas ainda aguarda auditoria independente**. Quem implementou não se autoavaliou como aprovado em segurança — essa é uma regra permanente do processo (ver seção 53, `CLAUDE AUDITOR`).
+A regra permanente do processo continua valendo: quem implementa não se autoavalia como aprovado em segurança (ver seção 53, `CLAUDE AUDITOR`).
 
-**Não iniciar `v0.4` até que a auditoria da v0.3 aprove (ou aprove com riscos aceitos) o resultado.**
+**Próxima etapa: `v0.5.1` — Pilot Readiness e fundação para OS próprias. Ver seção 131.**
 
 ---
 
 # 69. ROADMAP IMEDIATO
 
-Ordem oficial (atualizado — itens já concluídos marcados):
+> **Substituída pela seção 131 daqui para frente.** O histórico abaixo permanece por rastreabilidade; a ordem vigente é a da seção 131.
+
+Histórico concluído:
 
 ```text
 v0.2.1 → v0.2.3
 Correções da auditoria + endurecimento pré-v0.3     [CONCLUÍDO]
         ↓
 v0.3
-Execução do técnico                                  [IMPLEMENTADO — aguardando auditoria]
-        ↓
-Auditoria da v0.3                                     [PENDENTE]
+Execução do técnico                                  [CONCLUÍDO — auditado]
         ↓
 v0.4
-Fotos + materiais + assinatura + fechamento           [NÃO INICIADO]
-        ↓
-Auditoria
+Fotos + materiais + assinatura + fechamento          [CONCLUÍDO — auditado]
         ↓
 v0.5
-ReceitaNet
-        ↓
-Auditoria geral
-        ↓
-v1.0-RC
-        ↓
-Piloto de campo
-        ↓
-v1.0
+Fundação de ERP + diagnóstico de conectividade       [CONCLUÍDO — auditado]
 ```
 
-Ver também seção 118 (Roadmap Atualizado — Trilhas de Longo Prazo) para a visão que inclui Field App, Technician Toolkit e Network Intelligence além do Core.
+Continuação: **seção 131**. Ver também seção 118 (Roadmap Atualizado — Trilhas de Longo Prazo) para a visão que inclui Field App, Technician Toolkit e Network Intelligence além do Core.
 
 ---
 
@@ -2456,6 +2454,13 @@ Não classificar tudo como MVP. Classificação por módulo/bloco:
 | AlfaOS Core (empresas, usuários, técnicos, clientes, OS, máquina de estados) | MVP |
 | Execução do técnico (diagnóstico/serviço/observações — v0.3) | MVP |
 | Fechamento (fotos, materiais simples, assinatura, PDF — v0.4) | MVP |
+| OS própria do AlfaOS — origem INTERNAL (seções 122, 124) | MVP |
+| Importação de OS externa — origem EXTERNAL com idempotência (seções 122, 123) | IMPORTANTE |
+| Tipos de OS configuráveis por empresa — `ServiceOrderType` básico (seção 125) | IMPORTANTE |
+| Localização/enriquecimento de Customer via ERP (seção 128) | IMPORTANTE |
+| Recolhimento de equipamentos — fluxo completo (seção 126) | FUTURO |
+| Entrega de carnê — workflow com desfechos próprios (seção 127) | FUTURO |
+| Motor de regras por tipo de OS (checklist, obrigatoriedades dinâmicas) | FUTURO |
 | Identidade individual do técnico / desativação sem perda de histórico | MVP |
 | Integração ReceitaNet real | IMPORTANTE |
 | Cliente ausente / reagendamento | IMPORTANTE |
@@ -2490,21 +2495,27 @@ Uma funcionalidade classificada como DIFERENCIAL ou FUTURO **não** entra automa
 
 # 118. ROADMAP ATUALIZADO — TRILHAS DE LONGO PRAZO
 
-O roadmap imediato do Core está na seção 69. Esta seção mostra as quatro trilhas de longo prazo, que **não avançam em paralelo automaticamente** — cada uma só começa quando fizer sentido de produto e tiver escopo aprovado.
+O roadmap imediato do Core está na seção 131 (a seção 69 guarda o histórico). Esta seção mostra as quatro trilhas de longo prazo, que **não avançam em paralelo automaticamente** — cada uma só começa quando fizer sentido de produto e tiver escopo aprovado.
 
 ## Core 1.0
 
 ```text
-v0.3 Technician Execution (atual, aguardando auditoria)
+v0.3 Technician Execution                    [concluído]
  ↓
-v0.4 Fechamento e evidências
+v0.4 Fechamento e evidências                 [concluído]
  ↓
-v0.5 Integração ReceitaNet
+v0.5 Fundação de ERP + diagnóstico           [concluído]
+ ↓
+v0.5.1 Pilot Readiness + OS próprias
+ ↓
+v0.6 ReceitaNet Foundation (CallCenter read-only)
  ↓
 Pilot
  ↓
 Release AlfaOS 1.0
 ```
+
+Detalhamento na seção 131.
 
 ## Field App
 
@@ -2571,3 +2582,292 @@ O técnico deverá conseguir receber o atendimento, chegar ao cliente, diagnosti
 A plataforma deverá, ao mesmo tempo, fornecer à empresa rastreabilidade, segurança, produtividade, padronização e inteligência operacional.
 
 Esta visão final complementa — e não substitui — o "Princípio Final" da seção 71: qualidade continua sendo definida por confiabilidade, velocidade, simplicidade, segurança, experiência do técnico e integração correta com o ERP, não pela quantidade de funcionalidades implementadas.
+
+---
+
+# PARTE III — ARQUITETURA DE ORDEM DE SERVIÇO PRÓPRIA
+
+Registrada após a análise dos OpenAPI oficiais do ReceitaNet (URA, Chatbot, CallCenter e Central do Assinante). A Parte I (seções 1–71) permanece a base funcional/técnica do Core; a Parte II (72–120) registra a visão de longo prazo. A Parte III fixa uma decisão que as duas anteriores deixavam implícita: **de quem é a Ordem de Serviço**, e onde os ERPs se encaixam nisso.
+
+Nada da Parte II é removido ou rebaixado aqui. GPS e rotas (77–79), mapa dos atendimentos (79), diagnóstico rápido (80), Technician Toolkit e Wi-Fi Analyzer (82–88), QR/Barcode (89), estoque por técnico (90), modo offline (98), OLT/RADIUS/ACS (104–106), FiberMap (107), IA (108) e SaaS multiempresa (114) permanecem válidos com as mesmas classificações. A Parte III apenas define **onde** eles se encaixam: todos são capacidades do Core ou do Field App, consumidas através da API/Core (seção 130), nunca acopladas a um ERP específico (seção 81).
+
+---
+
+# 121. PREMISSA CENTRAL — PROPRIEDADE DA ORDEM DE SERVIÇO
+
+> **O AlfaOS é o sistema de execução e gestão operacional das Ordens de Serviço.**
+
+ERPs — ReceitaNet, SGP, IXC, HubSoft e outros — podem exercer um ou mais destes papéis:
+
+- origem de uma OS;
+- fonte de dados do cliente;
+- destino de sincronização;
+- qualquer combinação dos três.
+
+Nenhum deles é o motor operacional.
+
+**Regras de produto (normativas):**
+
+> **A origem da OS pode mudar; o motor de execução não.**
+
+> **O ERP pode ser origem ou destino da OS, mas não controla o motor operacional do AlfaOS.**
+
+Uma vez criada ou importada, a OS pertence ao domínio operacional do AlfaOS. Atribuição, máquina de estados, execução, evidências, concorrência e auditoria são decididas pelo Core — nunca pelo sistema externo.
+
+Consequência prática e verificável: a indisponibilidade de um ERP nunca pode impedir um técnico de iniciar, executar ou concluir um atendimento. Essa invariante já vale para diagnóstico (`docs/ERP-INTEGRATIONS.md` §10) e passa aqui a valer para toda a superfície de OS.
+
+---
+
+# 122. ORIGENS DA OS — INTERNAL E EXTERNAL
+
+Duas origens oficiais:
+
+```text
+INTERNAL   OS criada diretamente no AlfaOS
+EXTERNAL   OS importada/recebida de ERP ou outro sistema
+```
+
+Ambas usam o **mesmo** fluxo de execução:
+
+```text
+PENDING → ASSIGNED → IN_PROGRESS → COMPLETED
+```
+
+(`CANCELLED` conforme seções 19–20.)
+
+**Não criar máquina de estados por ERP.** Um fluxo por integração multiplicaria as transições a auditar, e cada integração nova viraria superfície de segurança nova em vez de um adapter. A origem é um **atributo** da OS, não um regime de execução.
+
+A origem é observável, não inferida: uma OS EXTERNAL é a que possui `external_provider` e `external_id` preenchidos (seção 15); uma OS INTERNAL não os possui.
+
+A origem pode restringir **o que a empresa edita** numa OS importada. Nunca restringe **como o técnico executa**.
+
+---
+
+# 123. IDENTIDADE EXTERNA E IDEMPOTÊNCIA
+
+Reforço da seção 15, agora com a consequência explícita para importação.
+
+Toda OS EXTERNAL preserva:
+
+```text
+AlfaOS internal ID   ← identidade primária, sempre
+company_id
+external_provider
+external_id
+```
+
+**`external_id` nunca vira primary key.** Ele não é único globalmente: o mesmo número em empresas diferentes são OS diferentes, e dois ERPs podem emitir o mesmo identificador.
+
+A tripla `(company_id, external_provider, external_id)` é o que garante **idempotência de importação** — reimportar não duplica, apenas atualiza os dados externos. Essa garantia é de banco (constraint de unicidade), não de código de aplicação; ver seção 24.
+
+---
+
+# 124. OS PRÓPRIA DO ALFAOS
+
+O AlfaOS cria OS independentemente de qualquer ERP. Isso não é plano B para quando a integração falha — é capacidade de produto de primeira classe, e hoje é a origem majoritária na prática (ver seção 129).
+
+Casos de uso iniciais — **exemplos, não enumeração fechada**:
+
+Instalação · Manutenção · Recolhimento de equipamentos · Entrega de carnê · Troca de equipamento · Troca de ONU · Troca de roteador · Mudança de endereço · Visita técnica · Vistoria · Visita preventiva · Retirada de cabo · Outros
+
+**Estes exemplos não devem virar enum rígido no schema.** Cada provedor tem seu vocabulário operacional, e um enum obrigaria uma migration a cada empresa nova — exatamente o acoplamento que a arquitetura multiempresa existe para evitar. O campo `type` da OS permanece texto (seção 17), evoluindo para referência a `ServiceOrderType` (seção 125).
+
+---
+
+# 125. SERVICEORDERTYPE — TIPOS CONFIGURÁVEIS POR EMPRESA **[IMPORTANTE]**
+
+Conceito: cada empresa define seu próprio catálogo de tipos de OS.
+
+```text
+ServiceOrderType
+ ├── company_id        (isolamento obrigatório)
+ ├── nome
+ ├── descrição
+ ├── ativo / inativo
+ └── ordem de exibição
+```
+
+**MVP do conceito: apenas o acima.** Nome, descrição, ativo, ordem. Nada mais.
+
+Campos previstos para evolução, **deliberadamente não projetados agora**:
+
+checklist · fotos obrigatórias · assinatura obrigatória · materiais esperados · equipamentos esperados · campos específicos · regras de conclusão
+
+Esses ficam registrados como **direção, não como especificação**. Cada um deles é uma regra que muda como a OS conclui — ou seja, mexe na máquina de estados e no fechamento, que são superfície crítica. Especificar tudo agora produziria um Dynamic Forms Engine antes de existir um único cliente usando tipos configuráveis, e o motor errado é mais caro de remover do que de não escrever.
+
+Desativar um tipo **não apaga histórico**: OS já criadas com ele permanecem íntegras, seguindo a mesma regra da desativação de técnico (seção 74).
+
+---
+
+# 126. RECOLHIMENTO DE EQUIPAMENTOS **[IMPORTANTE — fluxo FUTURO]**
+
+Caso de uso oficial.
+
+Fluxo futuro:
+
+```text
+OS
+ → equipamentos esperados
+ → técnico recolhe
+ → serial / QR
+ → estado do equipamento
+ → fotos
+ → assinatura
+ → estoque do técnico
+ → devolução ao estoque da empresa
+```
+
+Depende de Estoque por Técnico (seção 90, FUTURO) e de QR/Barcode (seção 89). **Nada de estoque é implementado por esta seção.** Ela existe para que o desenho de `ServiceOrderType` e o de materiais não inviabilizem o caso de uso por acidente.
+
+Atenção arquitetural desde já: recolhimento move **posse física** de um ativo entre três lugares — cliente → técnico → empresa. Isso é integridade de dados sob concorrência, não um formulário a mais.
+
+---
+
+# 127. ENTREGA DE CARNÊ **[IMPORTANTE — fluxo FUTURO]**
+
+Caso de uso oficial. É uma OS **sem serviço técnico**: o resultado é a entrega em si.
+
+Resultados possíveis:
+
+```text
+entregue
+cliente ausente
+endereço não localizado
+recusado
+```
+
+Pode exigir nome de quem recebeu, assinatura e evidência fotográfica.
+
+Esta seção registra uma lacuna real do modelo atual: hoje uma OS só conclui como `COMPLETED`. "Cliente ausente" e "endereço não localizado" são **desfechos legítimos e não são falha do técnico** — conectam-se com a seção 94 (cliente ausente) e a seção 95 (reagendamento). O desenho desses desfechos altera a máquina de estados e **não é decidido aqui**.
+
+---
+
+# 128. CLIENTE E ERP — LOCALIZAÇÃO E ENRIQUECIMENTO
+
+O `Customer` do AlfaOS (seção 14) **continua sendo entidade própria**. O ERP é fonte de dados, não dono do cadastro.
+
+Modelo:
+
+```text
+buscar no ERP       → nome | CPF/CNPJ | telefone
+importar/atualizar  → id externo, nome, endereço, plano,
+                      tecnologia, status do contrato, conectividade
+complementar        → o que o ERP não tem, o AlfaOS preenche
+```
+
+Dois pontos decorrem diretamente da análise das APIs (seção 129) e devem orientar o desenho:
+
+**Nenhum ERP entrega o cadastro completo.** Telefone, número do endereço e coordenadas não aparecem em nenhuma das APIs ReceitaNet analisadas. Um técnico precisa de endereço com número para chegar ao cliente. O enriquecimento é, portanto, **parcial por natureza** — o AlfaOS não pode tratar "sincronizado" como sinônimo de "cadastro completo".
+
+**Campo preenchido no AlfaOS não pode ser silenciosamente sobrescrito por sync.** Se um despachante corrigiu o número da casa que o ERP não tem, uma sincronização posterior não pode apagar a correção. A regra de precedência campo a campo é **decisão pendente** e precisa ser resolvida antes da primeira importação real de cliente.
+
+---
+
+# 129. ESTADO REAL DAS APIS RECEITANET
+
+**Esta seção substitui a seção 27 quanto ao estado factual.** A seção 64 (regra crítica) permanece integralmente válida.
+
+Foram localizados e lidos **quatro OpenAPI oficiais**:
+
+| API | OpenAPI | Autenticação |
+| --- | --- | --- |
+| URA | 3.0.3 | `app` + `token` no corpo JSON |
+| Chatbot | 3.0.3 | `token` + `app` em query string |
+| CallCenter | 3.0.3 | `token` em header HTTP |
+| Central do Assinante | 3.1.0 | Bearer JWT, escopado por cliente |
+
+**CallCenter é hoje a melhor candidata** para dados operacionais de cliente e diagnóstico: é a única com busca por nome, a única que devolve endereço junto da busca, a única com health check e a única com autenticação em header.
+
+**O que nenhuma das APIs públicas confirmou:**
+
+- listagem global de OS/chamados da empresa;
+- delta sync (filtro por data de criação ou alteração);
+- webhook;
+- callback de novas OS.
+
+**Consequência de produto — e ela é estrutural:**
+
+O AlfaOS **deve estar preparado para receber OS externa**; o modelo EXTERNAL (seção 122) existe exatamente para isso. Mas **não se deve afirmar que o ReceitaNet consegue hoje enviar todas as OS da empresa**, porque nenhuma API documentada oferece esse mecanismo.
+
+**Não inventar mecanismo.** Não tratar varredura cliente a cliente como equivalente a sincronização, não presumir webhook não documentado, não presumir endpoint privado. Enquanto o mecanismo de descoberta não existir e não estiver documentado, a origem prática de OS no AlfaOS é **INTERNAL**, e o EXTERNAL fica pronto e aguardando.
+
+Isso **reforça**, em vez de enfraquecer, a premissa da seção 121: o motor precisa ser do AlfaOS justamente porque não se pode depender do ERP nem para saber que uma OS existe.
+
+---
+
+# 130. ARQUITETURA OFICIAL — WEB, FIELD E CORE
+
+```text
+AlfaOS Web
+        │
+        ├──── AlfaOS API/Core ─── PostgreSQL
+        │              │
+AlfaOS Field           ├─ ReceitaNet
+                       ├─ SGP
+                       ├─ IXC
+                       └─ outros
+```
+
+## AlfaOS Web — centro de comando administrativo
+
+Perfis principais: **ADMIN**, **DISPATCHER** e **Gestor**, quando implementado.
+
+Responsabilidades: clientes · tipos de OS · criação de OS · importação de OS · atribuição · agenda · acompanhamento · evidências · relatórios · usuários e técnicos · integrações.
+
+## AlfaOS Field — aplicativo dedicado do técnico
+
+Tecnologia planejada: **Flutter**, **Android primeiro**, iOS posteriormente. Decisão registrada na seção 75; o alcance limitado descrito na seção 61 continua valendo integralmente — estar planejado aqui não autoriza implementação.
+
+Jornada:
+
+```text
+login → minhas OS → detalhe → navegação → iniciar
+      → diagnóstico → execução → fotos
+      → materiais/equipamentos → assinatura → concluir
+```
+
+O Field App **consome a mesma API/Core do painel Web**. **Não duplicar regra de negócio no aplicativo.** Regra duplicada é regra que diverge: a cópia do app fica para trás e a diferença aparece como falha de autorização em campo, não como erro de compilação.
+
+Offline é evolução posterior (seção 98).
+
+## O Core é a autoridade
+
+O Core — e somente ele — é autoridade sobre:
+
+```text
+tenancy
+ownership
+ServiceOrder state machine
+execução
+evidências
+auditoria
+concorrência
+idempotência
+```
+
+Web e Field são **clientes** dessa autoridade. Nenhum dos dois reimplementa qualquer item da lista. Nenhum ERP participa de qualquer item da lista.
+
+---
+
+# 131. ROADMAP REVISADO — INDICATIVO
+
+Substitui a ordem da seção 69 daqui para frente. **Indicativo, não promessa contratual** — a seção 119 se aplica a cada etapa.
+
+```text
+v0.5-receitanet-diagnostics                     [CONCLUÍDO — auditado e endurecido]
+        ↓
+v0.5.1
+Pilot Readiness + fundação para OS próprias
+        ↓
+v0.6
+ReceitaNet Foundation — CallCenter read-only
+        ↓
+Piloto
+1 técnico + OS reais
+        ↓
+Estabilização da API
+        ↓
+AlfaOS Field (Flutter)
+```
+
+Cada etapa exige escopo aprovado antes de virar código, e auditoria independente quando tocar superfície crítica.

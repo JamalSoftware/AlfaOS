@@ -11,35 +11,41 @@ do cliente chega até a tela. Complementa `docs/ARCHITECTURE.md` (camadas) e
 **Nenhuma capacidade.** Zero operações ReceitaNet estão implementadas nesta
 versão.
 
-### NOT CONFIRMED
+### DOCUMENTADO, NÃO IMPLEMENTADO
 
-Uma varredura completa do repositório em v0.5 não encontrou **nenhuma**
-documentação da API ReceitaNet: sem OpenAPI/Swagger, sem coleção Postman, sem
-PDF, sem exemplo de payload, sem descrição de autenticação, sem base URL.
+> **Atualização.** Quando esta seção foi escrita, uma varredura do repositório
+> em v0.5 não encontrou nenhuma documentação da API ReceitaNet. **Isso mudou:**
+> quatro OpenAPI oficiais foram depois localizados e lidos — URA, Chatbot,
+> CallCenter e Central do Assinante. O estado factual das APIs passou a ser
+> mantido em `docs/PRD.md` §129, que é a fonte de verdade sobre o que existe.
+>
+> A tabela abaixo continua correta no que ela realmente afirma: **nada disso
+> está implementado no AlfaOS**. Ela será reescrita capability a capability
+> quando o primeiro adapter real for construído, e não antes — reclassificar
+> linhas sem código correspondente só trocaria uma imprecisão por outra.
 
-Portanto, todas as capacidades abaixo estão **NOT CONFIRMED**:
+Capacidades **não implementadas** nesta versão:
 
 | Capacidade | Situação |
 | --- | --- |
-| Autenticação | NOT CONFIRMED |
-| Busca de cliente (nome) | NOT CONFIRMED |
-| Busca por CPF/CNPJ | NOT CONFIRMED |
-| Busca por telefone | NOT CONFIRMED |
-| Contratos | NOT CONFIRMED |
-| Chamado / OS | NOT CONFIRMED |
-| Status de conectividade | NOT CONFIRMED |
-| Teste de conectividade | NOT CONFIRMED |
-| Dados PPPoE | NOT CONFIRMED |
-| ONU / CPE | NOT CONFIRMED |
-| Financeiro | NOT CONFIRMED |
+| Autenticação | NÃO IMPLEMENTADO |
+| Busca de cliente (nome) | NÃO IMPLEMENTADO |
+| Busca por CPF/CNPJ | NÃO IMPLEMENTADO |
+| Busca por telefone | NÃO IMPLEMENTADO |
+| Contratos | NÃO IMPLEMENTADO |
+| Chamado / OS | NÃO IMPLEMENTADO |
+| Status de conectividade | NÃO IMPLEMENTADO |
+| Teste de conectividade | NÃO IMPLEMENTADO |
+| Dados PPPoE | NÃO IMPLEMENTADO |
+| ONU / CPE | NÃO IMPLEMENTADO |
+| Financeiro | NÃO IMPLEMENTADO |
 
-**Sobre o PRD §27.** Ele registra que APIs oficiais foram *identificadas como
-existentes* para clientes, chamados, contratos, dados da empresa, central do
-assinante e informações financeiras. Identificar que uma API existe não é ter o
-contrato dela: não dá endpoint, método, esquema de autenticação nem formato de
-resposta. O §64 fecha a questão — integração só se implementa com documentação
-oficial, Swagger/OpenAPI, Postman, informação oficial do suporte ou testes
-autorizados.
+**Histórico.** O PRD §27 registrava que APIs oficiais haviam sido
+*identificadas como existentes*, sem que se tivesse o contrato delas — sem
+endpoint, método, esquema de autenticação nem formato de resposta. Essa fase
+terminou: o contrato agora existe e está descrito no PRD §129. O §27 foi
+marcado como superado e o §64 permanece válido — nenhuma chamada se implementa
+fora do que a documentação oficial descreve.
 
 ### NOT IMPLEMENTED
 
@@ -72,12 +78,17 @@ invalida a credencial existente**, que precisará ser reconfigurada. Detalhe em
 `docs/SECURITY.md` §8.4.
 
 **Isso não desbloqueia a integração.** Credencial configurada não significa
-integração validada, ReceitaNet online nem autenticação confirmada — sem
-endpoint documentado não há contra o que autenticar, e a UI declara essa
-distinção explicitamente. O bloqueio remanescente é exclusivamente
-**documental**.
+integração validada, ReceitaNet online nem autenticação confirmada, e a UI
+declara essa distinção explicitamente.
 
-### O que fazer quando a documentação chegar
+O bloqueio remanescente **deixou de ser documental** — os endpoints agora estão
+documentados (`docs/PRD.md` §129). O que falta é implementação, mais duas
+decisões de arquitetura ainda em aberto: as quatro APIs usam transportes e
+credenciais distintos, e o AAD atual liga cada credencial a
+`(companyId, provider)`, o que não comporta credenciais simultâneas de APIs
+diferentes na mesma empresa. Ver `docs/SECURITY.md` §8.4.
+
+### Como implementar, agora que a documentação existe
 
 Implementar uma capability por vez e registrar aqui, para cada uma: fonte da
 confirmação, endpoint, método, autenticação, campos consumidos e mapping para

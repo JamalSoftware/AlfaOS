@@ -52,9 +52,9 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 
 ## Integrações (ERP)
 
-**Carregar:** `docs/ERP-INTEGRATIONS.md` — contrato/capabilities, modelo normalizado de diagnóstico, snapshot, modelo de erros, timeout, cenários do MockERP e o estado real (CONFIRMED / NOT CONFIRMED / NOT IMPLEMENTED) da integração ReceitaNet. O fluxo de sync de OS continua em `docs/SERVICE-ORDERS.md`.
+**Carregar:** `docs/ERP-INTEGRATIONS.md` — contrato/capabilities, modelo normalizado de diagnóstico, snapshot, modelo de erros, timeout, cenários do MockERP e o estado de implementação da integração ReceitaNet. O fluxo de sync de OS continua em `docs/SERVICE-ORDERS.md`.
 **Quando:** a tarefa envolve adapters de ERP, diagnóstico de conectividade do cliente, sincronização, ou a futura integração real com o ReceitaNet.
-**Quando NÃO:** tarefas que não tocam a camada de integração. **Antes de implementar qualquer chamada ReceitaNet**, ler a seção 1 desse documento: nenhuma capacidade está confirmada hoje, e o §64 do PRD proíbe implementar sem documentação oficial.
+**Quando NÃO:** tarefas que não tocam a camada de integração. **Antes de implementar qualquer chamada ReceitaNet**, ler `docs/PRD.md` §129 (estado real das APIs: URA, Chatbot, CallCenter e Central do Assinante, com OpenAPI oficiais localizados) e §121–§131 (propriedade da OS e posição dos ERPs). Nada está implementado ainda, e o §64 do PRD continua exigindo documentação oficial antes de qualquer chamada.
 
 ## Futuro Field App (Flutter)
 
