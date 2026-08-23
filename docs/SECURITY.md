@@ -428,10 +428,43 @@ para segurança:
   `CUSTOMER_DIAGNOSTIC.REFRESHED`, sem documento, telefone ou payload.
 - **Sem fallback silencioso**: empresa sem integração habilitada recebe
   `NOT_SUPPORTED`; dado de mock nunca é rotulado como ReceitaNet.
-- **Credenciais**: `ERPIntegration.apiKey` continua uma coluna plaintext **sem
-  uso em nenhum caminho de código**. Autenticação real de provider está
-  bloqueada até existir desenho de armazenamento seguro por tenant — ver
-  §10.
+- **Credenciais**: resolvido — ver §8.4.
+
+## 8.4. Armazenamento de credenciais de ERP
+
+- **AES-256-GCM** (`node:crypto`, sem dependência nova). GCM autentica: um
+  ciphertext adulterado falha no decrypt em vez de produzir um token errado que
+  seria enviado ao provedor.
+- **IV aleatório de 12 bytes por credencial**, nunca derivado de `companyId`
+  nem de contador. É isso que faz o mesmo token cifrado duas vezes gerar
+  ciphertexts diferentes — sem isso, quem lesse o banco saberia que duas
+  empresas configuraram a mesma credencial.
+- **Chave mestra em `ERP_CREDENTIAL_ENCRYPTION_KEY`**, apenas em variável de
+  ambiente. Nunca no banco, nunca no Git, nunca em log ou mensagem de erro.
+  Deve decodificar (base64) para exatamente 32 bytes; se estiver presente e
+  malformada, `validateEnv()` falha no boot. Ausente é permitido — a aplicação
+  roda normalmente, mas operações de credencial falham **fechadas** (503).
+- **Nunca há fallback para plaintext.** A cifragem acontece antes da escrita:
+  chave ausente aborta com nada persistido. Teste de regressão confirma que o
+  banco não contém o token nem na coluna legacy.
+- **`apiKey` é legacy/deprecated**: nenhum fluxo escreve nela, conteúdo
+  preexistente **não** é migrado automaticamente (proveniência desconhecida), e
+  ela é limpa sempre que uma credencial nova é salva.
+- **Nenhum endpoint devolve o token**, para nenhum perfil. A leitura expõe
+  apenas `provider`, `configured`, `last4` e `updatedAt`. O token não entra em
+  props de Server Component nem no HTML da página — verificado por E2E que
+  inspeciona `page.content()` após salvar e após reload.
+- **Somente ADMIN** salva/substitui/remove; DISPATCHER e TECHNICIAN recebem
+  403, não autenticado recebe 401, e `companyId` vem sempre da sessão.
+- **AuditLog** registra `ERP_CREDENTIAL_SAVED` / `_REPLACED` / `_REMOVED` com
+  provider e ator — nunca token, ciphertext, IV, tag ou o `last4`.
+- **Remoção não depende da chave**: apagar um segredo não pode exigir
+  conseguir lê-lo.
+- **Credencial configurada ≠ conexão validada.** Sem documentação oficial não
+  há endpoint contra o qual validar, e a UI declara essa distinção
+  explicitamente em vez de sugerir que a integração funciona.
+- **Rotação da chave mestra invalida todas as credenciais cifradas** — elas
+  precisam ser reconfiguradas. Registrado no `.env.example`.
 
 ## 9. Configuração de produção
 
@@ -458,15 +491,11 @@ para segurança:
 - Fluxo de recuperação de administrador (CLI/console de suporte). Hoje o
   travamento é apenas **prevenido** (seção 12); não existe caminho de
   recuperação se uma empresa ficar sem ADMIN ativo por outro meio.
-- **Armazenamento seguro de credenciais de ERP por empresa.** `ERPIntegration
-  .apiKey` é uma coluna plaintext, hoje **não usada por nenhum caminho de
-  código**, sem cifragem em repouso, rotação ou gestão de chave por tenant.
-  Enquanto isso não existir, nenhuma integração real que exija credencial pode
-  subir — guardar token de provider ali seria o "segredo plaintext no banco sem
-  arquitetura deliberada" que este documento proíbe. Bloqueia a autenticação
-  real do ReceitaNet independentemente da documentação da API. Não improvisar
-  cifragem caseira: a decisão (KMS, envelope encryption, secret manager
-  externo) precisa ser tomada explicitamente.
+- ~~Armazenamento seguro de credenciais de ERP por empresa.~~ **Feito** — ver
+  §8.4 (AES-256-GCM, chave mestra em ambiente, falha fechada). Resta como
+  evolução: rotação de chave sem reconfiguração manual (envelope encryption com
+  DEK por credencial, ou KMS/secret manager externo), e remoção definitiva da
+  coluna legacy `apiKey` numa migration destrutiva futura.
 
 ## 11. Vulnerabilidades de dependências (risco aceito/adiado)
 

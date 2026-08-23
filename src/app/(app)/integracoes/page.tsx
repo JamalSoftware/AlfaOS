@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { requirePageProfile } from "@/lib/guards";
 import { prisma } from "@/lib/prisma";
+import { getCredentialStatus } from "@/lib/erp-credentials";
 import { TestConnectionButton } from "./TestConnectionButton";
 import { IntegrationToggle } from "./IntegrationToggle";
+import { ErpCredentialForm } from "./ErpCredentialForm";
 
 export const metadata: Metadata = {
   title: "Integrações",
@@ -49,6 +51,7 @@ export default async function IntegrationsPage() {
   });
 
   const enabled = integration?.enabled ?? false;
+  const credential = await getCredentialStatus(session.companyId);
 
   return (
     <div>
@@ -100,10 +103,25 @@ export default async function IntegrationsPage() {
         </dl>
 
         <TestConnectionButton />
-        <p className="mt-3 text-xs text-slate-500">
+        <p className="mb-5 mt-3 text-xs text-slate-500">
           O teste de conexão verifica a conectividade com o ERP, mas não
           habilita a integração. A habilitação é uma ação separada e explícita.
         </p>
+
+        {/*
+          Only the STATUS crosses to the client — provider, a boolean, the last
+          four characters and a timestamp. The token itself never reaches this
+          payload, so it is not in the page's HTML either.
+        */}
+        <ErpCredentialForm
+          initialStatus={{
+            provider: credential.provider,
+            configured: credential.configured,
+            last4: credential.last4,
+            updatedAt: credential.updatedAt?.toISOString() ?? null,
+            encryptionAvailable: credential.encryptionAvailable,
+          }}
+        />
       </div>
 
       <div className="mt-6 max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

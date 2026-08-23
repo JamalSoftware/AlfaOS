@@ -426,11 +426,35 @@ model ERPIntegration {
   provider       ERPProvider @default(MOCK)
   name           String      @default("Mock ERP")
   baseUrl        String?
+  /// DEPRECATED — plaintext, never written by any code path.
+  ///
+  /// Kept only because dropping a column is a destructive migration. No flow
+  /// reads or writes it; credentials live in the `credential*` fields below,
+  /// encrypted. Existing content (if any) is NOT migrated: its provenance is
+  /// unknown, and silently re-encrypting an unverified plaintext value would
+  /// launder it into looking managed. A later migration may drop it.
   apiKey         String?
   config         Json?
   enabled        Boolean     @default(false)
   lastTestedAt   DateTime?
   lastTestStatus String?
+
+  /// AES-256-GCM ciphertext of the ERP token, base64. Never rendered, never
+  /// returned by an API, never logged.
+  credentialCiphertext String?
+  /// Random 12-byte nonce, base64. Fresh per encryption — reusing one under
+  /// the same key breaks GCM catastrophically.
+  credentialIv         String?
+  /// GCM authentication tag, base64. Its verification on decrypt is what makes
+  /// a tampered ciphertext fail instead of decrypting to garbage.
+  credentialAuthTag    String?
+  /// Last 4 characters of the plaintext token, stored separately purely so an
+  /// operator can recognize WHICH credential is configured. Four characters
+  /// are not enough to reconstruct a token and this is the only fragment ever
+  /// shown.
+  credentialLast4      String?
+  credentialUpdatedAt  DateTime?
+
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 

@@ -51,5 +51,38 @@ export function validateEnv(): ValidatedEnv {
     );
   }
 
+  validateErpCredentialKey();
+
   return { nodeEnv, databaseUrl, authSecret };
+}
+
+/** AES-256 key length, in bytes. */
+const ERP_CREDENTIAL_KEY_BYTES = 32;
+
+/**
+ * Validates the ERP credential master key IF it is set.
+ *
+ * Deliberately optional: AlfaOS runs fine without any ERP credential
+ * configured, so demanding this at boot would block every deployment that does
+ * not use one. What must not happen is a key that LOOKS configured but is the
+ * wrong size — that would only surface at the first save attempt, which is the
+ * worst moment to discover it. So: absent is fine, present-and-malformed fails
+ * fast.
+ *
+ * The value itself is never printed, only its decoded length.
+ */
+function validateErpCredentialKey(): void {
+  const raw = process.env.ERP_CREDENTIAL_ENCRYPTION_KEY;
+  if (!raw || raw.trim() === "") {
+    return;
+  }
+
+  const decoded = Buffer.from(raw, "base64");
+  if (decoded.length !== ERP_CREDENTIAL_KEY_BYTES) {
+    throw new Error(
+      `ERP_CREDENTIAL_ENCRYPTION_KEY deve decodificar (base64) para exatamente ` +
+        `${ERP_CREDENTIAL_KEY_BYTES} bytes (recebido: ${decoded.length}). ` +
+        "Gere uma chave válida com: openssl rand -base64 32",
+    );
+  }
 }

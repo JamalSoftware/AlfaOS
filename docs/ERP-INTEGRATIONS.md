@@ -53,13 +53,22 @@ irrelevante para esse provider. Recusar explicitamente mostra o estado real.
 
 ### Bloqueio adicional: credenciais
 
-Mesmo com documentação, autenticação real não subiria hoje.
-`ERPIntegration.apiKey` é uma coluna **plaintext**, hoje sem uso em nenhum
-caminho de código, sem cifragem em repouso, sem rotação e sem gestão de chave
-por tenant. Guardar credencial real de provider ali seria exatamente o "token
-plaintext no banco sem arquitetura deliberada" que `docs/SECURITY.md` proíbe.
+O bloqueio anterior — *LIVE RECEITANET AUTH BLOCKED BY CREDENTIAL STORAGE
+DESIGN* — foi **resolvido**. Um ADMIN configura o token/API Key da própria
+empresa pela tela de Integrações; o valor é cifrado com AES-256-GCM sob a chave
+mestra `ERP_CREDENTIAL_ENCRYPTION_KEY`. Detalhe em `docs/SECURITY.md` §8.4.
 
-**Status: LIVE RECEITANET AUTH BLOCKED BY CREDENTIAL STORAGE DESIGN.**
+`ERPCredentialService` (`src/lib/erp-credentials.ts`) é o único caminho de
+escrita e leitura. `getCredential(companyId)` devolve o token em claro
+**server-side apenas**, para que um adapter futuro autentique sem saber como o
+segredo é armazenado. A coluna `apiKey` permanece apenas como legacy: nada a
+escreve, conteúdo preexistente não é migrado, e ela é limpa a cada save.
+
+**Isso não desbloqueia a integração.** Credencial configurada não significa
+integração validada, ReceitaNet online nem autenticação confirmada — sem
+endpoint documentado não há contra o que autenticar, e a UI declara essa
+distinção explicitamente. O bloqueio remanescente é exclusivamente
+**documental**.
 
 ### O que fazer quando a documentação chegar
 

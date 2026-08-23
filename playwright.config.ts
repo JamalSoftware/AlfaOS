@@ -9,6 +9,17 @@ const E2E_AUTH_SECRET =
   "e2e-secret-0123456789abcdefghijklmnopqrstuvwxyz";
 
 /**
+ * Throwaway AES-256 key so the E2E server can encrypt ERP credentials.
+ *
+ * Test-only, with no production meaning — the real key is operator-supplied
+ * and never committed (see `.env.example`). Fixed rather than random so a
+ * credential saved in one spec is still readable later in the same run.
+ */
+const E2E_CREDENTIAL_KEY =
+  process.env.E2E_CREDENTIAL_KEY ??
+  "ZTJlLW9ubHktYWVzMjU2LWtleS0zMi1ieXRlcyEhISE=";
+
+/**
  * Dedicated port, NOT 3000.
  *
  * The suite used to share :3000 with `npm run dev`, and `reuseExistingServer`
@@ -60,6 +71,7 @@ export default defineConfig({
       DATABASE_URL: E2E_DATABASE_URL,
       AUTH_SECRET: E2E_AUTH_SECRET,
       SESSION_COOKIE_NAME: "alfaos_session",
+      ERP_CREDENTIAL_ENCRYPTION_KEY: E2E_CREDENTIAL_KEY,
       NEXT_TELEMETRY_DISABLED: "1",
       PORT: E2E_PORT,
     },
