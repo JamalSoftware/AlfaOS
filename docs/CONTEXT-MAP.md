@@ -27,6 +27,11 @@ Regra geral: leia a seção "Sempre" em toda sessão nova, depois **só** as se�
 **Quando:** a tarefa toca autenticação, autorização, rate limit, CSRF, mass assignment, concorrência/lock otimista, ou qualquer coisa de superfície crítica.
 **Quando NÃO:** mudança sem implicação de autorização ou dado sensível (ex.: texto de label, cor de botão, copy de UI).
 
+**Skill de auditoria:** `.claude/skills/alfaos-security-review/SKILL.md` — o método adversarial do projeto (invariantes, severidade, evidência, template de relatório).
+* **Carregar quando:** auditoria adversarial, segurança, multi-tenancy, ownership, concorrência, transações críticas ou gate de release de versão.
+* **NÃO carregar para:** UI, CRUD comum, documentação normal, ou qualquer tarefa sem implicação de segurança/integridade.
+* **Manutenção:** se um invariante de segurança relevante do `CLAUDE.md` mudar, revisar essa skill na mesma tarefa — as duas descrevem a mesma regra sob papéis diferentes (`CLAUDE.md` proíbe violar; a skill ensina a tentar violar) e podem divergir em silêncio.
+
 ## Service Orders / Execução do técnico
 
 **Carregar:** `docs/SERVICE-ORDERS.md`; e `docs/TECHNICIAN-EXECUTION.md` se a tarefa envolver o fluxo de atendimento do técnico (iniciar atendimento, diagnóstico, serviço realizado, observações).
@@ -42,6 +47,8 @@ Regra geral: leia a seção "Sempre" em toda sessão nova, depois **só** as se�
 
 **Quando:** a tarefa é uma nova rodada de auditoria, ou precisa entender o que já foi encontrado/corrigido antes de mexer numa área historicamente sensível.
 **Quando NÃO:** implementação de feature nova sem relação com achados anteriores.
+
+Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill descrita na seção Segurança.
 
 ## Integrações (ERP)
 
