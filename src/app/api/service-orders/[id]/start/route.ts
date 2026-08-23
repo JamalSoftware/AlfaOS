@@ -3,6 +3,7 @@ import { z } from "zod";
 import { assertProfile, jsonError, jsonOk, runApi } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getSessionUser } from "@/lib/session";
+import { expectedVersionSchema } from "@/lib/version";
 import { startServiceOrder } from "@/lib/service-orders";
 
 /**
@@ -26,7 +27,7 @@ const startSchema = z
      * primeiro dia. Sem ela não há como distinguir "iniciar a OS que eu vi" de
      * "iniciar seja lá o que a OS for agora".
      */
-    expectedVersion: z.number().int().min(0),
+    expectedVersion: expectedVersionSchema,
   })
   .strict();
 

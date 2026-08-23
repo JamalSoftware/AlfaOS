@@ -38,6 +38,23 @@ enum ServiceOrderSource {
   IMPORTED
 }
 
+/// Kind of evidence attached to a service order. Only PHOTO is produced in
+/// v0.4; the enum exists so later kinds (documents, video) do not need a
+/// breaking change to the evidence table.
+enum EvidenceKind {
+  PHOTO
+}
+
+/// Unit of a material declared as used on a service order. Deliberately a
+/// short fixed list, not a catalogue: v0.4 records what the technician says
+/// was consumed, it does not manage stock.
+enum MaterialUnit {
+  UNIT
+  METER
+  KILOGRAM
+  LITER
+}
+
 model Company {
   id        String   @id @default(cuid())
   name      String
@@ -53,6 +70,9 @@ model Company {
   serviceOrders          ServiceOrder[]
   serviceOrderEvents     ServiceOrderEvent[]
   serviceOrderExecutions ServiceOrderExecution[]
+  serviceOrderEvidences  ServiceOrderEvidence[]
+  serviceOrderMaterials  ServiceOrderMaterialUsage[]
+  serviceOrderSignatures ServiceOrderSignature[]
 
   @@map("companies")
 }
@@ -84,6 +104,9 @@ model User {
   auditLogs          AuditLog[]
   technicians        Technician[]
   serviceOrderEvents ServiceOrderEvent[]
+  uploadedEvidences  ServiceOrderEvidence[]      @relation("EvidenceUploader")
+  createdMaterials   ServiceOrderMaterialUsage[] @relation("MaterialCreator")
+  capturedSignatures ServiceOrderSignature[]     @relation("SignatureCapturer")
 
   @@index([companyId])
   @@index([email])
@@ -175,6 +198,9 @@ model ServiceOrder {
 
   events    ServiceOrderEvent[]
   execution ServiceOrderExecution?
+  evidences ServiceOrderEvidence[]
+  materials ServiceOrderMaterialUsage[]
+  signature ServiceOrderSignature?
 
   @@unique([companyId, externalProvider, externalId])
   @@index([companyId, status])
@@ -236,6 +262,89 @@ model ServiceOrderExecution {
 
   @@index([companyId])
   @@map("service_order_executions")
+}
+
+/// A file attached to a service order as proof of the work done (v0.4: photos).
+///
+/// The binary NEVER lives here — only `storageKey`, an opaque server-generated
+/// handle resolved through `FileStorageContract`. Postgres stores metadata; the
+/// bytes stay in the storage adapter, so swapping local disk for S3/R2 later
+/// touches one adapter and no rows.
+///
+/// `companyId` is denormalized for the same reason as on the execution: every
+/// read and delete filters by tenant in SQL, so knowing an evidence id or a
+/// storageKey is never enough to reach another company's file.
+model ServiceOrderEvidence {
+  id               String       @id @default(cuid())
+  companyId        String
+  company          Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  serviceOrderId   String
+  serviceOrder     ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  uploadedByUserId String?
+  uploadedBy       User?        @relation("EvidenceUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  kind             EvidenceKind @default(PHOTO)
+  /// Opaque storage handle generated server-side. Never derived from the
+  /// client-supplied filename — that is what keeps `../` out of the path.
+  storageKey       String       @unique
+  /// The name the client sent, kept for display only. Never used to build a path.
+  originalName     String
+  mimeType         String
+  sizeBytes        Int
+  createdAt        DateTime     @default(now())
+
+  @@index([serviceOrderId, createdAt])
+  @@index([companyId])
+  @@map("service_order_evidences")
+}
+
+/// A material the technician declares as used on this order.
+///
+/// This is NOT stock control: nothing is reserved, decremented or reconciled
+/// against an inventory. It records what was consumed on this visit, which is
+/// what the closing report needs.
+model ServiceOrderMaterialUsage {
+  id              String       @id @default(cuid())
+  companyId       String
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  serviceOrderId  String
+  serviceOrder    ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  description     String
+  /// Decimal, not Int: "15,5 m de cabo drop" is a real field entry. 10.3 gives
+  /// room for length in metres without float rounding surprises.
+  quantity        Decimal      @db.Decimal(10, 3)
+  unit            MaterialUnit @default(UNIT)
+  createdByUserId String?
+  createdBy       User?        @relation("MaterialCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([serviceOrderId, createdAt])
+  @@index([companyId])
+  @@map("service_order_material_usages")
+}
+
+/// The customer's signature accepting the work, captured on the technician's
+/// device and stored as an image through `FileStorageContract`.
+///
+/// At most one per order in v0.4, enforced by the database (`serviceOrderId
+/// @unique`). Replacing it while IN_PROGRESS overwrites the row rather than
+/// accumulating rows, so "the signature" is unambiguous at closing time.
+model ServiceOrderSignature {
+  id               String       @id @default(cuid())
+  companyId        String
+  company          Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  serviceOrderId   String       @unique
+  serviceOrder     ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  signerName       String
+  storageKey       String       @unique
+  mimeType         String
+  sizeBytes        Int
+  signedAt         DateTime     @default(now())
+  capturedByUserId String?
+  capturedBy       User?        @relation("SignatureCapturer", fields: [capturedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@map("service_order_signatures")
 }
 
 model AuditLog {

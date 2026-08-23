@@ -106,6 +106,7 @@ export interface PublicServiceOrder {
   scheduledAt: Date | null;
   assignedAt: Date | null;
   startedAt: Date | null;
+  completedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   /**
@@ -192,6 +193,7 @@ export function toPublicServiceOrder(order: {
   scheduledAt: Date | null;
   assignedAt: Date | null;
   startedAt: Date | null;
+  completedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   version: number;
@@ -217,6 +219,7 @@ export function toPublicServiceOrder(order: {
     scheduledAt: order.scheduledAt,
     assignedAt: order.assignedAt,
     startedAt: order.startedAt,
+    completedAt: order.completedAt,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
     version: order.version,
@@ -906,7 +909,9 @@ export const EXECUTION_EDITABLE_FIELDS = [
 
 export type ExecutionEditableField = (typeof EXECUTION_EDITABLE_FIELDS)[number];
 
-type ExecutionTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+export type ExecutionTx = Parameters<
+  Parameters<typeof prisma.$transaction>[0]
+>[0];
 
 /**
  * Resolves WHICH technician is acting, from the session user alone.
@@ -919,7 +924,7 @@ type ExecutionTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
  * gets the same 404 an unknown order would produce — no signal about whether
  * the order exists.
  */
-async function resolveActingTechnician(
+export async function resolveActingTechnician(
   tx: ExecutionTx,
   companyId: string,
   actorUserId: string,
@@ -959,7 +964,7 @@ async function resolveActingTechnician(
  * should not be able to learn. Same choice already made by
  * `GET /api/service-orders/[id]`.
  */
-async function loadOwnedServiceOrder(
+export async function loadOwnedServiceOrder(
   tx: ExecutionTx,
   companyId: string,
   technicianId: string,

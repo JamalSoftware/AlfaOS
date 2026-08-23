@@ -3,6 +3,7 @@ import { z } from "zod";
 import { assertProfile, jsonError, jsonOk, runApi } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getSessionUser } from "@/lib/session";
+import { expectedVersionSchema } from "@/lib/version";
 import { assignTechnician } from "@/lib/service-orders";
 
 const STAFF_PROFILES = [AccessProfile.ADMIN, AccessProfile.DISPATCHER];
@@ -18,7 +19,7 @@ const assignSchema = z
      * versão corrente e aceita) é preservado, então nenhum chamador existente
      * quebra.
      */
-    expectedVersion: z.number().int().min(0).optional(),
+    expectedVersion: expectedVersionSchema.optional(),
   })
   .strict();
 

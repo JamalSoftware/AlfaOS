@@ -160,6 +160,24 @@ ReceitaNet real.
     recurso alheio.
   - Ver [TECHNICIAN-EXECUTION.md](TECHNICIAN-EXECUTION.md).
 
+### Fechamento da OS (v0.4)
+
+- Modelos novos: `ServiceOrderEvidence`, `ServiceOrderMaterialUsage`,
+  `ServiceOrderSignature` (este 1:1 com a OS, garantido por
+  `serviceOrderId @unique`). Os três desnormalizam `companyId` para permitir
+  filtro de tenant em SQL, como a execução.
+- **Binários não vão para o Postgres.** O domínio guarda `storageKey` e passa
+  por `FileStorageContract`; `LocalFileStorageAdapter` é a implementação atual.
+  Trocar por S3/R2/MinIO é escrever um adapter — schema e regras não mudam.
+- A chave é gerada no servidor a partir de ids e do mime **validado**, nunca do
+  nome enviado pelo cliente.
+- **Claim**: toda mutação de filho faz compare-and-set na própria `ServiceOrder`
+  (`status = IN_PROGRESS AND version = expectedOrderVersion`) e incrementa a
+  versão, na mesma transação da escrita do filho. É isso que dá um vencedor
+  único em `child × complete`.
+- `completeServiceOrder` aplica **dois** compare-and-set (execução, depois OS).
+- Ver [SERVICE-ORDER-CLOSING.md](SERVICE-ORDER-CLOSING.md).
+
 ## Multi-tenancy
 
 - Toda consulta parte de `session.companyId`.

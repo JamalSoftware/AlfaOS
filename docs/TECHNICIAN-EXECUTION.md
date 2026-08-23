@@ -284,8 +284,13 @@ estados operacionais distintos — trabalho apenas entregue a alguém vs. trabal
 sendo feito agora. Até a v0.3 nada alcançava `IN_PROGRESS`, então o número era
 na prática "atribuídas" com o rótulo errado.
 
-## 12. Fora do escopo deste checkpoint
+## 12. Continuação e fora do escopo
 
-Fechamento da OS (fotos, anexos, materiais, assinatura do cliente, validações,
-`COMPLETED`, `completedAt`, PDF/comprovante), pausa/retomada, GPS, estoque,
-ReceitaNet real, WhatsApp/notificações, OLT, IA e offline avançado.
+O fechamento (`IN_PROGRESS → COMPLETED`, com fotos, materiais e assinatura) foi
+implementado na v0.4 — ver `docs/SERVICE-ORDER-CLOSING.md`. Consequência direta
+para este documento: uma OS `COMPLETED` deixa de aceitar qualquer escrita do
+técnico, inclusive a edição da execução descrita na §5.
+
+Continuam fora do escopo: PDF/comprovante, reabertura/devolução, pausa/retomada,
+GPS, estoque, ReceitaNet real, WhatsApp/notificações, OLT, IA e offline
+avançado.

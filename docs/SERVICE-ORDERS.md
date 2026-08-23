@@ -184,8 +184,18 @@ Resumo; o documento completo é
 Todas as rotas novas usam Zod `.strict()`, exigem sessão com perfil adequado
 e são isoladas por `companyId`.
 
-## 7. Fora do escopo deste checkpoint
+## 7. Fechamento (v0.4)
 
-Fechamento de OS (fotos, materiais, assinatura, validações, `COMPLETED`, PDF),
-pausa/retomada, estoque, notificações/WhatsApp, GPS, OLT, IA, e a integração
-real com a ReceitaNet (aguarda documentação oficial).
+`IN_PROGRESS → COMPLETED`, com evidências, materiais e assinatura, está
+implementado — ver `docs/SERVICE-ORDER-CLOSING.md`. Resumo do que muda aqui:
+
+- `completedAt` passa a ser preenchido, e `OS_COMPLETED` entra na timeline.
+- Toda mutação de filho da OS (evidência, material, assinatura) participa do
+  lock otimista da própria OS, incrementando `ServiceOrder.version`.
+- Depois de `COMPLETED` a OS é imutável para o técnico.
+
+## 8. Fora do escopo deste checkpoint
+
+PDF/comprovante, reabertura/devolução de OS, pausa/retomada, estoque e baixa
+automática, notificações/WhatsApp, GPS, OLT, IA, e a integração real com a
+ReceitaNet (aguarda documentação oficial).

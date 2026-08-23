@@ -367,6 +367,38 @@ Detalhes completos em [TECHNICIAN-EXECUTION.md](TECHNICIAN-EXECUTION.md).
   evento de timeline (só `OS_STARTED` gera), para não afogar os marcos reais em
   ruído de autosave.
 
+## 8.2. Proteção do fechamento e dos uploads (v0.4-service-order-closing)
+
+Detalhe completo em [SERVICE-ORDER-CLOSING.md](SERVICE-ORDER-CLOSING.md); o que
+importa para segurança:
+
+- **Uploads não confiam no cliente.** O tipo real vem dos *magic bytes* e
+  precisa coincidir com o tipo declarado; só o header é falsificável, e só o
+  sniffing aceitaria um JPEG declarado como executável. SVG e HTML são
+  recusados — ambos executam script na origem da aplicação.
+- **A storage key é gerada no servidor** (`<companyId>/<orderId>/<uuid>.<ext>`),
+  com extensão derivada do mime validado. O nome enviado nunca toca o caminho,
+  então `../../../etc/passwd.png` não escapa. O adapter revalida a chave contra
+  um padrão restrito e confirma que o caminho resolvido continua sob a raiz.
+- **Nenhuma URL pública para arquivo privado.** Os bytes só saem por rota
+  autorizada, após sessão + tenant + ownership, com
+  `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` e
+  `Cache-Control: private, no-store`. Conhecer `storageKey` ou id não basta.
+- **Limites**: 8 MB por imagem, 10 imagens por OS, 2 MB por assinatura.
+- **Concorrência**: toda mutação de filho faz compare-and-set na `ServiceOrder`
+  antes de escrever, e o fechamento faz dois (execução e OS). Verificar status
+  em código antes de inserir não bastaria — entre a checagem e o insert a OS
+  pode fechar.
+- **Imutabilidade**: depois de `COMPLETED`, toda escrita do técnico é recusada
+  com 409 e a UI não renderiza controle de escrita algum.
+- **Auditoria sem vazar conteúdo**: os eventos de evidência/material/assinatura
+  registram IDs e metadata mínima — nunca bytes de imagem, assinatura ou texto
+  livre. Só `OS_COMPLETED` entra na timeline.
+- **Validação de versão centralizada**: `expectedVersionSchema` rejeita valores
+  acima do teto do `integer` do Postgres na fronteira (400), fechando o LOW em
+  que um valor fora da faixa virava 500 vindo do driver. Aplicado também
+  retroativamente em `/start`, `/execution` e `/assign`.
+
 ## 9. Configuração de produção
 
 1. Gere um `AUTH_SECRET` forte: `openssl rand -base64 48`.

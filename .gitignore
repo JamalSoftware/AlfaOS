@@ -38,3 +38,6 @@ next-env.d.ts
 test-results/
 playwright-report/
 coverage/
+
+# local file storage (evidence photos, signatures) — runtime data, never source
+.storage/

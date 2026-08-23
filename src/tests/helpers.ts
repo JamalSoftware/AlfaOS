@@ -9,6 +9,9 @@ const PASSWORD_HASH = bcrypt.hashSync(TEST_PASSWORD, 10);
 const COOKIE_NAME = "alfaos_session";
 
 export async function resetDatabase(): Promise<void> {
+  await prisma.serviceOrderEvidence.deleteMany();
+  await prisma.serviceOrderMaterialUsage.deleteMany();
+  await prisma.serviceOrderSignature.deleteMany();
   await prisma.serviceOrderExecution.deleteMany();
   await prisma.serviceOrderEvent.deleteMany();
   await prisma.serviceOrder.deleteMany();

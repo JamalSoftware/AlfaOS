@@ -3,6 +3,7 @@ import { z } from "zod";
 import { assertProfile, jsonError, jsonOk, runApi } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getSessionUser } from "@/lib/session";
+import { expectedVersionSchema } from "@/lib/version";
 import {
   EXECUTION_TEXT_MAX_LENGTH,
   updateServiceOrderExecution,
@@ -33,7 +34,7 @@ const executionText = z
  */
 const executionSchema = z
   .object({
-    expectedVersion: z.number().int().min(0),
+    expectedVersion: expectedVersionSchema,
     diagnosis: executionText,
     workPerformed: executionText,
     notes: executionText,

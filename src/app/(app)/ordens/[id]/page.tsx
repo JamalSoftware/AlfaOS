@@ -13,9 +13,12 @@ import {
 } from "@/lib/service-orders";
 import { listActiveTechnicianOptions } from "@/lib/technicians";
 import { PriorityBadge, StatusBadge } from "@/components/OrderBadges";
+import { getServiceOrderClosingBundle } from "@/lib/service-order-closing";
 import { AssignTechnicianForm } from "@/components/AssignTechnicianForm";
 import { ServiceOrderExecutionForm } from "@/components/ServiceOrderExecutionForm";
 import { StartServiceOrderButton } from "@/components/StartServiceOrderButton";
+import { ServiceOrderClosingPanel } from "@/components/ServiceOrderClosingPanel";
+import { ServiceOrderClosingReadOnly } from "@/components/ServiceOrderClosingReadOnly";
 
 export const metadata: Metadata = {
   title: "Detalhes da OS",
@@ -28,7 +31,20 @@ const EVENT_LABELS: Record<string, string> = {
   TECHNICIAN_CHANGED: "Técnico alterado",
   SERVICE_ORDER_STATUS_CHANGED: "Status alterado",
   OS_STARTED: "Atendimento iniciado",
+  OS_COMPLETED: "Atendimento concluído",
 };
+
+/** Elapsed time between start and close, shown on a closed order. */
+function formatDuration(start: Date | null, end: Date | null): string | null {
+  if (!start || !end) return null;
+  const ms = end.getTime() - start.getTime();
+  if (ms < 0) return null;
+  const totalMinutes = Math.round(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes} min`;
+  return `${hours}h ${String(minutes).padStart(2, "0")}min`;
+}
 
 function formatDate(date: Date | null): string {
   if (!date) return "—";
@@ -124,6 +140,9 @@ export default async function OrderDetailPage({
     { label: "Agendamento", value: formatDate(order.scheduledAt) },
     { label: "Atribuída em", value: formatDate(order.assignedAt) },
     { label: "Iniciada em", value: formatDate(order.startedAt) },
+    ...(order.completedAt
+      ? [{ label: "Concluída em", value: formatDate(order.completedAt) }]
+      : []),
     { label: "Criada em", value: formatDate(order.createdAt) },
   ];
 
@@ -132,6 +151,28 @@ export default async function OrderDetailPage({
   // Staff never get an editable execution — only the technician who is doing
   // the work writes it. Everyone else reads.
   const showExecutionReadOnly = !isExecuting && order.execution !== null;
+
+  const closing = await getServiceOrderClosingBundle(
+    session.companyId,
+    order.id,
+  );
+  const showClosingPanel = isExecuting && !executionIssue;
+  // Once closed, or for staff, the same data renders without any control that
+  // could mutate it.
+  const showClosingReadOnly =
+    order.status === "COMPLETED" ||
+    (!isExecuting && order.status !== "PENDING" && order.status !== "ASSIGNED");
+  /**
+   * Mirrors the server rule in `completeServiceOrder`: the report needs a
+   * diagnosis and a description of the work. Photos, materials and signature
+   * stay optional in v0.4 — which of them a given order requires is a per-type
+   * checklist policy that does not exist yet.
+   */
+  const canComplete = Boolean(
+    order.execution?.diagnosis?.trim() && order.execution?.workPerformed?.trim(),
+  );
+
+  const durationLabel = formatDuration(order.startedAt, order.completedAt);
 
   return (
     <div>
@@ -188,6 +229,21 @@ export default async function OrderDetailPage({
           </p>
           <p className="mt-0.5 text-sm text-blue-800">
             Iniciado às {formatTime(order.startedAt)}
+          </p>
+        </div>
+      )}
+
+      {order.status === "COMPLETED" && (
+        <div
+          data-testid="completed-banner"
+          className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4"
+        >
+          <p className="text-sm font-semibold text-emerald-900">
+            Atendimento concluído
+          </p>
+          <p className="mt-0.5 text-sm text-emerald-800">
+            {formatTime(order.startedAt)} → {formatTime(order.completedAt)}
+            {durationLabel ? ` · ${durationLabel}` : ""}
           </p>
         </div>
       )}
@@ -258,6 +314,34 @@ export default async function OrderDetailPage({
               </h2>
               <ExecutionReadOnly execution={order.execution} />
             </div>
+          )}
+
+          {/*
+            Closing workspace: only the owning technician, only while the order
+            is in progress, only when writes are allowed. Everyone else — staff,
+            and the technician once the order is COMPLETED — gets the read-only
+            rendering below, which has no editing affordance at all.
+          */}
+          {showClosingPanel && order.execution ? (
+            <ServiceOrderClosingPanel
+              orderId={order.id}
+              initialOrderVersion={order.version}
+              executionVersion={order.execution.version}
+              evidences={closing.evidences}
+              materials={closing.materials}
+              signature={closing.signature}
+              canComplete={canComplete}
+              blockedReason={executionIssue}
+            />
+          ) : (
+            showClosingReadOnly && (
+              <ServiceOrderClosingReadOnly
+                orderId={order.id}
+                evidences={closing.evidences}
+                materials={closing.materials}
+                signature={closing.signature}
+              />
+            )
           )}
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
