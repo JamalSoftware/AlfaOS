@@ -151,15 +151,34 @@ export default async function OrderDetailPage({
   const orderAllowsReveal = (
     REVEALABLE_ORDER_STATUSES as readonly string[]
   ).includes(order.status);
-  // ADMIN mantém a capacidade administrativa; o técnico dono só enquanto o
-  // atendimento está em curso.
+  /**
+   * ADMIN mantém a capacidade administrativa; o técnico dono precisa do
+   * atendimento em curso E de estar operacionalmente elegível.
+   *
+   * `executionIssue` já é o resultado de `technicianExecutionIssue` (calculado
+   * em `getTechnicianByUserId`) — a MESMA função que o serviço de reveal
+   * consulta. Reutilizá-lo aqui alinha as duas pontas sem reescrever a regra
+   * no frontend: se a elegibilidade mudar, muda nos dois lugares de uma vez.
+   *
+   * A UI não é o controle de segurança — `revealConnectionPasswordForOrder`
+   * continua sendo a autoridade final e recusa com 403 mesmo que esta tela
+   * ofereça a ação. O que esta linha evita é oferecer um botão que o servidor
+   * sempre vai negar.
+   */
   const canRevealPassword =
     session.profile === AccessProfile.ADMIN ||
-    (isOwnerTechnician && orderAllowsReveal);
-  const revealBlockedReason =
-    isOwnerTechnician && !orderAllowsReveal
-      ? "A senha só pode ser revelada enquanto o atendimento estiver em andamento."
-      : null;
+    (isOwnerTechnician && orderAllowsReveal && executionIssue === null);
+  /**
+   * Elegibilidade antes de status, na mesma ordem em que o servidor avalia:
+   * um técnico inativo numa OS concluída ouve que seu perfil está inativo, e
+   * não que o atendimento terminou.
+   */
+  const revealBlockedReason = isOwnerTechnician
+    ? (executionIssue ??
+      (orderAllowsReveal
+        ? null
+        : "A senha só pode ser revelada enquanto o atendimento estiver em andamento."))
+    : null;
   const technicians = isStaff
     ? await listActiveTechnicianOptions(session.companyId)
     : [];

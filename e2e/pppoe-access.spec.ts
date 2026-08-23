@@ -217,3 +217,86 @@ test("após concluir a OS o técnico deixa de poder revelar", async ({ page }) =
     data: { status: "ASSIGNED", completedAt: null },
   });
 });
+
+/**
+ * Regressão de UI-1 (auditoria final da v0.5.1).
+ *
+ * O servidor já recusava o técnico inelegível com 403 desde `9d744ac`, mas o
+ * predicado da tela ignorava `executionIssue` e seguia oferecendo o botão. A
+ * ação era oferecida e sempre falhava.
+ *
+ * Este teste fixa as duas metades: o painel continua visível (o técnico ainda
+ * enxerga a OS e o usuário PPPoE, decisão de design), a ação some, e nenhuma
+ * requisição de revelação chega a sair por esse controle.
+ */
+for (const status of ["ASSIGNED", "IN_PROGRESS"] as const) {
+  test(`técnico DESATIVADO não recebe ação de revelar com a OS em ${status}`, async ({
+    page,
+  }) => {
+    await prisma.serviceOrder.updateMany({
+      where: { description: ORDER_DESCRIPTION },
+      data: { status },
+    });
+    await prisma.technician.updateMany({
+      where: { user: { email: TECH_EMAIL } },
+      data: { active: false },
+    });
+
+    // Qualquer chamada ao endpoint de revelação, saia de onde sair.
+    const revealCalls: string[] = [];
+    page.on("request", (req) => {
+      if (req.url().includes("/connection-password")) {
+        revealCalls.push(`${req.method()} ${req.url()}`);
+      }
+    });
+
+    try {
+      await login(page, TECH_EMAIL);
+      await expect(page).toHaveURL(/\/minhas-os/);
+      await page.goto(orderUrl);
+
+      // O painel PERMANECE visível — o design não esconde a OS do técnico.
+      await expect(page.getByTestId("pppoe-panel")).toBeVisible();
+      await expect(page.getByTestId("pppoe-username")).toHaveText(
+        CONNECTION_USERNAME,
+      );
+
+      // As duas ações somem: "Mostrar senha" e "Copiar senha".
+      await expect(page.getByTestId("pppoe-reveal")).toHaveCount(0);
+      await expect(page.getByTestId("pppoe-copy-password")).toHaveCount(0);
+
+      /**
+       * O motivo é o da ELEGIBILIDADE, não o do status — e a asserção é
+       * ESCOPADA ao painel: a mesma frase já aparece no alerta de execução da
+       * página, e um seletor solto casaria os dois.
+       */
+      await expect(
+        page
+          .getByTestId("pppoe-panel")
+          .getByText("Seu perfil técnico está inativo."),
+      ).toBeVisible();
+
+      // Nem o HTML servido nem nenhuma requisição carregaram a senha.
+      expect(await page.content()).not.toContain(CONNECTION_PASSWORD);
+      expect(revealCalls).toEqual([]);
+
+      // Controle positivo: reativado, a ação volta — a asserção acima não
+      // estava passando por vazio.
+      await prisma.technician.updateMany({
+        where: { user: { email: TECH_EMAIL } },
+        data: { active: true },
+      });
+      await page.reload();
+      await expect(page.getByTestId("pppoe-reveal")).toBeVisible();
+    } finally {
+      await prisma.technician.updateMany({
+        where: { user: { email: TECH_EMAIL } },
+        data: { active: true },
+      });
+      await prisma.serviceOrder.updateMany({
+        where: { description: ORDER_DESCRIPTION },
+        data: { status: "ASSIGNED" },
+      });
+    }
+  });
+}

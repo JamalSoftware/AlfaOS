@@ -237,10 +237,15 @@ const EXECUTION_ISSUE_MESSAGES: Record<TechnicianEligibilityReason, string> = {
  * Second-person phrasing of the SAME rule, for the technician acting on their
  * own order (start, execution edit).
  *
- * Reading is deliberately NOT gated by this: an inactive technician can still
- * open "Minhas OS" and see an order they already started. Only writes are
- * refused, and nothing already recorded is touched — same non-destructive
- * stance as the assignment rule.
+ * Scope: operational WRITES (start, execution edit) plus the sensitive
+ * operations explicitly bound to this rule — today, revealing a customer's
+ * PPPoE password (`revealConnectionPasswordForOrder`). Reading a password is
+ * not the same class as reading a record: it hands over a durable capability
+ * that outlives the revocation, so deactivating a technician has to revoke it.
+ *
+ * Ordinary reading is deliberately NOT gated: an inactive technician can still
+ * open "Minhas OS" and see an order they already started. Nothing already
+ * recorded is touched — same non-destructive stance as the assignment rule.
  */
 export function technicianExecutionIssue(
   companyId: string,
