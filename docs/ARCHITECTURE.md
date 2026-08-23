@@ -82,8 +82,18 @@ CSS + PostgreSQL + Prisma 6**. Autenticação por e-mail/senha com sessão JWT
   `listServiceOrders()` tipado retorna OS externas para importação.
 - `MockERPAdapter` (dev/teste): expõe #10001–#10003 e permite testes de
   reimportação sem duplicação.
-- `ReceitanetAdapter` foi reduzido a `testConnection()` — a integração real
-  aguarda a documentação oficial da API.
+- `ReceitanetAdapter` declara as capabilities e **recusa todas** com
+  `NOT_SUPPORTED` — a integração real aguarda documentação oficial da API, e
+  live auth está adicionalmente bloqueada pelo desenho de armazenamento de
+  credenciais. Ver [ERP-INTEGRATIONS.md](ERP-INTEGRATIONS.md) §1.
+- **Diagnóstico (v0.5)**: `ERPDiagnosticsCapability` é uma capability
+  **separada** do contrato base — um provider pode não oferecê-la, e
+  `supportsDiagnostics()` responde isso sem forçar todo adapter a stubar
+  método. O resultado é normalizado em `CustomerDiagnosticSnapshot`
+  (`ONLINE`/`OFFLINE`/`UNKNOWN`), com a regra inegociável de que **falha de
+  integração nunca vira `OFFLINE`** e nunca sobrescreve um snapshot válido.
+  Timeout aplicado no call site (`withIntegrationTimeout`), não dentro dos
+  adapters, para que a garantia seja estrutural.
 - Sincronização (`POST /api/integrations/sync`): exige integração habilitada;
   usa `externalId` para **idempotência** por empresa — reimportar nunca cria
   duplicatas nem sobrescreve `status`/`technicianId`/timeline locais.

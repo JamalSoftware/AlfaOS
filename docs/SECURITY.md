@@ -399,6 +399,40 @@ importa para segurança:
   que um valor fora da faixa virava 500 vindo do driver. Aplicado também
   retroativamente em `/start`, `/execution` e `/assign`.
 
+## 8.3. Diagnóstico do cliente e integrações ERP (v0.5)
+
+Detalhe completo em [ERP-INTEGRATIONS.md](ERP-INTEGRATIONS.md); o que importa
+para segurança:
+
+- **Escopo por OS, não por cliente.** `GET|POST
+  /api/service-orders/:id/diagnostic` usa a OS como superfície de autorização.
+  Uma rota `/customers/:id/diagnostic` daria a qualquer técnico autenticado um
+  oráculo de enumeração sobre toda a base de clientes da empresa. O
+  `customerId` vem da OS, server-side, nunca do request.
+- **Anti-enumeração preservada**: não-dono e cross-tenant recebem `404`, e o
+  corpo não vaza status nem provider.
+- **Falha de integração nunca vira estado do cliente.** `OFFLINE` só é
+  persistido quando um provider positivamente o reporta. Timeout, 401, 429,
+  5xx, payload inválido e provider sem capability retornam `ok: false` com o
+  snapshot anterior **intacto**.
+- **Erros não vazam internals**: `IntegrationError.userMessage` é a única
+  string renderizável; URL, header, token e stack ficam no log do servidor.
+  Teste de regressão verifica ausência de `http(s)://`, `token`, `Bearer` e
+  frames de stack na resposta.
+- **Timeout obrigatório** (8s) aplicado no call site, cobrindo qualquer adapter
+  presente ou futuro. Sem retry automático.
+- **Mass assignment**: o corpo do refresh é `z.object({}).strict()` — enviar
+  `customerId`, `companyId`, `externalProvider`, `connectivityStatus` ou
+  `observedAt` resulta em 400, não em um 200 que ignorou o campo.
+- **Auditoria de alto valor apenas**: só refresh manual bem-sucedido gera
+  `CUSTOMER_DIAGNOSTIC.REFRESHED`, sem documento, telefone ou payload.
+- **Sem fallback silencioso**: empresa sem integração habilitada recebe
+  `NOT_SUPPORTED`; dado de mock nunca é rotulado como ReceitaNet.
+- **Credenciais**: `ERPIntegration.apiKey` continua uma coluna plaintext **sem
+  uso em nenhum caminho de código**. Autenticação real de provider está
+  bloqueada até existir desenho de armazenamento seguro por tenant — ver
+  §10.
+
 ## 9. Configuração de produção
 
 1. Gere um `AUTH_SECRET` forte: `openssl rand -base64 48`.
@@ -424,6 +458,15 @@ importa para segurança:
 - Fluxo de recuperação de administrador (CLI/console de suporte). Hoje o
   travamento é apenas **prevenido** (seção 12); não existe caminho de
   recuperação se uma empresa ficar sem ADMIN ativo por outro meio.
+- **Armazenamento seguro de credenciais de ERP por empresa.** `ERPIntegration
+  .apiKey` é uma coluna plaintext, hoje **não usada por nenhum caminho de
+  código**, sem cifragem em repouso, rotação ou gestão de chave por tenant.
+  Enquanto isso não existir, nenhuma integração real que exija credencial pode
+  subir — guardar token de provider ali seria o "segredo plaintext no banco sem
+  arquitetura deliberada" que este documento proíbe. Bloqueia a autenticação
+  real do ReceitaNet independentemente da documentação da API. Não improvisar
+  cifragem caseira: a decisão (KMS, envelope encryption, secret manager
+  externo) precisa ser tomada explicitamente.
 
 ## 11. Vulnerabilidades de dependências (risco aceito/adiado)
 

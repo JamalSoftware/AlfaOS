@@ -194,7 +194,16 @@ implementado — ver `docs/SERVICE-ORDER-CLOSING.md`. Resumo do que muda aqui:
   lock otimista da própria OS, incrementando `ServiceOrder.version`.
 - Depois de `COMPLETED` a OS é imutável para o técnico.
 
-## 8. Fora do escopo deste checkpoint
+## 8. Diagnóstico do cliente (v0.5)
+
+A tela de detalhe da OS ganhou um painel read-only "Diagnóstico do cliente",
+com o último estado de conectividade conhecido e um refresh manual. Escopado
+pela OS (não por id de cliente) para não virar endpoint de enumeração, e
+incapaz de bloquear o ciclo de vida da OS: um ERP indisponível não impede
+abrir, iniciar, salvar, anexar nem finalizar. Ver
+[ERP-INTEGRATIONS.md](ERP-INTEGRATIONS.md).
+
+## 9. Fora do escopo deste checkpoint
 
 PDF/comprovante, reabertura/devolução de OS, pausa/retomada, estoque e baixa
 automática, notificações/WhatsApp, GPS, OLT, IA, e a integração real com a

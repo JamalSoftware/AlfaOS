@@ -14,6 +14,8 @@ import {
 import { listActiveTechnicianOptions } from "@/lib/technicians";
 import { PriorityBadge, StatusBadge } from "@/components/OrderBadges";
 import { getServiceOrderClosingBundle } from "@/lib/service-order-closing";
+import { getCustomerDiagnostic } from "@/lib/customer-diagnostics";
+import { CustomerDiagnosticPanel } from "@/components/CustomerDiagnosticPanel";
 import { AssignTechnicianForm } from "@/components/AssignTechnicianForm";
 import { ServiceOrderExecutionForm } from "@/components/ServiceOrderExecutionForm";
 import { StartServiceOrderButton } from "@/components/StartServiceOrderButton";
@@ -174,6 +176,26 @@ export default async function OrderDetailPage({
 
   const durationLabel = formatDuration(order.startedAt, order.completedAt);
 
+  /**
+   * Read-only, and read OUTSIDE any critical path: a diagnostic that is
+   * missing or stale must never stop the order from rendering, starting or
+   * closing. `getCustomerDiagnostic` only reads a local snapshot — it makes no
+   * external call — so this cannot block the page on an ERP outage.
+   */
+  const diagnosticSnapshot = await getCustomerDiagnostic(
+    session.companyId,
+    order.customer.id,
+  );
+  // Domain fields only — the panel derives its own labels, so the
+  // server-rendered snapshot and a refreshed one render identically.
+  const diagnosticView = diagnosticSnapshot
+    ? {
+        connectivityStatus: diagnosticSnapshot.connectivityStatus,
+        observedAt: diagnosticSnapshot.observedAt.toISOString(),
+        provider: diagnosticSnapshot.provider,
+      }
+    : null;
+
   return (
     <div>
       <div className="mb-6">
@@ -282,6 +304,17 @@ export default async function OrderDetailPage({
               </div>
             </dl>
           </div>
+
+          {/*
+            Same panel for staff and for the owning technician: both read, only
+            the manual refresh writes, and the route authorizes identically for
+            either. There is no editing affordance for anyone — v0.5 diagnostics
+            are read-only against the ERP.
+          */}
+          <CustomerDiagnosticPanel
+            orderId={order.id}
+            initialDiagnostic={diagnosticView}
+          />
 
           {isExecuting && order.execution && (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

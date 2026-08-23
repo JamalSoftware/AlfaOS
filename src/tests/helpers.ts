@@ -34,6 +34,7 @@ export async function resetDatabase(): Promise<void> {
     verifiedDatabaseUrl = databaseUrl;
   }
 
+  await prisma.customerDiagnosticSnapshot.deleteMany();
   await prisma.serviceOrderEvidence.deleteMany();
   await prisma.serviceOrderMaterialUsage.deleteMany();
   await prisma.serviceOrderSignature.deleteMany();

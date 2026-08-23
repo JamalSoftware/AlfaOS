@@ -45,6 +45,19 @@ enum EvidenceKind {
   PHOTO
 }
 
+/// Connectivity of a customer as reported by an external ERP.
+///
+/// UNKNOWN is a first-class answer, not a failure code. "We could not reach
+/// the ERP" and "the ERP says the customer is down" are different facts, and
+/// collapsing the former into OFFLINE would send a technician to a site over
+/// an integration outage. Anything that is not positive evidence of a state
+/// resolves to UNKNOWN.
+enum ConnectivityStatus {
+  ONLINE
+  OFFLINE
+  UNKNOWN
+}
+
 /// Unit of a material declared as used on a service order. Deliberately a
 /// short fixed list, not a catalogue: v0.4 records what the technician says
 /// was consumed, it does not manage stock.
@@ -73,6 +86,7 @@ model Company {
   serviceOrderEvidences  ServiceOrderEvidence[]
   serviceOrderMaterials  ServiceOrderMaterialUsage[]
   serviceOrderSignatures ServiceOrderSignature[]
+  diagnosticSnapshots    CustomerDiagnosticSnapshot[]
 
   @@map("companies")
 }
@@ -139,12 +153,53 @@ model Customer {
   updatedAt        DateTime @updatedAt
 
   serviceOrders ServiceOrder[]
+  diagnosticSnapshots CustomerDiagnosticSnapshot[]
 
   @@unique([companyId, externalProvider, externalId])
   @@index([companyId, name])
   @@index([companyId, document])
   @@index([companyId, active])
   @@map("customers")
+}
+
+/// Last VALID connectivity observation for a customer, per ERP provider.
+///
+/// A cache of facts, not of requests: a row exists only when a provider
+/// actually answered with something classifiable. Integration failures never
+/// write here — that is the whole point. A failed refresh leaves the previous
+/// observation untouched so the UI can still say "last known: Online, 5
+/// minutes ago" instead of degrading to OFFLINE, which would be a lie about
+/// the customer rather than a statement about our own connectivity.
+///
+/// `observedAt` is when WE observed it; `sourceUpdatedAt` is when the provider
+/// says the underlying state changed, when it tells us. They are separate
+/// because only the second one can order two concurrent responses correctly,
+/// and not every provider supplies it.
+///
+/// Keyed by (company, customer, provider): the same customer can, in
+/// principle, be observed through more than one ERP, and `companyId` is
+/// carried so every read filters the tenant in SQL rather than trusting FK
+/// navigation — same rule as every other child table here.
+model CustomerDiagnosticSnapshot {
+  id                 String             @id @default(cuid())
+  companyId          String
+  company            Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId         String
+  customer           Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// Which ERP produced this observation. Never rendered as "ReceitaNet" when
+  /// the source was actually the mock — see docs/CUSTOMER-DIAGNOSTICS.md.
+  externalProvider   ERPProvider
+  connectivityStatus ConnectivityStatus
+  /// When AlfaOS observed this state.
+  observedAt         DateTime
+  /// When the PROVIDER says the state last changed, if it reports that.
+  sourceUpdatedAt    DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@unique([companyId, customerId, externalProvider])
+  @@index([companyId])
+  @@map("customer_diagnostic_snapshots")
 }
 
 model Technician {

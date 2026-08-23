@@ -52,9 +52,9 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 
 ## Integrações (ERP)
 
-**Carregar:** hoje não existe um documento dedicado — a integração Mock ERP está descrita em `docs/SERVICE-ORDERS.md` (fluxo de sync) e `docs/ARCHITECTURE.md` (contrato/adapters). Se um doc dedicado for criado (ex.: ao integrar o ReceitaNet de verdade), ele entra aqui.
-**Quando:** a tarefa envolve sincronização de ERP, adapters de integração, ou a futura integração real com o ReceitaNet.
-**Quando NÃO:** tarefas que não tocam a camada de integração.
+**Carregar:** `docs/ERP-INTEGRATIONS.md` — contrato/capabilities, modelo normalizado de diagnóstico, snapshot, modelo de erros, timeout, cenários do MockERP e o estado real (CONFIRMED / NOT CONFIRMED / NOT IMPLEMENTED) da integração ReceitaNet. O fluxo de sync de OS continua em `docs/SERVICE-ORDERS.md`.
+**Quando:** a tarefa envolve adapters de ERP, diagnóstico de conectividade do cliente, sincronização, ou a futura integração real com o ReceitaNet.
+**Quando NÃO:** tarefas que não tocam a camada de integração. **Antes de implementar qualquer chamada ReceitaNet**, ler a seção 1 desse documento: nenhuma capacidade está confirmada hoje, e o §64 do PRD proíbe implementar sem documentação oficial.
 
 ## Futuro Field App (Flutter)
 
