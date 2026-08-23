@@ -1,8 +1,9 @@
-# Ordens de Serviço — AlfaOS (v0.3-technician-execution)
+# Ordens de Serviço — AlfaOS (v0.5.1)
 
 Este documento descreve o núcleo operacional de Ordens de Serviço (OS),
-entregue no checkpoint `v0.2-service-orders` e estendido em
-`v0.3-technician-execution` com a execução do técnico (§4.1).
+entregue no checkpoint `v0.2-service-orders`, estendido em
+`v0.3-technician-execution` com a execução do técnico (§4.1) e em `v0.5.1`
+com origem explícita e catálogo de tipos (§1.1 e §1.2).
 
 ## 1. Modelo de dados
 
@@ -10,12 +11,70 @@ entregue no checkpoint `v0.2-service-orders` e estendido em
 | --- | --- |
 | `Customer` | Cliente do provedor, sempre escopado por `companyId`. |
 | `Technician` | Técnico vinculado a um `User` da mesma empresa. `userId` é único (um usuário só pode ser técnico uma vez) e `active` controla disponibilidade para atribuição. |
-| `ServiceOrder` | OS com `number`, `customerId`, `type`, `description`, `priority`, `status`, origem opcional `externalProvider`/`externalId` (importação ERP) e `version` (token de lock otimista, ver §3.1). |
+| `ServiceOrder` | OS com `number`, `customerId`, `type`, `description`, `priority`, `status`, `origin` (§1.1), vínculo opcional `typeId` (§1.2), identidade externa opcional `externalProvider`/`externalId` e `version` (token de lock otimista, ver §3.1). |
+| `ServiceOrderType` | Catálogo de tipos da empresa (§1.2). `(companyId, name)` único. |
 | `ServiceOrderEvent` | Timeline imutável da OS (`SERVICE_ORDER_IMPORTED`, `TECHNICIAN_ASSIGNED`, `OS_STARTED`, mudanças de status). Gravada na mesma transação das mutações. |
 | `ServiceOrderExecution` | Registro de campo da OS (`diagnosis`, `workPerformed`, `notes`), 1:1 com `ServiceOrder` (`serviceOrderId @unique`), com `version` própria para lock otimista. Criada ao iniciar o atendimento — ver §4.1 e [TECHNICIAN-EXECUTION.md](TECHNICIAN-EXECUTION.md). |
 
-Campos de origem externa (`externalProvider`, `externalId`) não aparecem nos
-shapes públicos da API (`toPublicServiceOrder`).
+`externalId` não aparece no shape público da API. `origin` e
+`externalProvider` aparecem, porque a tela administrativa precisa distinguir
+uma OS que nasceu aqui de uma que veio de um ERP — e dizer de qual.
+
+### 1.1. Origem (v0.5.1)
+
+```text
+INTERNAL   nasceu no AlfaOS
+EXTERNAL   nasceu em ERP/sistema externo
+```
+
+**A origem é gravada no ponto de criação, nunca inferida de `externalId`.**
+`createManualServiceOrder` grava `INTERNAL`; `importServiceOrder` grava
+`EXTERNAL`. A distinção existe porque uma OS interna **pode ganhar vínculo com
+ERP depois e continua INTERNAL** — derivar a origem dos campos externos faria
+exatamente esse caso mentir sobre a própria procedência.
+
+`EXTERNAL` exige `externalProvider` **e** `externalId`. A regra é um CHECK no
+banco (`service_orders_external_identity_check`), não só validação de
+aplicação: uma OS que afirma ter nascido em outro sistema sem dizer em qual nem
+com que id não poderia ser reconciliada nem reimportada de forma idempotente, e
+o banco é o único lugar onde um caminho de escrita futuro não consegue esquecer
+a regra.
+
+**Não há máquina de estados por origem.** As duas percorrem
+`PENDING → ASSIGNED → IN_PROGRESS → COMPLETED`. Um fluxo por ERP multiplicaria
+as transições a auditar e faria de cada integração nova uma superfície de
+segurança nova, em vez de um adapter. Ver PRD §122.
+
+> Nota de migração: o campo antes se chamava `source` com valores
+> `MANUAL`/`IMPORTED`. A v0.5.1 renomeou campo, enum e valores por
+> `ALTER ... RENAME` — nenhum dado foi reescrito. Somar um `origin` ao lado de
+> `source` criaria dois campos obrigados a concordar para sempre.
+
+### 1.2. Tipos de OS (v0.5.1)
+
+Cada empresa mantém seu catálogo: `name`, `description`, `active`,
+`sortOrder`. É **fundação mínima e deliberada** — checklist, obrigatoriedade de
+foto/assinatura, materiais e campos personalizados por tipo NÃO existem aqui,
+porque cada um deles muda como a OS conclui e portanto mexe na máquina de
+estados. Ver PRD §125.
+
+`ServiceOrder` guarda **duas coisas**:
+
+- `typeId` — vínculo opcional com o catálogo (nulo em OS importada, que carrega
+  o rótulo do provider);
+- `type` — o rótulo em texto, **copiado na criação**.
+
+Copiar o rótulo é o que faz **desativar ou renomear um tipo não afetar OS
+histórica**: a OS mostra o que valia no dia do atendimento. O vínculo é
+`onDelete: Restrict`, então um tipo em uso não pode ser apagado — desativar é
+a operação suportada, e ela só remove o tipo do formulário de nova OS.
+
+Criar OS exige um tipo **ativo da própria empresa**: tipo de outra empresa
+resulta em 404, tipo desativado em 400.
+
+Nome é normalizado (trim + espaços internos colapsados) e não colide na mesma
+empresa nem variando maiúsculas/minúsculas. A unique `(companyId, name)` é o
+árbitro entre dois writers simultâneos.
 
 ## 2. Máquina de estados
 
@@ -127,6 +186,14 @@ atribuições**.
 - A página `/minhas-os` lista, nesta ordem, as OS **em atendimento**, as de
   **hoje** e as **próximas** do técnico autenticado. Um técnico de outra empresa
   não enxerga OS locais.
+- **Concluídas recentes (v0.5.1)**: seção adicional com as OS `COMPLETED` do
+  próprio técnico, limitada a 30 dias e 20 registros
+  (`listRecentCompletedForTechnician`). É uma consulta **separada** — a fila
+  operacional continua contendo apenas `ASSIGNED` e `IN_PROGRESS`, porque
+  misturar concluídas ali empurraria o trabalho de hoje para fora da primeira
+  tela do celular. Antes disso, uma OS concluída continuava acessível por URL
+  direta mas nenhuma tela levava até ela, e o técnico perdia de vista o próprio
+  trabalho do dia. O escopo é fechado em SQL por `companyId` + `technicianId`.
 
 ### 4.1. Execução (v0.3-technician-execution)
 
@@ -156,6 +223,9 @@ Resumo; o documento completo é
   Silva — Manutenção/HIGH, #10002 Maria Oliveira — Instalação/NORMAL, #10003
   Carlos Souza — Suporte/NORMAL).
 - `POST /api/integrations/sync` exige integração habilitada (senão `400`).
+- OS importada nasce `origin = EXTERNAL` com `externalProvider` e
+  `externalId` preenchidos, e **sem** `typeId` — o provider não conhece o
+  catálogo da empresa, então só o rótulo textual vem dele.
 - **Idempotência**: a correspondência é feita por
   `companyId + externalProvider + externalId` (cliente via `upsert`; OS via
   `create` numa transação com fallback em `P2002`, para ficar atômica sob

@@ -22,7 +22,7 @@ beforeEach(async () => {
 });
 
 describe("Clientes", () => {
-  it("ADMIN cria cliente e campos externos/internos não são expostos", async () => {
+  it("ADMIN cria cliente sem vazar companyId; identidade externa vem nula", async () => {
     const token = await createTokenFor(fixture.adminA.id);
 
     const res = await createCustomer(
@@ -39,9 +39,12 @@ describe("Clientes", () => {
     expect(res.status).toBe(201);
     const payload = await res.json();
     expect(payload.data.customer.name).toBe("Cliente Alfa");
+    // companyId continua fora do payload: e o tenant, nunca dado de tela.
     expect(payload.data.customer.companyId).toBeUndefined();
-    expect(payload.data.customer.externalProvider).toBeUndefined();
-    expect(payload.data.customer.externalId).toBeUndefined();
+    // externalId passou a ser editavel pelo ADMIN (v0.5.1), entao aparece —
+    // nulo, porque nao foi informado. O provider o acompanha e tambem e nulo.
+    expect(payload.data.customer.externalId).toBeNull();
+    expect(payload.data.customer.externalProvider).toBeNull();
   });
 
   it("Mass assignment é bloqueado: corpo com companyId é rejeitado", async () => {

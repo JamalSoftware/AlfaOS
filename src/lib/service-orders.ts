@@ -3,7 +3,7 @@ import type {
   ServiceOrderPriority,
   ServiceOrderStatus,
 } from "@prisma/client";
-import { ServiceOrderSource } from "@prisma/client";
+import { ServiceOrderOrigin } from "@prisma/client";
 import { logAudit } from "./audit";
 import {
   badRequest,
@@ -13,6 +13,7 @@ import {
   notFound,
 } from "./errors";
 import { prisma } from "./prisma";
+import { resolveServiceOrderTypeForCreation } from "./service-order-types";
 import {
   technicianAssignmentIssue,
   technicianExecutionIssue,
@@ -40,9 +41,16 @@ export const SERVICE_ORDER_PRIORITY_LABELS: Record<
   URGENT: "Urgente",
 };
 
-export const SERVICE_ORDER_SOURCE_LABELS: Record<ServiceOrderSource, string> = {
-  MANUAL: "Manual",
-  IMPORTED: "Importada do ERP",
+/**
+ * Rótulos de ORIGEM — onde a OS nasceu (PRD §122).
+ *
+ * Não confundir com `externalProvider`: uma OS INTERNAL pode ganhar vínculo
+ * externo depois e continua INTERNAL. A origem é gravada na criação e nunca
+ * derivada dos campos externos.
+ */
+export const SERVICE_ORDER_ORIGIN_LABELS: Record<ServiceOrderOrigin, string> = {
+  INTERNAL: "Interna (AlfaOS)",
+  EXTERNAL: "Externa (ERP)",
 };
 
 export const SERVICE_ORDER_PRIORITY_ORDER: Record<
@@ -102,7 +110,8 @@ export interface PublicServiceOrder {
   description: string;
   priority: ServiceOrderPriority;
   status: ServiceOrderStatus;
-  source: ServiceOrderSource;
+  origin: ServiceOrderOrigin;
+  externalProvider: string | null;
   scheduledAt: Date | null;
   assignedAt: Date | null;
   startedAt: Date | null;
@@ -189,7 +198,8 @@ export function toPublicServiceOrder(order: {
   description: string;
   priority: ServiceOrderPriority;
   status: ServiceOrderStatus;
-  source: ServiceOrderSource;
+  origin: ServiceOrderOrigin;
+  externalProvider: string | null;
   scheduledAt: Date | null;
   assignedAt: Date | null;
   startedAt: Date | null;
@@ -215,7 +225,8 @@ export function toPublicServiceOrder(order: {
     description: order.description,
     priority: order.priority,
     status: order.status,
-    source: order.source,
+    origin: order.origin,
+    externalProvider: order.externalProvider,
     scheduledAt: order.scheduledAt,
     assignedAt: order.assignedAt,
     startedAt: order.startedAt,
@@ -236,7 +247,8 @@ export function toPublicServiceOrder(order: {
 
 export interface CreateManualServiceOrderInput {
   customerId: string;
-  type: string;
+  /** Tipo do catálogo da própria empresa. O rótulo é copiado para `type`. */
+  typeId: string;
   subtype?: string;
   description: string;
   priority: ServiceOrderPriority;
@@ -255,17 +267,25 @@ export async function createManualServiceOrder(
     throw notFound("Cliente não encontrado nesta empresa.");
   }
 
+  const type = await resolveServiceOrderTypeForCreation(companyId, input.typeId);
+
   const order = await prisma.$transaction(async (tx) => {
     const created = await tx.serviceOrder.create({
       data: {
         companyId,
         customerId: input.customerId,
-        type: input.type.trim(),
+        typeId: type.id,
+        // Rótulo copiado, não referenciado: preserva o histórico quando o tipo
+        // for renomeado ou desativado.
+        type: type.label,
         subtype: input.subtype?.trim() || null,
         description: input.description.trim(),
         priority: input.priority,
         status: "PENDING",
-        source: ServiceOrderSource.MANUAL,
+        // Gravada explicitamente. Uma OS criada aqui é INTERNAL mesmo que ganhe
+        // vínculo com ERP depois — a origem nunca é derivada dos campos
+        // externos (PRD §122).
+        origin: ServiceOrderOrigin.INTERNAL,
         scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
       },
     });
@@ -278,8 +298,9 @@ export async function createManualServiceOrder(
         event: "SERVICE_ORDER_CREATED",
         metadata: {
           type: created.type,
+          typeId: created.typeId,
           priority: created.priority,
-          source: "MANUAL",
+          origin: ServiceOrderOrigin.INTERNAL,
         },
       },
     });
@@ -441,7 +462,9 @@ export async function importServiceOrder(
           customerId: customer.id,
           priority: input.priority,
           status: "PENDING",
-          source: ServiceOrderSource.IMPORTED,
+          // Nasceu em sistema externo. O CHECK do banco garante que
+          // externalProvider e externalId acompanham.
+          origin: ServiceOrderOrigin.EXTERNAL,
           ...externalData,
         },
       });
@@ -456,7 +479,8 @@ export async function importServiceOrder(
             externalNumber: created.externalNumber,
             type: created.type,
             priority: created.priority,
-            source: input.externalProvider,
+            origin: ServiceOrderOrigin.EXTERNAL,
+            externalProvider: input.externalProvider,
           },
         },
       });
@@ -774,6 +798,47 @@ export async function assignTechnician(
 // ---------------------------------------------------------------------------
 // Technician-facing queries
 // ---------------------------------------------------------------------------
+
+/**
+ * Janela e teto do histórico recente do técnico.
+ *
+ * A fila operacional (`listServiceOrdersForTechnician`) continua contendo
+ * SOMENTE ASSIGNED e IN_PROGRESS — misturar concluídas ali empurraria o
+ * trabalho de hoje para baixo da tela em poucos dias. O histórico é uma
+ * consulta separada, limitada em período e quantidade para não virar uma
+ * listagem sem fim no celular.
+ */
+export const TECHNICIAN_COMPLETED_WINDOW_DAYS = 30;
+export const TECHNICIAN_COMPLETED_LIMIT = 20;
+
+/**
+ * OS concluídas recentemente pelo próprio técnico.
+ *
+ * O escopo é fechado em SQL por `companyId` + `technicianId`: um técnico não
+ * alcança o histórico de outro nem o de outra empresa, e o `technicianId` vem
+ * sempre de `getTechnicianByUserId`, nunca do cliente.
+ */
+export async function listRecentCompletedForTechnician(
+  companyId: string,
+  technicianId: string,
+): Promise<PublicServiceOrder[]> {
+  const since = new Date();
+  since.setDate(since.getDate() - TECHNICIAN_COMPLETED_WINDOW_DAYS);
+
+  const orders = await prisma.serviceOrder.findMany({
+    where: {
+      companyId,
+      technicianId,
+      status: "COMPLETED",
+      completedAt: { gte: since },
+    },
+    include: ORDER_INCLUDE,
+    orderBy: { completedAt: "desc" },
+    take: TECHNICIAN_COMPLETED_LIMIT,
+  });
+
+  return orders.map(toPublicServiceOrder);
+}
 
 export interface TechnicianWorkQueue {
   /**

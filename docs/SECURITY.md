@@ -483,6 +483,17 @@ para segurança:
   explicitamente em vez de sugerir que a integração funciona.
 - **Rotação da chave mestra invalida todas as credenciais cifradas** — elas
   precisam ser reconfiguradas. Registrado no `.env.example`.
+- **Trocar o provider apaga a credencial (v0.5.1).** O AAD vincula o ciphertext
+  a `(companyId, provider)`, então após a troca ele deixa de decriptar. Até a
+  v0.5 os campos permaneciam gravados e `getCredentialStatus` — que só verifica
+  se o ciphertext existe — seguia reportando "configurada" com o mesmo
+  `last4`: o operador via uma credencial aparentemente válida que nenhum
+  adapter conseguiria usar. Agora `POST /api/integrations/test-connection`
+  limpa o conjunto completo (`CLEARED_CREDENTIAL_FIELDS`, o mesmo usado por
+  `removeCredential`, para que nenhum campo sobreviva por duplicação de
+  lista), devolve `invalidatedCredential: true` e a UI pede reconfiguração.
+  `AuditLog` registra `ERP_CREDENTIAL_INVALIDATED` com provider antigo e novo —
+  nunca token, ciphertext, IV, tag, `last4` ou chave.
 
 ## 9. Configuração de produção
 

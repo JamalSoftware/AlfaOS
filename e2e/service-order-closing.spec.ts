@@ -291,13 +291,46 @@ test("técnico executa, anexa evidência, material, assinatura e finaliza a OS",
 // E2E 3 — immutability
 // ---------------------------------------------------------------------------
 
-test("OS concluída sai da fila do técnico", async ({ page }) => {
+test("OS concluída sai da fila operacional e aparece em Concluídas recentes", async ({
+  page,
+}) => {
   await login(page, TECH_EMAIL);
   await page.goto("/minhas-os");
   await expect(page.getByRole("heading", { name: "Minhas OS" })).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: new RegExp(`OS ${DESKTOP_ORDER}`) }),
-  ).toHaveCount(0);
+
+  const card = page.getByRole("link", {
+    name: new RegExp(`OS ${DESKTOP_ORDER}`),
+  });
+
+  /**
+   * Até a v0.5.1 a asserção aqui era `toHaveCount(0)`: a OS concluída
+   * simplesmente sumia da tela. Continuava acessível por URL direta, mas
+   * nenhuma navegação levava até ela, e o técnico perdia de vista o próprio
+   * trabalho do dia.
+   *
+   * O comportamento correto passou a ser: fora das seções operacionais,
+   * dentro de "Concluídas recentes".
+   */
+  for (const heading of ["Em atendimento", "Hoje", "Próximas"]) {
+    const section = page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: heading, exact: true }) });
+    await expect(section.getByRole("link", { name: new RegExp(`OS ${DESKTOP_ORDER}`) })).toHaveCount(0);
+  }
+
+  const completed = page
+    .locator("section")
+    .filter({
+      has: page.getByRole("heading", {
+        name: "Concluídas recentes",
+        exact: true,
+      }),
+    });
+  await expect(completed.getByRole("link", { name: new RegExp(`OS ${DESKTOP_ORDER}`) })).toHaveCount(1);
+
+  // Controle positivo do escopo: o card leva à OS certa.
+  await card.first().click();
+  await expect(page.getByTestId("completed-banner")).toBeVisible();
 });
 
 test("técnico abre a OS concluída pela URL e não encontra controles de escrita", async ({

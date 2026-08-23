@@ -19,6 +19,8 @@ interface CustomerFormProps {
     city: string | null;
     state: string | null;
     zipCode: string | null;
+    externalId: string | null;
+    externalProvider: string | null;
     active: boolean;
   };
   backHref: string;
@@ -48,6 +50,7 @@ export function CustomerForm({ mode, customer, backHref }: CustomerFormProps) {
     city: optional(customer?.city),
     state: optional(customer?.state),
     zipCode: optional(customer?.zipCode),
+    externalId: optional(customer?.externalId),
     active: customer?.active ?? true,
   });
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +66,14 @@ export function CustomerForm({ mode, customer, backHref }: CustomerFormProps) {
     setLoading(true);
 
     try {
-      const body = { ...form, active: form.active };
+      /**
+       * `active` só existe como controle no modo edição, e o schema de criação
+       * é strict — enviá-lo na criação devolvia 400 e impedia cadastrar
+       * qualquer cliente pela tela. O corpo passa a espelhar exatamente o que
+       * cada modo aceita.
+       */
+      const { active, ...common } = form;
+      const body = mode === "create" ? common : { ...common, active };
       const res = await fetch(
         mode === "create" ? "/api/customers" : `/api/customers/${customer!.id}`,
         {
@@ -126,6 +136,28 @@ export function CustomerForm({ mode, customer, backHref }: CustomerFormProps) {
             className={inputClass}
           />
         </div>
+      </div>
+
+      <div>
+        <label htmlFor="externalId" className={labelClass}>
+          Contrato / ID externo
+        </label>
+        <input
+          id="externalId"
+          type="text"
+          maxLength={64}
+          value={form.externalId}
+          onChange={(e) => setField("externalId", e.target.value)}
+          className={inputClass}
+          placeholder="Opcional"
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          Identificador do cliente no ERP da empresa. Necessário para consultar
+          o diagnóstico de conectividade.
+          {customer?.externalProvider
+            ? ` Vinculado a ${customer.externalProvider}.`
+            : ""}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

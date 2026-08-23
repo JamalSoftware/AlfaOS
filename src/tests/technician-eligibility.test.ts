@@ -48,7 +48,7 @@ async function createOrder(): Promise<string> {
       description: "Instalação de fibra óptica.",
       priority: "NORMAL",
       status: "PENDING",
-      source: "MANUAL",
+      origin: "INTERNAL",
     },
   });
   return order.id;

@@ -52,7 +52,8 @@ test("critério de aceite: sync, atribuição e ownership do técnico", async ({
   await page.getByRole("link", { name: "10001" }).click();
   await expect(page.getByRole("heading", { name: /OS 10001/ })).toBeVisible();
   await expect(page.getByText("Pendente").first()).toBeVisible();
-  await expect(page.getByText("Importada do ERP").first()).toBeVisible();
+  // Origem + provider: "Externa" sozinha nao diz de onde a OS veio.
+  await expect(page.getByText("Externa (ERP) · MOCK")).toBeVisible();
   const orderUrl = page.url();
 
   await page.goto("/tecnicos/novo");

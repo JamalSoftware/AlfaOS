@@ -7,6 +7,7 @@ export type IconName =
   | "clients"
   | "users"
   | "integrations"
+  | "ordertypes"
   | "settings"
   | "myorders"
   | "profile";
@@ -53,6 +54,12 @@ export const NAVIGATION: NavItem[] = [
     href: "/usuarios",
     label: "Usuários",
     icon: "users",
+    profiles: [AccessProfile.ADMIN],
+  },
+  {
+    href: "/tipos-os",
+    label: "Tipos de OS",
+    icon: "ordertypes",
     profiles: [AccessProfile.ADMIN],
   },
   {

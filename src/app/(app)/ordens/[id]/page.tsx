@@ -8,7 +8,7 @@ import {
   getCompanyServiceOrder,
   getTechnicianByUserId,
   SERVICE_ORDER_PRIORITY_LABELS,
-  SERVICE_ORDER_SOURCE_LABELS,
+  SERVICE_ORDER_ORIGIN_LABELS,
   SERVICE_ORDER_STATUS_LABELS,
 } from "@/lib/service-orders";
 import { listActiveTechnicianOptions } from "@/lib/technicians";
@@ -138,7 +138,14 @@ export default async function OrderDetailPage({
     { label: "Tipo", value: order.subtype ? `${order.type} · ${order.subtype}` : order.type },
     { label: "Prioridade", value: SERVICE_ORDER_PRIORITY_LABELS[order.priority] },
     { label: "Status", value: SERVICE_ORDER_STATUS_LABELS[order.status] },
-    { label: "Origem", value: SERVICE_ORDER_SOURCE_LABELS[order.source] },
+    {
+      label: "Origem",
+      // O provider acompanha a origem porque "Externa" sozinha não diz de onde.
+      value:
+        order.origin === "EXTERNAL" && order.externalProvider
+          ? `${SERVICE_ORDER_ORIGIN_LABELS[order.origin]} · ${order.externalProvider}`
+          : SERVICE_ORDER_ORIGIN_LABELS[order.origin],
+    },
     { label: "Agendamento", value: formatDate(order.scheduledAt) },
     { label: "Atribuída em", value: formatDate(order.assignedAt) },
     { label: "Iniciada em", value: formatDate(order.startedAt) },

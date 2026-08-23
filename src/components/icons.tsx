@@ -9,6 +9,16 @@ const paths: Record<IconName, React.ReactNode> = {
       <rect x="3" y="16" width="7" height="5" rx="1" />
     </>
   ),
+  ordertypes: (
+    <>
+      <path d="M4 6h10" />
+      <path d="M4 12h10" />
+      <path d="M4 18h10" />
+      <circle cx="19" cy="6" r="1.5" />
+      <circle cx="19" cy="12" r="1.5" />
+      <circle cx="19" cy="18" r="1.5" />
+    </>
+  ),
   orders: (
     <>
       <path d="M8 2h8a2 2 0 0 1 2 2v16l-6-4-6 4V4a2 2 0 0 1 2-2Z" />

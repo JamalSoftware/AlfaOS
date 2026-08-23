@@ -102,7 +102,7 @@ export default async function IntegrationsPage() {
           </div>
         </dl>
 
-        <TestConnectionButton />
+        <TestConnectionButton currentProvider={integration?.provider ?? "MOCK"} />
         <p className="mb-5 mt-3 text-xs text-slate-500">
           O teste de conexão verifica a conectividade com o ERP, mas não
           habilita a integração. A habilitação é uma ação separada e explícita.

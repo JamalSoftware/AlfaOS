@@ -13,7 +13,7 @@ const VIEW_PROFILES = [AccessProfile.ADMIN, AccessProfile.DISPATCHER];
 const createServiceOrderSchema = z
   .object({
     customerId: z.string().min(1, "Cliente é obrigatório."),
-    type: z.string().min(2, "Tipo é obrigatório.").max(100),
+    typeId: z.string().min(1, "Tipo é obrigatório."),
     subtype: z.string().max(100).optional().or(z.literal("")),
     description: z
       .string()
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
       session.id,
       {
         customerId: parsed.data.customerId,
-        type: parsed.data.type,
+        typeId: parsed.data.typeId,
         subtype: parsed.data.subtype,
         description: parsed.data.description,
         priority: parsed.data.priority,

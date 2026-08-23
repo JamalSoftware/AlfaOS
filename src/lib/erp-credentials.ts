@@ -189,6 +189,23 @@ export async function saveCredential(
  * decryptable state. Works even when the master key is missing: deleting a
  * secret must never depend on being able to read it.
  */
+/**
+ * Conjunto completo de campos que formam uma credencial cifrada, zerado.
+ *
+ * Exportado para que a troca de provider limpe EXATAMENTE o mesmo conjunto que
+ * `removeCredential`. Duplicar a lista em dois lugares é como um campo acaba
+ * sobrevivendo à limpeza — e `credentialLast4` sobrevivendo é justamente o que
+ * fazia a tela continuar anunciando uma credencial que não decripta mais.
+ */
+export const CLEARED_CREDENTIAL_FIELDS = {
+  credentialCiphertext: null,
+  credentialIv: null,
+  credentialAuthTag: null,
+  credentialLast4: null,
+  credentialUpdatedAt: null,
+  apiKey: null,
+} as const;
+
 export async function removeCredential(
   companyId: string,
   actorUserId: string,
@@ -203,14 +220,7 @@ export async function removeCredential(
 
   await prisma.eRPIntegration.update({
     where: { id: integration.id, companyId },
-    data: {
-      credentialCiphertext: null,
-      credentialIv: null,
-      credentialAuthTag: null,
-      credentialLast4: null,
-      credentialUpdatedAt: null,
-      apiKey: null,
-    },
+    data: { ...CLEARED_CREDENTIAL_FIELDS },
   });
 
   await logAudit({

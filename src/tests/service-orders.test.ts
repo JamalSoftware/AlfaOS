@@ -40,6 +40,7 @@ async function createTech(
 async function createManualOrder(
   token: string,
   customerId: string,
+  typeId: string = fixture.typeA.id,
 ): Promise<string> {
   const res = await createOrder(
     apiRequest(
@@ -48,7 +49,7 @@ async function createManualOrder(
         method: "POST",
         body: {
           customerId,
-          type: "Instalação",
+          typeId,
           description: "Instalação de fibra óptica.",
           priority: "NORMAL",
         },
@@ -77,7 +78,7 @@ describe("Ordens de serviço", () => {
     expect(detail.status).toBe(200);
     const payload = await detail.json();
     expect(payload.data.serviceOrder.status).toBe("PENDING");
-    expect(payload.data.serviceOrder.source).toBe("MANUAL");
+    expect(payload.data.serviceOrder.origin).toBe("INTERNAL");
     expect(payload.data.serviceOrder.events).toHaveLength(1);
     expect(payload.data.serviceOrder.events[0].event).toBe(
       "SERVICE_ORDER_CREATED",
@@ -97,7 +98,7 @@ describe("Ordens de serviço", () => {
           method: "POST",
           body: {
             customerId: customer.id,
-            type: "Manutenção",
+            typeId: fixture.typeA.id,
             description: "Sem conexão.",
             status: "COMPLETED",
             companyId: fixture.companyB.id,
@@ -125,7 +126,7 @@ describe("Ordens de serviço", () => {
           method: "POST",
           body: {
             customerId: customerB.id,
-            type: "Manutenção",
+            typeId: fixture.typeA.id,
             description: "Sem conexão.",
           },
         },
@@ -147,7 +148,7 @@ describe("Ordens de serviço", () => {
     expect(payload.data.sync.updated).toBe(0);
 
     const imported = await prisma.serviceOrder.findMany({
-      where: { companyId: fixture.companyA.id, source: "IMPORTED" },
+      where: { companyId: fixture.companyA.id, origin: "EXTERNAL" },
     });
     expect(imported).toHaveLength(3);
     for (const order of imported) {
@@ -237,7 +238,7 @@ describe("Ordens de serviço", () => {
     ).toBe(3);
 
     const imported = await prisma.serviceOrder.findMany({
-      where: { companyId: fixture.companyA.id, source: "IMPORTED" },
+      where: { companyId: fixture.companyA.id, origin: "EXTERNAL" },
     });
     expect(imported).toHaveLength(3);
     expect(new Set(imported.map((os) => os.externalId)).size).toBe(3);

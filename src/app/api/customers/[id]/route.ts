@@ -24,6 +24,7 @@ const updateCustomerSchema = z
     city: z.string().max(100).optional().or(z.literal("")),
     state: z.string().max(2).optional().or(z.literal("")),
     zipCode: z.string().max(15).optional().or(z.literal("")),
+    externalId: z.string().max(64).optional().or(z.literal("")),
     active: z.boolean().optional(),
   })
   .strict();

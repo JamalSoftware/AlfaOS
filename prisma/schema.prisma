@@ -33,9 +33,18 @@ enum ServiceOrderStatus {
   CANCELLED
 }
 
-enum ServiceOrderSource {
-  MANUAL
-  IMPORTED
+/// Onde a OS nasceu (PRD §122).
+///
+/// NUNCA inferida a partir de `externalId`: e gravada explicitamente no
+/// ponto de criacao. Uma OS INTERNAL pode ganhar vinculo externo depois sem
+/// deixar de ser INTERNAL — inferir pela presenca do id externo apagaria
+/// essa distincao justamente no caso em que ela importa.
+enum ServiceOrderOrigin {
+  /// Criada diretamente no AlfaOS.
+  INTERNAL
+  /// Nasceu em ERP/sistema externo. Exige externalProvider + externalId,
+  /// garantido por CHECK constraint no banco.
+  EXTERNAL
 }
 
 /// Kind of evidence attached to a service order. Only PHOTO is produced in
@@ -81,6 +90,7 @@ model Company {
   customers              Customer[]
   technicians            Technician[]
   serviceOrders          ServiceOrder[]
+  serviceOrderTypes      ServiceOrderType[]
   serviceOrderEvents     ServiceOrderEvent[]
   serviceOrderExecutions ServiceOrderExecution[]
   serviceOrderEvidences  ServiceOrderEvidence[]
@@ -152,7 +162,7 @@ model Customer {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  serviceOrders ServiceOrder[]
+  serviceOrders       ServiceOrder[]
   diagnosticSnapshots CustomerDiagnosticSnapshot[]
 
   @@unique([companyId, externalProvider, externalId])
@@ -232,12 +242,20 @@ model ServiceOrder {
   customer         Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
   technicianId     String?
   technician       Technician?          @relation(fields: [technicianId], references: [id], onDelete: Restrict)
+  /// Rotulo do tipo, capturado no momento da criacao. Mantido como texto
+  /// mesmo quando `typeId` existe: e o que preserva o historico quando um
+  /// tipo e renomeado ou desativado, e e o unico valor que uma OS importada
+  /// tem (o provider nao conhece o catalogo da empresa).
   type             String
+  /// Vinculo opcional com o catalogo da empresa. Nulo em OS importada e em
+  /// OS anterior ao catalogo.
+  typeId           String?
+  serviceOrderType ServiceOrderType?    @relation(fields: [typeId], references: [id], onDelete: Restrict)
   subtype          String?
   description      String               @db.Text
   priority         ServiceOrderPriority @default(NORMAL)
   status           ServiceOrderStatus   @default(PENDING)
-  source           ServiceOrderSource   @default(MANUAL)
+  origin           ServiceOrderOrigin   @default(INTERNAL)
   scheduledAt      DateTime?
   assignedAt       DateTime?
   startedAt        DateTime?
@@ -262,9 +280,38 @@ model ServiceOrder {
   @@index([companyId, priority])
   @@index([companyId, scheduledAt])
   @@index([companyId, createdAt])
+  @@index([companyId, origin])
+  @@index([typeId])
   @@index([customerId])
   @@index([technicianId])
   @@map("service_orders")
+}
+
+/// Catalogo de tipos de OS da empresa (PRD §125).
+///
+/// Fundacao deliberadamente minima: nome, descricao, ativo e ordem.
+/// Checklist, obrigatoriedade de foto/assinatura, materiais e campos
+/// personalizados NAO entram aqui — cada um deles muda como a OS conclui,
+/// ou seja, mexe na maquina de estados e no fechamento.
+///
+/// Desativar um tipo nao afeta OS historica: a OS guarda o rotulo em
+/// `ServiceOrder.type` e o vinculo e `onDelete: Restrict`.
+model ServiceOrderType {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  serviceOrders ServiceOrder[]
+
+  @@unique([companyId, name])
+  @@index([companyId, active, sortOrder])
+  @@map("service_order_types")
 }
 
 model ServiceOrderEvent {
@@ -455,8 +502,8 @@ model ERPIntegration {
   credentialLast4      String?
   credentialUpdatedAt  DateTime?
 
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("erp_integrations")
 }

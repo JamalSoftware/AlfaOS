@@ -17,6 +17,8 @@ async function main() {
   await prisma.serviceOrderExecution.deleteMany();
   await prisma.serviceOrderEvent.deleteMany();
   await prisma.serviceOrder.deleteMany();
+  // Depois das OS: o vinculo e onDelete Restrict de proposito.
+  await prisma.serviceOrderType.deleteMany();
   await prisma.technician.deleteMany();
   await prisma.customer.deleteMany();
   await prisma.loginAttempt.deleteMany();

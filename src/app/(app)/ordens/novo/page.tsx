@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requirePageProfile } from "@/lib/guards";
 import { listCustomerOptions } from "@/lib/customers";
+import { listServiceOrderTypeOptions } from "@/lib/service-order-types";
 import { ServiceOrderForm } from "@/components/ServiceOrderForm";
 
 export const metadata: Metadata = {
@@ -10,7 +11,10 @@ export const metadata: Metadata = {
 
 export default async function NewOrderPage() {
   const session = await requirePageProfile(["ADMIN", "DISPATCHER"]);
-  const customers = await listCustomerOptions(session.companyId);
+  const [customers, types] = await Promise.all([
+    listCustomerOptions(session.companyId),
+    listServiceOrderTypeOptions(session.companyId),
+  ]);
 
   return (
     <div>
@@ -28,7 +32,7 @@ export default async function NewOrderPage() {
       </div>
 
       <div className="max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <ServiceOrderForm customers={customers} />
+        <ServiceOrderForm customers={customers} types={types} />
       </div>
     </div>
   );

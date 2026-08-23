@@ -97,6 +97,35 @@ async function main() {
     },
   });
 
+  /**
+   * Tipos iniciais para desenvolvimento e teste.
+   *
+   * Exemplos, NÃO enum: cada provedor tem seu vocabulário operacional, e nada
+   * em produção precisa usar exatamente estes nomes. Um ADMIN cadastra,
+   * renomeia e desativa os seus em Tipos de OS.
+   */
+  const DEFAULT_TYPES = [
+    "Instalação",
+    "Manutenção",
+    "Recolhimento de equipamentos",
+    "Entrega de carnê",
+    "Troca de equipamento",
+    "Visita técnica",
+  ];
+
+  for (let index = 0; index < DEFAULT_TYPES.length; index += 1) {
+    const name = DEFAULT_TYPES[index];
+    await prisma.serviceOrderType.upsert({
+      where: { companyId_name: { companyId: companyA.id, name } },
+      update: {},
+      create: {
+        companyId: companyA.id,
+        name,
+        sortOrder: (index + 1) * 10,
+      },
+    });
+  }
+
   console.log("Seed complete.");
   console.log("Demo users (password: " + DEMO_PASSWORD + "):");
   console.log("  admin@alfatelecom.local      (Alfa Telecom - ADMIN)");

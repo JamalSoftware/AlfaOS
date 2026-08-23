@@ -41,6 +41,8 @@ export async function resetDatabase(): Promise<void> {
   await prisma.serviceOrderExecution.deleteMany();
   await prisma.serviceOrderEvent.deleteMany();
   await prisma.serviceOrder.deleteMany();
+  // Depois das OS: o vínculo é onDelete Restrict de propósito.
+  await prisma.serviceOrderType.deleteMany();
   await prisma.technician.deleteMany();
   await prisma.customer.deleteMany();
   await prisma.loginAttempt.deleteMany();
@@ -53,6 +55,10 @@ export async function resetDatabase(): Promise<void> {
 export interface TestFixture {
   companyA: { id: string };
   companyB: { id: string };
+  /** Tipo de OS da empresa A. Criar OS manual exige um tipo da própria empresa. */
+  typeA: { id: string };
+  /** Tipo da empresa B — existe para provar que A não consegue usá-lo. */
+  typeB: { id: string };
   adminA: { id: string };
   dispatcherA: { id: string };
   techA: { id: string };
@@ -127,9 +133,18 @@ export async function seedTestData(): Promise<TestFixture> {
     "ADMIN",
   );
 
+  const typeA = await prisma.serviceOrderType.create({
+    data: { companyId: companyA.id, name: "Instalação", sortOrder: 1 },
+  });
+  const typeB = await prisma.serviceOrderType.create({
+    data: { companyId: companyB.id, name: "Instalação", sortOrder: 1 },
+  });
+
   return {
     companyA: { id: companyA.id },
     companyB: { id: companyB.id },
+    typeA: { id: typeA.id },
+    typeB: { id: typeB.id },
     adminA: { id: adminA.id },
     dispatcherA: { id: dispatcherA.id },
     techA: { id: techA.id },

@@ -21,6 +21,9 @@ const createCustomerSchema = z
     city: z.string().max(100).optional().or(z.literal("")),
     state: z.string().max(2).optional().or(z.literal("")),
     zipCode: z.string().max(15).optional().or(z.literal("")),
+    // `externalProvider` NAO entra aqui: e derivado da integracao da empresa
+    // no servidor. Schema strict, entao envia-lo resulta em 400.
+    externalId: z.string().max(64).optional().or(z.literal("")),
   })
   .strict();
 

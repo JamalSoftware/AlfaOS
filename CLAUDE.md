@@ -160,13 +160,17 @@ O projeto possui:
 * `v0.2.1-audit-fixes`
 * `v0.2.2-pre-v03-hardening`
 * `v0.2.3-pre-v03-hardening`
-* `v0.3-technician-execution` (commit `c852732`)
+* `v0.3-technician-execution`
+* `v0.4-service-order-closing`
+* `v0.5-receitanet-diagnostics` (commit `e4fc701`)
 
-**Baseline atual: `v0.3-technician-execution`.**
+**Baseline tagueada: `v0.5-receitanet-diagnostics`** — auditada e endurecida.
 
-A v0.3 foi implementada e tagueada, mas **ainda aguarda auditoria independente** — quem implementou não se autoavaliou como aprovado em segurança, por design (auditoria final é sempre feita por quem não implementou).
+Depois dela, ainda **sem tag**: a documentação da arquitetura de OS própria (PRD Parte III, seções 121–131) e a `v0.5.1` — origem `INTERNAL`/`EXTERNAL`, catálogo `ServiceOrderType`, histórico recente do técnico e invalidação da credencial na troca de provider.
 
-**Não iniciar `v0.4` sem aprovação explícita da auditoria da v0.3.**
+A `v0.5.1` foi implementada e passa nos quality gates, mas **ainda aguarda auditoria independente** — quem implementou não se autoavalia como aprovado em segurança, por design (auditoria final é sempre feita por quem não implementou).
+
+**Não iniciar `v0.6` (ReceitaNet / CallCenter read-only) sem aprovação explícita da auditoria da v0.5.1.**
 
 ## Princípios
 

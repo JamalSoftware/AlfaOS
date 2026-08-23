@@ -3,8 +3,10 @@ import Link from "next/link";
 import { requirePageProfile } from "@/lib/guards";
 import {
   getTechnicianByUserId,
+  listRecentCompletedForTechnician,
   listServiceOrdersForTechnician,
   SERVICE_ORDER_PRIORITY_LABELS,
+  TECHNICIAN_COMPLETED_WINDOW_DAYS,
 } from "@/lib/service-orders";
 import { EmptyState } from "@/components/EmptyState";
 import { PriorityBadge, StatusBadge } from "@/components/OrderBadges";
@@ -97,10 +99,16 @@ export default async function MyOrdersPage() {
     );
   }
 
-  const queue = await listServiceOrdersForTechnician(
-    session.companyId,
-    technician.id,
-  );
+  /**
+   * Duas consultas separadas de propósito: a fila operacional continua sendo
+   * só ASSIGNED + IN_PROGRESS. Concluídas entram numa seção própria, limitada
+   * em período e quantidade, para não empurrar o trabalho de hoje para fora
+   * da primeira tela do celular.
+   */
+  const [queue, completed] = await Promise.all([
+    listServiceOrdersForTechnician(session.companyId, technician.id),
+    listRecentCompletedForTechnician(session.companyId, technician.id),
+  ]);
 
   return (
     <div>
@@ -160,7 +168,7 @@ export default async function MyOrdersPage() {
         )}
       </section>
 
-      <section>
+      <section className="mb-8">
         <h2 className="mb-3 text-base font-semibold text-slate-900">Próximas</h2>
         {queue.upcoming.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -175,6 +183,40 @@ export default async function MyOrdersPage() {
               <OrderCard key={order.id} order={order} />
             ))}
           </div>
+        )}
+      </section>
+
+      {/*
+        Antes da v0.5.1 uma OS concluída simplesmente sumia: continuava
+        acessível por URL direta, mas nenhuma tela levava até ela. O técnico
+        perdia de vista o próprio trabalho do dia assim que finalizava.
+
+        A consulta é escopada em SQL por empresa + técnico, então esta seção
+        nunca mostra atendimento de outro técnico nem de outra empresa.
+      */}
+      <section>
+        <h2 className="mb-3 text-base font-semibold text-slate-900">
+          Concluídas recentes
+        </h2>
+        {completed.length === 0 ? (
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <EmptyState
+              title="Nenhuma OS concluída nos últimos dias"
+              description={`Seus atendimentos finalizados nos últimos ${TECHNICIAN_COMPLETED_WINDOW_DAYS} dias aparecerão aqui.`}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {completed.map((order) => (
+                <OrderCard key={order.id} order={order} />
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-slate-500">
+              Últimos {TECHNICIAN_COMPLETED_WINDOW_DAYS} dias. Para o histórico
+              completo, fale com o despachante.
+            </p>
+          </>
         )}
       </section>
     </div>

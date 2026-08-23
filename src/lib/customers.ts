@@ -1,7 +1,14 @@
 import type { Customer } from "@prisma/client";
 import { logAudit } from "./audit";
-import { notFound } from "./errors";
+import {
+  badRequest,
+  conflict,
+  isUniqueConstraintError,
+  notFound,
+} from "./errors";
 import { prisma } from "./prisma";
+
+export const EXTERNAL_ID_MAX_LENGTH = 64;
 
 export interface PublicCustomer {
   id: string;
@@ -17,6 +24,15 @@ export interface PublicCustomer {
   city: string | null;
   state: string | null;
   zipCode: string | null;
+  /** Contrato / ID do cliente no ERP da empresa. Opcional. */
+  externalId: string | null;
+  /**
+   * Sistema ao qual `externalId` pertence. Somente leitura para o cliente HTTP:
+   * é derivado da integração da própria empresa, nunca aceito do request — caso
+   * contrário um operador poderia reivindicar a identidade externa de outro
+   * provider.
+   */
+  externalProvider: string | null;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -35,6 +51,7 @@ export interface CreateCustomerInput {
   city?: string;
   state?: string;
   zipCode?: string;
+  externalId?: string | null;
 }
 
 export interface UpdateCustomerInput {
@@ -50,12 +67,14 @@ export interface UpdateCustomerInput {
   city?: string;
   state?: string;
   zipCode?: string;
+  externalId?: string | null;
   active?: boolean;
 }
 
 /**
- * External integration fields (externalProvider/externalId) are deliberately
- * excluded from the public shape: they are internal sync metadata.
+ * `externalId` passou a ser editável pelo ADMIN/DISPATCHER (v0.5.1), então
+ * aparece aqui junto do provider que o qualifica. Ambos só trafegam em telas
+ * administrativas — a rota de clientes já é restrita a ADMIN e DISPATCHER.
  */
 export function toPublicCustomer(customer: Customer): PublicCustomer {
   return {
@@ -72,6 +91,8 @@ export function toPublicCustomer(customer: Customer): PublicCustomer {
     city: customer.city,
     state: customer.state,
     zipCode: customer.zipCode,
+    externalId: customer.externalId,
+    externalProvider: customer.externalProvider,
     active: customer.active,
     createdAt: customer.createdAt,
     updatedAt: customer.updatedAt,
@@ -153,28 +174,83 @@ export async function listCustomerOptions(
   return customers;
 }
 
+/**
+ * Resolve a identidade externa a partir do que o operador digitou.
+ *
+ * O `externalProvider` vem SEMPRE da integração da própria empresa, lida no
+ * servidor. Aceitá-lo do request deixaria um operador gravar um cliente como
+ * se pertencesse a outro sistema, e a unique
+ * `(companyId, externalProvider, externalId)` deixaria de significar o que
+ * promete.
+ */
+async function resolveExternalIdentity(
+  companyId: string,
+  raw: string | null | undefined,
+): Promise<{ externalProvider: string | null; externalId: string | null }> {
+  const externalId = raw?.trim() || null;
+
+  // Limpar o id limpa o provider junto: um provider órfão deixaria a linha
+  // afirmando pertencer a um sistema sem dizer com que identificador.
+  if (!externalId) {
+    return { externalProvider: null, externalId: null };
+  }
+
+  if (externalId.length > EXTERNAL_ID_MAX_LENGTH) {
+    throw badRequest(
+      `Contrato / ID externo deve ter no máximo ${EXTERNAL_ID_MAX_LENGTH} caracteres.`,
+    );
+  }
+
+  const integration = await prisma.eRPIntegration.findUnique({
+    where: { companyId },
+    select: { provider: true },
+  });
+  if (!integration) {
+    throw badRequest(
+      "Configure a integração ERP da empresa antes de vincular um contrato / ID externo.",
+    );
+  }
+
+  return { externalProvider: integration.provider, externalId };
+}
+
+function externalIdConflict(): never {
+  throw conflict(
+    "Já existe um cliente com esse contrato / ID externo nesta empresa.",
+  );
+}
+
 export async function createCompanyCustomer(
   companyId: string,
   input: CreateCustomerInput,
   actorId: string,
 ): Promise<PublicCustomer> {
-  const customer = await prisma.customer.create({
-    data: {
-      companyId,
-      name: input.name.trim(),
-      document: input.document?.trim() || null,
-      phone: input.phone?.trim() || null,
-      secondaryPhone: input.secondaryPhone?.trim() || null,
-      email: input.email?.trim().toLowerCase() || null,
-      address: input.address?.trim() || null,
-      number: input.number?.trim() || null,
-      complement: input.complement?.trim() || null,
-      district: input.district?.trim() || null,
-      city: input.city?.trim() || null,
-      state: input.state?.trim().toUpperCase() || null,
-      zipCode: input.zipCode?.trim() || null,
-    },
-  });
+  const external = await resolveExternalIdentity(companyId, input.externalId);
+
+  let customer;
+  try {
+    customer = await prisma.customer.create({
+      data: {
+        companyId,
+        ...external,
+        name: input.name.trim(),
+        document: input.document?.trim() || null,
+        phone: input.phone?.trim() || null,
+        secondaryPhone: input.secondaryPhone?.trim() || null,
+        email: input.email?.trim().toLowerCase() || null,
+        address: input.address?.trim() || null,
+        number: input.number?.trim() || null,
+        complement: input.complement?.trim() || null,
+        district: input.district?.trim() || null,
+        city: input.city?.trim() || null,
+        state: input.state?.trim().toUpperCase() || null,
+        zipCode: input.zipCode?.trim() || null,
+      },
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) externalIdConflict();
+    throw error;
+  }
 
   await logAudit({
     companyId,
@@ -221,11 +297,23 @@ export async function updateCompanyCustomer(
     data.state = input.state?.trim().toUpperCase() || null;
   if (input.zipCode !== undefined) data.zipCode = input.zipCode?.trim() || null;
   if (input.active !== undefined) data.active = input.active;
+  if (input.externalId !== undefined) {
+    Object.assign(
+      data,
+      await resolveExternalIdentity(companyId, input.externalId),
+    );
+  }
 
-  const updated = await prisma.customer.update({
-    where: { id: customerId },
-    data,
-  });
+  let updated;
+  try {
+    updated = await prisma.customer.update({
+      where: { id: customerId },
+      data,
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) externalIdConflict();
+    throw error;
+  }
 
   await logAudit({
     companyId,

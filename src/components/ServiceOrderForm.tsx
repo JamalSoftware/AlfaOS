@@ -5,6 +5,7 @@ import { useState } from "react";
 
 interface ServiceOrderFormProps {
   customers: { id: string; name: string }[];
+  types: { id: string; name: string }[];
 }
 
 const inputClass =
@@ -12,10 +13,13 @@ const inputClass =
 
 const labelClass = "mb-1 block text-sm font-medium text-slate-700";
 
-export function ServiceOrderForm({ customers }: ServiceOrderFormProps) {
+export function ServiceOrderForm({
+  customers,
+  types,
+}: ServiceOrderFormProps) {
   const router = useRouter();
   const [customerId, setCustomerId] = useState("");
-  const [type, setType] = useState("");
+  const [typeId, setTypeId] = useState("");
   const [subtype, setSubtype] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("NORMAL");
@@ -31,6 +35,10 @@ export function ServiceOrderForm({ customers }: ServiceOrderFormProps) {
       setError("Selecione um cliente.");
       return;
     }
+    if (!typeId) {
+      setError("Selecione o tipo da OS.");
+      return;
+    }
 
     setLoading(true);
     try {
@@ -39,7 +47,7 @@ export function ServiceOrderForm({ customers }: ServiceOrderFormProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           customerId,
-          type,
+          typeId,
           subtype,
           description,
           priority,
@@ -81,18 +89,31 @@ export function ServiceOrderForm({ customers }: ServiceOrderFormProps) {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
-          <label htmlFor="type" className={labelClass}>Tipo *</label>
-          <input
-            id="type"
-            type="text"
-            required
-            minLength={2}
-            maxLength={100}
-            value={type}
-            onChange={(e) => setType(e.target.value)}
+          <label htmlFor="typeId" className={labelClass}>Tipo *</label>
+          <select
+            id="typeId"
+            value={typeId}
+            onChange={(e) => setTypeId(e.target.value)}
             className={inputClass}
-            placeholder="Ex.: Instalação, Manutenção, Suporte"
-          />
+            disabled={types.length === 0}
+          >
+            <option value="">
+              {types.length === 0
+                ? "Nenhum tipo cadastrado"
+                : "Selecione o tipo..."}
+            </option>
+            {types.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          {types.length === 0 && (
+            <p className="mt-1 text-xs text-amber-700">
+              Um ADMIN precisa cadastrar tipos de OS em Configurações › Tipos de
+              OS antes de abrir uma ordem.
+            </p>
+          )}
         </div>
         <div>
           <label htmlFor="subtype" className={labelClass}>Subtipo</label>

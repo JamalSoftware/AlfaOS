@@ -2637,7 +2637,11 @@ PENDING → ASSIGNED → IN_PROGRESS → COMPLETED
 
 **Não criar máquina de estados por ERP.** Um fluxo por integração multiplicaria as transições a auditar, e cada integração nova viraria superfície de segurança nova em vez de um adapter. A origem é um **atributo** da OS, não um regime de execução.
 
-A origem é observável, não inferida: uma OS EXTERNAL é a que possui `external_provider` e `external_id` preenchidos (seção 15); uma OS INTERNAL não os possui.
+A origem é um **campo gravado** (`ServiceOrder.origin`), definido no ponto de criação e nunca derivado dos campos externos.
+
+> **Correção (v0.5.1).** Uma versão anterior desta seção dizia que a origem era observável pela presença de `external_provider`/`external_id`. Isso está errado e contradizia a própria regra seguinte: uma OS INTERNAL **pode ganhar vínculo com ERP depois e continua INTERNAL**. Derivar a origem dos campos externos faria exatamente esse caso mentir sobre a procedência.
+
+A implicação vale só no outro sentido: **EXTERNAL exige** `external_provider` e `external_id` — garantido por CHECK no banco. INTERNAL pode ter os dois campos preenchidos, vazios, ou vir a preenchê-los.
 
 A origem pode restringir **o que a empresa edita** numa OS importada. Nunca restringe **como o técnico executa**.
 
