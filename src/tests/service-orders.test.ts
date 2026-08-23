@@ -711,4 +711,166 @@ describe("Ordens de serviço", () => {
       "TECHNICIAN_CHANGED",
     ]);
   });
+
+  /**
+   * Lock fim-a-fim — docs/SERVICE-ORDERS.md §3.2.
+   *
+   * O compare-and-set server-side cobre a janela entre duas REQUISIÇÕES em voo.
+   * Não cobria a janela entre o que o despachante VIU na tela e o que ele
+   * clicou: como `version` não saía na API e não voltava do cliente, o servidor
+   * sempre relia a versão corrente e aceitava qualquer reatribuição. Dois
+   * despachantes com a mesma tela aberta viravam "o último clique vence", sem
+   * nenhum sinal de conflito para o segundo.
+   *
+   * `expectedVersion` fecha isso: a versão vem de uma LEITURA REAL da API (nada
+   * de `0` hardcoded — se a exposição de `version` regredir, o teste quebra na
+   * origem em vez de passar por acidente).
+   */
+  it("Reatribuição com expectedVersion obsoleto é recusada (409) e preserva a decisão do primeiro", async () => {
+    const token = await createTokenFor(fixture.adminA.id);
+    const customer = await prisma.customer.create({
+      data: { companyId: fixture.companyA.id, name: "Cliente A" },
+    });
+    const id = await createManualOrder(token, customer.id);
+    const tech1 = await createTech(fixture.companyA.id, fixture.techA.id);
+    const tech2 = await createTech(fixture.companyA.id, fixture.techB.id);
+
+    /** O que um despachante enxerga ao abrir a tela da OS. */
+    const readVersion = async (): Promise<number> => {
+      const res = await getOrder(
+        apiRequest(`/api/service-orders/${id}`, {}, token),
+        { params: { id } },
+      );
+      expect(res.status).toBe(200);
+      const payload = await res.json();
+      const version = payload.data.serviceOrder.version;
+      expect(typeof version).toBe("number");
+      return version;
+    };
+
+    const assign = (technicianId: string, expectedVersion?: number) =>
+      assignOrder(
+        apiRequest(
+          `/api/service-orders/${id}/assign`,
+          {
+            method: "POST",
+            body:
+              expectedVersion === undefined
+                ? { technicianId }
+                : { technicianId, expectedVersion },
+          },
+          token,
+        ),
+        { params: { id } },
+      );
+
+    // Despachantes A e B abrem a MESMA OS e leem a MESMA versão.
+    const versionSeenByA = await readVersion();
+    const versionSeenByB = await readVersion();
+    expect(versionSeenByB).toBe(versionSeenByA);
+
+    // A atribui Tech1 com a versão que viu → passa.
+    const firstRes = await assign(tech1.id, versionSeenByA);
+    expect(firstRes.status).toBe(200);
+
+    // B, com a tela desatualizada, atribui Tech2 com a versão JÁ OBSOLETA.
+    // Antes da correção isto retornava 200 e apagava a decisão de A.
+    const secondRes = await assign(tech2.id, versionSeenByB);
+    expect(secondRes.status).toBe(409);
+    const secondPayload = await secondRes.json();
+    expect(secondPayload.ok).toBe(false);
+    expect(secondPayload.error).toContain("modificada por outra requisição");
+
+    // A decisão de A permanece de pé: técnico, versão e timeline intactos.
+    const os = await prisma.serviceOrder.findUniqueOrThrow({ where: { id } });
+    expect(os.technicianId).toBe(tech1.id);
+    expect(os.status).toBe("ASSIGNED");
+    expect(os.version).toBe(versionSeenByA + 1);
+
+    const events = await prisma.serviceOrderEvent.findMany({
+      where: { serviceOrderId: id },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(events.map((e) => e.event)).toEqual([
+      "SERVICE_ORDER_CREATED",
+      "TECHNICIAN_ASSIGNED",
+    ]);
+
+    // E o 409 não é uma trava: B recarrega, vê a versão nova e a troca passa.
+    const versionAfterReload = await readVersion();
+    expect(versionAfterReload).toBe(versionSeenByA + 1);
+    const retryRes = await assign(tech2.id, versionAfterReload);
+    expect(retryRes.status).toBe(200);
+
+    const after = await prisma.serviceOrder.findUniqueOrThrow({ where: { id } });
+    expect(after.technicianId).toBe(tech2.id);
+    expect(after.version).toBe(versionAfterReload + 1);
+  });
+
+  /**
+   * `expectedVersion` é OPCIONAL. Quem não manda continua caindo no caminho
+   * antigo (relê a versão corrente e aceita) — nenhum chamador quebra.
+   */
+  it("Atribuição sem expectedVersion mantém o comportamento antigo (retrocompatibilidade)", async () => {
+    const token = await createTokenFor(fixture.adminA.id);
+    const customer = await prisma.customer.create({
+      data: { companyId: fixture.companyA.id, name: "Cliente A" },
+    });
+    const id = await createManualOrder(token, customer.id);
+    const tech1 = await createTech(fixture.companyA.id, fixture.techA.id);
+    const tech2 = await createTech(fixture.companyA.id, fixture.techB.id);
+
+    const assignWithoutVersion = (technicianId: string) =>
+      assignOrder(
+        apiRequest(
+          `/api/service-orders/${id}/assign`,
+          { method: "POST", body: { technicianId } },
+          token,
+        ),
+        { params: { id } },
+      );
+
+    expect((await assignWithoutVersion(tech1.id)).status).toBe(200);
+    // Segunda escrita SEM versão: a OS já está em version=1, e mesmo assim
+    // passa — é exatamente o comportamento anterior à correção.
+    expect((await assignWithoutVersion(tech2.id)).status).toBe(200);
+
+    const os = await prisma.serviceOrder.findUniqueOrThrow({ where: { id } });
+    expect(os.technicianId).toBe(tech2.id);
+    expect(os.version).toBe(2);
+
+    // O mesmo vale na camada de serviço, cujo 5º parâmetro é opcional.
+    await expect(
+      assignTechnician(fixture.companyA.id, fixture.adminA.id, id, tech1.id),
+    ).resolves.toMatchObject({ technician: { id: tech1.id } });
+  });
+
+  it("expectedVersion mal formada é rejeitada pelo schema (400)", async () => {
+    const token = await createTokenFor(fixture.adminA.id);
+    const customer = await prisma.customer.create({
+      data: { companyId: fixture.companyA.id, name: "Cliente A" },
+    });
+    const id = await createManualOrder(token, customer.id);
+    const tech = await createTech(fixture.companyA.id, fixture.techA.id);
+
+    for (const expectedVersion of ["0", -1, 1.5, null]) {
+      const res = await assignOrder(
+        apiRequest(
+          `/api/service-orders/${id}/assign`,
+          {
+            method: "POST",
+            body: { technicianId: tech.id, expectedVersion },
+          },
+          token,
+        ),
+        { params: { id } },
+      );
+      expect(res.status).toBe(400);
+    }
+
+    // Nenhuma delas encostou na OS.
+    const os = await prisma.serviceOrder.findUniqueOrThrow({ where: { id } });
+    expect(os.technicianId).toBeNull();
+    expect(os.version).toBe(0);
+  });
 });

@@ -83,8 +83,27 @@ atribuições**.
   linha, e ignorá-la deixaria uma atribuição com leitura anterior ao sync passar
   por cima de campos que nunca viu.
 - O compare-and-set é **servidor-side**: `assignTechnician` lê e escreve dentro
-  da mesma transação. `version` ainda não é exposto na API pública; expor para
-  lock fim-a-fim está registrado em `docs/SECURITY.md` §10.
+  da mesma transação.
+- **Lock fim-a-fim via `expectedVersion`** (resolvido em `v0.2.3`). O predicado
+  server-side sozinho só cobre a janela entre duas requisições **em voo**. Como
+  `version` não saía na API nem voltava do cliente, o servidor sempre relia a
+  versão corrente e aceitava qualquer reatribuição: os despachantes A e B abriam
+  a OS na mesma versão, A atribuía Tech1, e B — com a tela desatualizada —
+  atribuía Tech2 e **vencia sem conflito nenhum**. Ficava auditado
+  (`TECHNICIAN_CHANGED` guarda o técnico anterior), mas o segundo despachante
+  nunca sabia que estava desatualizado. Agora:
+  - `version` faz parte de `PublicServiceOrder`, então sai em
+    `GET /api/service-orders/[id]` e na listagem;
+  - `POST /api/service-orders/[id]/assign` aceita `expectedVersion` **opcional**
+    (inteiro ≥ 0, schema `.strict()`);
+  - quando enviada, ELA é o predicado: `where: { id, version: expectedVersion }`.
+    Versão obsoleta casa zero linhas → mesmo `409` de conflito;
+  - quando **não** enviada, o predicado continua sendo a versão relida na
+    transação — comportamento anterior preservado na íntegra, nenhum chamador
+    quebra.
+  - A tela de detalhe da OS passa `order.version` ao `AssignTechnicianForm`, que
+    a envia no POST. A prop é lida direto (nunca copiada para `useState`), para
+    que o `router.refresh()` pós-sucesso traga a versão nova.
 - A troca de técnico é permitida a partir de `ASSIGNED` e grava novo evento na
   timeline.
 - OS + evento de atribuição são gravados na **mesma transação** Prisma.
@@ -124,7 +143,7 @@ atribuições**.
 | `GET /api/service-orders` | ADMIN/DISPATCHER/TECHNICIAN | Listar (filtros por status/prioridade/técnico; técnico vê só as suas) |
 | `POST /api/service-orders` | ADMIN/DISPATCHER | Criar OS manual |
 | `GET /api/service-orders/[id]` | ADMIN/DISPATCHER/TECHNICIAN | Detalhe + timeline (ownership) |
-| `POST /api/service-orders/[id]/assign` | ADMIN/DISPATCHER | Atribuir/trocar técnico |
+| `POST /api/service-orders/[id]/assign` | ADMIN/DISPATCHER | Atribuir/trocar técnico (`expectedVersion` opcional → lock otimista fim-a-fim, §3.2) |
 | `POST /api/integrations/sync` | ADMIN | Importar OS do ERP (idempotente) |
 
 Todas as rotas novas usam Zod `.strict()`, exigem sessão com perfil adequado

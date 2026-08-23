@@ -283,6 +283,14 @@ congelamento único.
   e usado como compare-and-set: `where: { id, version }` +
   `data: { version: { increment: 1 } }`. O perdedor recebe `409` determinístico,
   decidido por identidade e não por relógio.
+- **Lock otimista fim-a-fim** (corrigido em `v0.2.3-pre-v03-hardening`):
+  `version` não era exposto na API nem aceito de volta, então o predicado só
+  cobria requisições concorrentes — nunca a janela entre o que o operador leu na
+  tela e o que clicou. `version` agora sai em `PublicServiceOrder` e
+  `POST /api/service-orders/[id]/assign` aceita `expectedVersion` **opcional**;
+  quando enviada, é ela o compare-and-set, e uma reatribuição feita sobre uma
+  leitura obsoleta recebe `409` em vez de sobrescrever a decisão anterior.
+  Omitir o campo mantém o comportamento antigo (retrocompatível).
 - **Timeline imutável**: status e atribuição só mudam pela máquina de estados
   central (`ALLOWED_STATUS_TRANSITIONS`); cada mutação grava um
   `ServiceOrderEvent` na mesma transação — nunca status sem rastro.
@@ -317,11 +325,11 @@ congelamento único.
   fila) — hoje o custo é apenas **limitado** pelo portão de admissão da seção
   2.2, não removido da thread principal. Exige rehash progressivo dos hashes
   existentes.
-- Expor `ServiceOrder.version` na API para que o cliente envie a versão que leu
-  (lock otimista fim-a-fim). Hoje o compare-and-set é inteiramente
-  servidor-side: `assignTechnician` lê e escreve dentro da mesma transação, o
-  que fecha a janela entre requisições concorrentes mas não a janela entre o
-  que o operador viu na tela e o que ele clicou.
+- ~~Expor `ServiceOrder.version` na API para que o cliente envie a versão que
+  leu (lock otimista fim-a-fim).~~ **Feito em `v0.2.3-pre-v03-hardening`** — ver
+  seção 8 e [SERVICE-ORDERS.md §3.2](SERVICE-ORDERS.md). Resta apenas estender
+  `expectedVersion` às demais mutações de OS quando elas existirem (start/finish
+  chegam na v0.3).
 - Fluxo de recuperação de administrador (CLI/console de suporte). Hoje o
   travamento é apenas **prevenido** (seção 12); não existe caminho de
   recuperação se uma empresa ficar sem ADMIN ativo por outro meio.

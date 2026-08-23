@@ -5,11 +5,23 @@ import { useState } from "react";
 
 interface AssignTechnicianFormProps {
   orderId: string;
+  /**
+   * `version` da OS lida por esta renderização. Enviada no POST como
+   * `expectedVersion` — é o que faz o lock otimista cobrir a janela entre o que
+   * o despachante VIU na tela e o que ele clicou.
+   *
+   * Lida direto da prop, nunca copiada para `useState`: depois de um sucesso o
+   * `router.refresh()` re-renderiza o Server Component e a prop chega
+   * atualizada. Um snapshot em estado ficaria congelado na primeira montagem e
+   * faria a próxima troca de técnico conflitar sozinha.
+   */
+  version: number;
   technicians: { id: string; name: string }[];
 }
 
 export function AssignTechnicianForm({
   orderId,
+  version,
   technicians,
 }: AssignTechnicianFormProps) {
   const router = useRouter();
@@ -31,7 +43,7 @@ export function AssignTechnicianForm({
       const res = await fetch(`/api/service-orders/${orderId}/assign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ technicianId }),
+        body: JSON.stringify({ technicianId, expectedVersion: version }),
       });
       const payload = await res.json();
       if (!res.ok) {

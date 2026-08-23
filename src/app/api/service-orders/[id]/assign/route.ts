@@ -10,6 +10,15 @@ const STAFF_PROFILES = [AccessProfile.ADMIN, AccessProfile.DISPATCHER];
 const assignSchema = z
   .object({
     technicianId: z.string().min(1, "Técnico é obrigatório."),
+    /**
+     * `version` da OS que o cliente leu (vem no `GET /api/service-orders/[id]`).
+     * Quando enviada, vira o predicado do compare-and-set: atribuir sobre uma
+     * leitura obsoleta é recusado com 409 em vez de sobrescrever quem chegou
+     * antes. Opcional de propósito — sem ela o comportamento antigo (relê a
+     * versão corrente e aceita) é preservado, então nenhum chamador existente
+     * quebra.
+     */
+    expectedVersion: z.number().int().min(0).optional(),
   })
   .strict();
 
@@ -47,6 +56,7 @@ export async function POST(
       session.id,
       context.params.id,
       parsed.data.technicianId,
+      parsed.data.expectedVersion,
     );
     return jsonOk({ serviceOrder: order });
   });

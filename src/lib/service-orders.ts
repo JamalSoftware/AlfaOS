@@ -103,6 +103,13 @@ export interface PublicServiceOrder {
   assignedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  /**
+   * Optimistic-lock token, exposed so the client can send it back as
+   * `expectedVersion` on the next write. Without it the lock only covers the
+   * window between two in-flight requests, never the window between what the
+   * operator READ on screen and what they later clicked.
+   */
+  version: number;
   customer: ServiceOrderCustomerInfo;
   technician: ServiceOrderTechnicianInfo | null;
 }
@@ -164,6 +171,7 @@ export function toPublicServiceOrder(order: {
   assignedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  version: number;
   customer: {
     id: string;
     name: string;
@@ -187,6 +195,7 @@ export function toPublicServiceOrder(order: {
     assignedAt: order.assignedAt,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
+    version: order.version,
     customer: order.customer,
     technician: order.technician
       ? { id: order.technician.id, name: order.technician.user.name }
@@ -553,11 +562,22 @@ async function withRelations(
 // Assignment (assign + change) with optimistic locking
 // ---------------------------------------------------------------------------
 
+/**
+ * Assigns (or changes) the technician of an order.
+ *
+ * `expectedVersion` is the `version` the CALLER read — the one it had on screen
+ * when the operator decided. When given, it becomes the compare-and-set
+ * predicate, so a decision taken over a stale read is refused with 409 instead
+ * of silently overwriting whoever wrote first. When omitted, the predicate is
+ * the version re-read inside the transaction: the pre-existing behaviour, kept
+ * intact for callers that do not participate in the end-to-end lock.
+ */
 export async function assignTechnician(
   companyId: string,
   actorId: string,
   orderId: string,
   technicianId: string,
+  expectedVersion?: number,
 ): Promise<PublicServiceOrder> {
   const assigned = await prisma.$transaction(async (tx) => {
     const os = await tx.serviceOrder.findFirst({
@@ -620,8 +640,24 @@ export async function assignTechnician(
     // Postgres serialises the two UPDATEs on the row lock: the loser re-checks
     // the predicate against the winner's committed row, sees a bumped version,
     // matches nothing and gets a deterministic 409.
+    //
+    // Which version is compared decides HOW WIDE the protected window is:
+    //
+    // - `expectedVersion` (client-supplied): covers read-to-write. Dispatchers
+    //   A and B both load the order at version N; A assigns Tech1 (N+1); B,
+    //   still holding N, is refused instead of overwriting A's decision.
+    // - `os.version` (re-read here): covers only request-to-request. A caller
+    //   that does not send its version is, by definition, saying "assign
+    //   whatever the current state is" — that path is preserved verbatim.
+    //
+    // Either way the predicate is an exact match, so a stale token can never
+    // win: it matches zero rows. (A stale caller naming the technician that is
+    // already assigned trips the equality rule above first — still a 409, just
+    // a more specific message.)
+    const lockVersion = expectedVersion ?? os.version;
+
     const result = await tx.serviceOrder.updateMany({
-      where: { id: os.id, version: os.version },
+      where: { id: os.id, version: lockVersion },
       data: {
         technicianId: technician.id,
         status: "ASSIGNED",

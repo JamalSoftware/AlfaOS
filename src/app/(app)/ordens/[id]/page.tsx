@@ -179,7 +179,18 @@ export default async function OrderDetailPage({
                   Não é possível atribuir uma OS no estado {SERVICE_ORDER_STATUS_LABELS[order.status]}.
                 </p>
               ) : (
-                <AssignTechnicianForm orderId={order.id} technicians={technicians} />
+                <AssignTechnicianForm
+                  orderId={order.id}
+                  /**
+                   * A versão que ESTA renderização leu. Vai junto no POST como
+                   * `expectedVersion`, fechando o lock de ponta a ponta: se a
+                   * OS mudou depois desta tela ter sido montada, a atribuição é
+                   * recusada com 409 em vez de sobrescrever. `router.refresh()`
+                   * re-renderiza este Server Component e atualiza a prop.
+                   */
+                  version={order.version}
+                  technicians={technicians}
+                />
               )}
             </div>
           )}
