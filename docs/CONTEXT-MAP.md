@@ -62,6 +62,22 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 **Quando:** quando esse projeto for iniciado e a documentação existir.
 **Quando NÃO:** não aplicável até lá.
 
+## Quando usar Context7
+
+Usar Context7 quando a tarefa depender de documentação externa atual de bibliotecas/frameworks, por exemplo: Next.js, React, Prisma, Playwright, Tailwind, Flutter no futuro, SDKs/APIs externos, bibliotecas adicionadas ao projeto.
+
+Especialmente quando: a API pode ter mudado; a sintaxe depende da versão atual; houver dúvida sobre comportamento oficial; for necessário confirmar boas práticas da biblioteca.
+
+## Quando NÃO usar Context7
+
+Não usar Context7 para: descobrir como o AlfaOS funciona; regras de negócio internas; multi-tenancy do AlfaOS; arquitetura própria; ServiceOrder; Technician ownership; decisões registradas no PRD; histórico Git; segurança específica do AlfaOS.
+
+Para isso usar: `CLAUDE.md` → CONTEXT-MAP → documentação modular → código/Git → skills AlfaOS quando aplicáveis.
+
+Context7 deve complementar o projeto, não substituir suas fontes internas.
+
+**Economia de contexto:** não consultar documentação externa automaticamente se o código e os documentos locais já forem suficientes. Consultar somente a biblioteca e o tópico necessários. Evitar buscas amplas.
+
 ---
 
 Atualize este mapa sempre que um documento relevante novo for criado (ex.: quando a auditoria da v0.3 for concluída, quando a integração ReceitaNet ganhar doc próprio, quando o Field App em Flutter for iniciado).
