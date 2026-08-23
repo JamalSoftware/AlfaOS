@@ -251,6 +251,14 @@ model CustomerDiagnosticSnapshot {
   observedAt         DateTime
   /// When the PROVIDER says the state last changed, if it reports that.
   sourceUpdatedAt    DateTime?
+  /// Tecnologia informada pelo provider, gravada como CODIGO CRU.
+  ///
+  /// O OpenAPI CallCenter declara `tecnologia` como inteiro e NAO documenta
+  /// o significado de cada valor. Traduzir para "Fibra"/"Radio" aqui
+  /// produziria uma tela que parece informada e mente.
+  technology         String?
+  /// Servidor do cliente em manutencao, quando o provider informa.
+  serverMaintenance  Boolean?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 

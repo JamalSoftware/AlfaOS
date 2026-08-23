@@ -12,6 +12,16 @@ export interface DiagnosticView {
   connectivityStatus: "ONLINE" | "OFFLINE" | "UNKNOWN";
   observedAt: string;
   provider: string;
+  /**
+   * Código cru de tecnologia do provider.
+   *
+   * Renderizado como código, sem tradução: o OpenAPI CallCenter declara
+   * `tecnologia` como inteiro e não documenta o que cada valor significa.
+   * Exibir "Fibra" sem base seria informação inventada numa tela que o
+   * técnico usa para decidir o que fazer.
+   */
+  technology?: string | null;
+  serverMaintenance?: boolean | null;
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -150,6 +160,35 @@ export function CustomerDiagnosticPanel({
               {formatTime(diagnostic.observedAt)}
             </dd>
           </div>
+          {diagnostic.technology != null && (
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-slate-500">Tecnologia</dt>
+              <dd
+                data-testid="diagnostic-technology"
+                className="font-medium text-slate-900"
+              >
+                {/* Código do provider, sem tradução — ver DiagnosticView. */}
+                código {diagnostic.technology}
+              </dd>
+            </div>
+          )}
+          {diagnostic.serverMaintenance != null && (
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-slate-500">Servidor</dt>
+              <dd
+                data-testid="diagnostic-maintenance"
+                className={
+                  diagnostic.serverMaintenance
+                    ? "font-semibold text-amber-700"
+                    : "font-medium text-slate-900"
+                }
+              >
+                {diagnostic.serverMaintenance
+                  ? "Em manutenção"
+                  : "Sem manutenção informada"}
+              </dd>
+            </div>
+          )}
           <div className="flex items-center justify-between gap-3">
             <dt className="text-slate-500">Fonte</dt>
             {/* The provider label is what the SERVER resolved, so mock data is

@@ -17,6 +17,19 @@ export interface ERPConnectionResult {
   provider: string;
   latencyMs: number;
   message: string;
+  /**
+   * A API respondeu?
+   *
+   * Separado de `credentialValidated` porque são perguntas diferentes e um
+   * provider pode responder a primeira sem responder a segunda — o `/ping`
+   * do CallCenter, por exemplo, não autentica. Colapsar as duas faria a tela
+   * anunciar "conectado" para uma credencial que nunca foi testada.
+   *
+   * Opcional para não obrigar adapters que não distinguem os dois casos.
+   */
+  reachable?: boolean;
+  /** O token da empresa foi aceito numa chamada autenticada real? */
+  credentialValidated?: boolean;
 }
 
 export interface ERPClientPayload {

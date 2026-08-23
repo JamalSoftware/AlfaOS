@@ -250,6 +250,8 @@ export default async function OrderDetailPage({
         connectivityStatus: diagnosticSnapshot.connectivityStatus,
         observedAt: diagnosticSnapshot.observedAt.toISOString(),
         provider: diagnosticSnapshot.provider,
+        technology: diagnosticSnapshot.technology,
+        serverMaintenance: diagnosticSnapshot.serverMaintenance,
       }
     : null;
 

@@ -54,7 +54,7 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 
 **Carregar:** `docs/ERP-INTEGRATIONS.md` — contrato/capabilities, modelo normalizado de diagnóstico, snapshot, modelo de erros, timeout, cenários do MockERP e o estado de implementação da integração ReceitaNet. O fluxo de sync de OS continua em `docs/SERVICE-ORDERS.md`.
 **Quando:** a tarefa envolve adapters de ERP, diagnóstico de conectividade do cliente, sincronização, ou a futura integração real com o ReceitaNet.
-**Quando NÃO:** tarefas que não tocam a camada de integração. **Antes de implementar qualquer chamada ReceitaNet**, ler `docs/PRD.md` §129 (estado real das APIs: URA, Chatbot, CallCenter e Central do Assinante, com OpenAPI oficiais localizados) e §121–§131 (propriedade da OS e posição dos ERPs). Nada está implementado ainda, e o §64 do PRD continua exigindo documentação oficial antes de qualquer chamada.
+**Quando NÃO:** tarefas que não tocam a camada de integração. **Antes de implementar qualquer chamada ReceitaNet**, ler a seção 1 de `docs/ERP-INTEGRATIONS.md` — ela separa o que está IMPLEMENTADO (CallCenter read-only, v0.6), o que está documentado e deliberadamente fora, e o que não existe em nenhuma API. Complementam: `docs/PRD.md` §129 (estado das quatro APIs) e §121–§131 (propriedade da OS e posição dos ERPs). O §64 continua valendo — nenhuma chamada fora do que o OpenAPI descreve.
 
 ## Futuro Field App (Flutter)
 

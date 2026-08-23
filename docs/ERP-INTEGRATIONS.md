@@ -1,4 +1,4 @@
-# Integrações ERP e Diagnóstico do Cliente — AlfaOS (v0.5)
+# Integrações ERP e Diagnóstico do Cliente — AlfaOS (v0.6)
 
 Como o AlfaOS fala com sistemas externos e como o diagnóstico de conectividade
 do cliente chega até a tela. Complementa `docs/ARCHITECTURE.md` (camadas) e
@@ -6,96 +6,128 @@ do cliente chega até a tela. Complementa `docs/ARCHITECTURE.md` (camadas) e
 
 ## 1. Estado da integração ReceitaNet
 
-### CONFIRMED
+Três estados diferentes, deliberadamente separados. Confundi-los foi o erro que
+esta seção já cometeu uma vez.
 
-**Nenhuma capacidade.** Zero operações ReceitaNet estão implementadas nesta
-versão.
+### CALLCENTER READ-ONLY — IMPLEMENTADO (v0.6)
+
+Contra o OpenAPI oficial da CallCenter (3.0.3, `info.version` 1.0.3,
+https://www.receitanet.net/api/callcenter/):
+
+| Capacidade | Endpoint | Situação |
+| --- | --- | --- |
+| Disponibilidade da API | `GET /ping` | IMPLEMENTADO |
+| Validação da credencial | `POST /v1/clientes` (leitura de sonda) | IMPLEMENTADO |
+| Busca por nome | `POST /v1/clientes` | IMPLEMENTADO |
+| Busca por CPF/CNPJ | `POST /v1/clientes` | IMPLEMENTADO |
+| Busca por telefone | `POST /v1/clientes` | IMPLEMENTADO |
+| Detalhe do cliente | `POST /v1/cliente` | IMPLEMENTADO |
+| Endereço, bairro, cidade, UF, CEP | `POST /v1/cliente` | IMPLEMENTADO |
+| Plano | `POST /v1/cliente` | IMPLEMENTADO |
+| Tecnologia (código cru) | `POST /v1/cliente` | IMPLEMENTADO |
+| Situação do contrato | `POST /v1/cliente` | IMPLEMENTADO |
+| Servidor em manutenção | `POST /v1/cliente` | IMPLEMENTADO |
+| Conectividade ONLINE/OFFLINE | `POST /v1/cliente/verificar-acesso` | IMPLEMENTADO |
+
+**Tudo read-only.** Nenhuma operação mutante foi implementada, e isso é
+escolha, não pendência — ver a lista de recusados abaixo.
+
+**Transporte.** `ReceitanetCallCenterClient`
+(`src/integrations/receitanet/CallCenterClient.ts`) concentra base URL, token,
+encoding, timeout, request, parse e normalização de erro. Nenhum `fetch` fora
+dele.
+
+- Corpo: `application/x-www-form-urlencoded`. O contrato aceita apenas isso e
+  `multipart/form-data` — **JSON não está no contrato** e não é usado.
+- Token: header HTTP `token`. **Nunca em query string** — uma URL entra em log
+  de servidor, proxy, histórico e `Referer`. O contrato menciona um campo
+  `token` no corpo como compatibilidade legada; não é usado.
+- `fetch` é injetável, e é o que permite exercitar 401, 404, 500, timeout, JSON
+  inválido e payload incompleto sem tocar a rede.
+
+### Identidade: um único identificador
+
+O CallCenter expõe **apenas** `idCliente`, que o próprio OpenAPI descreve como
+*"ID do cliente/contrato no ReceitaNet"*. O schema **não possui `contratoId`**.
+
+É esse valor, e somente ele, que vai para `Customer.externalId` sob
+`externalProvider = RECEITANET`.
+
+> **Atenção para quando a URA entrar.** Lá o schema `Cliente` devolve
+> `idCliente` **e** `contratoId` como campos distintos. Antes de misturar as
+> duas APIs é obrigatório confirmar com o suporte se são o mesmo número —
+> assumir que sim vincularia atendimentos ao cliente errado.
 
 ### DOCUMENTADO, NÃO IMPLEMENTADO
 
-> **Atualização.** Quando esta seção foi escrita, uma varredura do repositório
-> em v0.5 não encontrou nenhuma documentação da API ReceitaNet. **Isso mudou:**
-> quatro OpenAPI oficiais foram depois localizados e lidos — URA, Chatbot,
-> CallCenter e Central do Assinante. O estado factual das APIs passou a ser
-> mantido em `docs/PRD.md` §129, que é a fonte de verdade sobre o que existe.
->
-> A tabela abaixo continua correta no que ela realmente afirma: **nada disso
-> está implementado no AlfaOS**. Ela será reescrita capability a capability
-> quando o primeiro adapter real for construído, e não antes — reclassificar
-> linhas sem código correspondente só trocaria uma imprecisão por outra.
+Existe no contrato e foi deliberadamente deixado de fora desta etapa:
 
-Capacidades **não implementadas** nesta versão:
+| Capacidade | API | Por quê |
+| --- | --- | --- |
+| Reiniciar/ressincronizar acesso | CallCenter | operação mutante |
+| Liberação em confiança | CallCenter, URA, Chatbot, Central | operação mutante e financeira |
+| Envio de boleto | CallCenter, URA, Chatbot | operação mutante |
+| Abrir chamado | CallCenter, URA, Chatbot, Central | operação mutante |
+| Gravação / finalizar chamado | CallCenter, URA | operação mutante; exige `urlgravacao` |
+| Listar chamados do cliente | CallCenter, URA, Chatbot, Central | sem uso no fluxo atual |
+| Faturas / débitos | CallCenter, URA, Chatbot, Central | fora do escopo |
+| URA · Chatbot · Central do Assinante | — | nenhuma linha de código |
 
-| Capacidade | Situação |
-| --- | --- |
-| Autenticação | NÃO IMPLEMENTADO |
-| Busca de cliente (nome) | NÃO IMPLEMENTADO |
-| Busca por CPF/CNPJ | NÃO IMPLEMENTADO |
-| Busca por telefone | NÃO IMPLEMENTADO |
-| Contratos | NÃO IMPLEMENTADO |
-| Chamado / OS | NÃO IMPLEMENTADO |
-| Status de conectividade | NÃO IMPLEMENTADO |
-| Teste de conectividade | NÃO IMPLEMENTADO |
-| Dados PPPoE | NÃO IMPLEMENTADO |
-| ONU / CPE | NÃO IMPLEMENTADO |
-| Financeiro | NÃO IMPLEMENTADO |
+### NÃO EXISTE EM NENHUMA API
 
-**Histórico.** O PRD §27 registrava que APIs oficiais haviam sido
-*identificadas como existentes*, sem que se tivesse o contrato delas — sem
-endpoint, método, esquema de autenticação nem formato de resposta. Essa fase
-terminou: o contrato agora existe e está descrito no PRD §129. O §27 foi
-marcado como superado e o §64 permanece válido — nenhuma chamada se implementa
-fora do que a documentação oficial descreve.
+Nenhum dos quatro OpenAPI analisados expõe: **número do endereço**, telefone do
+cliente, coordenadas, PPPoE (usuário ou senha), ONU, potência óptica, MAC, OLT,
+listagem de OS por empresa, delta sync ou webhook. Ver `docs/PRD.md` §129.
 
-### NOT IMPLEMENTED
+Consequência prática: o AlfaOS **não preenche** esses campos a partir do ERP e
+não os inventa. Número do endereço continua vindo do cadastro AlfaOS, e é dele
+que o técnico depende para chegar.
 
-`ReceitanetAdapter` declara as capabilities e **recusa todas** com
-`NOT_SUPPORTED`. Ele nunca devolve dado fabricado e nunca devolve `OFFLINE` —
-o AlfaOS não ter integração não diz nada sobre o link do cliente.
+### Lacuna conhecida do CallCenter
 
-Declarar-e-recusar é deliberado: omitir o método faria `supportsDiagnostics()`
-responder `false`, e a UI esconderia o painel como se diagnóstico fosse
-irrelevante para esse provider. Recusar explicitamente mostra o estado real.
+A URA documenta responder *"offline com success false e HTTP 200"* quando ela
+própria não consegue falar com o servidor de acesso. **O CallCenter não tem
+esse campo** e não sinaliza esse caso: uma falha interna dele entre a API e o
+servidor de acesso chegaria aqui indistinguível de um OFFLINE legítimo.
 
-### Bloqueio adicional: credenciais
+Não há como resolver isso do nosso lado sem inventar sinal. Está na lista de
+perguntas ao suporte, junto com a tabela de valores de `tecnologia` — que o
+contrato declara como inteiro sem documentar o significado, motivo pelo qual o
+AlfaOS grava e exibe o **código cru** em vez de traduzir.
 
-O bloqueio anterior — *LIVE RECEITANET AUTH BLOCKED BY CREDENTIAL STORAGE
-DESIGN* — foi **resolvido**. Um ADMIN configura o token/API Key da própria
-empresa pela tela de Integrações; o valor é cifrado com AES-256-GCM sob a chave
-mestra `ERP_CREDENTIAL_ENCRYPTION_KEY`. Detalhe em `docs/SECURITY.md` §8.4.
+### Credenciais
 
 `ERPCredentialService` (`src/lib/erp-credentials.ts`) é o único caminho de
-escrita e leitura. `getCredential(companyId)` devolve o token em claro
-**server-side apenas**, para que um adapter futuro autentique sem saber como o
-segredo é armazenado. A coluna `apiKey` permanece apenas como legacy: nada a
-escreve, conteúdo preexistente não é migrado, e ela é limpa a cada save.
+escrita e leitura. `resolveCompanyAdapter` (`src/lib/erp-adapter.ts`) é o único
+lugar que obtém o token e o entrega pronto ao adapter — nenhum adapter lê
+ciphertext, toca o Prisma ou sabe como o segredo é armazenado.
+
+O token existe apenas em memória do servidor. Nunca é logado, nunca entra em
+`AuditLog`, nunca aparece em mensagem de erro, nunca vai para a URL e nunca
+volta ao frontend.
 
 Cada credencial é **vinculada criptograficamente** a `(companyId, provider)`
-via AAD do AES-GCM — um ciphertext movido para outra empresa ou outro provider
-falha na verificação em vez de decriptar. Consequência operacional para quem
-escrever o primeiro adapter real: **trocar o `provider` de uma integração
-invalida a credencial existente**, que precisará ser reconfigurada. Detalhe em
-`docs/SECURITY.md` §8.4.
+via AAD do AES-GCM. Consequência operacional: **trocar o `provider` de uma
+integração invalida a credencial**, que é apagada explicitamente na troca.
+Detalhe em `docs/SECURITY.md` §8.4.
 
-**Isso não desbloqueia a integração.** Credencial configurada não significa
-integração validada, ReceitaNet online nem autenticação confirmada, e a UI
-declara essa distinção explicitamente.
+**Ainda não há credenciais por API.** Hoje só o CallCenter é usado, então um
+token basta. Quando URA/Chatbot/Central entrarem, o AAD precisará passar a
+`(companyId, provider, api)` — o que invalida as credenciais existentes e é uma
+migração deliberada, não um ajuste.
 
-O bloqueio remanescente **deixou de ser documental** — os endpoints agora estão
-documentados (`docs/PRD.md` §129). O que falta é implementação, mais duas
-decisões de arquitetura ainda em aberto: as quatro APIs usam transportes e
-credenciais distintos, e o AAD atual liga cada credencial a
-`(companyId, provider)`, o que não comporta credenciais simultâneas de APIs
-diferentes na mesma empresa. Ver `docs/SECURITY.md` §8.4.
+### Alcançável ≠ credencial validada
 
-### Como implementar, agora que a documentação existe
+`/ping` tem `security: []` no contrato: **ele não autentica**. Um ping
+bem-sucedido prova que o serviço está de pé e nada sobre o token da empresa.
 
-Implementar uma capability por vez e registrar aqui, para cada uma: fonte da
-confirmação, endpoint, método, autenticação, campos consumidos e mapping para
-o modelo AlfaOS. Rotear HTTP por um cliente dedicado (auth, timeout e
-normalização de erro num lugar só), conforme `docs/PRD.md` §28.
-`withIntegrationTimeout` já está no call site, então um adapter novo herda o
-limite de tempo automaticamente.
+Por isso `testConnection()` responde às duas perguntas separadamente, e
+`ERPConnectionResult` carrega `reachable` e `credentialValidated` como campos
+distintos. Quando a API responde, o adapter faz **uma** leitura autenticada,
+documentada e read-only (`POST /v1/clientes` com um filtro de CPF que não casa)
+só para ver se o token é aceito; o conteúdo da resposta é descartado.
+
+A tela nunca diz "ReceitaNet conectado" porque o ping passou.
 
 ## 2. Arquitetura
 

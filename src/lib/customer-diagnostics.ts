@@ -2,7 +2,7 @@ import type { ConnectivityStatus, ERPProvider } from "@prisma/client";
 import { prisma } from "./prisma";
 import { logAudit } from "./audit";
 import { notFound } from "./errors";
-import { getERPAdapter } from "@/integrations";
+import { resolveCompanyAdapter } from "./erp-adapter";
 import {
   supportsDiagnostics,
   withIntegrationTimeout,
@@ -28,6 +28,10 @@ export interface CustomerDiagnostic {
   observedAt: Date;
   sourceUpdatedAt: Date | null;
   provider: ERPProvider;
+  /** Código cru de tecnologia do provider, quando informado. */
+  technology: string | null;
+  /** Servidor do cliente em manutenção, quando o provider informa. */
+  serverMaintenance: boolean | null;
 }
 
 /**
@@ -70,6 +74,8 @@ export async function getCustomerDiagnostic(
     observedAt: snapshot.observedAt,
     sourceUpdatedAt: snapshot.sourceUpdatedAt,
     provider: snapshot.externalProvider,
+    technology: snapshot.technology,
+    serverMaintenance: snapshot.serverMaintenance,
   };
 }
 
@@ -139,7 +145,30 @@ export async function refreshCustomerDiagnostic(
     };
   }
 
-  const adapter = getERPAdapter(provider);
+  /**
+   * A construção do adapter passou a poder falhar (credencial ausente ou
+   * ilegível), então entra no caminho guardado. Fora dele, um provider sem
+   * credencial derrubaria a rota inteira com 500 em vez de devolver o
+   * snapshot anterior com o motivo.
+   */
+  let adapter;
+  try {
+    adapter = await resolveCompanyAdapter(companyId, provider);
+  } catch (error) {
+    const normalized = isIntegrationError(error)
+      ? error
+      : new IntegrationError("NOT_SUPPORTED", provider);
+    console.warn(
+      `[diagnostics] provider=${provider} company=${companyId} op=resolveAdapter outcome=${normalized.code}`,
+    );
+    return {
+      ok: false,
+      snapshot: previous,
+      errorCode: normalized.code,
+      errorMessage: normalized.userMessage,
+    };
+  }
+
   if (!supportsDiagnostics(adapter)) {
     return {
       ok: false,
@@ -227,6 +256,8 @@ export async function refreshCustomerDiagnostic(
         observedAt: existing.observedAt,
         sourceUpdatedAt: existing.sourceUpdatedAt,
         provider,
+        technology: existing.technology,
+        serverMaintenance: existing.serverMaintenance,
       },
     };
   }
@@ -246,11 +277,21 @@ export async function refreshCustomerDiagnostic(
       connectivityStatus: observation.status,
       observedAt,
       sourceUpdatedAt: observation.sourceUpdatedAt,
+      technology: observation.technology ?? null,
+      serverMaintenance: observation.serverMaintenance ?? null,
     },
     update: {
       connectivityStatus: observation.status,
       observedAt,
       sourceUpdatedAt: observation.sourceUpdatedAt,
+      /**
+       * Os extras acompanham a observação nova, inclusive quando vêm nulos.
+       * Manter um valor antigo aqui faria a tela exibir uma tecnologia que a
+       * leitura atual não confirmou — informação velha apresentada como
+       * recente é pior que ausência de informação.
+       */
+      technology: observation.technology ?? null,
+      serverMaintenance: observation.serverMaintenance ?? null,
     },
   });
 
@@ -274,6 +315,8 @@ export async function refreshCustomerDiagnostic(
       observedAt: saved.observedAt,
       sourceUpdatedAt: saved.sourceUpdatedAt,
       provider: saved.externalProvider,
+      technology: saved.technology,
+      serverMaintenance: saved.serverMaintenance,
     },
   };
 }

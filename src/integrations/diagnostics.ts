@@ -32,6 +32,16 @@ export interface ERPCustomerRef {
 export interface ERPConnectivityObservation {
   status: ConnectivityStatus;
   sourceUpdatedAt: Date | null;
+  /**
+   * Contexto adicional que alguns providers oferecem junto do estado.
+   *
+   * OPCIONAIS de propósito, e por duas razões: nem todo provider os tem, e
+   * eles NUNCA podem custar o estado. Um adapter que falhe ao buscá-los
+   * ainda deve devolver o `status` — perder ONLINE/OFFLINE por causa de um
+   * detalhe secundário seria trocar o essencial pelo acessório.
+   */
+  technology?: string | null;
+  serverMaintenance?: boolean | null;
 }
 
 export interface ERPDiagnosticsCapability {

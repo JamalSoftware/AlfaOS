@@ -563,6 +563,39 @@ para segurança:
   Server Component nem no HTML servido — verificado por E2E que inspeciona
   `page.content()` na OS e na tela administrativa, inclusive após reload.
 
+## 8.6. Integração ReceitaNet CallCenter (read-only) — v0.6
+
+- **Token só em header.** `ReceitanetCallCenterClient` envia a credencial no
+  header HTTP `token`, nunca em query string. Uma URL entra em log de
+  servidor, proxy, histórico do navegador e cabeçalho `Referer`; um header
+  não. Verificado por teste que inspeciona a URL e o corpo enviados.
+- **Token nunca sai do servidor.** Obtido apenas por `ERPCredentialService`
+  através de `resolveCompanyAdapter`, existe em memória e nada mais: não é
+  logado, não entra em `AuditLog`, não aparece em mensagem de erro e nunca
+  volta ao frontend. `IntegrationError.userMessage` é a única string
+  renderizável e não contém token, URL, header nem stack.
+- **Somente leitura.** Nenhuma operação mutante da API foi implementada —
+  reiniciar, liberar em confiança, boleto, abrir/fechar chamado e gravação
+  estão no contrato e ficaram de fora deliberadamente.
+- **Busca de cliente é administrativa.** `POST /api/integrations/customers/search`
+  e `/import` aceitam apenas ADMIN e DISPATCHER. **TECHNICIAN não recebe**:
+  ele tem acesso ao cliente da OS dele, não à base da empresa — dar-lhe busca
+  global recriaria exatamente o oráculo que a rota de diagnóstico evita.
+- **POST e não GET nas duas rotas.** Os filtros são dado pessoal (nome,
+  CPF/CNPJ, telefone) e não podem trafegar em URL. Same-Origin e schema
+  strict em ambas; `companyId` vem sempre da sessão.
+- **A importação relê do ERP.** O corpo de `/import` aceita SOMENTE
+  `externalId`; nome, documento e endereço são buscados no servidor. Aceitar
+  esses campos do cliente HTTP deixaria o formulário escrever no cadastro sob
+  aparência de importação.
+- **Sem duplicata silenciosa.** A importação casa primeiro pela identidade
+  externa, depois pelo documento quando o cliente local ainda não tem
+  vínculo. Documento já ligado a OUTRA identidade externa é **conflito**, não
+  palpite: adivinhar ali vincularia o atendimento à pessoa errada.
+- **Dado local não é apagado** por campo ausente na resposta do ERP. Nulo
+  significa "o ERP não informou", não "o ERP informou vazio".
+- **`/ping` não valida credencial** — ver `docs/ERP-INTEGRATIONS.md` §1.
+
 ## 9. Configuração de produção
 
 1. Gere um `AUTH_SECRET` forte: `openssl rand -base64 48`.

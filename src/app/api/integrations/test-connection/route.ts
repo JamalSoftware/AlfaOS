@@ -5,7 +5,9 @@ import { logAudit } from "@/lib/audit";
 import { assertSameOrigin } from "@/lib/csrf";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/session";
-import { getERPAdapter } from "@/integrations";
+import { isIntegrationError } from "@/integrations/errors";
+import { resolveCompanyAdapter } from "@/lib/erp-adapter";
+import type { ERPConnectionResult } from "@/integrations/contract";
 import { CLEARED_CREDENTIAL_FIELDS } from "@/lib/erp-credentials";
 
 const schema = z.object({
@@ -38,8 +40,27 @@ export async function POST(request: Request) {
       // No body or invalid body: fall back to the configured default.
     }
 
-    const adapter = getERPAdapter(provider);
-    const result = await adapter.testConnection();
+    /**
+     * Resolver o adapter pode falhar por credencial ausente ou ilegível — o
+     * ReceitaNet exige token. Isso é RESULTADO do teste, não erro da rota:
+     * o operador clicou justamente para descobrir o estado da integração.
+     */
+    let result: ERPConnectionResult;
+    try {
+      const adapter = await resolveCompanyAdapter(session.companyId, provider);
+      result = await adapter.testConnection();
+    } catch (error) {
+      result = {
+        ok: false,
+        provider,
+        latencyMs: 0,
+        reachable: false,
+        credentialValidated: false,
+        message: isIntegrationError(error)
+          ? error.userMessage
+          : "Não foi possível iniciar a integração.",
+      };
+    }
 
     /**
      * Trocar o provider invalida a credencial já gravada.

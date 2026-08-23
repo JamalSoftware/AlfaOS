@@ -81,11 +81,17 @@ async function techFor(companyId: string, userId: string) {
 // ---------------------------------------------------------------------------
 
 describe("Conformidade do contrato de diagnóstico", () => {
-  it("MockERP declara a capability; ReceitaNet também declara (e recusa)", () => {
+  it("MockERP e ReceitaNet declaram a capability de diagnóstico", () => {
     expect(supportsDiagnostics(new MockERPAdapter())).toBe(true);
-    // Declaring-and-refusing, not omitting: omission would make the UI hide
-    // the panel as if diagnostics were irrelevant for this provider.
-    expect(supportsDiagnostics(new ReceitanetAdapter())).toBe(true);
+    expect(
+      supportsDiagnostics(
+        new ReceitanetAdapter({ token: "t", fetchImpl: async () => ({
+          ok: true,
+          status: 200,
+          text: async () => "{}",
+        }) }),
+      ),
+    ).toBe(true);
   });
 
   it("MockERP retorna apenas status do modelo normalizado", async () => {
@@ -103,13 +109,24 @@ describe("Conformidade do contrato de diagnóstico", () => {
     }
   });
 
-  it("ReceitaNet recusa com NOT_SUPPORTED e nunca devolve dado fictício", async () => {
-    const adapter = new ReceitanetAdapter();
-    await expect(adapter.fetchCustomerConnectivity()).rejects.toSatisfy(
-      (e: unknown) => isIntegrationError(e) && e.code === "NOT_SUPPORTED",
+  it("ReceitaNet sem identificador do provider não inventa estado", async () => {
+    // Substitui o antigo teste de NOT_SUPPORTED: a capability agora é real
+    // (v0.6), mas continua valendo que ela NUNCA fabrica um estado.
+    const adapter = new ReceitanetAdapter({
+      token: "t",
+      fetchImpl: async () => {
+        throw new Error("a rede não deveria ser tocada");
+      },
+    });
+    await expect(
+      adapter.fetchCustomerConnectivity({
+        externalId: null,
+        document: null,
+        name: "x",
+      }),
+    ).rejects.toSatisfy(
+      (e: unknown) => isIntegrationError(e) && e.code === "CUSTOMER_NOT_FOUND",
     );
-    const conn = await adapter.testConnection();
-    expect(conn.ok).toBe(false);
   });
 
   it("cliente desconhecido pelo provider resolve UNKNOWN, não CUSTOMER_NOT_FOUND", async () => {
@@ -187,7 +204,16 @@ describe("Falha de integração nunca vira OFFLINE", () => {
     ).toBe(0);
   }, 30_000);
 
-  it("provider sem capability => NOT_SUPPORTED, nada gravado", async () => {
+  /**
+   * Antes da v0.6 este caminho devolvia NOT_SUPPORTED, porque o
+   * `ReceitanetAdapter` recusava tudo. Agora a capability é real e o adapter
+   * exige credencial — sem ela, a resposta correta é AUTHENTICATION_FAILED,
+   * que diz ao operador o que de fato está faltando.
+   *
+   * O que NÃO mudou, e é o ponto do bloco: a falha continua não virando
+   * OFFLINE e continua não gravando snapshot.
+   */
+  it("ReceitaNet sem credencial => AUTHENTICATION_FAILED, nada gravado", async () => {
     await prisma.eRPIntegration.create({
       data: {
         companyId: fixture.companyA.id,
@@ -203,7 +229,9 @@ describe("Falha de integração nunca vira OFFLINE", () => {
       customer.id,
     );
     expect(result.ok).toBe(false);
-    expect(result.errorCode).toBe("NOT_SUPPORTED");
+    expect(result.errorCode).toBe("AUTHENTICATION_FAILED");
+    // A garantia que importa: falha de integração NUNCA vira estado.
+    expect(result.snapshot).toBeNull();
     expect(
       await prisma.customerDiagnosticSnapshot.count({
         where: { customerId: customer.id },

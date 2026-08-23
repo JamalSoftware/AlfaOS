@@ -1,4 +1,5 @@
-import { getERPAdapter } from "@/integrations";
+import { isIntegrationError } from "@/integrations/errors";
+import { resolveCompanyAdapter } from "./erp-adapter";
 import { logAudit } from "./audit";
 import { badRequest, notFound } from "./errors";
 import { prisma } from "./prisma";
@@ -30,7 +31,18 @@ export async function syncServiceOrdersFromERP(
     throw badRequest("Integração ERP está desabilitada. Habilite antes de sincronizar.");
   }
 
-  const adapter = getERPAdapter(integration.provider);
+  let adapter;
+  try {
+    adapter = await resolveCompanyAdapter(companyId, integration.provider);
+  } catch (error) {
+    // Credencial ausente e provider sem suporte são coisas diferentes, e o
+    // operador precisa saber qual das duas aconteceu.
+    throw badRequest(
+      isIntegrationError(error)
+        ? error.userMessage
+        : "Não foi possível iniciar a integração de ERP.",
+    );
+  }
   if (!adapter.listServiceOrders) {
     throw badRequest(
       `O provider ${integration.provider} ainda não suporta sincronização de OS.`,
