@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { AccessProfile } from "@prisma/client";
 import { requirePageProfile } from "@/lib/guards";
 import {
+  EXECUTION_TEXT_MAX_LENGTH,
   getCompanyServiceOrder,
   getTechnicianByUserId,
   SERVICE_ORDER_PRIORITY_LABELS,
@@ -13,6 +14,8 @@ import {
 import { listActiveTechnicianOptions } from "@/lib/technicians";
 import { PriorityBadge, StatusBadge } from "@/components/OrderBadges";
 import { AssignTechnicianForm } from "@/components/AssignTechnicianForm";
+import { ServiceOrderExecutionForm } from "@/components/ServiceOrderExecutionForm";
+import { StartServiceOrderButton } from "@/components/StartServiceOrderButton";
 
 export const metadata: Metadata = {
   title: "Detalhes da OS",
@@ -24,6 +27,7 @@ const EVENT_LABELS: Record<string, string> = {
   TECHNICIAN_ASSIGNED: "Técnico atribuído",
   TECHNICIAN_CHANGED: "Técnico alterado",
   SERVICE_ORDER_STATUS_CHANGED: "Status alterado",
+  OS_STARTED: "Atendimento iniciado",
 };
 
 function formatDate(date: Date | null): string {
@@ -35,6 +39,43 @@ function formatDate(date: Date | null): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatTime(date: Date | null): string {
+  if (!date) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+/** Read-only rendering of the execution, for staff and for closed states. */
+function ExecutionReadOnly({
+  execution,
+}: {
+  execution: {
+    diagnosis: string | null;
+    workPerformed: string | null;
+    notes: string | null;
+  };
+}) {
+  const blocks = [
+    { label: "Diagnóstico", value: execution.diagnosis },
+    { label: "Serviço realizado", value: execution.workPerformed },
+    { label: "Observações", value: execution.notes },
+  ];
+  return (
+    <dl className="space-y-4">
+      {blocks.map((block) => (
+        <div key={block.label}>
+          <dt className="text-xs font-medium text-slate-500">{block.label}</dt>
+          <dd className="mt-0.5 whitespace-pre-wrap break-words text-sm text-slate-900">
+            {block.value ?? "—"}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 export default async function OrderDetailPage({
@@ -54,12 +95,19 @@ export default async function OrderDetailPage({
   }
 
   let isOwnerTechnician = false;
+  /**
+   * Non-null when the viewer is the owning technician but is not allowed to
+   * WRITE (deactivated technician profile, for instance). The page still
+   * renders everything — the reason simply replaces the action controls.
+   */
+  let executionIssue: string | null = null;
   if (session.profile === AccessProfile.TECHNICIAN) {
     const technician = await getTechnicianByUserId(session.companyId, session.id);
     if (!technician || technician.id !== order.technician?.id) {
       notFound();
     }
     isOwnerTechnician = true;
+    executionIssue = technician.executionIssue;
   }
 
   const isStaff = !isOwnerTechnician;
@@ -75,8 +123,15 @@ export default async function OrderDetailPage({
     { label: "Origem", value: SERVICE_ORDER_SOURCE_LABELS[order.source] },
     { label: "Agendamento", value: formatDate(order.scheduledAt) },
     { label: "Atribuída em", value: formatDate(order.assignedAt) },
+    { label: "Iniciada em", value: formatDate(order.startedAt) },
     { label: "Criada em", value: formatDate(order.createdAt) },
   ];
+
+  const canStart = isOwnerTechnician && order.status === "ASSIGNED";
+  const isExecuting = isOwnerTechnician && order.status === "IN_PROGRESS";
+  // Staff never get an editable execution — only the technician who is doing
+  // the work writes it. Everyone else reads.
+  const showExecutionReadOnly = !isExecuting && order.execution !== null;
 
   return (
     <div>
@@ -96,6 +151,46 @@ export default async function OrderDetailPage({
         </div>
         <p className="mt-1 text-sm text-slate-500">{order.description}</p>
       </div>
+
+      {/*
+        The technician's action lives ABOVE the grid, not in the sidebar.
+        On mobile the grid stacks, so anything in the right column lands after
+        Informações + Cliente + Timeline — the primary action of the whole
+        screen would be the last thing on the page.
+      */}
+      {isOwnerTechnician && executionIssue && (
+        <div
+          role="alert"
+          className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4"
+        >
+          <p className="text-sm text-amber-800">{executionIssue}</p>
+        </div>
+      )}
+
+      {canStart && !executionIssue && (
+        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <StartServiceOrderButton
+            orderId={order.id}
+            /*
+              A versão que ESTA renderização leu, enviada como
+              `expectedVersion`: iniciar sobre uma leitura obsoleta é recusado
+              com 409 em vez de sobrescrever.
+            */
+            version={order.version}
+          />
+        </div>
+      )}
+
+      {isExecuting && (
+        <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+          <p className="text-sm font-semibold text-blue-900">
+            Status: Em atendimento
+          </p>
+          <p className="mt-0.5 text-sm text-blue-800">
+            Iniciado às {formatTime(order.startedAt)}
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
@@ -131,6 +226,39 @@ export default async function OrderDetailPage({
               </div>
             </dl>
           </div>
+
+          {isExecuting && order.execution && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-base font-semibold text-slate-900">
+                Execução
+              </h2>
+              {executionIssue ? (
+                <ExecutionReadOnly execution={order.execution} />
+              ) : (
+                <ServiceOrderExecutionForm
+                  orderId={order.id}
+                  /*
+                    Versão da EXECUÇÃO (não da OS): o lock cobre o texto que o
+                    técnico está editando, não mudanças alheias na OS.
+                  */
+                  version={order.execution.version}
+                  initialDiagnosis={order.execution.diagnosis}
+                  initialWorkPerformed={order.execution.workPerformed}
+                  initialNotes={order.execution.notes}
+                  maxLength={EXECUTION_TEXT_MAX_LENGTH}
+                />
+              )}
+            </div>
+          )}
+
+          {showExecutionReadOnly && order.execution && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-base font-semibold text-slate-900">
+                Execução
+              </h2>
+              <ExecutionReadOnly execution={order.execution} />
+            </div>
+          )}
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="mb-4 text-base font-semibold text-slate-900">Timeline</h2>
@@ -195,11 +323,11 @@ export default async function OrderDetailPage({
             </div>
           )}
 
-          {isOwnerTechnician && (
+          {isExecuting && (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
               <p className="text-sm text-amber-800">
-                A execução da OS (iniciar atendimento e concluir) será habilitada
-                na próxima versão do AlfaOS.
+                O fechamento da OS (fotos, materiais e assinatura) será
+                habilitado na próxima versão do AlfaOS.
               </p>
             </div>
           )}

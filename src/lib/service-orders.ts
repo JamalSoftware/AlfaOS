@@ -8,11 +8,15 @@ import { logAudit } from "./audit";
 import {
   badRequest,
   conflict,
+  forbidden,
   isUniqueConstraintError,
   notFound,
 } from "./errors";
 import { prisma } from "./prisma";
-import { technicianAssignmentIssue } from "./technicians";
+import {
+  technicianAssignmentIssue,
+  technicianExecutionIssue,
+} from "./technicians";
 
 // ---------------------------------------------------------------------------
 // Centralized labels (single source of truth for the UI).
@@ -101,6 +105,7 @@ export interface PublicServiceOrder {
   source: ServiceOrderSource;
   scheduledAt: Date | null;
   assignedAt: Date | null;
+  startedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   /**
@@ -122,8 +127,25 @@ export interface ServiceOrderEventInfo {
   createdAt: Date;
 }
 
+/**
+ * Public shape of a `ServiceOrderExecution`. `version` travels to the client
+ * so the next save can send it back as `expectedVersion` — the execution has
+ * its OWN lock, separate from the order's.
+ */
+export interface ServiceOrderExecutionInfo {
+  id: string;
+  diagnosis: string | null;
+  workPerformed: string | null;
+  notes: string | null;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface ServiceOrderDetail extends PublicServiceOrder {
   events: ServiceOrderEventInfo[];
+  /** Null until the technician starts the order. */
+  execution: ServiceOrderExecutionInfo | null;
 }
 
 export interface ServiceOrderListResult {
@@ -169,6 +191,7 @@ export function toPublicServiceOrder(order: {
   source: ServiceOrderSource;
   scheduledAt: Date | null;
   assignedAt: Date | null;
+  startedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   version: number;
@@ -193,6 +216,7 @@ export function toPublicServiceOrder(order: {
     source: order.source,
     scheduledAt: order.scheduledAt,
     assignedAt: order.assignedAt,
+    startedAt: order.startedAt,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
     version: order.version,
@@ -541,7 +565,40 @@ export async function getCompanyServiceOrder(
   return {
     ...toPublicServiceOrder(order),
     events,
+    execution: await getCompanyServiceOrderExecution(companyId, order.id),
   };
+}
+
+/**
+ * The execution of one order, tenant-filtered in SQL on BOTH ends.
+ *
+ * Deliberately a second query rather than an `include` on the order above.
+ * Prisma cannot attach a `where` to a to-one relation include, so an
+ * `include` would reach the row purely by FK navigation and the `companyId`
+ * check would degrade to an application-level `if`. Here the predicate is
+ * `serviceOrderId AND companyId`, so a row whose tenant does not match the
+ * caller's session is not filtered out after the fact — it is never read.
+ *
+ * The cost is one indexed point lookup on a detail screen, and it does not
+ * introduce an N+1: no listing includes the execution.
+ */
+export async function getCompanyServiceOrderExecution(
+  companyId: string,
+  orderId: string,
+): Promise<ServiceOrderExecutionInfo | null> {
+  const execution = await prisma.serviceOrderExecution.findFirst({
+    where: { serviceOrderId: orderId, companyId },
+    select: {
+      id: true,
+      diagnosis: true,
+      workPerformed: true,
+      notes: true,
+      version: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+  return execution;
 }
 
 async function withRelations(
@@ -716,19 +773,59 @@ export async function assignTechnician(
 // ---------------------------------------------------------------------------
 
 export interface TechnicianWorkQueue {
+  /**
+   * Orders the technician already started. Kept in its own bucket — and
+   * rendered first — because an order in progress is the one thing the
+   * technician is doing RIGHT NOW; burying it inside "today" (or, when it has
+   * no schedule, inside "upcoming") made the app's most urgent item the
+   * hardest to find.
+   */
+  inProgress: PublicServiceOrder[];
   today: PublicServiceOrder[];
   upcoming: PublicServiceOrder[];
+}
+
+export interface TechnicianContext {
+  id: string;
+  active: boolean;
+  /**
+   * Why this technician may not WRITE (start an order, save an execution), or
+   * null when they may. Reads are never gated by it: a deactivated technician
+   * still opens "Minhas OS" and still sees the order they already started —
+   * nothing already recorded is hidden or altered. The pages use this to
+   * replace the action controls with the reason instead of rendering a button
+   * the API would refuse.
+   *
+   * Derived from the same single rule as assignment
+   * (`technicianEligibilityReason`), so the screen and the service layer can
+   * never disagree about who may act.
+   */
+  executionIssue: string | null;
 }
 
 export async function getTechnicianByUserId(
   companyId: string,
   userId: string,
-): Promise<{ id: string; active: boolean } | null> {
+): Promise<TechnicianContext | null> {
   const technician = await prisma.technician.findFirst({
     where: { userId, companyId },
-    select: { id: true, active: true },
+    select: {
+      id: true,
+      active: true,
+      companyId: true,
+      user: {
+        select: { companyId: true, active: true, profile: true },
+      },
+    },
   });
-  return technician;
+  if (!technician) {
+    return null;
+  }
+  return {
+    id: technician.id,
+    active: technician.active,
+    executionIssue: technicianExecutionIssue(companyId, technician),
+  };
 }
 
 export async function listServiceOrdersForTechnician(
@@ -755,10 +852,17 @@ export async function listServiceOrdersForTechnician(
     now.getDate() + 1,
   );
 
+  const inProgress: typeof orders = [];
   const today: typeof orders = [];
   const upcoming: typeof orders = [];
 
   for (const order of orders) {
+    // Status wins over schedule: a started order belongs to "em atendimento"
+    // regardless of when it was booked for.
+    if (order.status === "IN_PROGRESS") {
+      inProgress.push(order);
+      continue;
+    }
     const scheduled = order.scheduledAt
       ? new Date(order.scheduledAt)
       : null;
@@ -770,7 +874,359 @@ export async function listServiceOrdersForTechnician(
   }
 
   return {
+    inProgress: inProgress.map(toPublicServiceOrder),
     today: today.map(toPublicServiceOrder),
     upcoming: upcoming.map(toPublicServiceOrder),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Technician execution (v0.3): start + diagnosis/work/notes
+// ---------------------------------------------------------------------------
+
+/** Cap on each free-text execution field. Guards against unbounded writes. */
+export const EXECUTION_TEXT_MAX_LENGTH = 10_000;
+
+export interface StartServiceOrderResult {
+  serviceOrder: PublicServiceOrder;
+  execution: ServiceOrderExecutionInfo;
+}
+
+export interface UpdateServiceOrderExecutionInput {
+  diagnosis?: string | null;
+  workPerformed?: string | null;
+  notes?: string | null;
+}
+
+export const EXECUTION_EDITABLE_FIELDS = [
+  "diagnosis",
+  "workPerformed",
+  "notes",
+] as const;
+
+export type ExecutionEditableField = (typeof EXECUTION_EDITABLE_FIELDS)[number];
+
+type ExecutionTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/**
+ * Resolves WHICH technician is acting, from the session user alone.
+ *
+ * `technicianId` is never accepted from the client: ownership is derived
+ * server-side as `session.user.id + companyId -> Technician`. A client that
+ * sends someone else's technician id therefore cannot change who it is.
+ *
+ * A session user with no technician row cannot own any order, so the caller
+ * gets the same 404 an unknown order would produce — no signal about whether
+ * the order exists.
+ */
+async function resolveActingTechnician(
+  tx: ExecutionTx,
+  companyId: string,
+  actorUserId: string,
+) {
+  const technician = await tx.technician.findFirst({
+    where: { userId: actorUserId, companyId },
+    include: {
+      user: {
+        select: {
+          name: true,
+          companyId: true,
+          active: true,
+          profile: true,
+        },
+      },
+    },
+  });
+  if (!technician) {
+    throw notFound("Ordem de serviço não encontrada.");
+  }
+
+  // Same eligibility rule as assignment, phrased for the technician. WRITES
+  // only: an inactive technician keeps read access to what they already have.
+  const issue = technicianExecutionIssue(companyId, technician);
+  if (issue) {
+    throw forbidden(issue);
+  }
+
+  return technician;
+}
+
+/**
+ * Loads the order and proves the acting technician owns it.
+ *
+ * A non-owner gets 404, never 403. 403 would confirm that the order exists and
+ * belongs to a colleague, which is exactly the fact a technician probing ids
+ * should not be able to learn. Same choice already made by
+ * `GET /api/service-orders/[id]`.
+ */
+async function loadOwnedServiceOrder(
+  tx: ExecutionTx,
+  companyId: string,
+  technicianId: string,
+  orderId: string,
+) {
+  const order = await tx.serviceOrder.findFirst({
+    where: { id: orderId, companyId },
+  });
+  if (!order) {
+    throw notFound("Ordem de serviço não encontrada.");
+  }
+  if (order.technicianId !== technicianId) {
+    throw notFound("Ordem de serviço não encontrada.");
+  }
+  return order;
+}
+
+function toExecutionInfo(execution: {
+  id: string;
+  diagnosis: string | null;
+  workPerformed: string | null;
+  notes: string | null;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+}): ServiceOrderExecutionInfo {
+  return {
+    id: execution.id,
+    diagnosis: execution.diagnosis,
+    workPerformed: execution.workPerformed,
+    notes: execution.notes,
+    version: execution.version,
+    createdAt: execution.createdAt,
+    updatedAt: execution.updatedAt,
+  };
+}
+
+/**
+ * ASSIGNED -> IN_PROGRESS, performed by the owning technician.
+ *
+ * Modelled as an explicit ACTION, not as a generic "set status" endpoint. A
+ * generic status mutation would have to trust the caller for the target state
+ * and would need its own matrix of who-may-set-what; starting an order is one
+ * business event with one actor, one side effect (`startedAt`), one artefact
+ * (the execution row) and one timeline entry, so it is expressed as one
+ * function.
+ *
+ * `expectedVersion` is REQUIRED here, unlike `assignTechnician` where it is
+ * optional for backwards compatibility. This flow is new — there is no legacy
+ * caller to protect — so the end-to-end lock is mandatory from day one.
+ *
+ * IDEMPOTENCY (double-click / retry). The chosen contract is a predictable
+ * ERROR, never a silent second start:
+ *
+ *  - Sequential repeat (the first click already committed): the order now
+ *    reads IN_PROGRESS, and `ALLOWED_STATUS_TRANSITIONS.IN_PROGRESS` does not
+ *    contain IN_PROGRESS, so the transition guard rejects with a specific 409
+ *    "já está em atendimento".
+ *  - Genuinely simultaneous requests (both read ASSIGNED): both pass the
+ *    guard, and the compare-and-set arbitrates — Postgres serialises the two
+ *    UPDATEs on the row lock, exactly one matches `version: expectedVersion`,
+ *    the loser matches zero rows and gets the generic 409.
+ *
+ * Either way the outcome is identical and safe: one `startedAt`, one
+ * execution row, one `OS_STARTED` event. The execution INSERT is only reached
+ * by the compare-and-set winner, and `serviceOrderId @unique` is the last-resort
+ * arbiter — a duplicate would abort the whole transaction rather than leave a
+ * started order with two executions.
+ */
+export async function startServiceOrder(
+  companyId: string,
+  actorUserId: string,
+  orderId: string,
+  expectedVersion: number,
+): Promise<StartServiceOrderResult> {
+  const started = await prisma.$transaction(async (tx) => {
+    const technician = await resolveActingTechnician(
+      tx,
+      companyId,
+      actorUserId,
+    );
+    const os = await loadOwnedServiceOrder(
+      tx,
+      companyId,
+      technician.id,
+      orderId,
+    );
+
+    // The state machine is the single authority on what may follow what.
+    // PENDING lists only ASSIGNED/CANCELLED, so an unassigned order cannot be
+    // started; COMPLETED and CANCELLED list nothing, so terminal orders cannot
+    // be restarted.
+    const allowed = ALLOWED_STATUS_TRANSITIONS[os.status];
+    if (!allowed.includes("IN_PROGRESS")) {
+      throw conflict(
+        os.status === "IN_PROGRESS"
+          ? "Esta OS já está em atendimento."
+          : `Não é possível iniciar uma OS no estado ${SERVICE_ORDER_STATUS_LABELS[os.status]}.`,
+      );
+    }
+
+    const startedAt = new Date();
+    const result = await tx.serviceOrder.updateMany({
+      where: { id: os.id, version: expectedVersion },
+      data: {
+        status: "IN_PROGRESS",
+        startedAt,
+        version: { increment: 1 },
+      },
+    });
+    if (result.count !== 1) {
+      throw conflict(
+        "A OS foi modificada por outra requisição. Recarregue e tente novamente.",
+      );
+    }
+
+    const execution = await tx.serviceOrderExecution.create({
+      data: {
+        companyId,
+        serviceOrderId: os.id,
+      },
+    });
+
+    await tx.serviceOrderEvent.create({
+      data: {
+        companyId,
+        serviceOrderId: os.id,
+        userId: actorUserId,
+        event: "OS_STARTED",
+        // Who started it is recorded here (and in the audit log) rather than
+        // denormalized onto a `startedBy` column: IN_PROGRESS only transitions
+        // to COMPLETED/CANCELLED, so the assignee cannot change after the
+        // start and the fact can never drift out of sync with the order.
+        metadata: {
+          technicianId: technician.id,
+          technicianName: technician.user.name,
+          startedAt: startedAt.toISOString(),
+        },
+      },
+    });
+
+    return { execution, technicianName: technician.user.name };
+  });
+
+  await logAudit({
+    companyId,
+    userId: actorUserId,
+    action: "SERVICE_ORDER.STARTED",
+    entity: "ServiceOrder",
+    entityId: orderId,
+    details: `Atendimento iniciado pelo técnico ${started.technicianName}`,
+  });
+
+  return {
+    serviceOrder: await withRelations(companyId, orderId),
+    execution: toExecutionInfo(started.execution),
+  };
+}
+
+/**
+ * Saves diagnosis / work performed / notes on an order in progress.
+ *
+ * `expectedVersion` is the version of the EXECUTION, not of the order. The two
+ * rows change for different reasons and must not share a lock: a dispatcher
+ * touching the order should not invalidate the paragraph a technician is
+ * halfway through typing, and vice versa.
+ *
+ * None of the three fields is required. "Serviço realizado" only becomes
+ * mandatory at closing time (v0.4) — during execution a technician saves
+ * whatever they have so far, possibly several times.
+ */
+export async function updateServiceOrderExecution(
+  companyId: string,
+  actorUserId: string,
+  orderId: string,
+  expectedVersion: number,
+  input: UpdateServiceOrderExecutionInput,
+): Promise<ServiceOrderExecutionInfo> {
+  const result = await prisma.$transaction(async (tx) => {
+    const technician = await resolveActingTechnician(
+      tx,
+      companyId,
+      actorUserId,
+    );
+    const os = await loadOwnedServiceOrder(
+      tx,
+      companyId,
+      technician.id,
+      orderId,
+    );
+
+    if (os.status !== "IN_PROGRESS") {
+      throw conflict(
+        "Só é possível registrar a execução de uma OS em atendimento.",
+      );
+    }
+
+    // Tenant filter on both ends, in SQL. The order was already scoped by
+    // companyId, but the execution is fetched by its own tenant predicate too
+    // rather than by FK navigation alone.
+    const execution = await tx.serviceOrderExecution.findFirst({
+      where: { serviceOrderId: os.id, companyId },
+    });
+    if (!execution) {
+      throw notFound("Execução não encontrada para esta OS.");
+    }
+
+    // Explicit stale-token check before anything else, so a stale save is
+    // refused even when its payload happens to change nothing. The
+    // compare-and-set below remains the real arbiter for concurrent writers.
+    if (execution.version !== expectedVersion) {
+      throw conflict(
+        "A execução foi modificada por outra requisição. Recarregue e tente novamente.",
+      );
+    }
+
+    const data: Record<string, string | null> = {};
+    const changedFields: ExecutionEditableField[] = [];
+    for (const field of EXECUTION_EDITABLE_FIELDS) {
+      const incoming = input[field];
+      if (incoming === undefined) {
+        continue;
+      }
+      // Empty text and "not filled in" are the same thing for a free-text
+      // field, so both normalize to NULL and neither counts as a change when
+      // the stored value is already absent.
+      const normalized = incoming === null ? null : incoming.trim() || null;
+      data[field] = normalized;
+      if (normalized !== execution[field]) {
+        changedFields.push(field);
+      }
+    }
+
+    const updated = await tx.serviceOrderExecution.updateMany({
+      where: { id: execution.id, version: expectedVersion },
+      data: { ...data, version: { increment: 1 } },
+    });
+    if (updated.count !== 1) {
+      throw conflict(
+        "A execução foi modificada por outra requisição. Recarregue e tente novamente.",
+      );
+    }
+
+    const fresh = await tx.serviceOrderExecution.findUniqueOrThrow({
+      where: { id: execution.id },
+    });
+
+    // No ServiceOrderEvent here on purpose. The timeline records milestones
+    // (created, assigned, started); a technician may save the same three
+    // fields many times while working, and one event per save would drown the
+    // real events in noise. The audit log carries the per-save record instead.
+    return { fresh, changedFields };
+  });
+
+  if (result.changedFields.length > 0) {
+    await logAudit({
+      companyId,
+      userId: actorUserId,
+      action: "SERVICE_ORDER.EXECUTION_UPDATED",
+      entity: "ServiceOrderExecution",
+      entityId: result.fresh.id,
+      // Field NAMES only, never their content. The audit log is an
+      // administrative trail read by people who are not the technician; it
+      // records that a diagnosis changed, not what the diagnosis says.
+      details: `Execução da OS atualizada (campos: ${result.changedFields.join(", ")})`,
+    });
+  }
+
+  return toExecutionInfo(result.fresh);
 }

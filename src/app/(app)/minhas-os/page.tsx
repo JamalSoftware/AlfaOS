@@ -49,6 +49,12 @@ function OrderCard({
             OS {order.externalNumber ?? order.id.slice(0, 8)}
           </p>
           <p className="mt-1 truncate font-medium text-slate-900">{order.customer.name}</p>
+          {order.customer.city && (
+            <p className="mt-0.5 truncate text-sm text-slate-500">
+              {order.customer.city}
+              {order.customer.state ? `/${order.customer.state}` : ""}
+            </p>
+          )}
           <p className="mt-1 line-clamp-2 text-sm text-slate-500">{order.description}</p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -105,12 +111,36 @@ export default async function MyOrdersPage() {
         </p>
       </div>
 
-      <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-        <p className="text-sm text-amber-800">
-          A execução da OS (iniciar atendimento e concluir) será habilitada na
-          próxima versão do AlfaOS.
-        </p>
-      </div>
+      {/*
+        Deactivated technician: the queue stays fully readable — including an
+        order already in progress — and only the write actions on the detail
+        screen are refused. Nothing recorded is hidden or rolled back.
+      */}
+      {technician.executionIssue && (
+        <div
+          role="alert"
+          className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4"
+        >
+          <p className="text-sm text-amber-800">{technician.executionIssue}</p>
+        </div>
+      )}
+
+      {/*
+        "Em atendimento" comes FIRST. It is the order the technician is
+        physically working on; everything else is planning.
+      */}
+      {queue.inProgress.length > 0 && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-base font-semibold text-slate-900">
+            Em atendimento
+          </h2>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {queue.inProgress.map((order) => (
+              <OrderCard key={order.id} order={order} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="mb-8">
         <h2 className="mb-3 text-base font-semibold text-slate-900">Hoje</h2>

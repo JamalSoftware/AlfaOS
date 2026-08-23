@@ -1,4 +1,4 @@
-# Arquitetura — AlfaOS (v0.2-service-orders)
+# Arquitetura — AlfaOS (v0.3-technician-execution)
 
 ## Visão geral
 
@@ -111,11 +111,18 @@ Modelos atuais:
   uma se perdia em silêncio. Migration aditiva
   `20260822234652_add_service_order_version_lock` (default `0`, não destrutiva).
 - `ServiceOrderEvent` — timeline imutável da OS (importação, atribuição,
-  mudança de status) gravada na mesma transação das mutações.
+  início do atendimento, mudança de status) gravada na mesma transação das
+  mutações.
+- `ServiceOrderExecution` — registro de campo da OS (`diagnosis`,
+  `workPerformed`, `notes`), **1:1 com `ServiceOrder`** garantido no banco por
+  `serviceOrderId @unique`, com `version Int @default(0)` próprio (lock
+  otimista independente do da OS) e `companyId` desnormalizado para permitir
+  filtro de inquilino em SQL nas duas pontas. Migration aditiva
+  `20260823013205_add_service_order_execution` (só cria a tabela nova).
 
-Modelos **planejados** (fora do escopo deste checkpoint): execução/fechamento
-de OS (diagnóstico, fotos, materiais, assinatura, PDF), estoque,
-notificações, GPS, OLT, IA e a ReceitaNet real.
+Modelos **planejados** (fora do escopo deste checkpoint): fechamento de OS
+(fotos, materiais, assinatura, PDF), estoque, notificações, GPS, OLT, IA e a
+ReceitaNet real.
 
 ### 5. Domínio de OS (`src/lib/service-orders.ts`)
 
@@ -127,13 +134,31 @@ notificações, GPS, OLT, IA e a ReceitaNet real.
   `data: { version: { increment: 1 } }` → se `count !== 1` retorna `409`
   ("modificada por outra requisição"). Determinístico: decidido por identidade,
   não por resolução de relógio.
-- Elegibilidade do técnico para nova atribuição definida em
-  `src/lib/technicians.ts` (`assignableTechnicianWhere` +
-  `technicianAssignmentIssue`) e consumida pelas duas pontas — o serviço de
-  atribuição e o dropdown — para que UI e API nunca discordem.
+- Elegibilidade do técnico definida **uma única vez** em
+  `src/lib/technicians.ts`: `technicianEligibilityReason` avalia a regra e
+  devolve um **código**; `assignableTechnicianWhere` é o mesmo predicado em
+  forma de `where`; `technicianAssignmentIssue` (3ª pessoa, para quem atribui)
+  e `technicianExecutionIssue` (2ª pessoa, para o próprio técnico) apenas
+  traduzem o código. Uma regra com dois vocabulários, consumida pelo dropdown,
+  pelo serviço de atribuição e pelo serviço de execução — UI e API nunca
+  discordam.
 - OS + evento gravados na **mesma transação** (nunca status sem timeline).
 - "Minhas OS" resolve o técnico no servidor via sessão (`technician_id` nunca
   vem do cliente) e valida que técnico e OS pertencem à mesma empresa.
+- **Execução do técnico (v0.3)** — `startServiceOrder` e
+  `updateServiceOrderExecution`, ambos com `expectedVersion` **obrigatório**:
+  - `start` (`ASSIGNED → IN_PROGRESS`) é uma **ação explícita**, não um
+    endpoint genérico de status: resolve o técnico pela sessão, valida
+    elegibilidade e ownership, consulta a máquina de estados, faz
+    compare-and-set em `ServiceOrder.version`, cria a `ServiceOrderExecution`
+    e o evento `OS_STARTED` — tudo em uma transação.
+  - `execution` faz compare-and-set em `ServiceOrderExecution.version` (lock
+    **separado** do da OS) e **não** cria evento de timeline; o registro
+    por-save fica no `AuditLog`, com os nomes dos campos alterados e sem o
+    texto livre.
+  - Não-dono recebe `404` (nunca `403`), para não confirmar a existência de
+    recurso alheio.
+  - Ver [TECHNICIAN-EXECUTION.md](TECHNICIAN-EXECUTION.md).
 
 ## Multi-tenancy
 
@@ -153,8 +178,8 @@ notificações, GPS, OLT, IA e a ReceitaNet real.
 
 | Suíte | Ferramenta | Escopo |
 | --- | --- | --- |
-| Unit/integração | Vitest (handlers reais via `Request`) | auth, tenancy, authorization, rate-limit, CSRF, sanitização, revalidação, edição de usuário, integrações, env, customers, technicians, service-orders (importação, atribuição, ownership, concorrência) |
-| E2E | Playwright (Chromium headless) | login, RBAC, criação de usuário, logout, integrações, mobile 390×844, sync do Mock ERP (idempotência), critério de aceite de OS (sync → atribuição → Minhas OS) |
+| Unit/integração | Vitest (handlers reais via `Request`) | auth, tenancy, authorization, rate-limit, CSRF, sanitização, revalidação, edição de usuário, integrações, env, customers, technicians, service-orders (importação, atribuição, ownership, concorrência), execução do técnico (start, máquina de estados, ownership, técnico/usuário inativos, multi-tenancy, mass assignment, concorrência da execução, unicidade no banco, KPI) |
+| E2E | Playwright (Chromium headless) | login, RBAC, criação de usuário, logout, integrações, mobile 390×844, sync do Mock ERP (idempotência), critério de aceite de OS (sync → atribuição → Minhas OS), execução do técnico (iniciar → preencher → salvar → reload, ownership por URL direta, leitura read-only do ADMIN, fluxo completo em 390×844 sem overflow horizontal) |
 
 - Banco de teste: `alfaos_test` (migrations aplicadas via globalSetup).
 - E2E usa `npm run e2e` (levanta o app com `DATABASE_URL` de teste e seed).

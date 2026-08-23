@@ -1,7 +1,8 @@
-# Ordens de Serviço — AlfaOS (v0.2-service-orders)
+# Ordens de Serviço — AlfaOS (v0.3-technician-execution)
 
-Este documento descreve o núcleo operacional de Ordens de Serviço (OS)
-entregue no checkpoint `v0.2-service-orders`.
+Este documento descreve o núcleo operacional de Ordens de Serviço (OS),
+entregue no checkpoint `v0.2-service-orders` e estendido em
+`v0.3-technician-execution` com a execução do técnico (§4.1).
 
 ## 1. Modelo de dados
 
@@ -10,7 +11,8 @@ entregue no checkpoint `v0.2-service-orders`.
 | `Customer` | Cliente do provedor, sempre escopado por `companyId`. |
 | `Technician` | Técnico vinculado a um `User` da mesma empresa. `userId` é único (um usuário só pode ser técnico uma vez) e `active` controla disponibilidade para atribuição. |
 | `ServiceOrder` | OS com `number`, `customerId`, `type`, `description`, `priority`, `status`, origem opcional `externalProvider`/`externalId` (importação ERP) e `version` (token de lock otimista, ver §3.1). |
-| `ServiceOrderEvent` | Timeline imutável da OS (`SERVICE_ORDER_IMPORTED`, `TECHNICIAN_ASSIGNED`, mudanças de status). Gravada na mesma transação das mutações. |
+| `ServiceOrderEvent` | Timeline imutável da OS (`SERVICE_ORDER_IMPORTED`, `TECHNICIAN_ASSIGNED`, `OS_STARTED`, mudanças de status). Gravada na mesma transação das mutações. |
+| `ServiceOrderExecution` | Registro de campo da OS (`diagnosis`, `workPerformed`, `notes`), 1:1 com `ServiceOrder` (`serviceOrderId @unique`), com `version` própria para lock otimista. Criada ao iniciar o atendimento — ver §4.1 e [TECHNICIAN-EXECUTION.md](TECHNICIAN-EXECUTION.md). |
 
 Campos de origem externa (`externalProvider`, `externalId`) não aparecem nos
 shapes públicos da API (`toPublicServiceOrder`).
@@ -25,9 +27,17 @@ Centralizada em `ALLOWED_STATUS_TRANSITIONS` (`src/lib/service-orders.ts`):
 | `ASSIGNED` | `ASSIGNED` (troca de técnico), `IN_PROGRESS`, `CANCELLED` |
 | `IN_PROGRESS` | `COMPLETED`, `CANCELLED` |
 
-Toda mudança passa por essa máquina; o único endpoint de transição
-implementado neste checkpoint é a atribuição/troca
-(`POST /api/service-orders/[id]/assign`).
+Toda mudança passa por essa máquina. Endpoints de transição implementados:
+
+- `POST /api/service-orders/[id]/assign` — atribuição/troca (§3);
+- `POST /api/service-orders/[id]/start` — `ASSIGNED → IN_PROGRESS` (§4.1).
+
+**Não existe endpoint genérico de mudança de status**: cada transição é uma
+ação de negócio nomeada, com seu próprio ator, efeitos e registro.
+
+A máquina de estados também é o que torna o início idempotente: como
+`IN_PROGRESS` não lista `IN_PROGRESS` entre seus destinos, um segundo start é
+recusado com `409` em vez de reiniciar a OS.
 
 ## 3. Atribuição de técnico
 
@@ -114,8 +124,31 @@ atribuições**.
   atribuídas ao técnico da sessão.
 - O `technician_id` é resolvido **no servidor**: `session.userId → user →
   technician`. O cliente nunca envia o vínculo.
-- A página `/minhas-os` lista as OS de hoje e as próximas do técnico
-  autenticado. Um técnico de outra empresa não enxerga OS locais.
+- A página `/minhas-os` lista, nesta ordem, as OS **em atendimento**, as de
+  **hoje** e as **próximas** do técnico autenticado. Um técnico de outra empresa
+  não enxerga OS locais.
+
+### 4.1. Execução (v0.3-technician-execution)
+
+Resumo; o documento completo é
+[TECHNICIAN-EXECUTION.md](TECHNICIAN-EXECUTION.md).
+
+- `POST /api/service-orders/[id]/start` leva `ASSIGNED → IN_PROGRESS`, grava
+  `startedAt`, cria a `ServiceOrderExecution` e o evento `OS_STARTED` — tudo em
+  uma transação. Só o **técnico dono** (perfil `TECHNICIAN`); `expectedVersion`
+  é **obrigatório**.
+- `PATCH /api/service-orders/[id]/execution` salva `diagnosis`,
+  `workPerformed` e `notes` (todos opcionais — "serviço realizado" só é
+  obrigatório no fechamento da v0.4). `expectedVersion` refere-se à **execução**,
+  não à OS: os dois locks são independentes.
+- Salvar **não** muda o status e **não** gera evento de timeline; o registro
+  por-save fica no `AuditLog` (`SERVICE_ORDER.EXECUTION_UPDATED`) com os nomes
+  dos campos alterados e **sem** o texto livre.
+- Não-dono → `404`. `ADMIN`/`DISPATCHER` → `403` para escrever, leitura
+  integral (técnico, `startedAt`, os três campos e a timeline) em modo
+  read-only.
+- Técnico com `Technician.active = false` continua **lendo**; toda escrita é
+  recusada com `403` e mensagem acionável. Nada já gravado é alterado.
 
 ## 5. Integração com Mock ERP
 
@@ -144,6 +177,8 @@ atribuições**.
 | `POST /api/service-orders` | ADMIN/DISPATCHER | Criar OS manual |
 | `GET /api/service-orders/[id]` | ADMIN/DISPATCHER/TECHNICIAN | Detalhe + timeline (ownership) |
 | `POST /api/service-orders/[id]/assign` | ADMIN/DISPATCHER | Atribuir/trocar técnico (`expectedVersion` opcional → lock otimista fim-a-fim, §3.2) |
+| `POST /api/service-orders/[id]/start` | TECHNICIAN (dono) | Iniciar atendimento, `ASSIGNED → IN_PROGRESS` (`expectedVersion` **obrigatório**, §4.1) |
+| `PATCH /api/service-orders/[id]/execution` | TECHNICIAN (dono) | Salvar diagnóstico/serviço/observações (`expectedVersion` da **execução**, §4.1) |
 | `POST /api/integrations/sync` | ADMIN | Importar OS do ERP (idempotente) |
 
 Todas as rotas novas usam Zod `.strict()`, exigem sessão com perfil adequado
@@ -151,6 +186,6 @@ e são isoladas por `companyId`.
 
 ## 7. Fora do escopo deste checkpoint
 
-Execução/fechamento de OS (diagnóstico, fotos, materiais, assinatura, PDF),
-estoque, notificações/WhatsApp, GPS, OLT, IA, e a integração real com a
-ReceitaNet (aguarda documentação oficial).
+Fechamento de OS (fotos, materiais, assinatura, validações, `COMPLETED`, PDF),
+pausa/retomada, estoque, notificações/WhatsApp, GPS, OLT, IA, e a integração
+real com a ReceitaNet (aguarda documentação oficial).

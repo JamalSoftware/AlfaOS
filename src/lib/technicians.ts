@@ -147,33 +147,107 @@ export interface TechnicianEligibilityCheck {
 }
 
 /**
- * Mirror of `assignableTechnicianWhere` that explains WHY a technician is not
- * assignable, so the API can return an actionable message instead of a blank
- * "not found". Returns null when the technician is assignable.
+ * Why a technician failed the eligibility rule, as a CODE rather than a
+ * sentence.
+ *
+ * The rule itself must exist exactly once — it is the thing that must not
+ * drift. But the same failure has to be phrased differently depending on who
+ * is being told: a dispatcher assigning work reads "this technician cannot
+ * receive orders", while the technician themself reads "your profile is
+ * inactive". Returning a code and mapping it per audience keeps one rule with
+ * two vocabularies, instead of two rules that will eventually disagree.
+ */
+export type TechnicianEligibilityReason =
+  | "TECHNICIAN_OTHER_COMPANY"
+  | "TECHNICIAN_INACTIVE"
+  | "NO_LINKED_USER"
+  | "USER_OTHER_COMPANY"
+  | "USER_INACTIVE"
+  | "USER_NOT_TECHNICIAN";
+
+/**
+ * Mirror of `assignableTechnicianWhere` in imperative form: the single
+ * evaluation of the eligibility rule. Returns null when the technician is
+ * eligible, otherwise the reason code.
+ */
+export function technicianEligibilityReason(
+  companyId: string,
+  technician: TechnicianEligibilityCheck,
+): TechnicianEligibilityReason | null {
+  if (technician.companyId !== companyId) {
+    return "TECHNICIAN_OTHER_COMPANY";
+  }
+  if (!technician.active) {
+    return "TECHNICIAN_INACTIVE";
+  }
+  if (!technician.user) {
+    return "NO_LINKED_USER";
+  }
+  if (technician.user.companyId !== companyId) {
+    return "USER_OTHER_COMPANY";
+  }
+  if (!technician.user.active) {
+    return "USER_INACTIVE";
+  }
+  if (technician.user.profile !== AccessProfile.TECHNICIAN) {
+    return "USER_NOT_TECHNICIAN";
+  }
+  return null;
+}
+
+const ASSIGNMENT_ISSUE_MESSAGES: Record<TechnicianEligibilityReason, string> = {
+  TECHNICIAN_OTHER_COMPANY: "Técnico não pertence a esta empresa.",
+  TECHNICIAN_INACTIVE: "Somente técnicos ativos podem receber OS.",
+  NO_LINKED_USER:
+    "O técnico não possui usuário vinculado e não pode receber novas OS.",
+  USER_OTHER_COMPANY:
+    "O usuário vinculado ao técnico pertence a outra empresa.",
+  USER_INACTIVE:
+    "O usuário vinculado ao técnico está inativo e não pode receber novas OS.",
+  USER_NOT_TECHNICIAN:
+    "O usuário vinculado não tem mais o perfil Técnico e não pode receber novas OS.",
+};
+
+/**
+ * Third-person phrasing, for whoever is ASSIGNING work (ADMIN/DISPATCHER), so
+ * the API can return an actionable message instead of a blank "not found".
+ * Returns null when the technician is assignable.
  */
 export function technicianAssignmentIssue(
   companyId: string,
   technician: TechnicianEligibilityCheck,
 ): string | null {
-  if (technician.companyId !== companyId) {
-    return "Técnico não pertence a esta empresa.";
-  }
-  if (!technician.active) {
-    return "Somente técnicos ativos podem receber OS.";
-  }
-  if (!technician.user) {
-    return "O técnico não possui usuário vinculado e não pode receber novas OS.";
-  }
-  if (technician.user.companyId !== companyId) {
-    return "O usuário vinculado ao técnico pertence a outra empresa.";
-  }
-  if (!technician.user.active) {
-    return "O usuário vinculado ao técnico está inativo e não pode receber novas OS.";
-  }
-  if (technician.user.profile !== AccessProfile.TECHNICIAN) {
-    return "O usuário vinculado não tem mais o perfil Técnico e não pode receber novas OS.";
-  }
-  return null;
+  const reason = technicianEligibilityReason(companyId, technician);
+  return reason ? ASSIGNMENT_ISSUE_MESSAGES[reason] : null;
+}
+
+const EXECUTION_ISSUE_MESSAGES: Record<TechnicianEligibilityReason, string> = {
+  TECHNICIAN_OTHER_COMPANY: "Você não tem acesso a esta Ordem de Serviço.",
+  TECHNICIAN_INACTIVE:
+    "Seu perfil técnico está inativo. Entre em contato com o responsável.",
+  NO_LINKED_USER: "Seu perfil técnico não possui usuário vinculado.",
+  USER_OTHER_COMPANY: "Você não tem acesso a esta Ordem de Serviço.",
+  USER_INACTIVE:
+    "Seu usuário está inativo. Entre em contato com o responsável.",
+  USER_NOT_TECHNICIAN:
+    "Seu usuário não tem mais o perfil Técnico. Entre em contato com o responsável.",
+};
+
+/**
+ * Second-person phrasing of the SAME rule, for the technician acting on their
+ * own order (start, execution edit).
+ *
+ * Reading is deliberately NOT gated by this: an inactive technician can still
+ * open "Minhas OS" and see an order they already started. Only writes are
+ * refused, and nothing already recorded is touched — same non-destructive
+ * stance as the assignment rule.
+ */
+export function technicianExecutionIssue(
+  companyId: string,
+  technician: TechnicianEligibilityCheck,
+): string | null {
+  const reason = technicianEligibilityReason(companyId, technician);
+  return reason ? EXECUTION_ISSUE_MESSAGES[reason] : null;
 }
 
 /**

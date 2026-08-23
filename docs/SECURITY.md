@@ -1,4 +1,4 @@
-# Segurança — AlfaOS (v0.2-service-orders)
+# Segurança — AlfaOS (v0.3-technician-execution)
 
 Este documento descreve as medidas de segurança implementadas nos checkpoints
 de hardening (`v0.1.1-hardening`) e do núcleo operacional de Ordens de Serviço
@@ -307,6 +307,65 @@ congelamento único.
   perdedor faz rollback completo (sem evento órfão) e é reprocessado como
   update. Duas sincronizações simultâneas do mesmo `externalId` não geram
   duplicata de OS, nem evento de criação duplicado, nem `500`.
+
+## 8.1. Proteção da execução do técnico (v0.3-technician-execution)
+
+Detalhes completos em [TECHNICIAN-EXECUTION.md](TECHNICIAN-EXECUTION.md).
+
+- **Ownership derivado da sessão**: `startServiceOrder` e
+  `updateServiceOrderExecution` resolvem o técnico por
+  `session.user.id + companyId → Technician`. `technicianId` **nunca** é aceito
+  do cliente como prova de autorização — e, por `.strict()`, mandá-lo no corpo
+  **rejeita a requisição** (`400`) em vez de ser ignorado.
+- **Não-dono recebe `404`, nunca `403`**. `403` confirmaria que a OS existe e
+  pertence a um colega — o fato que um técnico varrendo ids não pode aprender.
+  Um usuário `TECHNICIAN` sem registro `Technician` também recebe `404`.
+- **`ADMIN`/`DISPATCHER` não escrevem execução** (`403` em ambas as rotas).
+  `startedAt` é a base de toda a história de SLA: se o escritório pudesse
+  carimbá-lo, o campo passaria a significar "alguém disse que o técnico chegou"
+  em vez de "o técnico chegou", sem como distinguir depois. Staff mantém leitura
+  integral.
+- **Mass assignment**: Zod `.strict()` nas duas rotas **rejeita** (não descarta
+  em silêncio) `companyId`, `serviceOrderId`, `status`, `technicianId`,
+  `version`, `createdAt`, `updatedAt` e `id`. Descarte silencioso faria o
+  chamador crer que mudou o próprio inquilino ou o status e ainda receber `200`.
+  Textos limitados a 10.000 caracteres por campo.
+- **`expectedVersion` obrigatório** nas duas rotas (diferente de `assign`, onde
+  é opcional por retrocompatibilidade): fluxo novo, sem chamador legado, então o
+  lock fim-a-fim vale desde o primeiro dia.
+- **Locks otimistas separados**: `start` faz compare-and-set em
+  `ServiceOrder.version`; `execution`, em `ServiceOrderExecution.version`. Um
+  despachante mexendo na OS não invalida o texto que o técnico está digitando, e
+  vice-versa. `count !== 1` → `409`, sem sobrescrever.
+- **Idempotência de double-click/retry**: erro previsível, nunca um segundo
+  start silencioso. Repetição sequencial → `409` "já está em atendimento" (a
+  máquina de estados recusa `IN_PROGRESS → IN_PROGRESS`); requisições
+  simultâneas → o compare-and-set arbitra e a perdedora recebe `409`. Em ambos
+  os casos: um `startedAt`, uma execução, um evento `OS_STARTED`. A constraint
+  `serviceOrderId @unique` é o árbitro final no banco.
+- **Isolamento multi-tenant em SQL nas duas pontas**: `companyId` é
+  desnormalizado em `ServiceOrderExecution` e toda leitura/escrita filtra por
+  `{ serviceOrderId, companyId }`. Deliberadamente **não** é um `include` na
+  query da OS — o Prisma não aceita `where` em `include` to-one, o que
+  degradaria a checagem de inquilino para um `if` na aplicação. A linha do
+  inquilino errado não é filtrada depois: ela nunca é lida.
+- **Técnico desativado — leitura permitida, escrita bloqueada**: com
+  `Technician.active = false` (e `User.active = true`), `/minhas-os` e o detalhe
+  da OS seguem legíveis, mas `start` e `execution` retornam `403` com *"Seu
+  perfil técnico está inativo. Entre em contato com o responsável."*. Com
+  `User.active = false`, o kill switch de sessão já derruba em `401`.
+  **Nada é destrutivo**: não reatribui, não cancela, não apaga histórico — OS
+  iniciada, `startedAt`, execução e timeline permanecem intactos.
+- **Regra de elegibilidade única**: `technicianEligibilityReason` devolve um
+  código; `technicianAssignmentIssue` e `technicianExecutionIssue` só traduzem
+  para o público certo. Uma regra com dois vocabulários, em vez de duas regras
+  que divergem com o tempo.
+- **Auditoria sem vazar conteúdo**: `SERVICE_ORDER.EXECUTION_UPDATED` registra
+  **apenas os nomes dos campos alterados**, usuário e data — o texto livre do
+  diagnóstico/serviço/observações **não** é copiado para a trilha
+  administrativa, que é lida por quem não é o técnico. Saves **não** geram
+  evento de timeline (só `OS_STARTED` gera), para não afogar os marcos reais em
+  ruído de autosave.
 
 ## 9. Configuração de produção
 

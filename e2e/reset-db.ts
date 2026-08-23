@@ -10,6 +10,7 @@ async function main() {
   // independently of whatever called it.
   await assertTestDatabase(process.env.DATABASE_URL, "DATABASE_URL");
 
+  await prisma.serviceOrderExecution.deleteMany();
   await prisma.serviceOrderEvent.deleteMany();
   await prisma.serviceOrder.deleteMany();
   await prisma.technician.deleteMany();

@@ -45,13 +45,14 @@ model Company {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users         User[]
-  auditLogs     AuditLog[]
-  erpIntegration ERPIntegration?
-  customers     Customer[]
-  technicians   Technician[]
-  serviceOrders ServiceOrder[]
-  serviceOrderEvents ServiceOrderEvent[]
+  users                  User[]
+  auditLogs              AuditLog[]
+  erpIntegration         ERPIntegration?
+  customers              Customer[]
+  technicians            Technician[]
+  serviceOrders          ServiceOrder[]
+  serviceOrderEvents     ServiceOrderEvent[]
+  serviceOrderExecutions ServiceOrderExecution[]
 
   @@map("companies")
 }
@@ -80,8 +81,8 @@ model User {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  auditLogs AuditLog[]
-  technicians Technician[]
+  auditLogs          AuditLog[]
+  technicians        Technician[]
   serviceOrderEvents ServiceOrderEvent[]
 
   @@index([companyId])
@@ -143,36 +144,37 @@ model Technician {
 }
 
 model ServiceOrder {
-  id               String              @id @default(cuid())
+  id               String               @id @default(cuid())
   companyId        String
-  company          Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company          Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
   externalProvider String?
   externalId       String?
   externalNumber   String?
   customerId       String
-  customer         Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  customer         Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
   technicianId     String?
-  technician       Technician?         @relation(fields: [technicianId], references: [id], onDelete: Restrict)
+  technician       Technician?          @relation(fields: [technicianId], references: [id], onDelete: Restrict)
   type             String
   subtype          String?
-  description      String              @db.Text
+  description      String               @db.Text
   priority         ServiceOrderPriority @default(NORMAL)
-  status           ServiceOrderStatus  @default(PENDING)
-  source           ServiceOrderSource  @default(MANUAL)
+  status           ServiceOrderStatus   @default(PENDING)
+  source           ServiceOrderSource   @default(MANUAL)
   scheduledAt      DateTime?
   assignedAt       DateTime?
   startedAt        DateTime?
   completedAt      DateTime?
   cancelledAt      DateTime?
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
   /// Optimistic-lock token. Bumped on every write that changes the order, and
   /// used as the compare-and-set predicate by `assignTechnician`. `updatedAt`
   /// cannot serve this purpose: Prisma maps DateTime to `timestamp(3)`, so two
   /// writes in the same millisecond both match and one is silently lost.
-  version          Int                 @default(0)
+  version          Int                  @default(0)
 
-  events ServiceOrderEvent[]
+  events    ServiceOrderEvent[]
+  execution ServiceOrderExecution?
 
   @@unique([companyId, externalProvider, externalId])
   @@index([companyId, status])
@@ -199,6 +201,41 @@ model ServiceOrderEvent {
   @@index([serviceOrderId, createdAt])
   @@index([companyId, createdAt])
   @@map("service_order_events")
+}
+
+/// Field execution record of a service order — what the technician diagnosed,
+/// what they did and any free-form remark. Created by `startServiceOrder` and
+/// edited (only) by the owning technician while the order is IN_PROGRESS.
+///
+/// One row per order, enforced by the database (`serviceOrderId @unique`) and
+/// not merely by the application: the start path is racy by construction
+/// (double-click, retry), so the constraint — not a check-then-insert — is the
+/// arbiter of "exactly one execution".
+///
+/// `companyId` is denormalized from the order on purpose. It lets every read
+/// and write filter by tenant in SQL instead of trusting FK navigation, so an
+/// execution can never be reached by crossing company A's session with company
+/// B's order.
+model ServiceOrderExecution {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  serviceOrderId String       @unique
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  diagnosis      String?      @db.Text
+  workPerformed  String?      @db.Text
+  notes          String?      @db.Text
+  /// Optimistic-lock token of the EXECUTION, independent from
+  /// `ServiceOrder.version`. Two technicians editing the same text must
+  /// conflict on the text they are editing, not on unrelated order changes.
+  /// Same rationale as `ServiceOrder.version`: `updatedAt` is `timestamp(3)`,
+  /// so two writes in the same millisecond both match and one is silently lost.
+  version        Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([companyId])
+  @@map("service_order_executions")
 }
 
 model AuditLog {

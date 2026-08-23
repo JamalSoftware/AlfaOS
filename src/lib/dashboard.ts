@@ -42,8 +42,18 @@ export async function getDashboardStats(
     prisma.serviceOrder.count({
       where: { companyId, status: "PENDING" },
     }),
+    /**
+     * "Em Atendimento" means an order a technician has actually STARTED, i.e.
+     * `IN_PROGRESS` only.
+     *
+     * It used to count `ASSIGNED` too, which conflated two very different
+     * operational states: work merely handed to someone versus work being done
+     * right now. Until v0.3 nothing could reach IN_PROGRESS, so the number was
+     * really "assigned" wearing the wrong label; now that technicians start
+     * orders for real, the KPI counts the state it is named after.
+     */
     prisma.serviceOrder.count({
-      where: { companyId, status: { in: ["ASSIGNED", "IN_PROGRESS"] } },
+      where: { companyId, status: "IN_PROGRESS" },
     }),
     prisma.serviceOrder.count({
       where: {
