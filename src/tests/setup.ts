@@ -16,3 +16,11 @@ process.env.SESSION_COOKIE_NAME =
 process.env.ERP_CREDENTIAL_ENCRYPTION_KEY =
   process.env.ERP_CREDENTIAL_ENCRYPTION_KEY ??
   "dml0ZXN0LW9ubHktYWVzMjU2LWtleS0zMi1ieXRlISE=";
+
+// Chave separada para senhas de conexao do cliente, pelo mesmo motivo que
+// existem duas em producao. Decodifica para
+// "vitest-pppoe-key-32-bytes-long!!" — encontrada fora de contexto, o valor
+// diz por si que e fixture.
+process.env.CUSTOMER_CREDENTIAL_ENCRYPTION_KEY =
+  process.env.CUSTOMER_CREDENTIAL_ENCRYPTION_KEY ??
+  "dml0ZXN0LXBwcG9lLWtleS0zMi1ieXRlcy1sb25nISE=";

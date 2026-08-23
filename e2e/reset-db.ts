@@ -20,6 +20,7 @@ async function main() {
   // Depois das OS: o vinculo e onDelete Restrict de proposito.
   await prisma.serviceOrderType.deleteMany();
   await prisma.technician.deleteMany();
+  await prisma.customerConnection.deleteMany();
   await prisma.customer.deleteMany();
   await prisma.loginAttempt.deleteMany();
   await prisma.auditLog.deleteMany();

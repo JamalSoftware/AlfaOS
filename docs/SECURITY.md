@@ -495,6 +495,53 @@ para segurança:
   `AuditLog` registra `ERP_CREDENTIAL_INVALIDATED` com provider antigo e novo —
   nunca token, ciphertext, IV, tag, `last4` ou chave.
 
+## 8.5. Credenciais de acesso do cliente (PPPoE) — v0.5.1
+
+- **Nunca em texto puro.** AES-256-GCM, IV novo de 12 bytes por gravação, e
+  as três colunas (`ciphertext`, `iv`, `authTag`) formam um valor só —
+  garantido por CHECK no banco, para que uma falha no meio de um update não
+  deixe uma linha meio-gravada.
+- **AAD obrigatório**, ligando cada senha a
+  `(companyId, customerId, connectionId, type)` com serialização versionada e
+  prefixada por comprimento. O AAD **não é armazenado**: é reconstruído da
+  identidade real da linha, e é isso que faz um ciphertext transplantado
+  entre clientes, entre conexões ou entre empresas falhar em vez de decriptar.
+  O namespace `alfaos:customer-connection-credential:` é disjunto do de ERP.
+- **Chave própria**, `CUSTOMER_CREDENTIAL_ENCRYPTION_KEY`, separada da
+  `ERP_CREDENTIAL_ENCRYPTION_KEY`. Reutilizar a chave do ERP com AAD distinto
+  seria criptograficamente suficiente contra transplante, mas o nome passaria
+  a mentir: rotacionar algo chamado "ERP" destruiria silenciosamente a senha
+  de acesso de todos os clientes. Chaves separadas fazem o alcance da rotação
+  corresponder ao nome. Também foi considerada uma subchave HKDF derivada da
+  chave de ERP — descartada pelo mesmo motivo: mantém o risco de rotação.
+- **Fail-closed.** Sem a chave, gravar ou revelar falha; em nenhuma hipótese
+  uma senha é gravada em claro como alternativa.
+- **A senha nunca é reexibida.** Não existe rota de leitura: o shape público
+  da conexão tem `username` e um booleano `passwordConfigured`. Nem um
+  `last4` — num token de API ele identifica qual credencial está configurada;
+  numa senha ele só vaza um quarto dela.
+- **Revelação escopada por OS.** `POST /api/service-orders/:id/connection-password`.
+  POST e não GET: um GET colocaria o pedido na URL (log, histórico, Referer),
+  seria cacheável e não passaria pela proteção Same-Origin. Resposta
+  `no-store` com **apenas** a senha no corpo.
+- **Autorização** — sessão válida; `companyId` da sessão; TECHNICIAN precisa
+  ser o técnico da OS **e** a OS estar em `ASSIGNED`/`IN_PROGRESS`; a conexão
+  precisa pertencer ao cliente daquela OS. Outro técnico, outro tenant, outro
+  cliente e conexão inativa recebem **404**, nunca 403 — 403 confirmaria a
+  existência. Status inadequado devolve 403, porque aí a OS já é visível ao
+  técnico e escondê-la seria mentir sobre um recurso que ele acessa.
+  DISPATCHER nunca recebe plaintext.
+- **Nada do cliente HTTP decide dono.** O schema é strict e tem um campo só
+  (`connectionId`); `companyId`, `customerId` e `technicianId` no corpo
+  resultam em 400.
+- **AuditLog** grava `PPPOE_CREDENTIAL_VIEWED` com ator, empresa, cliente,
+  conexão e OS. Nunca senha, ciphertext, IV, tag, chave — nem o `username`,
+  que não é necessário para investigar (o id da conexão identifica) e é dado
+  de acesso do cliente. Revelação negada **não** gera o evento.
+- **Plaintext fora da resposta inicial.** A senha nunca entra em props de
+  Server Component nem no HTML servido — verificado por E2E que inspeciona
+  `page.content()` na OS e na tela administrativa, inclusive após reload.
+
 ## 9. Configuração de produção
 
 1. Gere um `AUTH_SECRET` forte: `openssl rand -base64 48`.

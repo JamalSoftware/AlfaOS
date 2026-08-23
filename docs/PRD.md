@@ -2875,3 +2875,45 @@ AlfaOS Field (Flutter)
 ```
 
 Cada etapa exige escopo aprovado antes de virar código, e auditoria independente quando tocar superfície crítica.
+
+---
+
+# 132. CONEXÃO DO CLIENTE E CREDENCIAL DE ACESSO
+
+```text
+Customer
+ └── CustomerConnection   (PPPOE hoje; coleção desde o início)
+      └── credencial      (AES-256-GCM, AAD, nunca em claro)
+```
+
+**A credencial pertence à CONEXÃO DO CLIENTE, não à Ordem de Serviço.** A
+mesma senha serve todas as OS daquele cliente; guardá-la na OS a duplicaria a
+cada atendimento, e as cópias divergiriam no instante em que a senha mudasse.
+
+MVP: `companyId`, `customerId`, `type`, `username`, credencial cifrada,
+`active`, timestamps. **Não** é um engine de rede — IPoE, DHCP, CGNAT, IP
+estático, VLAN, ONU, OLT e RADIUS continuam fora de escopo (Parte II).
+
+## Regra de produto
+
+> **O Field App pode revelar uma credencial de acesso somente quando
+> autorizado por uma OS ativa atribuída ao técnico.**
+
+A OS é a superfície de autorização, como já é para diagnóstico. Uma rota por
+id de cliente daria a qualquer técnico autenticado um oráculo sobre a base
+inteira de clientes da empresa.
+
+Depois de `COMPLETED` o técnico continua vendo a OS, mas **não revela a senha
+de novo**: senão uma OS antiga viraria chave permanente para a conexão daquele
+cliente. ADMIN mantém a capacidade administrativa.
+
+O texto claro nunca entra na resposta inicial da OS — só numa requisição
+separada, explícita e auditada. Detalhe em `docs/SECURITY.md` §8.5.
+
+## Origem futura
+
+Nesta versão o cadastro é **manual, no AlfaOS**. Nenhum dos quatro OpenAPI
+ReceitaNet analisados (§129) documenta usuário ou senha PPPoE, e RADIUS não
+está integrado. Uma capability futura poderá sincronizar a conexão a partir de
+fonte externa — quando existir contrato documentado para isso, e não antes
+(§64).

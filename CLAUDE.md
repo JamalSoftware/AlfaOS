@@ -166,7 +166,7 @@ O projeto possui:
 
 **Baseline tagueada: `v0.5-receitanet-diagnostics`** — auditada e endurecida.
 
-Depois dela, ainda **sem tag**: a documentação da arquitetura de OS própria (PRD Parte III, seções 121–131) e a `v0.5.1` — origem `INTERNAL`/`EXTERNAL`, catálogo `ServiceOrderType`, histórico recente do técnico e invalidação da credencial na troca de provider.
+Depois dela, ainda **sem tag**: a documentação da arquitetura de OS própria (PRD Parte III, seções 121–131) e a `v0.5.1` — origem `INTERNAL`/`EXTERNAL`, catálogo `ServiceOrderType`, histórico recente do técnico, invalidação da credencial na troca de provider e acesso PPPoE do cliente (`CustomerConnection`).
 
 A `v0.5.1` foi implementada e passa nos quality gates, mas **ainda aguarda auditoria independente** — quem implementou não se autoavalia como aprovado em segurança, por design (auditoria final é sempre feita por quem não implementou).
 

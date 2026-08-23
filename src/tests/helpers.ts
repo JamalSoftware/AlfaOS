@@ -44,6 +44,7 @@ export async function resetDatabase(): Promise<void> {
   // Depois das OS: o vínculo é onDelete Restrict de propósito.
   await prisma.serviceOrderType.deleteMany();
   await prisma.technician.deleteMany();
+  await prisma.customerConnection.deleteMany();
   await prisma.customer.deleteMany();
   await prisma.loginAttempt.deleteMany();
   await prisma.auditLog.deleteMany();

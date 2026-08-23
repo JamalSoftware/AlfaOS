@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requirePageProfile } from "@/lib/guards";
 import { getCompanyCustomer } from "@/lib/customers";
+import { listCustomerConnections } from "@/lib/customer-connections";
 import { CustomerForm } from "@/components/CustomerForm";
+import { CustomerConnectionsPanel } from "@/components/CustomerConnectionsPanel";
 import { notFound } from "next/navigation";
 
 export const metadata: Metadata = {
@@ -21,6 +23,13 @@ export default async function EditCustomerPage({
     notFound();
   }
 
+  // Somente ADMIN gerencia credencial de acesso. O painel inteiro fica fora da
+  // árvore para o DISPATCHER — nada de renderizar controles que a API recusa.
+  const isAdmin = session.profile === "ADMIN";
+  const connections = isAdmin
+    ? await listCustomerConnections(session.companyId, params.id)
+    : [];
+
   return (
     <div>
       <div className="mb-6">
@@ -38,8 +47,17 @@ export default async function EditCustomerPage({
         </p>
       </div>
 
-      <div className="max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <CustomerForm mode="edit" customer={customer} backHref="/clientes" />
+      <div className="max-w-2xl space-y-6">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <CustomerForm mode="edit" customer={customer} backHref="/clientes" />
+        </div>
+
+        {isAdmin && (
+          <CustomerConnectionsPanel
+            customerId={customer.id}
+            connections={connections}
+          />
+        )}
       </div>
     </div>
   );

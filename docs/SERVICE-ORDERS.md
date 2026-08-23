@@ -217,6 +217,17 @@ Resumo; o documento completo é
 - Técnico com `Technician.active = false` continua **lendo**; toda escrita é
   recusada com `403` e mensagem acionável. Nada já gravado é alterado.
 
+### 4.2. Acesso PPPoE (v0.5.1)
+
+A OS exibe uma seção **Acesso PPPoE** com o usuário da conexão ativa do
+cliente e a senha mascarada. O usuário vem no carregamento da página; a senha
+**não** — ela só é buscada quando o técnico clica em Mostrar/Copiar, numa
+requisição própria, autenticada e auditada.
+
+O técnico dono revela enquanto a OS está em `ASSIGNED` ou `IN_PROGRESS`.
+Depois de `COMPLETED` ele continua vendo a OS e o usuário, mas não revela a
+senha de novo. Regras completas em [SECURITY.md §8.5](SECURITY.md).
+
 ## 5. Integração com Mock ERP
 
 - `MockERPAdapter.listServiceOrders()` expõe três OS de exemplo (#10001 João da

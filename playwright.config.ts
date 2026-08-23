@@ -19,6 +19,11 @@ const E2E_CREDENTIAL_KEY =
   process.env.E2E_CREDENTIAL_KEY ??
   "ZTJlLW9ubHktYWVzMjU2LWtleS0zMi1ieXRlcyEhISE=";
 
+/** Idem, para senhas de conexao do cliente. Chave separada, como em producao. */
+const E2E_CONNECTION_KEY =
+  process.env.E2E_CONNECTION_KEY ??
+  "ZTJlLXBwcG9lLW9ubHktYWVzMjU2LWtleS0zMmJ5dGU=";
+
 /**
  * Dedicated port, NOT 3000.
  *
@@ -72,6 +77,7 @@ export default defineConfig({
       AUTH_SECRET: E2E_AUTH_SECRET,
       SESSION_COOKIE_NAME: "alfaos_session",
       ERP_CREDENTIAL_ENCRYPTION_KEY: E2E_CREDENTIAL_KEY,
+      CUSTOMER_CREDENTIAL_ENCRYPTION_KEY: E2E_CONNECTION_KEY,
       NEXT_TELEMETRY_DISABLED: "1",
       PORT: E2E_PORT,
     },

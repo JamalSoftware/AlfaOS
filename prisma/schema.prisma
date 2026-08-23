@@ -67,6 +67,15 @@ enum ConnectivityStatus {
   UNKNOWN
 }
 
+/// Tipo de conexao do cliente.
+///
+/// Um unico valor hoje, de proposito. O enum existe para que uma conexao
+/// futura (IPoE, DHCP, estatico) entre sem migration de dados e sem
+/// reinterpretar linhas existentes — nao para antecipar um engine de rede.
+enum CustomerConnectionType {
+  PPPOE
+}
+
 /// Unit of a material declared as used on a service order. Deliberately a
 /// short fixed list, not a catalogue: v0.4 records what the technician says
 /// was consumed, it does not manage stock.
@@ -97,6 +106,7 @@ model Company {
   serviceOrderMaterials  ServiceOrderMaterialUsage[]
   serviceOrderSignatures ServiceOrderSignature[]
   diagnosticSnapshots    CustomerDiagnosticSnapshot[]
+  customerConnections    CustomerConnection[]
 
   @@map("companies")
 }
@@ -164,12 +174,49 @@ model Customer {
 
   serviceOrders       ServiceOrder[]
   diagnosticSnapshots CustomerDiagnosticSnapshot[]
+  connections         CustomerConnection[]
 
   @@unique([companyId, externalProvider, externalId])
   @@index([companyId, name])
   @@index([companyId, document])
   @@index([companyId, active])
   @@map("customers")
+}
+
+/// Conexao de acesso do cliente (PRD §132).
+///
+/// Pertence ao CLIENTE, nao a Ordem de Servico: a mesma credencial serve
+/// todas as OS daquele cliente, e guarda-la na OS a duplicaria a cada
+/// atendimento — com copias divergindo assim que a senha mudasse.
+///
+/// Modelada como colecao desde o inicio para que um cliente com mais de uma
+/// conexao no futuro nao exija migrar dados.
+model CustomerConnection {
+  id         String                 @id @default(cuid())
+  companyId  String
+  company    Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type       CustomerConnectionType @default(PPPOE)
+  username   String
+
+  /// AES-256-GCM da senha, base64. Nula enquanto a senha nao foi
+  /// configurada — username sem senha e um estado legitimo.
+  credentialCiphertext String?
+  /// Nonce de 12 bytes, base64. Novo a cada gravacao.
+  credentialIv         String?
+  /// Tag de autenticacao GCM, base64. E a sua verificacao que faz um
+  /// ciphertext transplantado falhar em vez de decriptar.
+  credentialAuthTag    String?
+  credentialUpdatedAt  DateTime?
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, customerId, type, username])
+  @@index([companyId, customerId, active])
+  @@map("customer_connections")
 }
 
 /// Last VALID connectivity observation for a customer, per ERP provider.

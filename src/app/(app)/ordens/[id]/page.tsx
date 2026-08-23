@@ -4,6 +4,11 @@ import { notFound } from "next/navigation";
 import { AccessProfile } from "@prisma/client";
 import { requirePageProfile } from "@/lib/guards";
 import {
+  listCustomerConnections,
+  REVEALABLE_ORDER_STATUSES,
+} from "@/lib/customer-connections";
+import { PppoeAccessPanel } from "@/components/PppoeAccessPanel";
+import {
   EXECUTION_TEXT_MAX_LENGTH,
   getCompanyServiceOrder,
   getTechnicianByUserId,
@@ -129,6 +134,32 @@ export default async function OrderDetailPage({
   }
 
   const isStaff = !isOwnerTechnician;
+
+  /**
+   * Conexão de acesso do cliente desta OS.
+   *
+   * `listCustomerConnections` devolve o shape público — usuário e um booleano.
+   * A senha NUNCA entra nas props do Server Component: ela só existe numa
+   * resposta separada, disparada por clique.
+   */
+  const connections =
+    session.profile === AccessProfile.DISPATCHER
+      ? []
+      : await listCustomerConnections(session.companyId, order.customer.id);
+  const pppoeConnection = connections.find((c) => c.active) ?? null;
+
+  const orderAllowsReveal = (
+    REVEALABLE_ORDER_STATUSES as readonly string[]
+  ).includes(order.status);
+  // ADMIN mantém a capacidade administrativa; o técnico dono só enquanto o
+  // atendimento está em curso.
+  const canRevealPassword =
+    session.profile === AccessProfile.ADMIN ||
+    (isOwnerTechnician && orderAllowsReveal);
+  const revealBlockedReason =
+    isOwnerTechnician && !orderAllowsReveal
+      ? "A senha só pode ser revelada enquanto o atendimento estiver em andamento."
+      : null;
   const technicians = isStaff
     ? await listActiveTechnicianOptions(session.companyId)
     : [];
@@ -322,6 +353,17 @@ export default async function OrderDetailPage({
             orderId={order.id}
             initialDiagnostic={diagnosticView}
           />
+
+          {pppoeConnection && (
+            <PppoeAccessPanel
+              orderId={order.id}
+              connectionId={pppoeConnection.id}
+              username={pppoeConnection.username}
+              passwordConfigured={pppoeConnection.passwordConfigured}
+              canReveal={canRevealPassword}
+              revealBlockedReason={revealBlockedReason}
+            />
+          )}
 
           {isExecuting && order.execution && (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
