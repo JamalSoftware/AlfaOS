@@ -9,7 +9,7 @@
 **Premissa central:** o AlfaOS é o sistema de execução e gestão operacional das Ordens de Serviço. ERPs são origem, fonte de dados do cliente ou destino de sincronização — nunca o motor operacional. Ver Parte III (seções 121+).  
 **Produto futuro:** SaaS comercial para provedores de internet e empresas com equipes técnicas — plataforma operacional completa (Core + Field App + Technician Toolkit + Network Intelligence), não apenas um sistema de abertura/fechamento de OS.
 
-> Este documento representa a **visão do produto**. Ele não autoriza implementação automática de nenhuma funcionalidade — ver seção 119 "Princípio de Escopo". A Parte II (seções 72–120) registra a visão de longo prazo com classificação explícita de prioridade; a Parte I (seções 1–71) permanece a base funcional/técnica do Core já em desenvolvimento; a Parte III (seções 121+) fixa a propriedade da Ordem de Serviço e a posição dos ERPs na arquitetura.
+> Este documento representa a **visão do produto**. Ele não autoriza implementação automática de nenhuma funcionalidade — ver seção 119 "Princípio de Escopo". A Parte II (seções 72–120) registra a visão de longo prazo com classificação explícita de prioridade; a Parte I (seções 1–71) permanece a base funcional/técnica do Core já em desenvolvimento; a Parte III (seções 121+) fixa a propriedade da Ordem de Serviço, a posição dos ERPs e a arquitetura de geolocalização e mapa operacional.
 
 ---
 
@@ -2028,6 +2028,12 @@ NÃO_CONFIRMADA
 CONFIRMADA_PELO_TÉCNICO
 ```
 
+> **Revisado pela seção 134.** Esta lista mistura dois eixos independentes —
+> de onde a coordenada veio e se alguém a confirmou em campo. O modelo
+> vigente os separa em `source` e `verified`, o que permite representar uma
+> coordenada geocodificada **e** confirmada, combinação que a lista acima não
+> consegue expressar. O restante desta seção continua válido.
+
 Histórico de alteração de localização, quando aplicável, deve registrar: usuário, técnico, data/hora, coordenada anterior, coordenada nova, precisão (quando disponível). Mesmo padrão de rastreabilidade já usado em `ServiceOrderEvent`/`AuditLog` no Core.
 
 ---
@@ -2044,13 +2050,18 @@ status principal simples
 eventos operacionais (ServiceOrderEvent)
 ```
 
-Timestamps possíveis: `route_started_at`, `arrived_at`, `started_at` (já existe), `completed_at` (já existe). Isso permitirá calcular tempo de deslocamento, tempo de atendimento e tempo total da OS — insumo futuro para SLA (seção 112).
+Timestamps possíveis: `route_started_at`, `arrived_at`, `started_at` (já existe), `completed_at` (já existe). Isso permitirá calcular tempo de deslocamento, tempo de atendimento e tempo total da OS — insumo futuro para SLA (seção 112). Roteirização de múltiplas OS e despacho assistido estão na seção 137.
 
 ---
 
 # 79. MAPA DOS ATENDIMENTOS **[DIFERENCIAL]**
 
 Field App poderá oferecer: OS do dia no mapa, localização dos clientes, distância, ETA, prioridade, próxima OS. Otimização automática da sequência de visitas é **[FUTURO]**, não parte desta fase.
+
+> **Não confundir com o Mapa Operacional (seção 136).** Esta seção descreve o
+> mapa do *dia do técnico*, dentro do Field App. O da seção 136 é o mapa da
+> *operação inteira*, no painel Web, para quem despacha — outro público,
+> outro escopo, outras permissões.
 
 ---
 
@@ -2399,7 +2410,7 @@ Privacidade e proteção básica de dados pessoais são requisito transversal ob
 - minimização de dados;
 - autorização por função (RBAC já implementado no Core);
 - mascaramento de CPF quando apropriado — CPF não deve ser exibido integralmente sem necessidade;
-- proteção de GPS — finalidade operacional definida, nunca coleta genérica "para ter caso precise";
+- proteção de GPS — finalidade operacional definida, nunca coleta genérica "para ter caso precise". Requisitos específicos de rastreamento do técnico e retenção de histórico estão na seção 138;
 - proteção de fotos;
 - proteção de assinatura;
 - AuditLog (já implementado no Core);
@@ -2471,6 +2482,13 @@ Não classificar tudo como MVP. Classificação por módulo/bloco:
 | Governança avançada de privacidade (retenção configurável, workflows de titular, automação de ciclo de vida) | IMPORTANTE |
 | Field App Flutter (app nativo) | DIFERENCIAL |
 | GPS, rota, mapa dos atendimentos | DIFERENCIAL |
+| Localização do cliente confirmada em campo (`CustomerLocation`, seção 134) | IMPORTANTE |
+| Compartilhamento de localização do técnico (`TechnicianLocation`, seção 135) | DIFERENCIAL |
+| Mapa operacional no painel Web (`OperationalMap`, seção 136) | DIFERENCIAL |
+| Navegação abrindo app externo (Google Maps/Waze) | DIFERENCIAL |
+| Técnicos próximos ao abrir a OS | DIFERENCIAL |
+| Despacho assistido — sistema sugere, pessoa decide (seção 137) | FUTURO |
+| Roteirização de múltiplas OS (Route Optimization Engine) | FUTURO |
 | Diagnóstico Rápido do cliente | DIFERENCIAL |
 | Technician Toolkit (Wi-Fi Analyzer, speed test, antes/depois, recomendador Wi-Fi, teste por cômodos) | DIFERENCIAL |
 | Assistente de configuração de roteadores | FUTURO |
@@ -2816,7 +2834,7 @@ AlfaOS Field           ├─ ReceitaNet
 
 Perfis principais: **ADMIN**, **DISPATCHER** e **Gestor**, quando implementado.
 
-Responsabilidades: clientes · tipos de OS · criação de OS · importação de OS · atribuição · agenda · acompanhamento · evidências · relatórios · usuários e técnicos · integrações.
+Responsabilidades: clientes · tipos de OS · criação de OS · importação de OS · atribuição · agenda · acompanhamento · **mapa operacional (seção 136)** · evidências · relatórios · usuários e técnicos · integrações.
 
 ## AlfaOS Field — aplicativo dedicado do técnico
 
@@ -2830,7 +2848,11 @@ login → minhas OS → detalhe → navegação → iniciar
       → materiais/equipamentos → assinatura → concluir
 ```
 
+Responsabilidades futuras: GPS · localização em background · navegação por app externo · confirmação da localização do cliente · execução das OS · fotos · materiais · assinatura · acesso PPPoE · QR/barcode · offline mais adiante.
+
 O Field App **consome a mesma API/Core do painel Web**. **Não duplicar regra de negócio no aplicativo.** Regra duplicada é regra que diverge: a cópia do app fica para trás e a diferença aparece como falha de autorização em campo, não como erro de compilação.
+
+Vale integralmente para geolocalização: **o app coleta, o Core decide.** Uma coordenada enviada pelo aparelho é dado de entrada, nunca prova de autorização — nenhuma checagem de acesso passa a depender de onde o técnico diz estar.
 
 Offline é evolução posterior (seção 98).
 
@@ -2860,7 +2882,7 @@ Substitui a ordem da seção 69 daqui para frente. **Indicativo, não promessa c
 ```text
 v0.5-receitanet-diagnostics                     [CONCLUÍDO — auditado e endurecido]
         ↓
-v0.5.1
+v0.5.1-pilot-readiness                          [CONCLUÍDO — auditado e endurecido]
 Pilot Readiness + fundação para OS próprias
         ↓
 v0.6
@@ -2875,6 +2897,14 @@ AlfaOS Field (Flutter)
 ```
 
 Cada etapa exige escopo aprovado antes de virar código, e auditoria independente quando tocar superfície crítica.
+
+**Geolocalização e mapa operacional (seções 133–139) são capability oficial do
+Field/Dispatch, e não alteram a próxima etapa.** A ordem acima permanece
+exatamente como está: a v0.6 continua sendo ReceitaNet CallCenter read-only.
+A implementação de geolocalização será fatiada depois — `CustomerLocation`
+pode entrar antes do Field App, porque é cadastro e vive no Core; o
+rastreamento do técnico depende do app existir. **Nada disso é antecipado
+para a v0.6.**
 
 ---
 
@@ -2917,3 +2947,361 @@ ReceitaNet analisados (§129) documenta usuário ou senha PPPoE, e RADIUS não
 está integrado. Uma capability futura poderá sincronizar a conexão a partir de
 fonte externa — quando existir contrato documentado para isso, e não antes
 (§64).
+
+---
+
+# 133. GEOLOCALIZAÇÃO — REGRA ARQUITETURAL
+
+Três conceitos, com responsabilidades separadas:
+
+> **`CustomerLocation` descreve onde o atendimento acontece.**
+> **`TechnicianLocation` descreve onde a equipe está.**
+> **`OperationalMap` conecta essas informações para operação e despacho.**
+
+Separá-los não é organização estética. São dados com donos, ciclos de vida e
+riscos de privacidade completamente diferentes: a localização do cliente é
+cadastral e muda raramente; a do técnico é telemetria de alta frequência sobre
+uma pessoa; e o mapa não é dado nenhum — é uma leitura que combina os dois.
+Fundi-los produziria uma tabela que ninguém consegue reter, expirar nem
+autorizar corretamente.
+
+Esta seção **complementa** as seções 77, 78 e 79, que descrevem a experiência
+do técnico em campo. As seções 133–138 descrevem o **modelo e as invariantes**
+por trás dela.
+
+**Modelo conceitual, não especificação de banco.** Nada aqui autoriza migration
+(seção 119). Os nomes de campo e de enum são indicativos e serão fixados quando
+cada fatia for aprovada.
+
+E a regra que já governa a OS continua valendo sem exceção:
+
+> **A origem da OS pode mudar; o motor de execução não.**
+
+Geolocalização é insumo do motor, nunca substituto dele. Nenhuma decisão de
+autorização, estado ou integridade passa a depender de uma coordenada.
+
+---
+
+# 134. CUSTOMERLOCATION **[IMPORTANTE]**
+
+A localização pertence ao **Customer**, não à ServiceOrder.
+
+O motivo é o mesmo de `CustomerConnection` (seção 132): o ponto físico é o
+mesmo em todos os atendimentos daquele cliente. Guardá-lo na OS o duplicaria a
+cada visita, e as cópias divergiriam no instante em que alguém corrigisse uma
+delas. A localização **existe independentemente de qualquer OS** — um cliente
+recém-cadastrado já pode ter coordenada.
+
+Modelo conceitual:
+
+```text
+CustomerLocation
+ ├── latitude / longitude
+ ├── accuracy          (metros; qualidade da captura)
+ ├── source            (de onde veio a coordenada)
+ ├── verified          (alguém confirmou em campo?)
+ ├── verifiedAt / verifiedBy
+ ├── referência        (ponto de acesso, observação de chegada)
+ └── updatedAt
+```
+
+Origens possíveis, **indicativas**:
+
+```text
+MANUAL           digitada por um operador
+GEOCODED         derivada do endereço
+IMPORTED         veio de sistema externo
+TECHNICIAN_GPS   capturada pelo GPS do técnico no local
+```
+
+**`source` e `verified` são eixos distintos, e essa é a decisão central desta
+seção.** `source` diz de onde o número veio; `verified` diz se alguém esteve
+lá. Uma coordenada `GEOCODED` pode ser confirmada por um técnico que chegou ao
+local certo — permanece `GEOCODED` de origem e passa a ser `verified`. Colapsar
+os dois num único enum perderia justamente essa combinação.
+
+> **Reconciliação com a seção 77.** Aquela seção propôs uma lista única
+> (`IMPORTADA_DO_ERP`, `NÃO_CONFIRMADA`, `CONFIRMADA_PELO_TÉCNICO`) que mistura
+> os dois eixos. O modelo desta seção a substitui: `IMPORTADA_DO_ERP` vira
+> `source: IMPORTED`, `NÃO_CONFIRMADA` vira `verified: false`, e
+> `CONFIRMADA_PELO_TÉCNICO` vira `verified: true` — com `source` preservando
+> separadamente a procedência. O restante da seção 77 continua válido.
+
+**Uma localização confirmada em campo precisa ser distinguível de uma
+geocodificada por endereço.** Não é detalhe de UI: são níveis de confiança
+diferentes, e a operação decide coisas diferentes com cada um. Um ponto
+geocodificado a partir de "Estrada Municipal, s/n, Zona Rural" pode estar
+quilômetros longe da porta do cliente, e o técnico que confia nele se perde.
+
+Estado atual: `Customer` já carrega `latitude`/`longitude` opcionais (seção 14).
+Se o modelo acima vira colunas adicionais em `Customer` ou entidade própria é
+decisão de implementação **deliberadamente adiada** — depende de haver ou não
+mais de um ponto por cliente, o que hoje não é requisito.
+
+## Confirmação em campo
+
+No AlfaOS Field o técnico poderá:
+
+- ver o ponto cadastrado no mapa;
+- ver a distância entre onde ele está e o ponto;
+- **confirmar** que a localização está correta;
+- **corrigir** usando a posição GPS atual;
+- registrar a precisão da captura.
+
+```text
+Você está a 18 metros do ponto cadastrado.
+
+[Confirmar localização]   [Corrigir localização]
+```
+
+Especialmente relevante em **clientes rurais**, onde o endereço textual
+frequentemente não geocodifica para lugar nenhum útil.
+
+Toda alteração é rastreável — ator, momento, coordenada anterior, coordenada
+nova e precisão — no mesmo padrão de `AuditLog`/`ServiceOrderEvent` já usado
+pelo Core (seção 77).
+
+---
+
+# 135. TECHNICIANLOCATION **[DIFERENCIAL]**
+
+O AlfaOS Field poderá compartilhar a posição do técnico durante a operação.
+
+Modelo conceitual:
+
+```text
+TechnicianLocation
+ ├── technicianId / companyId
+ ├── serviceOrderId    (opcional — nem toda posição pertence a um atendimento)
+ ├── latitude / longitude
+ ├── accuracy
+ ├── speed / heading   (opcionais)
+ └── recordedAt
+```
+
+`serviceOrderId` é **opcional** de propósito: o técnico se desloca entre
+atendimentos, e forçar um vínculo obrigaria a inventar uma OS para o intervalo.
+
+## Última posição × histórico
+
+Duas leituras com exigências opostas, e por isso **conceitualmente separadas**:
+
+```text
+Current/Last Technician Location   uma linha por técnico, sobrescrita
+Location History                   série temporal, append-only
+```
+
+**O mapa ao vivo nunca pode varrer o histórico.** Com um punhado de técnicos
+emitindo posição a cada 10–15 segundos, o histórico chega a milhões de linhas
+em meses; um mapa que faz `ORDER BY recordedAt DESC LIMIT 1` por técnico sobre
+essa tabela degrada exatamente quando a operação cresce. A leitura "onde estão
+todos agora" precisa custar uma linha por técnico, não uma varredura.
+
+Se isso vira duas tabelas, uma tabela com índice adequado ou um cache é decisão
+de implementação. A **invariante** é que a leitura ao vivo não dependa do
+volume acumulado.
+
+## Frequência de envio
+
+Números **indicativos**, ajustáveis depois de medir bateria e dados reais em
+campo:
+
+| Situação | Intervalo aproximado |
+| --- | --- |
+| Em deslocamento | 10–15 s, ou após deslocamento significativo |
+| Parado / em atendimento | 30–60 s |
+| Background | conforme o que o Android permitir |
+| Fora da jornada | desligado, conforme política da empresa |
+
+Enviar posição a cada segundo é o erro óbvio a evitar: consome bateria do
+aparelho de trabalho do técnico, gasta o dado móvel dele e produz um histórico
+que ninguém consegue reter. A regra prática é emitir por **movimento
+significativo**, não por relógio.
+
+## Atualização em tempo quase real
+
+Para o primeiro piloto, **polling curto no painel é suficiente e honesto** —
+poucos técnicos, poucas telas abertas. SSE/WebSocket/realtime são evolução
+quando o custo do polling passar a incomodar.
+
+**Nenhuma infraestrutura é escolhida nesta tarefa.**
+
+---
+
+# 136. OPERATIONAL MAP **[DIFERENCIAL]**
+
+O **Mapa Operacional** pertence ao **AlfaOS Web / Dispatch**.
+
+O Field App **fornece** localização e **consome** o que precisa para o próprio
+atendimento; ele não é o mapa de comando.
+
+> **Não confundir com a seção 79.** Aquela descreve o mapa do *dia do técnico*
+> dentro do Field App — as OS dele, na ordem dele. Este é o mapa da *operação
+> inteira*, para quem despacha. São públicos, escopos e permissões diferentes.
+
+Deve futuramente exibir:
+
+- técnicos;
+- clientes;
+- OS pendentes;
+- OS agendadas;
+- OS em andamento.
+
+Filtros possíveis: técnicos · clientes · OS de hoje · pendentes · em
+atendimento · concluídas · por tipo de OS · por técnico · por região.
+
+## Estados visuais do técnico
+
+```text
+DISPONÍVEL
+EM DESLOCAMENTO
+EM ATENDIMENTO
+OFFLINE
+```
+
+**Estes são estados de APRESENTAÇÃO, derivados — não uma máquina de estados
+nova.** Saem da combinação de presença (há posição recente?), atividade
+(está se movendo?) e OS (tem alguma `IN_PROGRESS`?). Persisti-los criaria um
+segundo motor de estado ao lado do da OS, com as duas fontes divergindo na
+primeira falha de rede. A OS continua sendo a única máquina de estados do
+sistema (seções 19–20 e 122).
+
+## Técnicos próximos
+
+Ao abrir uma OS, o Dispatcher poderá ver quem está por perto:
+
+```text
+Carlos — 1,2 km
+João   — 3,8 km
+Pedro  — 7,4 km
+```
+
+**Distância não pode ser o único critério.** O técnico mais próximo pode estar
+no meio de outro atendimento, sem a habilidade necessária ou com a agenda
+cheia. Também devem pesar: disponibilidade, agenda, tipo da OS, habilidades,
+carga de trabalho, SLA e região.
+
+---
+
+# 137. DESPACHO ASSISTIDO E ROTEIRIZAÇÃO **[FUTURO]**
+
+## Despacho assistido
+
+```text
+OS nova
+ → localização do cliente
+ → localização e agenda dos técnicos
+ → regras operacionais
+ → SUGESTÃO de melhor técnico
+```
+
+**O sistema sugere; a pessoa decide.** Automação completa de despacho fica para
+fase posterior, e essa ordem é deliberada: uma sugestão errada custa um clique,
+uma atribuição automática errada custa uma viagem.
+
+## Roteirização de múltiplas OS
+
+Útil sobretudo para trabalho em lote: entrega de carnê (seção 127),
+recolhimento de equipamentos (seção 126), visitas preventivas.
+
+```text
+Entrega de carnês — Rota Centro
+  1. Cliente A
+  2. Cliente B
+  3. Cliente C
+  4. Cliente D
+```
+
+Um algoritmo futuro poderá otimizar a ordem por distância, janela de horário,
+prioridade e SLA. **Route Optimization Engine não é escopo agora.**
+
+## Conexão com os fluxos já aprovados
+
+Recolhimento de equipamentos (seção 126):
+
+```text
+lista de recolhimentos → agrupamento geográfico → rota → chegada
+ → equipamento/serial/QR → evidência → assinatura → conclusão
+```
+
+Entrega de carnê (seção 127): a localização **confirmada** é o que torna esse
+fluxo viável. É justamente nesse tipo de visita que "endereço não localizado"
+aparece, e cada confirmação em campo corrige o cadastro para a próxima vez.
+
+## Relação com a ServiceOrder
+
+**Coordenadas não entram na OS.** A OS referencia o cliente; o cliente tem a
+localização. O que a OS pode ganhar são **marcos de tempo**, não geometria:
+
+```text
+atribuição → saída/deslocamento → chegada → início → conclusão
+```
+
+Isso permite medir tempo de deslocamento e tempo de atendimento (insumo de SLA,
+seção 112) sem duplicar dado geográfico. A preferência arquitetural da seção 78
+continua valendo: status principal simples, mais eventos operacionais em
+`ServiceOrderEvent`. **Nenhum desses marcos é implementado agora.**
+
+## Navegação
+
+No Field App:
+
+```text
+[Navegar até o cliente]
+```
+
+O MVP futuro **abre um aplicativo externo** — Google Maps, Waze ou o que
+estiver instalado. Navegação turn-by-turn própria **não é requisito**, hoje nem
+no horizonte próximo: é um produto inteiro, e existem bons gratuitos.
+
+---
+
+# 138. PRIVACIDADE DA LOCALIZAÇÃO
+
+Complementa a seção 113, que continua valendo integralmente. Requisitos **de
+produto** — política jurídica definitiva exige revisão legal e não é decidida
+aqui.
+
+- **O técnico precisa saber quando está sendo localizado.** Indicação visível e
+  inequívoca no app.
+- **Nada de rastreamento oculto.** Em nenhuma hipótese, por nenhuma
+  configuração.
+- **Início e fim definidos.** Quando o rastreamento começa e quando para
+  precisa ser explícito, não implícito no app estar aberto. Fora da jornada,
+  desligado.
+- **Acesso ao mapa restrito a perfis autorizados**, com isolamento por
+  `companyId` como em todo o resto do sistema.
+- **Retenção com finalidade e prazo.** Histórico de localização não pode ser
+  guardado indefinidamente "para o caso de precisar" — a seção 113 já proíbe
+  coleta genérica de GPS, e retenção sem prazo é a mesma coisa deslocada no
+  tempo. Política configurável é evolução; ter *alguma* política é requisito.
+- **Auditoria** para acesso e alteração relevantes, quando aplicável — em
+  especial a correção de `CustomerLocation`, que muda dado cadastral.
+
+A assimetria é intencional: a localização do **cliente** é dado cadastral
+operacional; a do **técnico** é dado pessoal de uma pessoa sob relação de
+trabalho, e merece o tratamento mais restritivo dos dois.
+
+---
+
+# 139. RECEITANET E GEOLOCALIZAÇÃO
+
+**Geolocalização é domínio do AlfaOS.**
+
+O ReceitaNet pode fornecer dados cadastrais e endereço, **quando documentado** —
+e a seção 129 registra que, das quatro APIs analisadas, apenas CallCenter e
+Central do Assinante devolvem endereço, nenhuma devolve número nem coordenada.
+
+Pertencem ao AlfaOS, sem depender de ERP nenhum:
+
+```text
+coordenadas · confirmação em campo · mapa · rastreamento
+rotas · histórico · despacho assistido
+```
+
+Isso não é preferência arquitetural, é constatação: **nenhum dos OpenAPI
+analisados expõe coordenada** (seção 129). Um AlfaOS que dependesse do ERP para
+geolocalização simplesmente não teria geolocalização.
+
+Vale a mesma regra da seção 81: nenhuma funcionalidade nova pode assumir um
+único ERP como dependência de arquitetura.

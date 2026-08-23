@@ -62,6 +62,12 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 **Quando:** quando esse projeto for iniciado e a documentação existir.
 **Quando NÃO:** não aplicável até lá.
 
+## Geolocalização, mapa operacional e despacho
+
+**Carregar:** `docs/PRD.md` §133–§139 — `CustomerLocation`, `TechnicianLocation`, `OperationalMap`, despacho assistido, roteirização e privacidade da localização. As seções 77–79 descrevem a experiência do técnico em campo e são complementares (a §77 foi revisada pela §134, e a §79 não é o mesmo mapa da §136).
+**Quando:** a tarefa envolve coordenadas, GPS, mapa, rota, proximidade de técnicos ou despacho.
+**Quando NÃO:** qualquer outra coisa. Nada disso está implementado — é arquitetura registrada, e a seção 119 se aplica: estar no PRD não autoriza implementar.
+
 ## Quando usar Context7
 
 Usar Context7 quando a tarefa depender de documentação externa atual de bibliotecas/frameworks, por exemplo: Next.js, React, Prisma, Playwright, Tailwind, Flutter no futuro, SDKs/APIs externos, bibliotecas adicionadas ao projeto.

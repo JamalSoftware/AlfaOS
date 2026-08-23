@@ -162,15 +162,18 @@ O projeto possui:
 * `v0.2.3-pre-v03-hardening`
 * `v0.3-technician-execution`
 * `v0.4-service-order-closing`
-* `v0.5-receitanet-diagnostics` (commit `e4fc701`)
+* `v0.5-receitanet-diagnostics`
+* `v0.5.1-pilot-readiness` (commit `5f18785`)
 
-**Baseline tagueada: `v0.5-receitanet-diagnostics`** — auditada e endurecida.
+**Baseline tagueada: `v0.5.1-pilot-readiness`** — auditada e endurecida.
 
-Depois dela, ainda **sem tag**: a documentação da arquitetura de OS própria (PRD Parte III, seções 121–131) e a `v0.5.1` — origem `INTERNAL`/`EXTERNAL`, catálogo `ServiceOrderType`, histórico recente do técnico, invalidação da credencial na troca de provider e acesso PPPoE do cliente (`CustomerConnection`).
+A `v0.5.1` entregou: origem `INTERNAL`/`EXTERNAL` da OS, catálogo `ServiceOrderType`, criação de OS própria, `Customer.externalId`, histórico recente do técnico, invalidação da credencial de ERP na troca de provider e acesso PPPoE do cliente (`CustomerConnection`) — mais a arquitetura de OS própria no PRD (Parte III).
 
-A `v0.5.1` foi implementada e passa nos quality gates, mas **ainda aguarda auditoria independente** — quem implementou não se autoavalia como aprovado em segurança, por design (auditoria final é sempre feita por quem não implementou).
+A auditoria adversarial final encontrou um HIGH (técnico desativado ainda revelava a senha PPPoE) e um MEDIUM (revelação não falhava fechada se a auditoria falhasse). Ambos corrigidos antes da tag, com regressão permanente.
 
-**Não iniciar `v0.6` (ReceitaNet / CallCenter read-only) sem aprovação explícita da auditoria da v0.5.1.**
+Depois dela, ainda **sem tag**: a arquitetura de geolocalização e mapa operacional no PRD (Parte III, seções 133–139) — documentação apenas, sem código.
+
+**Próxima etapa: `v0.6` — ReceitaNet Foundation, CallCenter read-only.** Geolocalização é capability oficial registrada, mas NÃO entra na v0.6 (PRD §131).
 
 ## Princípios
 
