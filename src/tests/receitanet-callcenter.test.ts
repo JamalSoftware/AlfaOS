@@ -4,9 +4,10 @@ import {
   ReceitanetCallCenterClient,
   type FetchLike,
 } from "@/integrations/receitanet/CallCenterClient";
-import { isIntegrationError } from "@/integrations/errors";
+import { IntegrationError, isIntegrationError } from "@/integrations/errors";
 import { prisma } from "@/lib/prisma";
 import { resolveCompanyAdapter } from "@/lib/erp-adapter";
+import { saveCredential } from "@/lib/erp-credentials";
 import {
   apiRequest,
   createTokenFor,
@@ -457,6 +458,138 @@ describe("Resolução da credencial", () => {
   it("MOCK não exige credencial", async () => {
     const adapter = await resolveCompanyAdapter(fixture.companyA.id, "MOCK");
     expect(adapter.provider).toBe("MOCK");
+  });
+
+  /**
+   * Regressão da busca que devolvia 502 com a credencial correta no banco.
+   *
+   * O token é gravado enquanto a integração ainda é MOCK — e é assim que ele
+   * chega ao banco no fluxo real, porque `provider` só é persistido pela rota
+   * de teste de conexão. O ciphertext fica ligado por AAD a `(empresa, MOCK)`.
+   *
+   * Pedir o adapter do ReceitaNet NÃO pode entregar esse segredo. O vínculo
+   * AAD era conferido apenas contra o provider gravado na linha, nunca contra
+   * o provider que o chamador pediu: a linha ainda dizia MOCK, o decrypt
+   * passava, e o token seguia no header `token` para `api.receitanet.net`.
+   * Um segredo gravado para um provedor viajava para outro.
+   */
+  it("credencial gravada sob outro provider não é entregue ao adapter pedido", async () => {
+    await prisma.eRPIntegration.create({
+      data: {
+        companyId: fixture.companyA.id,
+        provider: "MOCK",
+        name: "Mock ERP",
+        enabled: true,
+      },
+    });
+    await saveCredential(
+      fixture.companyA.id,
+      fixture.adminA.id,
+      "token-gravado-sob-mock",
+    );
+
+    await expect(
+      resolveCompanyAdapter(fixture.companyA.id, "RECEITANET"),
+    ).rejects.toSatisfy(
+      (e: unknown) => isIntegrationError(e) && e.code === "AUTHENTICATION_FAILED",
+    );
+  });
+
+  it("credencial gravada sob o provider pedido continua sendo entregue", async () => {
+    await prisma.eRPIntegration.create({
+      data: {
+        companyId: fixture.companyA.id,
+        provider: "RECEITANET",
+        name: "RN",
+        enabled: true,
+      },
+    });
+    await saveCredential(
+      fixture.companyA.id,
+      fixture.adminA.id,
+      "token-gravado-sob-receitanet",
+    );
+
+    const adapter = await resolveCompanyAdapter(
+      fixture.companyA.id,
+      "RECEITANET",
+    );
+    expect(adapter.provider).toBe("RECEITANET");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Troca de provider: o teste de conexão não pode aprovar o que ele apaga
+// ---------------------------------------------------------------------------
+
+describe("Teste de conexão na troca de provider (regressão do 502)", () => {
+  /**
+   * O caminho exato que deixou a integração verde e sem credencial.
+   *
+   * Um clique só fazia três coisas incompatíveis: validava a credencial ligada
+   * ao provider ANTIGO contra a API do provider NOVO, gravava `lastTestStatus`
+   * OK, e então apagava essa mesma credencial por causa da troca. O operador
+   * ficava com uma integração que se anunciava saudável e sem token — e toda
+   * busca seguinte morria em `AUTHENTICATION_FAILED`, que a rota traduz para
+   * HTTP 502.
+   *
+   * Nenhuma rede é tocada aqui: a resolução do adapter falha antes do HTTP.
+   * Se este teste voltar a depender de internet, a regressão voltou.
+   */
+  it("trocar de provider não reporta conexão OK com a credencial antiga", async () => {
+    await prisma.eRPIntegration.create({
+      data: {
+        companyId: fixture.companyA.id,
+        provider: "MOCK",
+        name: "Mock ERP",
+        enabled: true,
+      },
+    });
+    await saveCredential(
+      fixture.companyA.id,
+      fixture.adminA.id,
+      "token-gravado-sob-mock",
+    );
+
+    const { POST } = await import("@/app/api/integrations/test-connection/route");
+    const token = await createTokenFor(fixture.adminA.id);
+    const res = await POST(
+      apiRequest(
+        "/api/integrations/test-connection",
+        { method: "POST", body: { provider: "RECEITANET" } },
+        token,
+      ),
+    );
+    expect(res.status).toBe(200);
+    const payload = await res.json();
+
+    // A credencial antiga continua sendo apagada — isso estava certo.
+    expect(payload.data.invalidatedCredential).toBe(true);
+    // O que estava errado: aprovar a integração enquanto a apaga.
+    expect(payload.data.result.ok).toBe(false);
+    expect(payload.data.result.credentialValidated).toBe(false);
+
+    /**
+     * A mensagem, e não só `ok`, é o que separa a correção do acaso.
+     *
+     * Sem rede, o bug antigo também produzia `ok: false` — mas por "a API não
+     * respondeu", depois de já ter mandado o token para lá. A recusa correta
+     * acontece ANTES de qualquer HTTP, por falta de credencial para este
+     * provider, e é essa a única mensagem aceitável aqui.
+     */
+    expect(payload.data.result.reachable).toBe(false);
+    expect(payload.data.result.message).toBe(
+      new IntegrationError("AUTHENTICATION_FAILED", "RECEITANET").userMessage,
+    );
+
+    const row = await prisma.eRPIntegration.findUniqueOrThrow({
+      where: { companyId: fixture.companyA.id },
+      select: { provider: true, lastTestStatus: true, credentialCiphertext: true },
+    });
+    expect(row.provider).toBe("RECEITANET");
+    expect(row.credentialCiphertext).toBeNull();
+    // A tela lê este campo. OK aqui é a mentira que produziu o 502.
+    expect(row.lastTestStatus).toBe("ERROR");
   });
 });
 

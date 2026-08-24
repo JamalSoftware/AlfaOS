@@ -494,6 +494,17 @@ para segurança:
   lista), devolve `invalidatedCredential: true` e a UI pede reconfiguração.
   `AuditLog` registra `ERP_CREDENTIAL_INVALIDATED` com provider antigo e novo —
   nunca token, ciphertext, IV, tag, `last4` ou chave.
+- **A credencial só é entregue ao provider para o qual foi gravada (v0.6.2).**
+  `getCredential(companyId, provider)` compara o `provider` pedido com o da
+  linha antes de decriptar; divergência devolve `null`, e o chamador falha
+  fechado por "credencial não configurada". O AAD protege contra **transplante
+  de ciphertext entre linhas**; ele não responde "este segredo foi gravado para
+  o provedor que estou chamando agora?" — a linha continua sendo a mesma e o
+  decrypt passa. Sem essa comparação, um token gravado enquanto a integração
+  ainda era `MOCK` era entregue ao adapter do ReceitaNet e enviado no header
+  `token` para `api.receitanet.net`: **segredo de um provedor viajando para
+  outro**. O parâmetro é obrigatório de propósito, para que omiti-lo seja erro
+  de compilação. Regressão em `src/tests/receitanet-callcenter.test.ts`.
 
 ## 8.5. Credenciais de acesso do cliente (PPPoE) — v0.5.1
 

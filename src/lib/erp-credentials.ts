@@ -252,9 +252,24 @@ export async function removeCredential(
  * Returns null when no credential is configured; throws when one exists but
  * cannot be decrypted, because silently treating a corrupted credential as
  * "absent" would turn a tampering event into a routine "not configured".
+ *
+ * `provider` é OBRIGATÓRIO e diz para qual provedor o chamador vai
+ * autenticar. Sem ele, quem chama recebia o segredo gravado na linha
+ * qualquer que fosse o provedor dela: uma credencial gravada sob MOCK
+ * decriptava sem reclamar — a linha ainda dizia MOCK, o AAD conferia — e
+ * seguia no header `token` para a API real do ReceitaNet. O vínculo AAD
+ * protege contra transplante de ciphertext ENTRE linhas; ele não pode, e não
+ * podia, responder "este segredo foi gravado para o provedor que estou
+ * chamando agora?". É esta comparação que responde.
+ *
+ * Divergência não é corrupção: é ausência. Não existe credencial para o
+ * provedor pedido, então o retorno é `null` e o chamador falha fechado por
+ * "não configurada" — que é exatamente o conserto que o operador precisa
+ * fazer.
  */
 export async function getCredential(
   companyId: string,
+  provider: ERPProvider,
 ): Promise<string | null> {
   const integration = await prisma.eRPIntegration.findFirst({
     where: { companyId },
@@ -271,6 +286,12 @@ export async function getCredential(
     !integration.credentialIv ||
     !integration.credentialAuthTag
   ) {
+    return null;
+  }
+
+  // Antes de decriptar. Um segredo gravado para outro provedor não pode nem
+  // chegar a existir em memória neste caminho.
+  if (integration.provider !== provider) {
     return null;
   }
 

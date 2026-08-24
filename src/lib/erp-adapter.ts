@@ -27,7 +27,9 @@ export async function resolveCompanyAdapter(
 
   let token: string | null;
   try {
-    token = await getCredential(companyId);
+    // O provider pedido acompanha a leitura: a credencial só serve se foi
+    // gravada para ELE. Ver `getCredential`.
+    token = await getCredential(companyId, provider);
   } catch {
     /**
      * `getCredential` lança quando existe credencial gravada que não decripta

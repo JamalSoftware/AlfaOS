@@ -661,7 +661,7 @@ describe("Troca de provider invalida a credencial", () => {
     const before = await getCredentialStatus(fixture.companyA.id);
     expect(before.configured).toBe(true);
     expect(before.last4).toBe("1234");
-    expect(await getCredential(fixture.companyA.id)).toBe(
+    expect(await getCredential(fixture.companyA.id, "MOCK")).toBe(
       "token-secreto-do-mock-1234",
     );
 
@@ -687,7 +687,7 @@ describe("Troca de provider invalida a credencial", () => {
     expect(after.updatedAt).toBeNull();
 
     // Ausente, não corrompida: nada a decriptar significa `null`, não erro.
-    expect(await getCredential(fixture.companyA.id)).toBeNull();
+    expect(await getCredential(fixture.companyA.id, "RECEITANET")).toBeNull();
 
     const row = await prisma.eRPIntegration.findUniqueOrThrow({
       where: { companyId: fixture.companyA.id },
@@ -755,7 +755,7 @@ describe("Troca de provider invalida a credencial", () => {
     const status = await getCredentialStatus(fixture.companyA.id);
     expect(status.configured).toBe(true);
     expect(status.last4).toBe("1234");
-    expect(await getCredential(fixture.companyA.id)).toBe(
+    expect(await getCredential(fixture.companyA.id, "MOCK")).toBe(
       "token-secreto-do-mock-1234",
     );
   });

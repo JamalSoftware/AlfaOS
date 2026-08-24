@@ -246,7 +246,7 @@ describe("ERPCredentialService", () => {
     expect(row.apiKey).toBeNull();
 
     // And it round-trips through the service.
-    expect(await readCredential(fixture.companyA.id)).toBe(TOKEN);
+    expect(await readCredential(fixture.companyA.id, "RECEITANET")).toBe(TOKEN);
   });
 
   it("substituir troca ciphertext, IV, tag e last4", async () => {
@@ -264,7 +264,7 @@ describe("ERPCredentialService", () => {
     expect(second.credentialCiphertext).not.toBe(first.credentialCiphertext);
     expect(second.credentialIv).not.toBe(first.credentialIv);
     expect(second.credentialLast4).toBe("ZZ99");
-    expect(await readCredential(fixture.companyA.id)).toBe(OTHER_TOKEN);
+    expect(await readCredential(fixture.companyA.id, "RECEITANET")).toBe(OTHER_TOKEN);
   });
 
   it("remover limpa todos os campos de credencial", async () => {
@@ -284,7 +284,7 @@ describe("ERPCredentialService", () => {
     expect(row.credentialLast4).toBeNull();
     expect(row.credentialUpdatedAt).toBeNull();
     expect(await hasCredential(fixture.companyA.id)).toBe(false);
-    expect(await readCredential(fixture.companyA.id)).toBeNull();
+    expect(await readCredential(fixture.companyA.id, "RECEITANET")).toBeNull();
   });
 
   it("remoção funciona mesmo sem a chave mestra", async () => {
@@ -350,8 +350,8 @@ describe("Ataque de transplante de ciphertext (regressão da auditoria)", () => 
     await saveCredential(fixture.companyB.id, fixture.adminB.id, OTHER_TOKEN);
 
     // Positive control first: each company reads its own.
-    expect(await readCredential(fixture.companyA.id)).toBe(TOKEN);
-    expect(await readCredential(fixture.companyB.id)).toBe(OTHER_TOKEN);
+    expect(await readCredential(fixture.companyA.id, "RECEITANET")).toBe(TOKEN);
+    expect(await readCredential(fixture.companyB.id, "RECEITANET")).toBe(OTHER_TOKEN);
 
     const rowA = await prisma.eRPIntegration.findFirstOrThrow({
       where: { companyId: fixture.companyA.id },
@@ -373,18 +373,18 @@ describe("Ataque de transplante de ciphertext (regressão da auditoria)", () => 
     });
 
     // Before the AAD this returned A's token. Now the tag check fails.
-    await expect(readCredential(fixture.companyB.id)).rejects.toBeInstanceOf(
+    await expect(readCredential(fixture.companyB.id, "RECEITANET")).rejects.toBeInstanceOf(
       CredentialEncryptionUnavailableError,
     );
 
     // A's own credential is untouched by the attack.
-    expect(await readCredential(fixture.companyA.id)).toBe(TOKEN);
+    expect(await readCredential(fixture.companyA.id, "RECEITANET")).toBe(TOKEN);
   });
 
   it("transplantar ciphertext entre PROVIDERS: decrypt falha", async () => {
     const integration = await integrationFor(fixture.companyA.id, "RECEITANET");
     await saveCredential(fixture.companyA.id, fixture.adminA.id, TOKEN);
-    expect(await readCredential(fixture.companyA.id)).toBe(TOKEN);
+    expect(await readCredential(fixture.companyA.id, "RECEITANET")).toBe(TOKEN);
 
     // Same company, same row, same bytes — only the provider changes.
     await prisma.eRPIntegration.update({
@@ -392,7 +392,10 @@ describe("Ataque de transplante de ciphertext (regressão da auditoria)", () => 
       data: { provider: "MOCK" },
     });
 
-    await expect(readCredential(fixture.companyA.id)).rejects.toBeInstanceOf(
+    // Pedindo MOCK, que é o que a linha diz agora — um chamador real resolve o
+    // adapter do provider gravado. A comparação de provider não intercepta
+    // este caso, então quem recusa é o AAD, que é o ponto do teste.
+    await expect(readCredential(fixture.companyA.id, "MOCK")).rejects.toBeInstanceOf(
       CredentialEncryptionUnavailableError,
     );
 
@@ -402,7 +405,7 @@ describe("Ataque de transplante de ciphertext (regressão da auditoria)", () => 
       where: { id: integration.id },
       data: { provider: "RECEITANET" },
     });
-    expect(await readCredential(fixture.companyA.id)).toBe(TOKEN);
+    expect(await readCredential(fixture.companyA.id, "RECEITANET")).toBe(TOKEN);
   });
 
   it("credencial sem AAD (formato antigo) falha: não há fallback inseguro", async () => {
@@ -421,13 +424,13 @@ describe("Ataque de transplante de ciphertext (regressão da auditoria)", () => 
       },
     });
 
-    await expect(readCredential(fixture.companyA.id)).rejects.toBeInstanceOf(
+    await expect(readCredential(fixture.companyA.id, "RECEITANET")).rejects.toBeInstanceOf(
       CredentialEncryptionUnavailableError,
     );
 
     // Reconfiguring fixes it — the documented recovery path.
     await saveCredential(fixture.companyA.id, fixture.adminA.id, TOKEN);
-    expect(await readCredential(fixture.companyA.id)).toBe(TOKEN);
+    expect(await readCredential(fixture.companyA.id, "RECEITANET")).toBe(TOKEN);
   });
 });
 
@@ -613,7 +616,7 @@ describe("Multi-tenancy de credenciais", () => {
       apiRequest("/api/integrations/credential", { method: "DELETE" }, tokenB),
     );
     expect(await hasCredential(fixture.companyA.id)).toBe(true);
-    expect(await readCredential(fixture.companyA.id)).toBe(TOKEN);
+    expect(await readCredential(fixture.companyA.id, "RECEITANET")).toBe(TOKEN);
 
     // And B saving its own does not disturb A's.
     await putCredential(
@@ -623,8 +626,8 @@ describe("Multi-tenancy de credenciais", () => {
         tokenB,
       ),
     );
-    expect(await readCredential(fixture.companyA.id)).toBe(TOKEN);
-    expect(await readCredential(fixture.companyB.id)).toBe(OTHER_TOKEN);
+    expect(await readCredential(fixture.companyA.id, "RECEITANET")).toBe(TOKEN);
+    expect(await readCredential(fixture.companyB.id, "RECEITANET")).toBe(OTHER_TOKEN);
   });
 });
 
@@ -758,7 +761,7 @@ describe("Coluna legacy apiKey", () => {
     });
 
     // Reading a credential must not resurrect the legacy value.
-    expect(await readCredential(fixture.companyA.id)).toBeNull();
+    expect(await readCredential(fixture.companyA.id, "RECEITANET")).toBeNull();
     expect(await hasCredential(fixture.companyA.id)).toBe(false);
     expect((await getCredentialStatus(fixture.companyA.id)).configured).toBe(
       false,
