@@ -236,13 +236,30 @@ describe("CallCenter — busca e detalhe", () => {
     expect(Object.keys(hit)).not.toContain("idCliente");
   });
 
-  it("resposta de erro em forma de objeto vira lista vazia, não exceção", async () => {
-    // "Informe ao menos 1 filtro." chega como objeto no `oneOf` do contrato.
+  /**
+   * Este teste já afirmou o contrário — que corpo de erro virava lista vazia —
+   * e com isso fixou o defeito como comportamento esperado.
+   *
+   * A justificativa original era que "Informe ao menos 1 filtro." chega como
+   * objeto no `oneOf` do contrato. Ela não se sustenta: busca sem filtro é
+   * barrada nas duas camadas antes de sair daqui, então esse corpo específico
+   * é inalcançável. O que de fato chega neste ponto é OUTRO erro qualquer — e
+   * apresentá-lo como lista vazia é o que fazia o operador ler o ERP recusando
+   * a consulta como cliente inexistente.
+   */
+  it("resposta de erro em forma de objeto é exceção, não lista vazia", async () => {
     const { adapter } = adapterWith(() => ({
       status: 200,
       body: JSON.stringify({ success: false, message: "Informe ao menos 1 filtro." }),
     }));
-    expect(await adapter.searchCustomers({ document: "1" })).toEqual([]);
+
+    let code = "SEM ERRO";
+    try {
+      await adapter.searchCustomers({ document: "1" });
+    } catch (error) {
+      code = isIntegrationError(error) ? error.code : "desconhecido";
+    }
+    expect(code).toBe("INVALID_RESPONSE");
   });
 
   it("detalhe traz plano, tecnologia crua e manutenção", async () => {
@@ -648,5 +665,170 @@ describe("Origem da OS após importar cliente do ERP", () => {
     expect(row.origin).toBe("INTERNAL");
     expect(row.externalProvider).toBeNull();
     expect(row.externalId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LOW-1 — base URL é allowlist estrita
+//
+// `ERPIntegration.baseUrl` é coluna do banco e hoje nenhuma tela a escreve.
+// A proteção existe justamente para o dia em que alguém escrever: quem
+// carrega o token não pode depender de nenhuma tela ter bom comportamento.
+// ---------------------------------------------------------------------------
+
+/** U+0430 CYRILLIC SMALL LETTER A — indistinguível de `a` num navegador. */
+const HOMOGRAFO = "https://\u0430pi.receitanet.net/callcenter";
+
+describe("Base URL — allowlist estrita", () => {
+  const TOKEN = "token-secreto-abc";
+
+  /** Constrói, faz UMA chamada e devolve o que o transporte viu. */
+  async function callWith(baseUrl: string | undefined) {
+    const rec = recorder(() => ({ status: 200, body: "[]" }));
+    const client = new ReceitanetCallCenterClient({
+      token: TOKEN,
+      baseUrl,
+      fetchImpl: rec.fetchImpl,
+    });
+    await client.searchClientes({ nome: "Ana" });
+    return rec;
+  }
+
+  it.each([
+    ["URL oficial", "https://api.receitanet.net/callcenter"],
+    ["barra final", "https://api.receitanet.net/callcenter/"],
+    ["porta 443 explícita", "https://api.receitanet.net:443/callcenter"],
+    ["ausente (cai no padrão)", undefined],
+    // `URL` normaliza o host para minúsculas; recusar isto seria falso positivo.
+    ["host em maiúsculas", "https://API.RECEITANET.NET/callcenter"],
+  ])("aceita e normaliza: %s", async (_label, baseUrl) => {
+    const rec = await callWith(baseUrl);
+    expect(rec.calls[0].url).toBe(
+      "https://api.receitanet.net/callcenter/v1/clientes",
+    );
+  });
+
+  it.each([
+    ["http, sem TLS", "http://api.receitanet.net/callcenter"],
+    ["host arbitrário", "https://attacker.example.com/callcenter"],
+    ["sufixo enganoso", "https://api.receitanet.net.attacker.com/callcenter"],
+    ["localhost", "https://localhost/callcenter"],
+    ["IP literal", "https://127.0.0.1/callcenter"],
+    ["credencial embutida", "https://user:pass@api.receitanet.net/callcenter"],
+    ["porta não padrão", "https://api.receitanet.net:8443/callcenter"],
+    ["caminho fora do base", "https://api.receitanet.net/outro"],
+    ["query anexada", "https://api.receitanet.net/callcenter?x=1"],
+    ["URL malformada", "nao-e-uma-url"],
+    // `..` é resolvido por `URL` antes da checagem, então o caminho comparado
+    // já é o final ("/admin") — não a string original.
+    ["traversal no caminho", "https://api.receitanet.net/callcenter/../admin"],
+    // Homógrafo cirílico: idêntico aos olhos, punycode distinto para o `URL`.
+    ["host homógrafo", HOMOGRAFO],
+  ])("recusa: %s", (_label, baseUrl) => {
+    let code = "SEM ERRO";
+    try {
+      new ReceitanetCallCenterClient({ token: TOKEN, baseUrl });
+    } catch (error) {
+      code = isIntegrationError(error) ? error.code : "desconhecido";
+    }
+    expect(code).toBe("AUTHENTICATION_FAILED");
+  });
+
+  it("base URL recusada não emite requisição — logo, não emite token", () => {
+    const rec = recorder(() => ({ status: 200, body: "[]" }));
+    expect(
+      () =>
+        new ReceitanetCallCenterClient({
+          token: TOKEN,
+          baseUrl: "https://attacker.example.com/callcenter",
+          fetchImpl: rec.fetchImpl,
+        }),
+    ).toThrow();
+    // A asserção que importa: o transporte nunca foi acionado, então o token
+    // não chegou a existir num header endereçado ao host do atacante.
+    expect(rec.calls).toHaveLength(0);
+  });
+
+  it("a recusa não devolve a URL para a tela", () => {
+    try {
+      new ReceitanetCallCenterClient({
+        token: TOKEN,
+        baseUrl: "https://attacker.example.com/callcenter",
+      });
+      throw new Error("deveria ter recusado");
+    } catch (error) {
+      if (!isIntegrationError(error)) throw error;
+      expect(error.userMessage).not.toContain("attacker");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LOW-2 — corpo de erro com HTTP 200 não pode virar lista vazia
+// ---------------------------------------------------------------------------
+
+describe("Busca — erro nunca vira \"nenhum cliente encontrado\"", () => {
+  async function search(status: number, body: string) {
+    const { adapter } = adapterWith(() => ({ status, body }));
+    try {
+      return { outcome: "lista" as const, result: await adapter.searchCustomers({ name: "Ana" }) };
+    } catch (error) {
+      return {
+        outcome: "erro" as const,
+        code: isIntegrationError(error) ? error.code : "desconhecido",
+      };
+    }
+  }
+
+  it("[] do contrato continua significando zero resultados", async () => {
+    const r = await search(200, "[]");
+    expect(r.outcome).toBe("lista");
+    expect(r.outcome === "lista" && r.result).toEqual([]);
+  });
+
+  it("array com cliente é normalizado", async () => {
+    const r = await search(200, JSON.stringify([CLIENTE_RESUMO]));
+    expect(r.outcome).toBe("lista");
+    expect(r.outcome === "lista" && r.result[0]).toMatchObject({
+      externalId: "15678",
+      name: "Cliente Exemplo",
+    });
+  });
+
+  it("success:false com HTTP 200 é erro, não lista vazia", async () => {
+    const r = await search(
+      200,
+      JSON.stringify({ success: false, message: "Informe ao menos 1 filtro." }),
+    );
+    expect(r.outcome).toBe("erro");
+    expect(r.outcome === "erro" && r.code).toBe("INVALID_RESPONSE");
+  });
+
+  it("objeto inesperado com HTTP 200 é erro, não lista vazia", async () => {
+    const r = await search(200, JSON.stringify({ total: 0, dados: [] }));
+    expect(r.outcome).toBe("erro");
+    expect(r.outcome === "erro" && r.code).toBe("INVALID_RESPONSE");
+  });
+
+  /**
+   * A regressão que dá nome ao finding.
+   *
+   * Antes da correção os dois casos devolviam `[]`, e o operador não tinha
+   * como distinguir ERP recusando a consulta de cliente que não existe lá —
+   * e o desfecho provável era um cadastro duplicado, feito à mão.
+   */
+  it("REGRESSÃO: vazio legítimo e corpo de erro têm desfechos distintos", async () => {
+    const vazioLegitimo = await search(200, "[]");
+    const corpoDeErro = await search(200, JSON.stringify({ success: false }));
+
+    expect(vazioLegitimo.outcome).toBe("lista");
+    expect(corpoDeErro.outcome).toBe("erro");
+    expect(vazioLegitimo.outcome).not.toBe(corpoDeErro.outcome);
+  });
+
+  it("HTTP 500 continua UPSTREAM_UNAVAILABLE", async () => {
+    const r = await search(500, JSON.stringify({ success: false }));
+    expect(r.outcome).toBe("erro");
+    expect(r.outcome === "erro" && r.code).toBe("UPSTREAM_UNAVAILABLE");
   });
 });

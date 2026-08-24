@@ -15,6 +15,15 @@ import { IntegrationError } from "../errors";
 
 export const CALLCENTER_BASE_URL = "https://api.receitanet.net/callcenter";
 
+/**
+ * Host e caminho oficiais, guardados separados da URL completa porque a
+ * validação precisa comparar cada parte por si — comparar a string inteira
+ * não distingue `porta errada` de `host errado`, e a mensagem de recusa
+ * ficaria inútil para quem tem de consertar a configuração.
+ */
+const CALLCENTER_HOST = "api.receitanet.net";
+const CALLCENTER_BASE_PATH = "/callcenter";
+
 /** Deadline próprio do cliente. O call site de diagnóstico tem o seu também. */
 export const CALLCENTER_TIMEOUT_MS = 8_000;
 
@@ -48,6 +57,83 @@ export interface CallCenterClientOptions {
   fetchImpl?: FetchLike;
 }
 
+/**
+ * Valida e normaliza a base URL ANTES que ela possa receber um token.
+ *
+ * `ERPIntegration.baseUrl` é uma coluna do banco. Hoje nenhuma tela a escreve
+ * e ela permanece nula — mas o cliente não pode depender disso. No dia em que
+ * alguém expuser um campo `URL base` numa configuração, o token da empresa
+ * passaria a viajar, em header, para onde aquele campo mandasse. Quem carrega
+ * o segredo é quem tem de se proteger, e essa proteção precisa existir antes
+ * de existir a tela que a torna necessária.
+ *
+ * A checagem é allowlist exata, não lista de proibidos: lista negra erra por
+ * omissão, e `api.receitanet.net.attacker.com` é justamente o caso que uma
+ * verificação por sufixo deixaria passar.
+ *
+ * Homologação, se um dia existir, entra aqui como constante adicional — nunca
+ * como afrouxamento desta regra.
+ */
+function resolveBaseUrl(raw?: string | null): string {
+  const candidate = raw?.trim();
+  if (!candidate) {
+    return CALLCENTER_BASE_URL;
+  }
+
+  /**
+   * `AUTHENTICATION_FAILED`, e não `INVALID_RESPONSE`: ninguém respondeu nada.
+   * É configuração inválida — e a mensagem desse código já manda o operador
+   * conferir a configuração da integração, que é exatamente onde está o
+   * conserto. O `detail` fica no log do servidor; a URL recusada nunca sobe
+   * para a tela.
+   */
+  const refuse = (detail: string) =>
+    new IntegrationError(
+      "AUTHENTICATION_FAILED",
+      PROVIDER,
+      `base URL do CallCenter recusada (${detail})`,
+    );
+
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    throw refuse("URL malformada");
+  }
+
+  if (url.protocol !== "https:") {
+    throw refuse("protocolo não é https");
+  }
+  // Credencial embutida vaza em log e Referer, e ainda disfarça o host real
+  // para quem lê a URL de relance.
+  if (url.username !== "" || url.password !== "") {
+    throw refuse("credencial embutida na URL");
+  }
+  // Igualdade exata resolve de uma vez: host arbitrário, localhost, IP e
+  // sufixo enganoso. Nenhum deles É `api.receitanet.net`.
+  if (url.hostname !== CALLCENTER_HOST) {
+    throw refuse("host não é o oficial");
+  }
+  // `URL` já normaliza a porta padrão para "", então só sobra porta explícita
+  // e diferente de 443.
+  if (url.port !== "") {
+    throw refuse("porta não padrão");
+  }
+  if (url.pathname.replace(/\/+$/, "") !== CALLCENTER_BASE_PATH) {
+    throw refuse("caminho base não é /callcenter");
+  }
+  if (url.search !== "" || url.hash !== "") {
+    throw refuse("query ou fragmento na base URL");
+  }
+
+  return `https://${CALLCENTER_HOST}${CALLCENTER_BASE_PATH}`;
+}
+
+/** Objeto não-nulo. `Array.isArray` já foi descartado por quem chama. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 export class ReceitanetCallCenterClient {
   private readonly token: string;
   private readonly baseUrl: string;
@@ -65,7 +151,7 @@ export class ReceitanetCallCenterClient {
       );
     }
     this.token = options.token;
-    this.baseUrl = (options.baseUrl ?? CALLCENTER_BASE_URL).replace(/\/+$/, "");
+    this.baseUrl = resolveBaseUrl(options.baseUrl);
     this.timeoutMs = options.timeoutMs ?? CALLCENTER_TIMEOUT_MS;
     this.fetchImpl = options.fetchImpl ?? defaultFetch;
   }
@@ -167,9 +253,9 @@ export class ReceitanetCallCenterClient {
   /**
    * `POST /v1/clientes` — busca por `nome`, `phone` ou `cpfcnpj` (anyOf).
    *
-   * Devolve `ClienteResumo[]` OU `ErrorMessage` quando falta filtro; o
-   * `oneOf` do contrato é resolvido aqui, na fronteira, para que o adapter
-   * receba sempre uma lista.
+   * O contrato declara `oneOf`: `ClienteResumo[]` ou `ErrorMessage`. A
+   * fronteira resolve isso em lista OU exceção — nunca numa lista vazia
+   * fabricada a partir de um corpo de erro.
    */
   async searchClientes(
     filters: { nome?: string; phone?: string; cpfcnpj?: string },
@@ -183,11 +269,32 @@ export class ReceitanetCallCenterClient {
     }
 
     const payload = await this.post<unknown>("/v1/clientes", params);
-    // "Informe ao menos 1 filtro" e afins chegam como objeto, não array.
-    if (!Array.isArray(payload)) {
-      return [];
+
+    // Lista é o único desfecho de sucesso. `[]` aqui significa mesmo zero
+    // resultados, e continua passando como tal.
+    if (Array.isArray(payload)) {
+      return payload as CallCenterClienteResumo[];
     }
-    return payload as CallCenterClienteResumo[];
+
+    /**
+     * Qualquer outra forma é falha — e falha não pode virar lista vazia.
+     *
+     * Devolver `[]` para um corpo de erro faria o operador ler "nenhum cliente
+     * encontrado" quando o ERP na verdade recusou a consulta. O desfecho
+     * provável seria um cadastro duplicado, criado à mão, para um cliente que
+     * já existe do outro lado.
+     *
+     * A distinção olha o booleano `success`, nunca o texto da mensagem: casar
+     * string de provider é heurística que quebra na primeira vez que eles
+     * mudarem a redação.
+     */
+    throw new IntegrationError(
+      "INVALID_RESPONSE",
+      PROVIDER,
+      isRecord(payload) && payload.success === false
+        ? "provider recusou a busca"
+        : "resposta de busca não é lista",
+    );
   }
 
   /** `POST /v1/cliente` — detalhe. Chave: `idCliente`. */
