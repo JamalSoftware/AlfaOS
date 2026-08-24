@@ -48,9 +48,22 @@ export function ServiceOrderForm({
 
   const customerOptions = [...customers, ...imported];
 
+  /**
+   * Toda busca começa apagando o resultado da anterior.
+   *
+   * Sem isso, uma busca que devolveu `[]` e outra que falha logo depois
+   * coexistem na tela: "Nenhum cliente encontrado" embaixo de "Erro de
+   * conexão" — duas afirmações incompatíveis sobre a mesma tentativa.
+   *
+   * O caso mais perigoso é o outro: uma busca que devolveu resultados,
+   * seguida de uma que falha. Os nomes antigos continuam na tela sob o
+   * termo novo, e o operador os lê como resposta à busca que acabou de
+   * fazer — podendo importar o cliente errado a partir deles.
+   */
   async function handleErpSearch() {
     setErpError(null);
     setErpNotice(null);
+    setErpHits(null);
     if (!erpTerm.trim()) {
       setErpError("Informe um termo de busca.");
       return;
@@ -66,7 +79,6 @@ export function ServiceOrderForm({
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
         setErpError(payload?.error ?? "Falha ao buscar no ERP.");
-        setErpHits(null);
         return;
       }
       setErpHits(payload?.data?.hits ?? []);

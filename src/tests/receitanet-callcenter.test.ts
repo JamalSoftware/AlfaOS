@@ -624,6 +624,53 @@ describe("Importação de cliente do ERP", () => {
     expect(row.companyId).toBe(fixture.companyA.id);
     expect(await prisma.customer.count({ where: { companyId: fixture.companyB.id } })).toBe(1);
   });
+
+  /**
+   * O detalhe é lido ANTES de qualquer escrita, então uma resposta recusada
+   * aborta a importação inteira. A garantia que interessa não é só o erro:
+   * é que o cadastro local sobrevive intacto e nenhum cliente fantasma
+   * nasce da resposta inválida.
+   */
+  it("REGRESSÃO: detalhe inválido não altera o cadastro local nem cria fantasma", async () => {
+    const antes = await prisma.customer.create({
+      data: {
+        companyId: fixture.companyA.id,
+        name: "Cadastro Local Bom",
+        document: "44911891882",
+        externalId: "15678",
+        externalProvider: "RECEITANET",
+        address: "Rua Local",
+        city: "Cidade Local",
+        number: "123",
+      },
+    });
+
+    // HTTP 200 sem `razaoSocial`: exatamente o payload que antes produzia
+    // um cliente "(sem nome)".
+    let code = "SEM ERRO";
+    try {
+      await importWith(() => ({
+        status: 200,
+        body: JSON.stringify({ idCliente: 15678 }),
+      }));
+    } catch (error) {
+      code = isIntegrationError(error) ? error.code : "desconhecido";
+    }
+    expect(code).toBe("INVALID_RESPONSE");
+
+    const depois = await prisma.customer.findUniqueOrThrow({ where: { id: antes.id } });
+    expect(depois.name).toBe("Cadastro Local Bom");
+    expect(depois.address).toBe("Rua Local");
+    expect(depois.city).toBe("Cidade Local");
+    expect(depois.number).toBe("123");
+    expect(depois.externalId).toBe("15678");
+    expect(depois.updatedAt.getTime()).toBe(antes.updatedAt.getTime());
+
+    // Nenhum cliente novo foi fabricado a partir da resposta recusada.
+    expect(
+      await prisma.customer.count({ where: { companyId: fixture.companyA.id } }),
+    ).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -828,6 +875,117 @@ describe("Busca — erro nunca vira \"nenhum cliente encontrado\"", () => {
 
   it("HTTP 500 continua UPSTREAM_UNAVAILABLE", async () => {
     const r = await search(500, JSON.stringify({ success: false }));
+    expect(r.outcome).toBe("erro");
+    expect(r.outcome === "erro" && r.code).toBe("UPSTREAM_UNAVAILABLE");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getCliente — HTTP 200 com forma inesperada não vira cliente
+//
+// O contrato declara `idCliente` e `razaoSocial` como os únicos campos sempre
+// presentes. Sem validá-los, um 200 malformado atravessava o mapeamento e
+// produzia `externalId` "undefined" com nome "(sem nome)" — um cadastro que
+// parece importado do ERP e não corresponde a ninguém.
+// ---------------------------------------------------------------------------
+
+describe("Detalhe do cliente — só a forma documentada passa", () => {
+  async function detail(status: number, body: string) {
+    const { adapter } = adapterWith(() => ({ status, body }));
+    try {
+      return { outcome: "ok" as const, result: await adapter.getCustomerDetail("15678") };
+    } catch (error) {
+      return {
+        outcome: "erro" as const,
+        code: isIntegrationError(error) ? error.code : "desconhecido",
+      };
+    }
+  }
+
+  it("CONTROLE POSITIVO: payload documentado continua funcionando", async () => {
+    const r = await detail(200, JSON.stringify(CLIENTE_DETALHE));
+
+    expect(r.outcome).toBe("ok");
+    expect(r.outcome === "ok" && r.result).toMatchObject({
+      externalId: "15678",
+      name: "Cliente Exemplo",
+      document: "44911891882",
+      city: "Presidente Prudente",
+    });
+  });
+
+  /**
+   * O contrato só garante estes dois campos. Um detalhe sem endereço, plano
+   * ou tecnologia é resposta LEGÍTIMA — recusá-la seria inventar contrato
+   * mais rígido que o do provider e quebrar cliente que existe de verdade.
+   */
+  it("CONTROLE POSITIVO: só idCliente + razaoSocial já é payload válido", async () => {
+    const r = await detail(
+      200,
+      JSON.stringify({ idCliente: 15678, razaoSocial: "Cliente Mínimo" }),
+    );
+
+    expect(r.outcome).toBe("ok");
+    expect(r.outcome === "ok" && r.result.externalId).toBe("15678");
+    expect(r.outcome === "ok" && r.result.name).toBe("Cliente Mínimo");
+    // Campo ausente vira null, nunca valor inventado.
+    expect(r.outcome === "ok" && r.result.city).toBeNull();
+  });
+
+  it("success:false com HTTP 200 continua CUSTOMER_NOT_FOUND", async () => {
+    const r = await detail(
+      200,
+      JSON.stringify({ success: false, message: "não localizado" }),
+    );
+
+    expect(r.outcome).toBe("erro");
+    expect(r.outcome === "erro" && r.code).toBe("CUSTOMER_NOT_FOUND");
+  });
+
+  it.each([
+    ["sem idCliente", JSON.stringify({ razaoSocial: "Só o nome" })],
+    ["sem razaoSocial", JSON.stringify({ idCliente: 15678 })],
+    ["razaoSocial em branco", JSON.stringify({ idCliente: 15678, razaoSocial: "   " })],
+    ["idCliente como string", JSON.stringify({ idCliente: "15678", razaoSocial: "X" })],
+    ["objeto sem nada do contrato", JSON.stringify({ total: 0, dados: [] })],
+    ["array", JSON.stringify([CLIENTE_DETALHE])],
+    ["array vazio", "[]"],
+    ["null", "null"],
+    ["string", JSON.stringify("texto")],
+    ["booleano", "true"],
+    ["numero", "42"],
+    ["corpo vazio", ""],
+  ])("recusa com INVALID_RESPONSE: %s", async (_label, body) => {
+    const r = await detail(200, body);
+
+    expect(r.outcome).toBe("erro");
+    expect(r.outcome === "erro" && r.code).toBe("INVALID_RESPONSE");
+  });
+
+  /**
+   * A regressão que dá nome ao ajuste: qualquer payload recusado tem de
+   * virar exceção, nunca um cliente chamado "(sem nome)" com identidade
+   * externa "undefined".
+   */
+  it("REGRESSÃO: nenhum payload inválido produz \"(sem nome)\"", async () => {
+    const invalidos = [
+      JSON.stringify({ razaoSocial: "Só o nome" }),
+      JSON.stringify({ idCliente: 15678 }),
+      JSON.stringify({}),
+      "null",
+    ];
+
+    for (const body of invalidos) {
+      const r = await detail(200, body);
+      expect(r.outcome).toBe("erro");
+      expect(r.outcome === "ok" && r.result.name).not.toBe("(sem nome)");
+      expect(r.outcome === "ok" && r.result.externalId).not.toBe("undefined");
+    }
+  });
+
+  it("HTTP 500 continua UPSTREAM_UNAVAILABLE", async () => {
+    const r = await detail(500, JSON.stringify(CLIENTE_DETALHE));
+
     expect(r.outcome).toBe("erro");
     expect(r.outcome === "erro" && r.code).toBe("UPSTREAM_UNAVAILABLE");
   });

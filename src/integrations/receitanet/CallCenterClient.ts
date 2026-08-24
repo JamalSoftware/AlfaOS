@@ -297,15 +297,55 @@ export class ReceitanetCallCenterClient {
     );
   }
 
-  /** `POST /v1/cliente` — detalhe. Chave: `idCliente`. */
+  /**
+   * `POST /v1/cliente` — detalhe. Chave: `idCliente`.
+   *
+   * O contrato declara `idCliente` e `razaoSocial` como os únicos campos
+   * sempre presentes — todo o resto do schema é opcional. São exatamente
+   * esses dois que formam a identidade do cliente do outro lado, e é por
+   * isso que a validação para neles: exigir endereço ou plano seria
+   * inventar contrato, e exigir menos deixa passar um cliente que o AlfaOS
+   * não consegue identificar.
+   *
+   * Sem esta checagem, um HTTP 200 com a forma errada seguia adiante e o
+   * mapeamento produzia `externalId` `"undefined"` (de `String(undefined)`)
+   * com nome `"(sem nome)"` — um cadastro que parece importado do ERP e
+   * não corresponde a ninguém, colado numa identidade externa falsa.
+   */
   async getCliente(idCliente: number): Promise<CallCenterClienteDetalhado> {
-    const payload = await this.post<Record<string, unknown>>("/v1/cliente", {
+    const payload = await this.post<unknown>("/v1/cliente", {
       idCliente: String(idCliente),
     });
+
+    // Array, null, string, booleano ou número: nenhum é o objeto do contrato.
+    if (!isRecord(payload) || Array.isArray(payload)) {
+      throw new IntegrationError(
+        "INVALID_RESPONSE",
+        PROVIDER,
+        "detalhe não é objeto",
+      );
+    }
+
     // 404 já virou CUSTOMER_NOT_FOUND acima; aqui pega o corpo de erro com 200.
-    if (payload && payload.success === false) {
+    if (payload.success === false) {
       throw new IntegrationError("CUSTOMER_NOT_FOUND", PROVIDER, "cliente não localizado");
     }
+
+    /**
+     * `Number.isFinite` recusa string, `NaN` e `Infinity` de uma vez — e é
+     * o que impede um `externalId` como `"NaN"` de virar chave de
+     * identidade externa. Nome em branco conta como ausente: um cadastro
+     * chamado " " não identifica ninguém melhor que um sem nome.
+     */
+    const nome = payload.razaoSocial;
+    if (!Number.isFinite(payload.idCliente) || typeof nome !== "string" || nome.trim() === "") {
+      throw new IntegrationError(
+        "INVALID_RESPONSE",
+        PROVIDER,
+        "detalhe sem identidade utilizável",
+      );
+    }
+
     return payload as unknown as CallCenterClienteDetalhado;
   }
 
