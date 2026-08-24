@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import { allocateServiceOrderNumber } from "../src/lib/service-order-number";
 import { assertTestDatabase } from "./test-db-guard";
 
 const ADMIN_EMAIL = "admin@alfatelecom.local";
@@ -32,6 +33,8 @@ const prisma = new PrismaClient({
 });
 
 const orderUrls: Record<string, string> = {};
+/** Número OPERACIONAL alocado a cada OS da fixture, por número externo. */
+const orderNumbers: Record<string, number> = {};
 
 test.beforeAll(async () => {
   await assertTestDatabase(E2E_DATABASE_URL, "E2E_DATABASE_URL");
@@ -86,6 +89,7 @@ test.beforeAll(async () => {
     const created = await prisma.serviceOrder.create({
       data: {
         companyId: seeded.companyId,
+        number: await allocateServiceOrderNumber(prisma, seeded.companyId),
         customerId: customer.id,
         technicianId:
           externalNumber === FOREIGN_ORDER
@@ -99,6 +103,7 @@ test.beforeAll(async () => {
       },
     });
     orderUrls[externalNumber] = `/ordens/${created.id}`;
+    orderNumbers[externalNumber] = created.number;
   }
 });
 
@@ -227,7 +232,16 @@ test("provider indisponível: página segue funcional e último estado é preser
   await expect(
     page.getByRole("button", { name: "Iniciar atendimento" }),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: /OS 20002/ })).toBeVisible();
+  /*
+    A identificação da tela passou a ser o número OPERACIONAL, sequencial por
+    empresa — não mais o número externo do ERP, que continua no registro mas
+    não é o que a operação usa para falar de uma OS.
+  */
+  await expect(
+    page.getByRole("heading", {
+      name: new RegExp(`OS Nº ${orderNumbers[FAILING_ORDER]}\\b`),
+    }),
+  ).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------

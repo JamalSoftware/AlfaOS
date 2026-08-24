@@ -10,9 +10,9 @@ import {
 import { PppoeAccessPanel } from "@/components/PppoeAccessPanel";
 import {
   EXECUTION_TEXT_MAX_LENGTH,
+  formatServiceOrderNumber,
   getCompanyServiceOrder,
   getTechnicianByUserId,
-  SERVICE_ORDER_PRIORITY_LABELS,
   SERVICE_ORDER_ORIGIN_LABELS,
   SERVICE_ORDER_STATUS_LABELS,
 } from "@/lib/service-orders";
@@ -30,6 +30,27 @@ import { ServiceOrderClosingReadOnly } from "@/components/ServiceOrderClosingRea
 export const metadata: Metadata = {
   title: "Detalhes da OS",
 };
+
+/** Card padrão da tela. Extraído só para não repetir a mesma classe 8 vezes. */
+function Card({
+  title,
+  children,
+  action,
+}: {
+  title: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+}
 
 const EVENT_LABELS: Record<string, string> = {
   SERVICE_ORDER_CREATED: "OS criada",
@@ -146,7 +167,38 @@ export default async function OrderDetailPage({
     session.profile === AccessProfile.DISPATCHER
       ? []
       : await listCustomerConnections(session.companyId, order.customer.id);
-  const pppoeConnection = connections.find((c) => c.active) ?? null;
+  /**
+   * TODAS as conexões ativas, não a primeira.
+   *
+   * `CustomerConnection` sempre foi uma coleção (PRD §132) e o serviço de
+   * revelação já valida o `connectionId` recebido contra o cliente DA OS e
+   * contra `active` — mostrar mais de uma não abre superfície nenhuma. O que
+   * a versão anterior fazia era esconder da tela conexões que a API já
+   * autorizava, deixando o técnico sem o acesso que ele tinha direito de ver.
+   *
+   * Inativas continuam fora: o reveal as recusa, e listá-las só ofereceria uma
+   * ação que sempre falha.
+   */
+  const pppoeConnections = connections.filter((c) => c.active);
+
+  /**
+   * Quem vê a seção de acesso do cliente.
+   *
+   * Espelha exatamente quem teve `connections` carregada acima — DISPATCHER
+   * não recebe nem o `username`. Escrito como predicado próprio para que a
+   * regra fique legível numa linha, e não implícita num array vazio.
+   */
+  const showCustomerAccess =
+    session.profile === AccessProfile.ADMIN || isOwnerTechnician;
+  /**
+   * Atalho para o cadastro do cliente, onde a conexão é criada e editada.
+   *
+   * Só para ADMIN: `/clientes/[id]/editar` já exige ADMIN ou DISPATCHER, e o
+   * cadastro/edição da CONEXÃO dentro dela é restrito a ADMIN pela API
+   * (`/api/customers/[id]/connections`). Oferecer o link a quem a API recusa
+   * seria a mesma falha de UI corrigida na v0.5.1 no botão de revelar.
+   */
+  const canManageConnections = session.profile === AccessProfile.ADMIN;
 
   const orderAllowsReveal = (
     REVEALABLE_ORDER_STATUSES as readonly string[]
@@ -183,11 +235,13 @@ export default async function OrderDetailPage({
     ? await listActiveTechnicianOptions(session.companyId)
     : [];
 
+  /*
+    Tipo, prioridade e status saíram daqui: subiram para o cabeçalho, junto do
+    número. Repeti-los nesta tabela faria o operador ler a mesma informação
+    duas vezes para encontrar a que só existe aqui.
+  */
   const infoRows = [
-    { label: "Nº externo", value: order.externalNumber ?? "—" },
-    { label: "Tipo", value: order.subtype ? `${order.type} · ${order.subtype}` : order.type },
-    { label: "Prioridade", value: SERVICE_ORDER_PRIORITY_LABELS[order.priority] },
-    { label: "Status", value: SERVICE_ORDER_STATUS_LABELS[order.status] },
+    { label: "Nº no ERP", value: order.externalNumber ?? "—" },
     {
       label: "Origem",
       // O provider acompanha a origem porque "Externa" sozinha não diz de onde.
@@ -264,13 +318,26 @@ export default async function OrderDetailPage({
         >
           ← Voltar
         </Link>
+        {/*
+          Identificação OPERACIONAL no topo. O `id` técnico não aparece aqui:
+          ele continua sendo a chave e o valor da URL, mas "OS cmt7prb4" não é
+          dizível ao telefone nem anotável numa ficha. Quem precisa do id para
+          diagnóstico o encontra em "Detalhes", no fim da página.
+        */}
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-bold text-slate-900">
-            OS {order.externalNumber ?? order.id.slice(0, 8)}
+          <h1
+            data-testid="order-number"
+            className="text-2xl font-bold text-slate-900"
+          >
+            {formatServiceOrderNumber(order)}
           </h1>
           <StatusBadge status={order.status} />
           <PriorityBadge priority={order.priority} />
         </div>
+        <p className="mt-1 text-sm font-medium text-slate-700">
+          {order.type}
+          {order.subtype ? ` · ${order.subtype}` : ""}
+        </p>
         <p className="mt-1 text-sm text-slate-500">{order.description}</p>
       </div>
 
@@ -330,19 +397,16 @@ export default async function OrderDetailPage({
       )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="space-y-4 lg:col-span-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-base font-semibold text-slate-900">Informações</h2>
-            <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {infoRows.map((row) => (
-                <div key={row.label}>
-                  <dt className="text-xs font-medium text-slate-500">{row.label}</dt>
-                  <dd className="mt-0.5 text-sm text-slate-900">{row.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
+        {/*
+          Hierarquia da tela: Cliente → Técnico → Acesso do cliente →
+          Diagnóstico → Execução/Fechamento → Detalhes → Timeline.
 
+          A ordem segue o que o técnico faz em campo: identifica o cliente,
+          confere de quem é o atendimento, pega o acesso, olha o diagnóstico e
+          só então registra o serviço. Datas e identificadores foram para o fim
+          — são consulta, não fluxo.
+        */}
+        <div className="space-y-4 lg:col-span-2">
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="mb-1 text-base font-semibold text-slate-900">Cliente</h2>
             <p className="text-sm text-slate-900">{order.customer.name}</p>
@@ -364,6 +428,70 @@ export default async function OrderDetailPage({
             </dl>
           </div>
 
+          <Card title="Técnico">
+            {order.technician ? (
+              <div>
+                <p className="text-sm font-medium text-slate-900">
+                  {order.technician.name}
+                </p>
+                {!isStaff && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Esta OS está atribuída a você.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">Nenhum técnico atribuído.</p>
+            )}
+          </Card>
+
+          {/*
+            Acesso do cliente.
+
+            DISPATCHER nunca chega aqui: `connections` é `[]` para esse perfil,
+            então o card inteiro não é renderizado — nem o usuário PPPoE, que
+            também é dado de acesso do cliente.
+          */}
+          {showCustomerAccess && (
+            <Card
+              title="Acesso do cliente"
+              action={
+                canManageConnections ? (
+                  <Link
+                    href={`/clientes/${order.customer.id}/editar`}
+                    className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                  >
+                    Gerenciar acesso
+                  </Link>
+                ) : null
+              }
+            >
+              {pppoeConnections.length === 0 ? (
+                <p
+                  data-testid="pppoe-not-configured"
+                  className="text-sm text-slate-500"
+                >
+                  Acesso PPPoE não configurado.
+                </p>
+              ) : (
+                <div className="space-y-6">
+                  {pppoeConnections.map((connection) => (
+                    <PppoeAccessPanel
+                      key={connection.id}
+                      orderId={order.id}
+                      connectionId={connection.id}
+                      username={connection.username}
+                      passwordConfigured={connection.passwordConfigured}
+                      variant={isOwnerTechnician ? "technician" : "admin"}
+                      canReveal={canRevealPassword}
+                      revealBlockedReason={revealBlockedReason}
+                    />
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+
           {/*
             Same panel for staff and for the owning technician: both read, only
             the manual refresh writes, and the route authorizes identically for
@@ -374,17 +502,6 @@ export default async function OrderDetailPage({
             orderId={order.id}
             initialDiagnostic={diagnosticView}
           />
-
-          {pppoeConnection && (
-            <PppoeAccessPanel
-              orderId={order.id}
-              connectionId={pppoeConnection.id}
-              username={pppoeConnection.username}
-              passwordConfigured={pppoeConnection.passwordConfigured}
-              canReveal={canRevealPassword}
-              revealBlockedReason={revealBlockedReason}
-            />
-          )}
 
           {isExecuting && order.execution && (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -447,6 +564,31 @@ export default async function OrderDetailPage({
             )
           )}
 
+          <Card title="Detalhes">
+            <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {infoRows.map((row) => (
+                <div key={row.label}>
+                  <dt className="text-xs font-medium text-slate-500">{row.label}</dt>
+                  <dd className="mt-0.5 text-sm text-slate-900">{row.value}</dd>
+                </div>
+              ))}
+            </dl>
+            {/*
+              O id técnico fica AQUI, no fim de "Detalhes", e não no cabeçalho:
+              ele é o que se cola num chamado de suporte ou numa consulta ao
+              banco, não o que se diz ao telefone. A identificação operacional
+              é "OS Nº X", no topo da página.
+            */}
+            <div className="mt-4 border-t border-slate-100 pt-3">
+              <dt className="text-xs font-medium text-slate-500">
+                ID técnico (diagnóstico)
+              </dt>
+              <dd className="mt-0.5 break-all font-mono text-xs text-slate-500">
+                {order.id}
+              </dd>
+            </div>
+          </Card>
+
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="mb-4 text-base font-semibold text-slate-900">Timeline</h2>
             {order.events.length === 0 ? (
@@ -469,21 +611,13 @@ export default async function OrderDetailPage({
           </div>
         </div>
 
+        {/*
+          A coluna lateral guarda AÇÕES administrativas. O card informativo
+          "Técnico" subiu para a coluna principal: no celular o grid empilha, e
+          na lateral ele caía depois da Timeline — ou seja, o técnico da OS era
+          a última coisa da página.
+        */}
         <div className="space-y-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-3 text-base font-semibold text-slate-900">Técnico</h2>
-            {order.technician ? (
-              <div>
-                <p className="text-sm font-medium text-slate-900">{order.technician.name}</p>
-                {!isStaff && (
-                  <p className="mt-1 text-xs text-slate-500">Esta OS está atribuída a você.</p>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-slate-500">Nenhum técnico atribuído.</p>
-            )}
-          </div>
-
           {isStaff && (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <h2 className="mb-3 text-base font-semibold text-slate-900">

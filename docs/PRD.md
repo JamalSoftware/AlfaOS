@@ -620,10 +620,36 @@ e ambos devem pertencer à mesma empresa.
 
 ServiceOrder representa uma Ordem de Serviço.
 
+## Duas identidades
+
+> **`id` é a identidade TÉCNICA da OS.**
+> **`number` é a identidade OPERACIONAL HUMANA da OS.**
+
+`id` é o cuid: chave primária, chave estrangeira e valor na URL. Ele nunca
+muda e nunca é substituído.
+
+`number` é um inteiro positivo **sequencial por empresa**, gerado no servidor,
+único em `(company_id, number)` e **imutável**. É o que a operação usa: "OS
+Nº 12". Alfa Telecom tem a sua OS Nº 1; outra empresa tem a dela.
+
+As duas coexistem porque resolvem problemas diferentes. Um cuid é estável e
+opaco — perfeito como chave, impossível de ditar ao telefone ou anotar numa
+ficha de campo. Um sequencial é legível, mas seria uma chave primária ruim:
+depende de coordenação entre tenants e vaza volume de negócio.
+
+`number` **não é** `external_number`. Aquele é o número da OS no ERP de
+origem, pertence a outro sistema e é nulo em OS interna. OS INTERNAL e
+EXTERNAL compartilham a mesma sequência de `number` — para a operação existe
+uma fila de OS, não duas.
+
+Detalhamento técnico (alocação, concorrência, backfill e invariantes de banco)
+em `docs/SERVICE-ORDERS.md` §1.3.
+
 Campos conceituais:
 
 ```text
 id
+number
 company_id
 
 external_provider

@@ -137,6 +137,11 @@ export default async function OrdersPage({ searchParams }: PageProps) {
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50">
                 <tr>
+                  {/*
+                    Número OPERACIONAL. Antes esta coluna mostrava
+                    `externalNumber ?? id.slice(0, 8)` — ou seja, um prefixo de
+                    cuid para toda OS criada no AlfaOS.
+                  */}
                   <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Nº</th>
                   <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Cliente</th>
                   <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Tipo</th>
@@ -154,7 +159,7 @@ export default async function OrdersPage({ searchParams }: PageProps) {
                         href={`/ordens/${order.id}`}
                         className="font-semibold text-blue-600 hover:text-blue-700"
                       >
-                        {order.externalNumber ?? order.id.slice(0, 8)}
+                        {`Nº ${order.number}`}
                       </Link>
                     </td>
                     <td className="px-5 py-3 text-slate-900">{order.customer.name}</td>

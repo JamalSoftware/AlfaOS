@@ -7,19 +7,34 @@ import { useState } from "react";
  *
  * A senha NÃO chega nas props. O componente recebe apenas o usuário e um
  * booleano dizendo que existe senha gravada; o texto claro só é buscado quando
- * o técnico clica, numa requisição própria, autenticada e auditada.
+ * o operador clica, numa requisição própria, autenticada e auditada.
  *
  * Renderizar a senha na resposta inicial da página a colocaria no HTML servido
  * e no payload do Server Component — visível em "ver código-fonte", no cache do
- * browser e em qualquer proxy no caminho, para toda OS aberta, tenha o técnico
+ * browser e em qualquer proxy no caminho, para toda OS aberta, tenha alguém
  * precisado dela ou não.
+ *
+ * As duas variantes abaixo mudam SOMENTE apresentação. Quem pode revelar é
+ * decidido no servidor por `revealConnectionPasswordForOrder`; `canReveal`
+ * apenas evita oferecer um botão que a API sempre recusaria.
  */
+
+type PppoeVariant = "admin" | "technician";
 
 interface PppoeAccessPanelProps {
   orderId: string;
   connectionId: string;
   username: string;
   passwordConfigured: boolean;
+  /**
+   * `admin` é leitura administrativa: o estado da senha é declarado em texto
+   * ("Configurada"), sem campo mascarado sugerindo que a senha já está ali.
+   * `technician` é uso operacional em campo: campo mascarado, mostrar e copiar.
+   *
+   * Em NENHUMA das duas a senha é revelada automaticamente — as duas exigem a
+   * mesma requisição explícita e auditada.
+   */
+  variant: PppoeVariant;
   /**
    * Falso quando o perfil ou o estado da OS não autorizam revelar. O servidor
    * recusa de qualquer forma — isto só evita oferecer um botão que sempre
@@ -35,6 +50,7 @@ export function PppoeAccessPanel({
   connectionId,
   username,
   passwordConfigured,
+  variant,
   canReveal,
   revealBlockedReason,
 }: PppoeAccessPanelProps) {
@@ -85,17 +101,16 @@ export function PppoeAccessPanel({
   const buttonClass =
     "rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60";
 
-  return (
-    <div
-      data-testid="pppoe-panel"
-      className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-    >
-      <h2 className="text-base font-semibold text-slate-900">Acesso PPPoE</h2>
+  const isAdmin = variant === "admin";
 
-      <div className="mt-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          Usuário
-        </p>
+  return (
+    <div data-testid="pppoe-panel" data-variant={variant}>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        PPPoE
+      </p>
+
+      <div className="mt-3">
+        <p className="text-xs font-medium text-slate-500">Usuário</p>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <code
             data-testid="pppoe-username"
@@ -105,6 +120,7 @@ export function PppoeAccessPanel({
           </code>
           <button
             type="button"
+            data-testid="pppoe-copy-username"
             onClick={() => copy(username, "user")}
             className={buttonClass}
           >
@@ -114,9 +130,7 @@ export function PppoeAccessPanel({
       </div>
 
       <div className="mt-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          Senha
-        </p>
+        <p className="text-xs font-medium text-slate-500">Senha</p>
 
         {!passwordConfigured ? (
           <p className="mt-1 text-sm text-amber-700">
@@ -124,14 +138,34 @@ export function PppoeAccessPanel({
           </p>
         ) : (
           <>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <code
-                data-testid="pppoe-password"
-                className="min-w-0 flex-1 break-all rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-900"
+            {/*
+              Variante administrativa: o estado é DECLARADO. A tela do ADMIN
+              existe para conferir que o acesso está cadastrado, não para
+              consumir a credencial — um campo mascarado ali sugeriria que a
+              senha veio junto com a página, e ela não vem.
+
+              Quando o ADMIN de fato revela, o texto claro aparece no bloco
+              abaixo: senão o valor não teria onde ser exibido após o clique.
+            */}
+            {isAdmin && password === null && (
+              <p
+                data-testid="pppoe-password-status"
+                className="mt-1 text-sm font-medium text-slate-900"
               >
-                {password ?? "••••••••••"}
-              </code>
-            </div>
+                Configurada
+              </p>
+            )}
+
+            {(!isAdmin || password !== null) && (
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <code
+                  data-testid="pppoe-password"
+                  className="min-w-0 flex-1 break-all rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                >
+                  {password ?? "••••••••••"}
+                </code>
+              </div>
+            )}
 
             {canReveal ? (
               <div className="mt-2 flex flex-wrap gap-2">
@@ -154,6 +188,12 @@ export function PppoeAccessPanel({
                     Ocultar
                   </button>
                 )}
+                {/*
+                  Copiar depende do MESMO reveal autorizado: o handler chama
+                  `fetchPassword` e só copia se o servidor tiver devolvido a
+                  senha. Não existe caminho em que a área de transferência
+                  receba algo que a API recusou.
+                */}
                 <button
                   type="button"
                   data-testid="pppoe-copy-password"

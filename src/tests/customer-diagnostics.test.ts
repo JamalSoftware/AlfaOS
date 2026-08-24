@@ -16,6 +16,7 @@ import {
 } from "@/integrations/diagnostics";
 import { IntegrationError, isIntegrationError } from "@/integrations/errors";
 import {
+  allocateTestServiceOrderNumber,
   apiRequest,
   createTokenFor,
   seedTestData,
@@ -58,6 +59,7 @@ async function orderFor(options: {
   return prisma.serviceOrder.create({
     data: {
       companyId: options.companyId,
+      number: await allocateTestServiceOrderNumber(options.companyId),
       customerId: options.customerId,
       technicianId: options.technicianId ?? null,
       type: "Suporte",

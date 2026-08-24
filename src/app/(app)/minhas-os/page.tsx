@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requirePageProfile } from "@/lib/guards";
 import {
+  formatServiceOrderNumber,
   getTechnicianByUserId,
   listRecentCompletedForTechnician,
   listServiceOrdersForTechnician,
@@ -30,7 +31,7 @@ function OrderCard({
 }: {
   order: {
     id: string;
-    externalNumber: string | null;
+    number: number;
     type: string;
     subtype: string | null;
     description: string;
@@ -47,8 +48,11 @@ function OrderCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-blue-600">
-            OS {order.externalNumber ?? order.id.slice(0, 8)}
+          <p
+            data-testid="order-number"
+            className="text-sm font-semibold text-blue-600"
+          >
+            {formatServiceOrderNumber(order)}
           </p>
           <p className="mt-1 truncate font-medium text-slate-900">{order.customer.name}</p>
           {order.customer.city && (

@@ -10,6 +10,7 @@ import {
 import { listActiveTechnicianOptions } from "@/lib/technicians";
 import { updateCompanyUser } from "@/lib/users";
 import {
+  allocateTestServiceOrderNumber,
   apiRequest,
   createTokenFor,
   seedTestData,
@@ -43,6 +44,7 @@ async function createOrder(): Promise<string> {
   const order = await prisma.serviceOrder.create({
     data: {
       companyId: fixture.companyA.id,
+      number: await allocateTestServiceOrderNumber(fixture.companyA.id),
       customerId: customer.id,
       type: "Instalação",
       description: "Instalação de fibra óptica.",

@@ -12,6 +12,7 @@ import {
 import { getDashboardStats } from "@/lib/dashboard";
 import { DomainError } from "@/lib/errors";
 import {
+  allocateTestServiceOrderNumber,
   apiRequest,
   createTokenFor,
   seedTestData,
@@ -47,6 +48,7 @@ async function createOrderFor(options: {
   return prisma.serviceOrder.create({
     data: {
       companyId: options.companyId,
+      number: await allocateTestServiceOrderNumber(options.companyId),
       customerId: options.customerId,
       technicianId: options.technicianId ?? null,
       type: "Instalação",

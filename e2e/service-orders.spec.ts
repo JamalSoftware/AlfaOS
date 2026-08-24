@@ -23,6 +23,27 @@ async function syncERP(page: Page) {
   await expect(page.getByText(/Sincronizado:/)).toBeVisible();
 }
 
+/**
+ * Abre a OS pelo número do ERP, via busca.
+ *
+ * A listagem passou a identificar a OS pelo número OPERACIONAL (sequencial por
+ * empresa, alocado no servidor), então o número externo não é mais clicável
+ * diretamente. Ele continua existindo no registro e continua buscável — que é
+ * exatamente o que este helper exercita.
+ */
+async function openOrderByExternalNumber(page: Page, externalNumber: string) {
+  await page.goto(`/ordens?search=${externalNumber}`);
+  const rows = page.locator("tbody tr");
+  await expect(rows).toHaveCount(1);
+  await rows.getByRole("link").click();
+  await expect(page).toHaveURL(new RegExp("/ordens/[a-z0-9]+$"));
+}
+
+/** Rótulo operacional da OS aberta, ex.: "OS Nº 4". */
+async function currentOrderLabel(page: Page): Promise<string> {
+  return (await page.getByTestId("order-number").innerText()).trim();
+}
+
 test("sync do Mock ERP importa OS e não duplica em nova sync", async ({
   page,
 }) => {
@@ -31,10 +52,26 @@ test("sync do Mock ERP importa OS e não duplica em nova sync", async ({
 
   await syncERP(page);
 
-  await expect(page.getByText("10001")).toBeVisible();
-  await expect(page.getByText("10002")).toBeVisible();
-  await expect(page.getByText("10003")).toBeVisible();
   await expect(page.locator("tbody tr")).toHaveCount(3);
+  /*
+    A coluna Nº mostra o número OPERACIONAL, não o do ERP. As três linhas
+    precisam ter um, e números distintos entre si.
+  */
+  const numberCells = await page
+    .locator("tbody tr td:first-child")
+    .allInnerTexts();
+  expect(numberCells).toHaveLength(3);
+  expect(
+    numberCells.every((text) => /^Nº \d+$/.test(text.trim())),
+  ).toBe(true);
+  expect(new Set(numberCells.map((t) => t.trim())).size).toBe(3);
+
+  // O número do ERP continua gravado e continua encontrável pela busca.
+  for (const externalNumber of ["10001", "10002", "10003"]) {
+    await page.goto(`/ordens?search=${externalNumber}`);
+    await expect(page.locator("tbody tr")).toHaveCount(1);
+  }
+  await page.goto("/ordens");
 
   await page.getByRole("button", { name: "Sincronizar Mock ERP" }).click();
   await expect(page.getByText(/0 criadas, 3 atualizadas/)).toBeVisible();
@@ -49,8 +86,11 @@ test("critério de aceite: sync, atribuição e ownership do técnico", async ({
 
   await syncERP(page);
 
-  await page.getByRole("link", { name: "10001" }).click();
-  await expect(page.getByRole("heading", { name: /OS 10001/ })).toBeVisible();
+  await openOrderByExternalNumber(page, "10001");
+  const orderLabel = await currentOrderLabel(page);
+  expect(orderLabel).toMatch(/^OS Nº \d+$/);
+  // O número do ERP não sumiu: virou detalhe, sob "Nº no ERP".
+  await expect(page.getByText("10001")).toBeVisible();
   await expect(page.getByText("Pendente").first()).toBeVisible();
   // Origem + provider: "Externa" sozinha nao diz de onde a OS veio.
   await expect(page.getByText("Externa (ERP) · MOCK")).toBeVisible();
@@ -74,12 +114,16 @@ test("critério de aceite: sync, atribuição e ownership do técnico", async ({
   await login(page, TECH_EMAIL);
   await expect(page).toHaveURL(/\/minhas-os/);
   await expect(page.getByRole("heading", { name: "Minhas OS" })).toBeVisible();
-  await expect(page.getByRole("link", { name: /OS 10001/ })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: new RegExp(`${orderLabel}\\b`) }),
+  ).toBeVisible();
 
   await logout(page);
   await login(page, TECH2_EMAIL);
   await expect(page).toHaveURL(/\/minhas-os/);
-  await expect(page.getByRole("link", { name: /OS 10001/ })).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: new RegExp(`${orderLabel}\\b`) }),
+  ).toHaveCount(0);
   await page.goto(orderUrl);
   await expect(page.getByText("This page could not be found.")).toBeVisible();
 
@@ -88,7 +132,9 @@ test("critério de aceite: sync, atribuição e ownership do técnico", async ({
   await expect(page).toHaveURL(/\/dashboard/);
   await syncERP(page);
   await expect(page.locator("tbody tr")).toHaveCount(3);
-  await page.getByRole("link", { name: "10001" }).click();
+  await openOrderByExternalNumber(page, "10001");
+  // A reimportação não renumerou a OS: o número operacional é imutável.
+  expect(await currentOrderLabel(page)).toBe(orderLabel);
   await expect(page.locator('span:text-is("Atribuída")')).toBeVisible();
   await expect(page.getByText("Tecnico Alfa").first()).toBeVisible();
 });

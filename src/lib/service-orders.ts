@@ -13,6 +13,7 @@ import {
   notFound,
 } from "./errors";
 import { prisma } from "./prisma";
+import { allocateServiceOrderNumber } from "./service-order-number";
 import { resolveServiceOrderTypeForCreation } from "./service-order-types";
 import {
   technicianAssignmentIssue,
@@ -52,6 +53,17 @@ export const SERVICE_ORDER_ORIGIN_LABELS: Record<ServiceOrderOrigin, string> = {
   INTERNAL: "Interna (AlfaOS)",
   EXTERNAL: "Externa (ERP)",
 };
+
+/**
+ * Rótulo operacional da OS — o único lugar que decide como o número é escrito.
+ *
+ * Centralizado para que administrativo, tela do técnico e listagem não possam
+ * divergir: o operador precisa reconhecer "OS Nº 12" como a mesma coisa em
+ * qualquer tela, no telefone e no papel.
+ */
+export function formatServiceOrderNumber(order: { number: number }): string {
+  return `OS Nº ${order.number}`;
+}
 
 export const SERVICE_ORDER_PRIORITY_ORDER: Record<
   ServiceOrderPriority,
@@ -103,7 +115,21 @@ export interface ServiceOrderTechnicianInfo {
 }
 
 export interface PublicServiceOrder {
+  /**
+   * Identidade TÉCNICA: chave primária, chave estrangeira e valor da URL.
+   * Não é identificação operacional — a tela mostra `number`, e o `id` só
+   * aparece onde é de fato necessário para diagnóstico técnico.
+   */
   id: string;
+  /**
+   * Identidade OPERACIONAL HUMANA: sequencial por empresa (PRD §17).
+   * Imutável, e a mesma sequência para INTERNAL e EXTERNAL.
+   */
+  number: number;
+  /**
+   * Número da OS no SISTEMA EXTERNO, quando ela nasceu em um. É outro dado,
+   * de outro sistema: nunca substitui `number` e é nulo em OS interna.
+   */
   externalNumber: string | null;
   type: string;
   subtype: string | null;
@@ -192,6 +218,7 @@ const ORDER_INCLUDE = {
 
 export function toPublicServiceOrder(order: {
   id: string;
+  number: number;
   externalNumber: string | null;
   type: string;
   subtype: string | null;
@@ -219,6 +246,7 @@ export function toPublicServiceOrder(order: {
 }): PublicServiceOrder {
   return {
     id: order.id,
+    number: order.number,
     externalNumber: order.externalNumber,
     type: order.type,
     subtype: order.subtype,
@@ -270,9 +298,18 @@ export async function createManualServiceOrder(
   const type = await resolveServiceOrderTypeForCreation(companyId, input.typeId);
 
   const order = await prisma.$transaction(async (tx) => {
+    /**
+     * Número alocado DENTRO da transação, imediatamente antes do insert.
+     * Fora dela o lock do contador cairia antes do `create` e o número
+     * reservado poderia ser perdido num caminho de erro. Ver
+     * `allocateServiceOrderNumber`.
+     */
+    const number = await allocateServiceOrderNumber(tx, companyId);
+
     const created = await tx.serviceOrder.create({
       data: {
         companyId,
+        number,
         customerId: input.customerId,
         typeId: type.id,
         // Rótulo copiado, não referenciado: preserva o histórico quando o tipo
@@ -296,6 +333,11 @@ export async function createManualServiceOrder(
         serviceOrderId: created.id,
         userId: actorId,
         event: "SERVICE_ORDER_CREATED",
+        /*
+          Sem `number` aqui: a timeline pertence à OS e resolve o número pela
+          própria OS. Duplicá-lo criaria uma segunda cópia de um valor imutável
+          — e a cópia é justamente o que diverge se algo der errado.
+        */
         metadata: {
           type: created.type,
           typeId: created.typeId,
@@ -314,7 +356,7 @@ export async function createManualServiceOrder(
     action: "SERVICE_ORDER.CREATED",
     entity: "ServiceOrder",
     entityId: order.id,
-    details: `OS criada manualmente: ${order.type} (${input.priority})`,
+    details: `OS Nº ${order.number} criada manualmente: ${order.type} (${input.priority})`,
   });
 
   return withRelations(companyId, order.id);
@@ -454,9 +496,21 @@ export async function importServiceOrder(
   let order: ServiceOrder;
   try {
     order = await prisma.$transaction(async (tx) => {
+      /*
+        Mesma sequência operacional das OS internas, de propósito: para o
+        despachante existe UMA fila de OS, não duas. O número do ERP continua
+        em `externalNumber`, que é outro dado.
+
+        Se esta transação perder a corrida da unique de identidade externa e
+        rolar de volta, o incremento do contador rola junto — o número não é
+        queimado nem atribuído duas vezes.
+      */
+      const number = await allocateServiceOrderNumber(tx, companyId);
+
       const created = await tx.serviceOrder.create({
         data: {
           companyId,
+          number,
           externalProvider: input.externalProvider,
           externalId: input.externalId,
           customerId: customer.id,
@@ -507,7 +561,7 @@ export async function importServiceOrder(
     action: "SERVICE_ORDER.IMPORTED",
     entity: "ServiceOrder",
     entityId: order.id,
-    details: `OS importada do ERP (${input.externalProvider}) #${input.externalNumber ?? input.externalId}`,
+    details: `OS Nº ${order.number} importada do ERP (${input.externalProvider}) #${input.externalNumber ?? input.externalId}`,
   });
 
   return {
@@ -532,7 +586,21 @@ export async function listCompanyServiceOrders(
   if (params.priority) where.priority = params.priority;
   if (params.technicianId) where.technicianId = params.technicianId;
   if (params.search) {
+    /**
+     * Busca por número operacional.
+     *
+     * Só entra no OR quando o termo é um inteiro positivo que cabe em `int4`:
+     * `number` é coluna inteira, e mandar texto arbitrário para ela seria erro
+     * de tipo no Postgres, não "nenhum resultado". O `#` inicial é aceito
+     * porque é assim que a tela mostra o número.
+     */
+    const term = params.search.trim();
+    const numeric = /^#?[0-9]{1,9}$/.test(term)
+      ? Number.parseInt(term.replace(/^#/, ""), 10)
+      : null;
+
     where.OR = [
+      ...(numeric !== null && numeric > 0 ? [{ number: numeric }] : []),
       { externalNumber: { contains: params.search, mode: "insensitive" } },
       { type: { contains: params.search, mode: "insensitive" } },
       { description: { contains: params.search, mode: "insensitive" } },

@@ -22,6 +22,7 @@ import {
 } from "@/lib/erp-credentials";
 import { DomainError } from "@/lib/errors";
 import {
+  allocateTestServiceOrderNumber,
   apiRequest,
   createTokenFor,
   seedTestData,
@@ -148,6 +149,7 @@ describe("Origem da OS", () => {
       prisma.serviceOrder.create({
         data: {
           companyId: fixture.companyA.id,
+          number: await allocateTestServiceOrderNumber(fixture.companyA.id),
           customerId: customer.id,
           type: "Instalação",
           description: "EXTERNAL sem provider nem id.",
@@ -540,6 +542,7 @@ describe("Concluídas recentes do técnico", () => {
     const mine = await prisma.serviceOrder.create({
       data: {
         companyId: fixture.companyA.id,
+        number: await allocateTestServiceOrderNumber(fixture.companyA.id),
         customerId: customer.id,
         technicianId: techOne.id,
         type: "Instalação",
@@ -551,6 +554,7 @@ describe("Concluídas recentes do técnico", () => {
     const theirs = await prisma.serviceOrder.create({
       data: {
         companyId: fixture.companyA.id,
+        number: await allocateTestServiceOrderNumber(fixture.companyA.id),
         customerId: customer.id,
         technicianId: techTwo.id,
         type: "Instalação",
@@ -583,6 +587,7 @@ describe("Concluídas recentes do técnico", () => {
       data: {
         companyId: fixture.companyA.id,
         customerId: customer.id,
+        number: await allocateTestServiceOrderNumber(fixture.companyA.id),
         technicianId: techOne.id,
         type: "Instalação",
         description: "Ainda atribuída.",
@@ -620,6 +625,7 @@ describe("Concluídas recentes do técnico", () => {
       data: {
         companyId: fixture.companyA.id,
         customerId: customer.id,
+        number: await allocateTestServiceOrderNumber(fixture.companyA.id),
         technicianId: techOne.id,
         type: "Instalação",
         description: "Concluída há três meses.",

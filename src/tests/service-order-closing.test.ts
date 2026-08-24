@@ -27,6 +27,7 @@ import {
 import { startServiceOrder, updateServiceOrderExecution } from "@/lib/service-orders";
 import { getDashboardStats } from "@/lib/dashboard";
 import {
+  allocateTestServiceOrderNumber,
   apiRequest,
   createTokenFor,
   seedTestData,
@@ -101,6 +102,7 @@ async function scenario(options: { withExecutionText?: boolean } = {}) {
   const order = await prisma.serviceOrder.create({
     data: {
       companyId: fixture.companyA.id,
+      number: await allocateTestServiceOrderNumber(fixture.companyA.id),
       customerId: customer.id,
       technicianId: techA.id,
       type: "Instalação",

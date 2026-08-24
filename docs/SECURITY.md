@@ -574,6 +574,27 @@ para segurança:
   Server Component nem no HTML servido — verificado por E2E que inspeciona
   `page.content()` na OS e na tela administrativa, inclusive após reload.
 
+## 8.5.1. Número operacional da OS
+
+O número **não é segredo** — ele existe justamente para ser dito ao telefone.
+O que ele exige é integridade, e as garantias estão em
+[SERVICE-ORDERS.md §1.3](SERVICE-ORDERS.md). Em resumo, do ponto de vista de
+segurança:
+
+- **Gerado no servidor, nunca aceito do cliente.** Os schemas Zod de criação
+  são `.strict()` e não declaram `number`; enviá-lo é 400, como qualquer
+  outro campo desconhecido. A empresa vem sempre da sessão.
+- **Imutável no banco**, por trigger `BEFORE UPDATE` — não apenas por
+  disciplina da aplicação. Renumerar uma OS não deixa rastro na timeline, ao
+  contrário de uma mudança de status, então o banco é o único lugar onde
+  nenhum caminho de escrita futuro consegue esquecer a regra.
+- **Sequência isolada por empresa.** A unique é `(companyId, number)`, nunca
+  `number` sozinho: cada empresa tem a sua OS Nº 1. Nenhuma leitura, busca ou
+  listagem por número escapa do filtro de `companyId` em SQL, então o número
+  não vira oráculo sobre o volume de OS de outro tenant.
+- **Concorrência resolvida por lock de linha do contador**, não por
+  `MAX(number) + 1` — ver a justificativa em SERVICE-ORDERS.md §1.3.
+
 ## 8.6. Integração ReceitaNet CallCenter (read-only) — v0.6
 
 - **Token só em header.** `ReceitanetCallCenterClient` envia a credencial no

@@ -1,9 +1,10 @@
-# Ordens de Serviço — AlfaOS (v0.5.1)
+# Ordens de Serviço — AlfaOS
 
 Este documento descreve o núcleo operacional de Ordens de Serviço (OS),
 entregue no checkpoint `v0.2-service-orders`, estendido em
-`v0.3-technician-execution` com a execução do técnico (§4.1) e em `v0.5.1`
-com origem explícita e catálogo de tipos (§1.1 e §1.2).
+`v0.3-technician-execution` com a execução do técnico (§4.1), em `v0.5.1`
+com origem explícita e catálogo de tipos (§1.1 e §1.2) e depois da `v0.6.2`
+com o número operacional da OS (§1.3).
 
 ## 1. Modelo de dados
 
@@ -11,7 +12,8 @@ com origem explícita e catálogo de tipos (§1.1 e §1.2).
 | --- | --- |
 | `Customer` | Cliente do provedor, sempre escopado por `companyId`. |
 | `Technician` | Técnico vinculado a um `User` da mesma empresa. `userId` é único (um usuário só pode ser técnico uma vez) e `active` controla disponibilidade para atribuição. |
-| `ServiceOrder` | OS com `number`, `customerId`, `type`, `description`, `priority`, `status`, `origin` (§1.1), vínculo opcional `typeId` (§1.2), identidade externa opcional `externalProvider`/`externalId` e `version` (token de lock otimista, ver §3.1). |
+| `ServiceOrder` | OS com `number` (identidade operacional humana, §1.3), `customerId`, `type`, `description`, `priority`, `status`, `origin` (§1.1), vínculo opcional `typeId` (§1.2), identidade externa opcional `externalProvider`/`externalId` e `version` (token de lock otimista, ver §3.1). |
+| `ServiceOrderCounter` | Contador do número operacional, uma linha por empresa (§1.3). `companyId` é a PK. |
 | `ServiceOrderType` | Catálogo de tipos da empresa (§1.2). `(companyId, name)` único. |
 | `ServiceOrderEvent` | Timeline imutável da OS (`SERVICE_ORDER_IMPORTED`, `TECHNICIAN_ASSIGNED`, `OS_STARTED`, mudanças de status). Gravada na mesma transação das mutações. |
 | `ServiceOrderExecution` | Registro de campo da OS (`diagnosis`, `workPerformed`, `notes`), 1:1 com `ServiceOrder` (`serviceOrderId @unique`), com `version` própria para lock otimista. Criada ao iniciar o atendimento — ver §4.1 e [TECHNICIAN-EXECUTION.md](TECHNICIAN-EXECUTION.md). |
@@ -75,6 +77,87 @@ resulta em 404, tipo desativado em 400.
 Nome é normalizado (trim + espaços internos colapsados) e não colide na mesma
 empresa nem variando maiúsculas/minúsculas. A unique `(companyId, name)` é o
 árbitro entre dois writers simultâneos.
+
+### 1.3. Número operacional (v0.6.3)
+
+> **`ServiceOrder.id` é identidade técnica.**
+> **`ServiceOrder.number` é identidade operacional humana.**
+
+`id` é o cuid: chave primária, chave estrangeira e valor da URL. `number` é um
+inteiro positivo **sequencial por empresa**, e é o que aparece na tela: "OS
+Nº 12". A tela mostrava `externalNumber ?? id.slice(0, 8)` — ou seja,
+`OS cmt7prb4` para toda OS criada no AlfaOS, que não é dizível ao telefone nem
+anotável numa ficha de campo.
+
+Os dois convivem: as URLs continuam usando `id`, a timeline e o `AuditLog`
+continuam apontando para a OS por `id` (e resolvem o número pela própria OS,
+sem duplicá-lo), e o `id` aparece na tela apenas em "Detalhes", rotulado como
+diagnóstico técnico.
+
+**Não confundir com `externalNumber`.** Aquele é o número da OS no ERP de
+origem: pertence a outro sistema, é nulo em OS interna e continua exibido como
+"Nº no ERP". `number` é do AlfaOS e existe em toda OS.
+
+**INTERNAL e EXTERNAL compartilham a mesma sequência** (§1.1). Para a operação
+há uma fila de OS, não duas; separar as sequências faria "OS Nº 7" deixar de
+identificar uma OS.
+
+#### Alocação e concorrência
+
+`ServiceOrderCounter` guarda o último número entregue por empresa. O número é
+alocado por `allocateServiceOrderNumber` (`src/lib/service-order-number.ts`),
+sempre **dentro da transação que insere a OS**, com uma única instrução:
+
+```sql
+INSERT INTO service_order_counters (companyId, lastNumber, updatedAt)
+VALUES ($1, 1, CURRENT_TIMESTAMP)
+ON CONFLICT (companyId) DO UPDATE
+  SET lastNumber = service_order_counters.lastNumber + 1,
+      updatedAt = CURRENT_TIMESTAMP
+RETURNING lastNumber
+```
+
+`MAX(number) + 1` **não** é usado, e não pode ser: sob READ COMMITTED (padrão
+do PostgreSQL e do Prisma) duas transações concorrentes leem o mesmo máximo
+antes de qualquer uma gravar. O `ON CONFLICT DO UPDATE` toma o lock da linha do
+contador; a segunda transação espera e reavalia sobre o valor **commitado**.
+
+- O `INSERT` cobre a **primeira** OS da empresa — não há passo de seed a
+  esquecer quando uma empresa é cadastrada.
+- O lock é **por empresa**: criar OS numa empresa nunca serializa outra.
+- O incremento é **transacional**, ao contrário de uma `SEQUENCE`: se a criação
+  falhar (por exemplo, a perdedora de uma corrida na unique de identidade
+  externa), o número volta a ficar disponível porque nunca chegou a ser
+  gravado. Um número **já atribuído** a uma OS nunca é reaproveitado.
+
+Uma `SEQUENCE` por empresa foi descartada: exigiria DDL em tempo de execução,
+deixaria um objeto de banco por tenant e é não-transacional.
+
+#### Invariantes no banco
+
+| Garantia | Mecanismo |
+| --- | --- |
+| Obrigatório | coluna `NOT NULL`, sem `DEFAULT` — nenhum insert pode omiti-lo |
+| Inteiro positivo | CHECK `service_orders_number_positive_check` |
+| Único por empresa | `@@unique([companyId, number])` |
+| Imutável | trigger `service_orders_number_immutable` (BEFORE UPDATE) |
+
+O trigger é o que garante a imutabilidade contra **qualquer** caminho de
+escrita, presente ou futuro. Renumerar uma OS invalidaria todo papel, mensagem
+e conversa que já citaram o número antigo — e, ao contrário de um status, o
+número não deixa rastro na timeline quando muda.
+
+O cliente HTTP **nunca** envia `number`: os schemas Zod de criação são
+`.strict()` e não o declaram, então enviá-lo é 400.
+
+#### Backfill
+
+A migration `20260824120000_add_service_order_number` numera as OS existentes
+com `ROW_NUMBER() OVER (PARTITION BY companyId ORDER BY createdAt, id)` e
+alinha cada contador ao `MAX(number)` da empresa. O desempate por `id` é o que
+torna o resultado determinístico quando duas OS foram criadas no mesmo
+milissegundo. Nenhuma linha é criada, apagada ou reidentificada — é um UPDATE
+de uma coluna nova.
 
 ## 2. Máquina de estados
 

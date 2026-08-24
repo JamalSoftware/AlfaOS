@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import type { AccessProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createSessionToken } from "@/lib/auth";
+import { allocateServiceOrderNumber } from "@/lib/service-order-number";
 import { assertTestDatabase } from "../../e2e/test-db-guard";
 
 export const TEST_PASSWORD = "TestPassword@123";
@@ -51,6 +52,22 @@ export async function resetDatabase(): Promise<void> {
   await prisma.eRPIntegration.deleteMany();
   await prisma.user.deleteMany();
   await prisma.company.deleteMany();
+}
+
+/**
+ * Número operacional para uma OS criada DIRETAMENTE pela fixture.
+ *
+ * Usa o alocador de produção de propósito. Uma fixture com numeração própria
+ * (`count + 1`, contador local) testaria uma sequência que a aplicação não
+ * usa, e mascararia justamente o defeito que este campo existe para evitar.
+ *
+ * `resetDatabase` apaga as empresas, e `service_order_counters` é
+ * `onDelete: Cascade` — então cada teste começa com a sequência em 1.
+ */
+export function allocateTestServiceOrderNumber(
+  companyId: string,
+): Promise<number> {
+  return allocateServiceOrderNumber(prisma, companyId);
 }
 
 export interface TestFixture {

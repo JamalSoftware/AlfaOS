@@ -56,17 +56,38 @@ async function ensureTechnicianLinked(
   await expect(page.getByRole("cell", { name: techName })).toBeVisible();
 }
 
+/**
+ * Rótulo operacional da OS, indexado pelo número externo da fixture.
+ *
+ * A tela identifica a OS por `OS Nº <number>` — sequencial por empresa e
+ * alocado no servidor. O número do ERP continua no registro (e continua
+ * buscável), mas não é mais o que aparece no card nem no cabeçalho.
+ */
+const orderLabels: Record<string, string> = {};
+
+/** Fronteira de palavra: `Nº 1` não pode casar com `Nº 12`. */
+function osLabel(externalNumber: string): RegExp {
+  return new RegExp(`${orderLabels[externalNumber]}\\b`);
+}
+
 /** Idempotent: assigns only when the order still has no technician. */
 async function ensureAssigned(
   page: Page,
   orderNumber: string,
   techName: string,
 ): Promise<string> {
-  await page.goto("/ordens");
-  await page.getByRole("link", { name: orderNumber }).click();
-  await expect(
-    page.getByRole("heading", { name: new RegExp(`OS ${orderNumber}`) }),
-  ).toBeVisible();
+  // Busca pelo número do ERP: ele não é mais clicável na listagem, mas segue
+  // sendo um critério de busca válido.
+  await page.goto(`/ordens?search=${orderNumber}`);
+  const rows = page.locator("tbody tr");
+  await expect(rows).toHaveCount(1);
+  await rows.getByRole("link").click();
+  await expect(page).toHaveURL(new RegExp("/ordens/[a-z0-9]+$"));
+
+  orderLabels[orderNumber] = (
+    await page.getByTestId("order-number").innerText()
+  ).trim();
+  expect(orderLabels[orderNumber]).toMatch(/^OS Nº \d+$/);
   const orderUrl = page.url();
 
   if (await page.getByText("Nenhum técnico atribuído.").isVisible()) {
@@ -134,10 +155,10 @@ test.describe.serial("Execução do técnico", () => {
     await expect(page.getByRole("heading", { name: "Minhas OS" })).toBeVisible();
 
     await page
-      .getByRole("link", { name: new RegExp(`OS ${DESKTOP_ORDER}`) })
+      .getByRole("link", { name: osLabel(DESKTOP_ORDER) })
       .click();
     await expect(
-      page.getByRole("heading", { name: new RegExp(`OS ${DESKTOP_ORDER}`) }),
+      page.getByRole("heading", { name: osLabel(DESKTOP_ORDER) }),
     ).toBeVisible();
     await expect(page.locator('span:text-is("Atribuída")')).toBeVisible();
 
@@ -183,7 +204,7 @@ test.describe.serial("Execução do técnico", () => {
     await login(page, TECH2_EMAIL);
     await expect(page).toHaveURL(/\/minhas-os/);
     await expect(
-      page.getByRole("link", { name: new RegExp(`OS ${DESKTOP_ORDER}`) }),
+      page.getByRole("link", { name: osLabel(DESKTOP_ORDER) }),
     ).toHaveCount(0);
 
     await page.goto(desktopOrderUrl);
@@ -234,10 +255,10 @@ test.describe("Execução do técnico — mobile 390x844", () => {
     await expectNoHorizontalOverflow(page);
 
     await page
-      .getByRole("link", { name: new RegExp(`OS ${MOBILE_ORDER}`) })
+      .getByRole("link", { name: osLabel(MOBILE_ORDER) })
       .click();
     await expect(
-      page.getByRole("heading", { name: new RegExp(`OS ${MOBILE_ORDER}`) }),
+      page.getByRole("heading", { name: osLabel(MOBILE_ORDER) }),
     ).toBeVisible();
     await expectNoHorizontalOverflow(page);
 

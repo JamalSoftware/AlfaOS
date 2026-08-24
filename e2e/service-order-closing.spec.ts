@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
+import { allocateServiceOrderNumber } from "../src/lib/service-order-number";
 import { assertTestDatabase } from "./test-db-guard";
 
 const ADMIN_EMAIL = "admin@alfatelecom.local";
@@ -39,6 +40,20 @@ const prisma = new PrismaClient({
  * removes a whole class of "clicked the wrong row" flakiness.
  */
 const orderUrls: Record<string, string> = {};
+/**
+ * Número OPERACIONAL de cada OS, indexado pelo número externo da fixture.
+ *
+ * A tela passou a identificar a OS por `OS Nº <number>` — sequencial por
+ * empresa e alocado no servidor. O número externo continua existindo no
+ * registro, mas não é mais o que aparece no card nem no cabeçalho, então a
+ * asserção precisa do valor real alocado no `beforeAll`.
+ */
+const orderNumbers: Record<string, number> = {};
+
+/** Rótulo operacional, com fronteira de palavra: `Nº 1` não casa com `Nº 12`. */
+function osLabel(externalNumber: string): RegExp {
+  return new RegExp(`OS Nº ${orderNumbers[externalNumber]}\\b`);
+}
 
 test.beforeAll(async () => {
   // Same guard as every other destructive path in the suite: never operate on
@@ -82,6 +97,7 @@ test.beforeAll(async () => {
     const created = await prisma.serviceOrder.create({
       data: {
         companyId: techUser.companyId,
+        number: await allocateServiceOrderNumber(prisma, techUser.companyId),
         customerId: customer.id,
         technicianId: technician.id,
         externalNumber,
@@ -92,6 +108,7 @@ test.beforeAll(async () => {
       },
     });
     orderUrls[externalNumber] = `/ordens/${created.id}`;
+    orderNumbers[externalNumber] = created.number;
   }
 });
 
@@ -200,8 +217,8 @@ async function logout(page: Page) {
 async function openAndStart(page: Page, orderNumber: string) {
   await page.goto("/minhas-os");
   await expect(page.getByRole("heading", { name: "Minhas OS" })).toBeVisible();
-  await page.getByRole("link", { name: new RegExp(`OS ${orderNumber}`) }).click();
-  await expect(page.getByRole("heading", { name: new RegExp(`OS ${orderNumber}`) })).toBeVisible();
+  await page.getByRole("link", { name: osLabel(orderNumber) }).click();
+  await expect(page.getByRole("heading", { name: osLabel(orderNumber) })).toBeVisible();
 
   const start = page.getByRole("button", { name: "Iniciar atendimento" });
   if (await start.isVisible()) {
@@ -299,7 +316,7 @@ test("OS concluída sai da fila operacional e aparece em Concluídas recentes", 
   await expect(page.getByRole("heading", { name: "Minhas OS" })).toBeVisible();
 
   const card = page.getByRole("link", {
-    name: new RegExp(`OS ${DESKTOP_ORDER}`),
+    name: osLabel(DESKTOP_ORDER),
   });
 
   /**
@@ -315,7 +332,7 @@ test("OS concluída sai da fila operacional e aparece em Concluídas recentes", 
     const section = page
       .locator("section")
       .filter({ has: page.getByRole("heading", { name: heading, exact: true }) });
-    await expect(section.getByRole("link", { name: new RegExp(`OS ${DESKTOP_ORDER}`) })).toHaveCount(0);
+    await expect(section.getByRole("link", { name: osLabel(DESKTOP_ORDER) })).toHaveCount(0);
   }
 
   const completed = page
@@ -326,7 +343,7 @@ test("OS concluída sai da fila operacional e aparece em Concluídas recentes", 
         exact: true,
       }),
     });
-  await expect(completed.getByRole("link", { name: new RegExp(`OS ${DESKTOP_ORDER}`) })).toHaveCount(1);
+  await expect(completed.getByRole("link", { name: osLabel(DESKTOP_ORDER) })).toHaveCount(1);
 
   // Controle positivo do escopo: o card leva à OS certa.
   await card.first().click();

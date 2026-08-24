@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import { allocateServiceOrderNumber } from "../src/lib/service-order-number";
 import { assertTestDatabase } from "./test-db-guard";
 
 const ADMIN_EMAIL = "admin@alfatelecom.local";
@@ -28,6 +29,8 @@ const prisma = new PrismaClient({
 
 let customerId = "";
 let orderUrl = "";
+/** Número OPERACIONAL alocado à OS desta fixture. */
+let orderNumber = 0;
 let customerEditUrl = "";
 
 async function login(page: Page, email: string) {
@@ -87,6 +90,7 @@ test.beforeAll(async () => {
   const order = await prisma.serviceOrder.create({
     data: {
       companyId: techUser.companyId,
+      number: await allocateServiceOrderNumber(prisma, techUser.companyId),
       customerId: customer.id,
       technicianId: technician.id,
       type: "Manutenção",
@@ -96,6 +100,7 @@ test.beforeAll(async () => {
     },
   });
   orderUrl = `/ordens/${order.id}`;
+  orderNumber = order.number;
 });
 
 test.afterAll(async () => {
@@ -141,6 +146,35 @@ test("ADMIN cadastra a conexão e a senha nunca reaparece na tela", async ({
   // valor atual" descuidado apareceria.
   await page.reload();
   await expect(page.getByText("Senha: Configurada")).toBeVisible();
+  expect(await page.content()).not.toContain(CONNECTION_PASSWORD);
+});
+
+test("ADMIN vê a seção Acesso do cliente com usuário e estado da senha", async ({
+  page,
+}) => {
+  await login(page, ADMIN_EMAIL);
+  await expect(page).toHaveURL(/\/dashboard/);
+
+  await page.goto(orderUrl);
+
+  // Cabeçalho operacional, não o cuid.
+  await expect(page.getByTestId("order-number")).toHaveText(
+    new RegExp(`OS Nº ${orderNumber}\\b`),
+  );
+
+  const panel = page.getByTestId("pppoe-panel");
+  await expect(panel).toHaveAttribute("data-variant", "admin");
+  await expect(page.getByRole("heading", { name: "Acesso do cliente" })).toBeVisible();
+  await expect(page.getByTestId("pppoe-username")).toHaveText(
+    CONNECTION_USERNAME,
+  );
+  // Estado DECLARADO, sem campo mascarado sugerindo que a senha veio junto.
+  await expect(page.getByTestId("pppoe-password-status")).toHaveText(
+    "Configurada",
+  );
+  await expect(page.getByTestId("pppoe-password")).toHaveCount(0);
+
+  // Nada de texto claro no HTML servido, exatamente como na tela do técnico.
   expect(await page.content()).not.toContain(CONNECTION_PASSWORD);
 });
 

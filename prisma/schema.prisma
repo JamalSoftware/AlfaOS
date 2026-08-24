@@ -107,6 +107,7 @@ model Company {
   serviceOrderSignatures ServiceOrderSignature[]
   diagnosticSnapshots    CustomerDiagnosticSnapshot[]
   customerConnections    CustomerConnection[]
+  serviceOrderCounter    ServiceOrderCounter?
 
   @@map("companies")
 }
@@ -293,6 +294,21 @@ model ServiceOrder {
   externalProvider String?
   externalId       String?
   externalNumber   String?
+  /// Numero operacional da OS, sequencial por empresa (PRD §17).
+  ///
+  /// Identidade HUMANA, nao chave tecnica: `id` continua sendo a PK, a chave
+  /// estrangeira e o que aparece na URL. Este campo existe porque `cmt7prb4…`
+  /// nao e dizivel ao telefone nem anotavel numa ficha de campo.
+  ///
+  /// Gerado SEMPRE no servidor por `allocateServiceOrderNumber`, na mesma
+  /// transacao do insert. Imutavel: um trigger `BEFORE UPDATE` no banco
+  /// rejeita qualquer alteracao, porque renumerar uma OS invalidaria todo
+  /// papel, mensagem e conversa que ja citaram o numero antigo.
+  ///
+  /// INTERNAL e EXTERNAL compartilham a MESMA sequencia — para a operacao ha
+  /// uma fila de OS, nao duas. O numero do ERP continua em `externalNumber`,
+  /// que e outro dado (do outro sistema) e pode ser nulo.
+  number           Int
   customerId       String
   customer         Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
   technicianId     String?
@@ -331,6 +347,7 @@ model ServiceOrder {
   signature ServiceOrderSignature?
 
   @@unique([companyId, externalProvider, externalId])
+  @@unique([companyId, number])
   @@index([companyId, status])
   @@index([companyId, priority])
   @@index([companyId, scheduledAt])
@@ -340,6 +357,30 @@ model ServiceOrder {
   @@index([customerId])
   @@index([technicianId])
   @@map("service_orders")
+}
+
+/// Contador do numero operacional da OS — uma linha por empresa.
+///
+/// Existe para que a alocacao seja uma UNICA instrucao atomica
+/// (`INSERT … ON CONFLICT DO UPDATE … RETURNING`) em vez de um
+/// `MAX(number) + 1`, que sob READ COMMITTED deixa duas criacoes simultaneas
+/// lerem o mesmo maximo e produzirem o mesmo numero.
+///
+/// A linha e criada na primeira OS da empresa, nao no cadastro dela: o
+/// `ON CONFLICT` cobre o caso de duas primeiras OS concorrentes sem precisar
+/// de seed nem de backfill para empresa nova.
+///
+/// `lastNumber` e o ultimo numero ENTREGUE. Rollback da transacao que o pediu
+/// devolve o numero (e um UPDATE transacional, nao uma sequence), entao nao ha
+/// buraco quando a criacao falha — e tambem nao ha reaproveitamento de numero
+/// que ja tenha ficado gravado numa OS.
+model ServiceOrderCounter {
+  companyId  String   @id
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lastNumber Int      @default(0)
+  updatedAt  DateTime @default(now())
+
+  @@map("service_order_counters")
 }
 
 /// Catalogo de tipos de OS da empresa (PRD §125).

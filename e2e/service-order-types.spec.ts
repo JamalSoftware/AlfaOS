@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import { allocateServiceOrderNumber } from "../src/lib/service-order-number";
 import { assertTestDatabase } from "./test-db-guard";
 
 const ADMIN_EMAIL = "admin@alfatelecom.local";
@@ -89,6 +90,7 @@ test.beforeAll(async () => {
   await prisma.serviceOrder.create({
     data: {
       companyId: techUser.companyId,
+      number: await allocateServiceOrderNumber(prisma, techUser.companyId),
       customerId: customer.id,
       technicianId: technician.id,
       type: "Instalação",

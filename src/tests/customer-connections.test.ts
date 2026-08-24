@@ -19,6 +19,7 @@ import {
 } from "@/lib/customer-connections";
 import { DomainError } from "@/lib/errors";
 import {
+  allocateTestServiceOrderNumber,
   apiRequest,
   createTokenFor,
   seedTestData,
@@ -64,6 +65,7 @@ async function scenario(options: { status?: string } = {}) {
   const order = await prisma.serviceOrder.create({
     data: {
       companyId: fixture.companyA.id,
+      number: await allocateTestServiceOrderNumber(fixture.companyA.id),
       customerId: customer.id,
       technicianId: technician.id,
       type: "Manutenção",
@@ -855,6 +857,7 @@ describe("Transplante de ciphertext", () => {
     const orderB = await prisma.serviceOrder.create({
       data: {
         companyId: fixture.companyB.id,
+        number: await allocateTestServiceOrderNumber(fixture.companyB.id),
         customerId: b.id,
         technicianId: technicianB.id,
         type: "Manutenção",
@@ -892,6 +895,7 @@ describe("Constraint de identidade externa da OS", () => {
     return prisma.serviceOrder.create({
       data: {
         companyId: fixture.companyA.id,
+        number: await allocateTestServiceOrderNumber(fixture.companyA.id),
         customerId: customer.id,
         type: "Manutenção",
         description: "Teste de constraint.",
