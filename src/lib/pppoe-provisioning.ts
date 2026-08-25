@@ -1,11 +1,11 @@
 import type { ConnectionPasswordSource, PppoePasswordPolicy } from "@prisma/client";
-import { logAudit } from "./audit";
-import { createCustomerConnection, updateCustomerConnection } from "./customer-connections";
-import { prisma } from "./prisma";
 import {
   selectPrincipalLogin,
   type ChatbotLogin,
 } from "@/integrations/chatbot-enrichment";
+import { logAudit } from "./audit";
+import { createCustomerConnection, updateCustomerConnection } from "./customer-connections";
+import { prisma } from "./prisma";
 
 /**
  * Provisionamento automático do acesso PPPoE a partir do ERP.
@@ -14,13 +14,12 @@ import {
  * humano contra a automação:
  *
  * 1. **`MANUAL` nunca é sobrescrito.** Se alguém digitou o usuário ou a senha
- *    daquele cliente, nenhuma releitura do provider desfaz isso. É o caso real
- *    da Alfa Telecom: a maioria segue a política, e uma minoria tem senha
- *    própria — que uma sincronização ingênua apagaria sem deixar rastro.
+ *    daquele cliente, nenhuma releitura do provider desfaz isso — nem a
+ *    credencial real do Chatbot. Houve um motivo que o sistema não conhece.
  *
- * 2. **Ambiguidade não é resolvida por chute.** Nada aqui assume que "a
- *    primeira conexão" é a certa. Com mais de uma conexão PPPoE no cliente, o
- *    provisionamento automático desiste e reporta, em vez de escolher.
+ * 2. **Ambiguidade não é resolvida por chute.** Nada aqui escolhe "o primeiro"
+ *    de nada: nem conexão local, nem credencial do provider. Sem critério
+ *    inequívoco, a automação desiste e reporta.
  *
  * Este módulo NÃO fala com o ReceitaNet e NÃO envia nada para lá. Ele consome o
  * que a consulta read-only já trouxe e grava credencial LOCAL, que é a que o
@@ -29,15 +28,13 @@ import {
  *
  * ## Ordem de confiança da senha
  *
- * 1. **Credencial real do Chatbot.** É a senha que o provedor de fato usa.
- *    Foi validada em campo justamente num cliente cuja senha era EXCEÇÃO à
- *    política padrão — o caso em que a derivação erraria e ninguém
- *    perceberia até o técnico não conseguir conectar.
- * 2. **`MANUAL` existente.** Nunca sobrescrita em silêncio, nem pela
- *    credencial real: se alguém digitou aquela senha para aquele cliente,
- *    houve um motivo que o sistema não conhece.
- * 3. **`DOCUMENT_LAST4`.** Palpite derivado do CPF. Só entra quando não há
- *    credencial real disponível — virou FALLBACK, não fonte principal.
+ * 1. **`RECEITANET_CHATBOT`** — a senha que o provedor de fato usa. Validada em
+ *    campo num cliente cuja senha era EXCEÇÃO à política, que é o caso em que a
+ *    derivação erra e ninguém percebe até o técnico não conseguir conectar.
+ * 2. **`MANUAL`** — intocável pela automação.
+ * 3. **`AUTO_DOCUMENT_LAST4`** — palpite derivado do CPF. Fallback, e
+ *    **substituível** pela credencial real quando ela aparecer: é assim que os
+ *    clientes provisionados antes do Chatbot deixam de carregar um palpite.
  */
 
 /** Só dígitos. Máscara é apresentação e não pode influenciar a derivação. */
@@ -73,21 +70,23 @@ export function derivePolicyPassword(
   return deriveDocumentLast4(document);
 }
 
-/**
- * O que o provisionamento fez. Reportado ao operador — nunca silencioso.
- */
+/** O que o provisionamento fez. Reportado ao operador — nunca silencioso. */
 export type PppoeProvisionOutcome =
-  /** Conexão criada com usuário do ERP (e senha da política, se aplicável). */
+  /** Conexão criada. */
   | "CREATED"
   /** Usuário do ERP mudou e a conexão o acompanhava. */
   | "USERNAME_UPDATED"
+  /** Palpite da política substituído pela credencial real do provedor. */
+  | "PASSWORD_UPGRADED"
+  /** Credencial real mudou no provedor e a conexão acompanhou. */
+  | "PASSWORD_REFRESHED"
   /** Conexão já existia e coincide com o ERP. */
   | "UNCHANGED"
-  /** O provider não expôs `login`. Nada a provisionar. */
+  /** O provider não expôs credencial nem login. Nada a provisionar. */
   | "SKIPPED_NO_LOGIN"
-  /** Usuário definido à mão. Intocável por automação. */
+  /** Usuário ou senha definidos à mão. Intocáveis por automação. */
   | "SKIPPED_MANUAL"
-  /** Mais de uma conexão PPPoE: qual seria a certa é indeterminado. */
+  /** Mais de uma conexão local, ou credencial do provider indeterminada. */
   | "SKIPPED_AMBIGUOUS"
   /** Tentou e falhou. O cliente foi importado; a credencial, não. */
   | "FAILED";
@@ -95,8 +94,8 @@ export type PppoeProvisionOutcome =
 export interface ProvisionPppoeInput {
   customerId: string;
   /**
-   * `login` do CallCenter. Validado operacionalmente como o usuário PPPoE,
-   * mas SEM senha — o CallCenter não expõe credencial.
+   * `login` do CallCenter. Validado operacionalmente como o usuário PPPoE, mas
+   * SEM senha — o CallCenter não expõe credencial.
    */
   login: string | null;
   /** Documento do cliente, para o fallback da política da empresa. */
@@ -104,8 +103,8 @@ export interface ProvisionPppoeInput {
   /**
    * Credenciais reais vindas do Chatbot, quando disponíveis.
    *
-   * Contêm senha em texto puro e são consumidas aqui, seguindo direto para
-   * a cifra. Não são logadas, auditadas nem devolvidas.
+   * Contêm senha em texto puro e são consumidas aqui, seguindo direto para a
+   * cifra. Não são logadas, auditadas nem devolvidas.
    */
   chatbotLogins?: ChatbotLogin[];
 }
@@ -123,8 +122,23 @@ export async function provisionPppoeFromErp(
   actorUserId: string,
   input: ProvisionPppoeInput,
 ): Promise<PppoeProvisionOutcome> {
-  const login = input.login?.trim();
-  if (!login) {
+  const selection = selectPrincipalLogin(input.chatbotLogins ?? []);
+
+  /**
+   * Chatbot devolveu mais de uma credencial sem principal inequívoco.
+   *
+   * Parar aqui é obrigatório: gravar qualquer uma delas a rotularia como a
+   * verdade do provedor, e ela pode ser a de outra conexão do mesmo cliente.
+   */
+  if (selection.outcome === "AMBIGUOUS") {
+    return "SKIPPED_AMBIGUOUS";
+  }
+
+  const principal = selection.outcome === "SELECTED" ? selection.login : null;
+  const callCenterLogin = input.login?.trim() || null;
+  const username = principal?.login ?? callCenterLogin;
+
+  if (!username) {
     return "SKIPPED_NO_LOGIN";
   }
 
@@ -139,25 +153,24 @@ export async function provisionPppoeFromErp(
       return "SKIPPED_AMBIGUOUS";
     }
 
+    const company = await prisma.company.findFirst({
+      where: { id: companyId },
+      select: { pppoePasswordPolicy: true },
+    });
+    if (!company) {
+      return "FAILED";
+    }
+
+    const realPassword = principal?.password ?? null;
+    const usernameSource =
+      principal !== null ? "RECEITANET_CHATBOT" : "RECEITANET_CALLCENTER";
+
+    // -----------------------------------------------------------------------
+    // Conexão nova
+    // -----------------------------------------------------------------------
     if (existing.length === 0) {
-      const company = await prisma.company.findFirst({
-        where: { id: companyId },
-        select: { pppoePasswordPolicy: true },
-      });
-      if (!company) {
-        return "FAILED";
-      }
-
-      /**
-       * A credencial real ganha do palpite. Selecionada por `isPrincipal`,
-       * nunca pelo índice do array.
-       */
-      const principal = selectPrincipalLogin(input.chatbotLogins ?? []);
-      const realPassword = principal?.password ?? null;
-
       const password =
-        realPassword ??
-        derivePolicyPassword(company.pppoePasswordPolicy, input.document);
+        realPassword ?? derivePolicyPassword(company.pppoePasswordPolicy, input.document);
 
       const passwordSource: ConnectionPasswordSource =
         realPassword !== null
@@ -165,14 +178,6 @@ export async function provisionPppoeFromErp(
           : password !== null
             ? "AUTO_DOCUMENT_LAST4"
             : "MANUAL";
-
-      // Usuário do Chatbot também tem precedência: veio da mesma leitura
-      // que a senha, e o par tem de ficar coerente.
-      const username = principal?.login ?? login;
-      const usernameSource =
-        principal !== null
-          ? ("RECEITANET_CHATBOT" as const)
-          : ("RECEITANET_CALLCENTER" as const);
 
       await createCustomerConnection(companyId, actorUserId, {
         customerId: input.customerId,
@@ -184,26 +189,77 @@ export async function provisionPppoeFromErp(
       return "CREATED";
     }
 
+    // -----------------------------------------------------------------------
+    // Conexão existente
+    // -----------------------------------------------------------------------
     const connection = existing[0];
 
+    const usernameIsManual = connection.usernameSource === "MANUAL";
+    const usernameChanged = !usernameIsManual && connection.username !== username;
+
     /**
-     * Senha existente NUNCA é recalculada aqui, nem quando a procedência é
-     * automática. Uma importação repetida não é motivo legítimo para reescrever
-     * credencial: o valor derivado é o mesmo, a escrita seria inútil, e no dia
-     * em que o documento do cadastro for corrigido a senha mudaria sozinha,
-     * derrubando o acesso de um cliente em campo sem ninguém ter pedido.
-     * Recalcular é ação explícita do ADMIN ("Restaurar padrão").
+     * A senha decide primeiro, porque é a única que uma releitura pode
+     * CORRIGIR. `MANUAL` fica de fora por construção.
      */
-    if (connection.usernameSource === "MANUAL") {
+    const canUpgradePassword =
+      realPassword !== null &&
+      (connection.passwordSource === "AUTO_DOCUMENT_LAST4" ||
+        connection.passwordSource === "RECEITANET_CHATBOT");
+
+    if (canUpgradePassword) {
+      /**
+       * Substituir `AUTO_DOCUMENT_LAST4` pela credencial real é o ponto deste
+       * caminho: clientes provisionados antes do Chatbot carregam um palpite
+       * derivado do CPF, e sem esta troca continuariam carregando para sempre.
+       *
+       * `RECEITANET_CHATBOT → RECEITANET_CHATBOT` também passa: se o provedor
+       * mudou a senha, a conexão acompanha. A fonte é a mesma e a nova é mais
+       * recente.
+       */
+      const upgraded = connection.passwordSource === "AUTO_DOCUMENT_LAST4";
+      const previousSource = connection.passwordSource;
+
+      await updateCustomerConnection(companyId, connection.id, actorUserId, {
+        password: realPassword,
+        passwordSource: "RECEITANET_CHATBOT",
+        ...(usernameChanged ? { username, usernameSource } : {}),
+      });
+
+      await logAudit({
+        companyId,
+        userId: actorUserId,
+        action: "CUSTOMER_CONNECTION.PASSWORD_SOURCE_CHANGED",
+        entity: "CustomerConnection",
+        entityId: connection.id,
+        /**
+         * Procedência, nunca valor. Nem o antigo, nem o novo, nem fragmento de
+         * qualquer um dos dois — é senha de cliente.
+         */
+        details: `Origem da senha: ${previousSource} → RECEITANET_CHATBOT`,
+      });
+
+      return upgraded ? "PASSWORD_UPGRADED" : "PASSWORD_REFRESHED";
+    }
+
+    /**
+     * Senha MANUAL com credencial real disponível: preservar é o desfecho
+     * correto, e reportá-lo como tal deixa o operador entender por que a senha
+     * do provedor não entrou.
+     */
+    if (realPassword !== null && connection.passwordSource === "MANUAL") {
       return "SKIPPED_MANUAL";
     }
-    if (connection.username === login) {
+
+    if (usernameIsManual) {
+      return "SKIPPED_MANUAL";
+    }
+    if (!usernameChanged) {
       return "UNCHANGED";
     }
 
     await updateCustomerConnection(companyId, connection.id, actorUserId, {
-      username: login,
-      usernameSource: "RECEITANET_CALLCENTER",
+      username,
+      usernameSource,
     });
     return "USERNAME_UPDATED";
   } catch {
@@ -225,23 +281,23 @@ export async function provisionPppoeFromErp(
 }
 
 /**
- * Restaura a senha para o padrão da empresa. Ação explícita do ADMIN.
+ * Calcula a senha padrão da empresa SEM gravar nada.
  *
- * É o único caminho que recalcula uma senha já existente, e por isso o único
- * que pode transformar `MANUAL` em `AUTO_DOCUMENT_LAST4` — deliberadamente,
- * porque quem clicou sabe que está descartando a senha anterior.
+ * Separado de `restoreDefaultPassword` para que uma rota possa validar a
+ * viabilidade ANTES de começar a escrever. Sem isso, um PATCH que também
+ * mudasse o usuário poderia gravar a senha e falhar no resto, deixando um
+ * estado que nenhuma das duas intenções descreve.
  */
-export async function restoreDefaultPassword(
+export async function resolveDefaultPassword(
   companyId: string,
   connectionId: string,
-  actorUserId: string,
-): Promise<{ applied: boolean; reason?: string }> {
+): Promise<{ password: string | null; reason?: string }> {
   const connection = await prisma.customerConnection.findFirst({
     where: { id: connectionId, companyId },
     select: { id: true, customerId: true },
   });
   if (!connection) {
-    return { applied: false, reason: "NOT_FOUND" };
+    return { password: null, reason: "NOT_FOUND" };
   }
 
   const [company, customer] = await Promise.all([
@@ -256,20 +312,40 @@ export async function restoreDefaultPassword(
   ]);
 
   if (!company || !customer) {
-    return { applied: false, reason: "NOT_FOUND" };
+    return { password: null, reason: "NOT_FOUND" };
   }
   if (company.pppoePasswordPolicy !== "DOCUMENT_LAST4") {
-    return { applied: false, reason: "NO_POLICY" };
+    return { password: null, reason: "NO_POLICY" };
   }
 
   const password = derivePolicyPassword(company.pppoePasswordPolicy, customer.document);
   if (password === null) {
     // Documento ausente ou que não é CPF. Sem senha é melhor que senha errada.
-    return { applied: false, reason: "NO_DOCUMENT" };
+    return { password: null, reason: "NO_DOCUMENT" };
+  }
+
+  return { password };
+}
+
+/**
+ * Restaura a senha para o padrão da empresa. Ação explícita do ADMIN.
+ *
+ * É o único caminho que recalcula uma senha já existente, e por isso o único
+ * que pode transformar `MANUAL` em `AUTO_DOCUMENT_LAST4` — deliberadamente,
+ * porque quem clicou sabe que está descartando a senha anterior.
+ */
+export async function restoreDefaultPassword(
+  companyId: string,
+  connectionId: string,
+  actorUserId: string,
+): Promise<{ applied: boolean; reason?: string }> {
+  const resolved = await resolveDefaultPassword(companyId, connectionId);
+  if (!resolved.password) {
+    return { applied: false, reason: resolved.reason };
   }
 
   await updateCustomerConnection(companyId, connectionId, actorUserId, {
-    password,
+    password: resolved.password,
     passwordSource: "AUTO_DOCUMENT_LAST4",
   });
   return { applied: true };

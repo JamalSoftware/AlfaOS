@@ -10,7 +10,7 @@ import {
   CONNECTION_USERNAME_MAX_LENGTH,
   updateCustomerConnection,
 } from "@/lib/customer-connections";
-import { restoreDefaultPassword } from "@/lib/pppoe-provisioning";
+import { resolveDefaultPassword } from "@/lib/pppoe-provisioning";
 
 const MANAGE_PROFILES = [AccessProfile.ADMIN];
 
@@ -99,28 +99,39 @@ export async function PATCH(
       return jsonError("Conexão não encontrada.", 404);
     }
 
+    /**
+     * Restaurar o padrão é RESOLVIDO antes de qualquer escrita, e aplicado
+     * na MESMA atualização que o resto do PATCH.
+     *
+     * A versão anterior gravava a senha numa chamada e o restante noutra.
+     * Uma requisição que pedisse restaurar E desativar podia gravar a senha
+     * e falhar na desativação, deixando o banco num estado que nenhuma das
+     * duas intenções descreve — e dois AuditLog contando histórias
+     * diferentes sobre a mesma ação.
+     */
+    let restoredPassword: string | undefined;
     if (parsed.data.restoreDefaultPassword) {
-      const restored = await restoreDefaultPassword(
+      const resolved = await resolveDefaultPassword(
         session.companyId,
         context.params.connectionId,
-        session.id,
       );
-      if (!restored.applied) {
+      if (!resolved.password) {
         /**
          * Motivo em código, não em texto livre: a tela traduz. E `NOT_FOUND`
          * vira 404 pelo mesmo motivo da checagem de posse acima — não
          * confirmar a existência de um id que a empresa não enxerga.
          */
-        if (restored.reason === "NOT_FOUND") {
+        if (resolved.reason === "NOT_FOUND") {
           return jsonError("Conexão não encontrada.", 404);
         }
         return jsonError(
-          restored.reason === "NO_POLICY"
+          resolved.reason === "NO_POLICY"
             ? "A empresa não tem política de senha padrão configurada."
             : "O cliente não tem CPF válido para derivar a senha padrão.",
           400,
         );
       }
+      restoredPassword = resolved.password;
     }
 
     const connection = await updateCustomerConnection(
@@ -129,13 +140,19 @@ export async function PATCH(
       session.id,
       {
         username: parsed.data.username,
-        password: parsed.data.password,
+        password: restoredPassword ?? parsed.data.password,
         /**
-         * Senha digitada é sempre MANUAL — é exatamente a marca que impede
-         * a política da empresa de sobrescrevê-la numa importação futura.
+         * A procedência acompanha a INTENÇÃO, não o valor: restaurar marca
+         * `AUTO_DOCUMENT_LAST4`, digitar marca `MANUAL`. É essa marca que
+         * decide, depois, se uma releitura do provider pode substituir a
+         * senha.
          */
-        ...(parsed.data.password !== undefined ? { passwordSource: "MANUAL" as const } : {}),
-        /** Usuário digitado idem: deixa de acompanhar o provider. */
+        ...(restoredPassword !== undefined
+          ? { passwordSource: "AUTO_DOCUMENT_LAST4" as const }
+          : parsed.data.password !== undefined
+            ? { passwordSource: "MANUAL" as const }
+            : {}),
+        /** Usuário digitado deixa de acompanhar o provider. */
         ...(parsed.data.username !== undefined ? { usernameSource: "MANUAL" as const } : {}),
         active: parsed.data.active,
       },

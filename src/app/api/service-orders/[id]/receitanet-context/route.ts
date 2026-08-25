@@ -3,6 +3,7 @@ import { assertProfile, jsonError, jsonOk, runApi } from "@/lib/api";
 import { getSessionUser } from "@/lib/session";
 import { getCompanyServiceOrder } from "@/lib/service-orders";
 import { loadErpOperationalContext } from "@/lib/erp-operational-context";
+import { consumeCapabilityToken } from "@/lib/capability-rate-limit";
 
 /**
  * Contexto operacional do cliente no ERP, escopado por ORDEM DE SERVIÇO.
@@ -39,6 +40,27 @@ export async function GET(
     const order = await getCompanyServiceOrder(session.companyId, context.params.id);
     if (!order) {
       return jsonError("Ordem de serviço não encontrada.", 404);
+    }
+
+    /**
+     * Teto DEPOIS da autorização: um anônimo ou um usuário de outra empresa não
+     * deve conseguir consumir a cota de ninguém só sondando a rota.
+     *
+     * Cada consulta aqui vira requisição ao ReceitaNet. Sem limite, uma tela em
+     * loop gasta a cota da EMPRESA, e a punição do provider recai sobre todos os
+     * operadores dela.
+     */
+    const quota = consumeCapabilityToken(
+      session.companyId,
+      session.id,
+      "receitanet-context",
+    );
+    if (!quota.allowed) {
+      return jsonError(
+        "Muitas consultas ao ReceitaNet. Aguarde alguns instantes.",
+        429,
+        { retryAfterSeconds: quota.retryAfterSeconds },
+      );
     }
 
     /**

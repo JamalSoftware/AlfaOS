@@ -52,12 +52,43 @@ export type FetchLike = (
     headers: Record<string, string>;
     body: string;
     signal?: AbortSignal;
+    /**
+     * Sempre `"error"` nas chamadas reais.
+     *
+     * Um 30x seguido automaticamente levaria o token para fora do host da
+     * allowlist — e a allowlist só é verificada na URL que NÓS montamos,
+     * não no destino do redirect. No Chatbot é pior ainda, porque lá o
+     * token viaja na query string e iria inteiro no `Location`.
+     */
+    redirect?: "error" | "manual" | "follow";
   },
 ) => Promise<{
   ok: boolean;
   status: number;
   text: () => Promise<string>;
+  /**
+   * `Content-Type` da resposta, quando o transporte o expõe.
+   *
+   * Opcional para não quebrar transporte falso de teste que não o informe.
+   */
+  contentType?: string | null;
 }>;
+
+/**
+ * Aceita a resposta como JSON?
+ *
+ * Recusa quando o cabeçalho está PRESENTE e diz outra coisa: é o caso real
+ * de portal cativo ou proxy devolvendo 200 com `text/html`, que sempre
+ * marcam o tipo. Ausência total é tolerada — API terse existe, e recusá-la
+ * quebraria integração legítima por um cabeçalho que ninguém prometeu.
+ */
+export function acceptsAsJson(contentType: string | null | undefined): boolean {
+  if (contentType === undefined || contentType === null || contentType.trim() === "") {
+    return true;
+  }
+  const essence = contentType.split(";")[0].trim().toLowerCase();
+  return essence === "application/json" || essence.endsWith("+json");
+}
 
 export interface CallCenterClientOptions {
   token: string;
@@ -177,6 +208,7 @@ export class ReceitanetCallCenterClient {
     try {
       const res = await this.fetchImpl(`${this.baseUrl}/ping`, {
         method: "GET",
+        redirect: "error",
         headers: {},
         body: "",
         signal: controller.signal,
@@ -210,6 +242,7 @@ export class ReceitanetCallCenterClient {
     try {
       res = await this.fetchImpl(`${this.baseUrl}${path}`, {
         method: "POST",
+        redirect: "error",
         headers: {
           token: this.token,
           "Content-Type": "application/x-www-form-urlencoded",
@@ -248,6 +281,17 @@ export class ReceitanetCallCenterClient {
     }
     if (res.status !== 200) {
       throw new IntegrationError("INVALID_RESPONSE", PROVIDER, `HTTP ${res.status}`);
+    }
+
+    // Antes de ler o corpo: um 200 com `text/html` é portal cativo ou página
+    // de erro de proxy, não resposta da API.
+    if (!acceptsAsJson(res.contentType)) {
+      throw new IntegrationError(
+        "INVALID_RESPONSE",
+        PROVIDER,
+        // Sem o tipo recebido no detalhe: ele pode carregar parâmetros.
+        "resposta não é JSON",
+      );
     }
 
     const raw = await res.text();
@@ -495,6 +539,17 @@ const defaultFetch: FetchLike = async (url, init) => {
     ...(init.method === "GET" ? {} : { body: init.body }),
     signal: init.signal,
     cache: "no-store",
+    /**
+     * `error` e não `manual`: com `manual` o chamador ainda receberia uma
+     * resposta opaca e poderia decidir seguir. Aqui não existe decisão a
+     * tomar — sair do host allowlisted é sempre errado.
+     */
+    redirect: init.redirect ?? "error",
   });
-  return { ok: res.ok, status: res.status, text: () => res.text() };
+  return {
+    ok: res.ok,
+    status: res.status,
+    text: () => res.text(),
+    contentType: res.headers.get("content-type"),
+  };
 };

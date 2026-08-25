@@ -164,38 +164,117 @@ function toLogins(raw: unknown, fallback: Record<string, unknown>): ChatbotLogin
 }
 
 /**
- * Escolhe a conexão principal.
+ * Desfecho da seleção da credencial principal.
  *
- * **Pelo campo `isPrincipal`, nunca pelo índice.** A homologação viu
- * `logins[0].isPrincipal === true`, mas uma amostra não é ordenação garantida,
- * e assumir a ordem faria o técnico receber a credencial errada no primeiro
- * cliente em que o provider devolvesse outra sequência.
+ * Três estados, e não um `| null`, porque “não há credencial” e “há mais de
+ * uma e não dá para saber qual” exigem reações opostas: a primeira é
+ * silêncio legítimo, a segunda precisa parar a automação e aparecer.
  */
-export function selectPrincipalLogin(logins: ChatbotLogin[]): ChatbotLogin | null {
-  return logins.find((l) => l.isPrincipal) ?? logins[0] ?? null;
+export type ChatbotLoginSelection =
+  | { outcome: "NONE" }
+  | { outcome: "SELECTED"; login: ChatbotLogin }
+  | { outcome: "AMBIGUOUS"; reason: "NO_PRINCIPAL" | "MULTIPLE_PRINCIPAL" };
+
+/**
+ * Escolhe a credencial principal — **nunca por ordem do provider**.
+ *
+ * A versão anterior caía em `logins[0]` quando nenhum vinha marcado. Isso
+ * parecia inofensivo porque a homologação viu o principal na posição 0, mas
+ * uma amostra não é ordenação garantida: no primeiro cliente em que o
+ * provider devolvesse outra sequência, o técnico receberia a credencial de
+ * OUTRA conexão do mesmo cliente — e ela seria gravada rotulada como
+ * `RECEITANET_CHATBOT`, isto é, como se fosse a verdade do provedor.
+ *
+ * Uma lista de UM elemento é selecionada mesmo sem `isPrincipal`, porque aí
+ * não existe ambiguidade a resolver: não há outra candidata.
+ */
+export function selectPrincipalLogin(logins: ChatbotLogin[]): ChatbotLoginSelection {
+  if (logins.length === 0) {
+    return { outcome: "NONE" };
+  }
+  if (logins.length === 1) {
+    return { outcome: "SELECTED", login: logins[0] };
+  }
+
+  const principals = logins.filter((l) => l.isPrincipal);
+  if (principals.length === 1) {
+    return { outcome: "SELECTED", login: principals[0] };
+  }
+  return {
+    outcome: "AMBIGUOUS",
+    reason: principals.length === 0 ? "NO_PRINCIPAL" : "MULTIPLE_PRINCIPAL",
+  };
+}
+
+/**
+ * Desfecho da normalização.
+ *
+ * `AMBIGUOUS` existe porque escolher em silêncio entre contratos é a falha
+ * mais cara possível aqui: gravaria PPPoE, telefone, endereço e coordenada
+ * de um contrato que talvez não seja o que o técnico vai atender.
+ */
+export type ChatbotNormalization =
+  | { outcome: "NONE" }
+  | { outcome: "RESOLVED"; customer: ChatbotCustomerEnrichment }
+  | { outcome: "AMBIGUOUS"; contractIds: string[] };
+
+/** Identidade que o AlfaOS já conhece, para desempatar múltiplos contratos. */
+export interface ChatbotContractHint {
+  /** `idCliente` já vinculado ao Customer, quando houver. */
+  externalId?: string | null;
+  /** `idContrato`, se algum dia for persistido. Hoje o AlfaOS não guarda. */
+  contractId?: string | null;
+}
+
+function contractsOf(payload: Record<string, unknown>): Record<string, unknown>[] {
+  const contratos = payload.contratos;
+  if (isRecord(contratos)) return [contratos];
+  if (Array.isArray(contratos)) return contratos.filter(isRecord);
+  return [];
 }
 
 /**
  * Normaliza a resposta do Chatbot.
  *
- * Devolve `null` quando não há contrato utilizável — sem lançar, porque
- * "cliente sem contrato" não é falha de integração.
+ * Com mais de um contrato, resolve SOMENTE por identidade estável que o
+ * AlfaOS já conhece. Não havendo desempate, devolve `AMBIGUOUS` — e o
+ * chamador não grava nada. "Cliente sem contrato" continua sendo `NONE`,
+ * não falha.
  */
 export function normalizeChatbotCustomer(
   payload: unknown,
-): ChatbotCustomerEnrichment | null {
-  if (!isRecord(payload)) return null;
+  hint: ChatbotContractHint = {},
+): ChatbotNormalization {
+  if (!isRecord(payload)) return { outcome: "NONE" };
 
-  const contratos = payload.contratos;
-  // O contrato descreve um objeto; aceitar também array de um evita quebrar se
-  // o provider mudar a cardinalidade sem avisar.
-  const contract = isRecord(contratos)
-    ? contratos
-    : Array.isArray(contratos) && isRecord(contratos[0])
-      ? contratos[0]
-      : null;
+  const all = contractsOf(payload);
+  if (all.length === 0) return { outcome: "NONE" };
 
-  if (!contract) return null;
+  let contract: Record<string, unknown>;
+
+  if (all.length === 1) {
+    contract = all[0];
+  } else {
+    /**
+     * `idContrato` primeiro: é o identificador do CONTRATO, e é o único que
+     * desempata de fato. `idCliente` é compartilhado entre os contratos do
+     * mesmo cliente, então não resolve nada aqui — e é por isso que ele
+     * sozinho não basta para sair do estado ambíguo.
+     */
+    const byContract = hint.contractId
+      ? all.filter((c) => String(c.idContrato) === hint.contractId)
+      : [];
+
+    if (byContract.length !== 1) {
+      return {
+        outcome: "AMBIGUOUS",
+        contractIds: all.map((c) =>
+          typeof c.idContrato === "number" ? String(c.idContrato) : "?",
+        ),
+      };
+    }
+    contract = byContract[0];
+  }
 
   const endereco = isRecord(contract.endereco) ? contract.endereco : {};
   const servidor = isRecord(contract.servidor) ? contract.servidor : {};
@@ -215,7 +294,7 @@ export function normalizeChatbotCustomer(
       }),
     );
 
-  return {
+  const customer: ChatbotCustomerEnrichment = {
     externalId:
       typeof contract.idCliente === "number" ? String(contract.idCliente) : null,
     contractId:
@@ -254,4 +333,6 @@ export function normalizeChatbotCustomer(
     technologyCode:
       typeof contract.tecnologia === "number" ? String(contract.tecnologia) : null,
   };
+
+  return { outcome: "RESOLVED", customer };
 }

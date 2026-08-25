@@ -1,5 +1,5 @@
 import { IntegrationError } from "../errors";
-import type { FetchLike } from "./CallCenterClient";
+import { acceptsAsJson, type FetchLike } from "./CallCenterClient";
 
 /**
  * Transporte HTTP da API Chatbot do ReceitaNet.
@@ -104,6 +104,53 @@ export class ReceitanetChatbotClient {
   }
 
   /**
+   * `POST /empresa` — dados cadastrais da empresa.
+   *
+   * Menor chamada autenticada do contrato: exige apenas `token` e `app`, e
+   * NAO devolve dado de cliente nem senha. E por isso a escolha certa para
+   * testar a credencial — testar com `/clientes` exigiria um CPF real e
+   * traria senha em texto puro para uma operacao que so precisa saber se o
+   * token vale.
+   */
+  async verificarCredencial(): Promise<boolean> {
+    const params = new URLSearchParams({ token: this.token, app: CHATBOT_APP });
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const res = await this.fetchImpl(
+        `${this.baseUrl}/empresa?${params.toString()}`,
+        {
+          method: "POST",
+          redirect: "error",
+          headers: { Accept: "application/json" },
+          body: "",
+          signal: controller.signal,
+        },
+      );
+      if (res.status === 401 || res.status === 403) {
+        throw new IntegrationError("AUTHENTICATION_FAILED", PROVIDER, `HTTP ${res.status}`);
+      }
+      if (res.status !== 200) {
+        throw new IntegrationError("UPSTREAM_UNAVAILABLE", PROVIDER, `HTTP ${res.status}`);
+      }
+      return true;
+    } catch (error) {
+      if (error instanceof IntegrationError) throw error;
+      const aborted =
+        error instanceof Error &&
+        (error.name === "AbortError" || error.name === "TimeoutError");
+      throw new IntegrationError(
+        aborted ? "TIMEOUT" : "UPSTREAM_UNAVAILABLE",
+        PROVIDER,
+        aborted ? `sem resposta em ${this.timeoutMs}ms` : "falha de rede",
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * `POST /clientes` — cliente e contratos, por CPF/CNPJ.
    *
    * Devolve o payload BRUTO para o adapter normalizar imediatamente. Ele não
@@ -133,6 +180,12 @@ export class ReceitanetChatbotClient {
     try {
       res = await this.fetchImpl(`${this.baseUrl}/clientes?${params.toString()}`, {
         method: "POST",
+        /**
+         * Crítico nesta API: o token está na QUERY STRING, então um 30x
+         * seguido automaticamente entregaria o segredo inteiro ao host do
+         * `Location`, junto com o CPF do cliente.
+         */
+        redirect: "error",
         headers: { Accept: "application/json" },
         body: "",
         signal: controller.signal,
@@ -165,6 +218,14 @@ export class ReceitanetChatbotClient {
       throw new IntegrationError("INVALID_RESPONSE", PROVIDER, `HTTP ${res.status}`);
     }
 
+    if (!acceptsAsJson(res.contentType)) {
+      throw new IntegrationError(
+        "INVALID_RESPONSE",
+        PROVIDER,
+        "resposta não é JSON",
+      );
+    }
+
     const raw = await res.text();
     let payload: unknown;
     try {
@@ -191,6 +252,12 @@ const defaultFetch: FetchLike = async (url, init) => {
     ...(init.method === "GET" ? {} : { body: init.body }),
     signal: init.signal,
     cache: "no-store",
+    redirect: init.redirect ?? "error",
   });
-  return { ok: res.ok, status: res.status, text: () => res.text() };
+  return {
+    ok: res.ok,
+    status: res.status,
+    text: () => res.text(),
+    contentType: res.headers.get("content-type"),
+  };
 };
