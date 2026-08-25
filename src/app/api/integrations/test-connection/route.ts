@@ -64,9 +64,11 @@ export async function POST(request: Request) {
      */
     if (kind === "CHATBOT") {
       let chatbotResult: ERPConnectionResult;
+      let chatbotCode = "OK";
       try {
         const client = await resolveChatbotClient(session.companyId);
         if (!client) {
+          chatbotCode = "NOT_CONFIGURED";
           chatbotResult = {
             ok: false,
             provider,
@@ -88,6 +90,7 @@ export async function POST(request: Request) {
           };
         }
       } catch (error) {
+        chatbotCode = isIntegrationError(error) ? error.code : "UNAVAILABLE";
         chatbotResult = {
           ok: false,
           provider,
@@ -111,7 +114,19 @@ export async function POST(request: Request) {
         details: `Chatbot: ${chatbotResult.ok ? "conectado" : "falhou"}`,
       });
 
-      return jsonOk({ result: chatbotResult, invalidatedCredential: false });
+      /**
+       * Resposta pública MÍNIMA: `ok`, um código do catálogo fechado e a
+       * latência. Nunca o corpo do provider — a resposta do Chatbot contém
+       * senha de cliente, login, telefone, CPF e coordenadas.
+       *
+       * `result.message` também é do catálogo (`userMessage`), nunca texto
+       * vindo do provider.
+       */
+      return jsonOk({
+        result: chatbotResult,
+        code: chatbotCode,
+        invalidatedCredential: false,
+      });
     }
 
     /**
@@ -120,10 +135,13 @@ export async function POST(request: Request) {
      * o operador clicou justamente para descobrir o estado da integração.
      */
     let result: ERPConnectionResult;
+    let code = "OK";
     try {
       const adapter = await resolveCompanyAdapter(session.companyId, provider);
       result = await adapter.testConnection();
+      if (!result.ok) code = "UNAVAILABLE";
     } catch (error) {
+      code = isIntegrationError(error) ? error.code : "UNAVAILABLE";
       result = {
         ok: false,
         provider,
@@ -175,6 +193,14 @@ export async function POST(request: Request) {
       where: { companyId: session.companyId },
       update: {
         provider,
+        /**
+         * `name` acompanha o provider.
+         *
+         * Antes só o `create` o definia, então trocar de MOCK para RECEITANET
+         * deixava a coluna dizendo “Mock ERP” para sempre — e a tela repetia
+         * isso ao operador, que via um provedor e o nome de outro.
+         */
+        name: provider === "MOCK" ? "Mock ERP" : "ReceitaNet",
         lastTestedAt: new Date(),
         lastTestStatus: result.ok ? "OK" : "ERROR",
         ...(providerChanged ? CLEARED_CREDENTIAL_FIELDS : {}),
@@ -229,6 +255,9 @@ export async function POST(request: Request) {
 
     return jsonOk({
       result,
+      // Codigo do catalogo fechado, para a tela mostrar o motivo sem receber
+      // nada do corpo do provider.
+      code,
       // Booleano, para a tela poder avisar que é preciso reconfigurar. Não
       // carrega nada do segredo removido.
       invalidatedCredential,

@@ -57,9 +57,62 @@ export function ErpCredentialForm({
   const [status, setStatus] = useState(initialStatus);
   const [token, setToken] = useState("");
   const [editing, setEditing] = useState(!initialStatus.configured);
-  const [busy, setBusy] = useState<null | "save" | "remove">(null);
+  const [busy, setBusy] = useState<null | "save" | "remove" | "test">(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  /**
+   * Resultado do teste DESTE bloco.
+   *
+   * Estado local por instância, e não um campo compartilhado da integração:
+   * é o que impede o sucesso do CallCenter de fazer o Chatbot parecer
+   * testado — os dois usam credenciais diferentes e podem falhar em
+   * momentos diferentes.
+   */
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    code: string;
+    latencyMs: number;
+    at: string;
+  } | null>(null);
+
+  async function testConnection() {
+    if (busy) return;
+    setBusy("test");
+    setError(null);
+    setNotice(null);
+    // Resultado anterior sai da tela: um resultado velho sob um clique novo
+    // é lido como resposta nova.
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/integrations/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        /**
+         * A API é endereçada explicitamente. Este botão testa ESTA
+         * credencial e nenhuma outra — sem fallback para o token do bloco
+         * vizinho.
+         */
+        body: JSON.stringify({ provider: status.provider, kind: status.kind }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(payload?.error ?? "Não foi possível testar a conexão.");
+        return;
+      }
+      const result = payload?.data?.result;
+      setTestResult({
+        ok: result?.ok === true,
+        code: payload?.data?.code ?? (result?.ok ? "OK" : "UNAVAILABLE"),
+        latencyMs: typeof result?.latencyMs === "number" ? result.latencyMs : 0,
+        at: new Date().toISOString(),
+      });
+    } catch {
+      setError("Erro de conexão. Tente novamente.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -226,15 +279,35 @@ export function ErpCredentialForm({
       </dl>
 
       {/*
-        "Credencial configurada" is not "conexão validada". With no official
-        ReceitaNet documentation there is no endpoint to verify against, so the
-        UI states the distinction rather than implying the integration works.
+        “Credencial configurada” não é “conexão validada”. Agora existe um
+        teste por credencial, então a tela mostra o resultado REAL desta API
+        em vez de repetir a ressalva genérica.
       */}
-      {status.configured && (
+      {status.configured && !testResult && (
         <p className="mt-3 text-xs text-slate-500">
-          Credencial configurada não significa conexão validada. A validação
-          dependerá da documentação oficial da API do provedor.
+          Credencial configurada não significa conexão validada. Use “Testar
+          conexão” para validar esta credencial.
         </p>
+      )}
+
+      {testResult && (
+        <div
+          data-testid="credential-test-result"
+          className={`mt-3 rounded-lg border px-3 py-2 text-sm ${
+            testResult.ok
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-amber-200 bg-amber-50 text-amber-800"
+          }`}
+        >
+          <p className="font-semibold">
+            {testResult.ok
+              ? `Conexão OK — ${testResult.latencyMs} ms`
+              : `Falha — ${testResult.code}`}
+          </p>
+          <p className="mt-0.5 text-xs opacity-80">
+            Último teste: {formatDate(testResult.at)}
+          </p>
+        </div>
       )}
 
       {editing ? (
@@ -285,6 +358,20 @@ export function ErpCredentialForm({
         </form>
       ) : (
         <div className="mt-4 flex flex-wrap gap-3">
+          {/*
+            Teste POR credencial. O botão genérico do topo prova o provider;
+            este prova ESTA API — que é o que precisa ser demonstrado
+            separadamente, já que cada uma tem token próprio.
+          */}
+          <button
+            type="button"
+            onClick={() => void testConnection()}
+            disabled={busy !== null || !status.configured}
+            data-testid="credential-test"
+            className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy === "test" ? "Testando..." : "Testar conexão"}
+          </button>
           <button
             type="button"
             onClick={() => setEditing(true)}

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ERPProvider } from "@prisma/client";
 import { requirePageProfile } from "@/lib/guards";
 import { prisma } from "@/lib/prisma";
 import { getCredentialStatus } from "@/lib/erp-credentials";
@@ -44,6 +45,17 @@ function testStatusBadge(status: string | null) {
   );
 }
 
+/**
+ * Nome de exibição por provider.
+ *
+ * Identidade técnica continua sendo o enum `ERPProvider`; isto é só o
+ * rótulo que o operador lê.
+ */
+const PROVIDER_LABEL: Record<ERPProvider, string> = {
+  MOCK: "Mock ERP",
+  RECEITANET: "ReceitaNet",
+};
+
 export default async function IntegrationsPage() {
   const session = await requirePageProfile(["ADMIN"]);
 
@@ -78,8 +90,14 @@ export default async function IntegrationsPage() {
       <div className="max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">
-              {integration?.name ?? "Mock ERP"}
+            {/*
+              Rótulo DERIVADO do provider, não lido de `integration.name`.
+              Aquela coluna só era escrita na criação, então uma troca de
+              provider a deixava obsoleta e a tela anunciava o provedor
+              errado. Derivar aqui torna a divergência impossível.
+            */}
+            <h2 className="text-base font-semibold text-slate-900" data-testid="integration-name">
+              {PROVIDER_LABEL[integration?.provider ?? "MOCK"]}
             </h2>
             <p className="mt-0.5 text-xs text-slate-500">
               Provedor: {integration?.provider ?? "MOCK"}
@@ -149,13 +167,22 @@ export default async function IntegrationsPage() {
 
       <div className="mt-6 max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h3 className="mb-2 text-sm font-semibold text-slate-900">
-          ReceitaNet (futuro)
+          ReceitaNet — o que está integrado
         </h3>
-        <p className="text-sm text-slate-500">
-          A integração real com o ERP ReceitaNet será implementada após o
-          recebimento da documentação oficial da API. O AlfaOS já possui a
-          arquitetura desacoplada (contrato de integração + adapters) pronta
-          para recebê-la.
+        <ul className="list-disc space-y-1 pl-5 text-sm text-slate-500">
+          <li>
+            <strong>CallCenter</strong> — busca de clientes, detalhe,
+            verificação de acesso e chamados abertos. Somente leitura.
+          </li>
+          <li>
+            <strong>Chatbot</strong> — enriquecimento do cadastro e credencial
+            PPPoE real do cliente. Somente leitura.
+          </li>
+        </ul>
+        <p className="mt-3 text-xs text-slate-500">
+          Cada API tem credencial própria, com ciclo de vida independente:
+          configurar, testar ou remover uma nunca afeta a outra. Nenhuma
+          operação que altere dados no ReceitaNet está implementada.
         </p>
       </div>
     </div>
