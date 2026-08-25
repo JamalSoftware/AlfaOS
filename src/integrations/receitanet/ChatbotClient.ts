@@ -25,12 +25,25 @@ import { acceptsAsJson, type FetchLike } from "./CallCenterClient";
  * exclusivamente server-side, que é o caso.
  */
 
-export const CHATBOT_BASE_URL = "https://api.receitanet.net/chatbot";
+/**
+ * Base oficial do Chatbot, do bloco `servers` do OpenAPI dele.
+ *
+ * **Não é o host do CallCenter.** As duas APIs do ReceitaNet vivem em
+ * lugares diferentes — `api.receitanet.net/callcenter` contra
+ * `sistema.receitanet.net/api/novo/chatbot` — e presumir uniformidade foi
+ * o que apontou todas as chamadas do Chatbot para um host que não serve
+ * esta API. O sintoma era `UPSTREAM_UNAVAILABLE` em toda tentativa,
+ * inclusive com a credencial correta.
+ *
+ * Cada cliente lê o `servers` do SEU contrato. Há regressão fixando este
+ * valor exatamente como o spec o declara.
+ */
+export const CHATBOT_BASE_URL = "https://sistema.receitanet.net/api/novo/chatbot";
 export const CHATBOT_TIMEOUT_MS = 8_000;
 
 const PROVIDER = "RECEITANET";
-const CHATBOT_HOST = "api.receitanet.net";
-const CHATBOT_BASE_PATH = "/chatbot";
+const CHATBOT_HOST = "sistema.receitanet.net";
+const CHATBOT_BASE_PATH = "/api/novo/chatbot";
 
 /** `app` identifica o tipo de integração. Não é segredo. */
 const CHATBOT_APP = "chatbot";
@@ -131,9 +144,54 @@ export class ReceitanetChatbotClient {
       if (res.status === 401 || res.status === 403) {
         throw new IntegrationError("AUTHENTICATION_FAILED", PROVIDER, `HTTP ${res.status}`);
       }
-      if (res.status !== 200) {
+      if (res.status < 200 || res.status > 299) {
         throw new IntegrationError("UPSTREAM_UNAVAILABLE", PROVIDER, `HTTP ${res.status}`);
       }
+      if (!acceptsAsJson(res.contentType)) {
+        throw new IntegrationError("INVALID_RESPONSE", PROVIDER, "resposta não é JSON");
+      }
+
+      let payload: unknown;
+      try {
+        payload = JSON.parse(await res.text());
+      } catch {
+        throw new IntegrationError("INVALID_RESPONSE", PROVIDER, "corpo não é JSON");
+      }
+
+      /**
+       * O contrato devolve os campos da empresa na RAIZ — `success`, `nome`,
+       * `cnpj`, `endereco`, `telefone1`… Não existe wrapper `empresa`, e
+       * procurar um faria a sonda falhar contra a resposta real.
+       *
+       * Só `success` é lido. Nome, CNPJ, endereço e telefones são dado
+       * cadastral da empresa e não têm por que atravessar uma verificação de
+       * credencial — o que não é lido não pode vazar.
+       */
+      if (!isRecord(payload)) {
+        throw new IntegrationError("INVALID_RESPONSE", PROVIDER, "resposta não é objeto");
+      }
+      if (typeof payload.success !== "boolean") {
+        throw new IntegrationError(
+          "INVALID_RESPONSE",
+          PROVIDER,
+          // Sem o valor recebido no detalhe: ele viria do provider.
+          "resposta sem indicador de sucesso",
+        );
+      }
+      if (payload.success !== true) {
+        /**
+         * `success:false` com HTTP 200 aqui é o provider recusando a
+         * credencial — o único motivo pelo qual uma consulta de dados da
+         * PRÓPRIA empresa falharia. Classificado pelo catálogo fechado; a
+         * `msg` do provider não é ecoada.
+         */
+        throw new IntegrationError(
+          "AUTHENTICATION_FAILED",
+          PROVIDER,
+          "provider recusou a credencial",
+        );
+      }
+
       return true;
     } catch (error) {
       if (error instanceof IntegrationError) throw error;

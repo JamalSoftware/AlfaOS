@@ -522,9 +522,15 @@ describe("Cliente HTTP do Chatbot", () => {
   });
 
   it.each([
-    ["host arbitrário", "https://attacker.example.com/chatbot"],
-    ["sufixo enganoso", "https://api.receitanet.net.attacker.com/chatbot"],
-    ["http", "http://api.receitanet.net/chatbot"],
+    ["host arbitrário", "https://attacker.example.com/api/novo/chatbot"],
+    [
+      "sufixo enganoso",
+      "https://sistema.receitanet.net.attacker.com/api/novo/chatbot",
+    ],
+    // Host CORRETO, protocolo errado: isola a checagem de TLS.
+    ["http", "http://sistema.receitanet.net/api/novo/chatbot"],
+    // Host correto, caminho do CallCenter: isola a checagem de caminho.
+    ["caminho de outra API", "https://sistema.receitanet.net/callcenter"],
   ])("base URL recusada: %s", (_l, baseUrl) => {
     expect(
       () => new ReceitanetChatbotClient({ token: "t", baseUrl }),
