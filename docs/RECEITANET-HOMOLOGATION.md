@@ -601,3 +601,29 @@ pendentes ao suporte:
 - `coordenadas.x`/`y` são sempre latitude/longitude, nessa ordem?
 - `servidor.tipo` — qual o conjunto de valores e o significado de cada um?
 - `planos[].valor` — qual o formato numérico garantido?
+
+---
+
+## Estado da integração — v0.7.2
+
+| Capability | API | Credencial | Situação |
+|---|---|---|---|
+| Busca de cliente | CallCenter | `CALLCENTER` | Implementado |
+| Detalhe do cliente | CallCenter | `CALLCENTER` | Implementado |
+| Verificar acesso (ONLINE/OFFLINE) | CallCenter | `CALLCENTER` | Implementado |
+| Chamados abertos | CallCenter | `CALLCENTER` | Implementado (leitura) |
+| Enriquecimento do cadastro | Chatbot | `CHATBOT` | **Implementado (v0.7.2)** |
+| Credencial PPPoE real | Chatbot | `CHATBOT` | **Implementado (v0.7.2)** |
+| Sincronização de OS | — | — | **NÃO implementado** |
+
+Campos que o enriquecimento aplica: nome, endereço completo (com
+referência), telefones, e-mail, coordenadas, `idContrato` e a credencial
+PPPoE.
+
+Campos que o Chatbot devolve e o AlfaOS **não persiste**: plano, servidor,
+profile, interface, IP, MAC, tecnologia. São dados voláteis — persistir
+produziria cadastro velho apresentado como atual. Ficam disponíveis por
+leitura ao vivo no bloco operacional da OS.
+
+Nenhuma operação mutante do ReceitaNet foi implementada em nenhuma das duas
+APIs.

@@ -763,6 +763,86 @@ cenário em que há problemas maiores. Registrado para revisão futura.
 
 ---
 
+## 8.8. Enriquecimento de cliente via Chatbot — v0.7.2
+
+### Fronteira do dado pessoal
+
+A resposta do Chatbot carrega, de uma vez: senha PPPoE em texto puro,
+login, telefones, e-mail, CPF/CNPJ, endereço completo e coordenadas. É o
+payload mais sensível que o AlfaOS lê de qualquer provedor.
+
+Regras em vigor:
+
+- o corpo bruto **nunca** é logado, persistido, cacheado ou devolvido;
+- existe **uma** fronteira de normalização, e depois dela o objeto é
+  descartado;
+- a senha segue direto para a cifra da `CustomerConnection` (§8.5);
+- o `AuditLog` do enriquecimento registra os **nomes** dos campos
+  alterados, nunca os valores — a lista carrega telefone, e-mail e endereço
+  de uma pessoa;
+- o resultado devolvido ao chamador contém desfecho, código do catálogo e
+  contagens. Nenhum valor pessoal.
+
+### Ambiguidade não grava
+
+Múltiplos contratos sem desempate inequívoco produzem `AMBIGUOUS` e
+**escrita nenhuma** — nem os campos que “provavelmente” seriam iguais entre
+contratos, porque decidir quais seriam é a mesma adivinhação por outro nome.
+
+O desempate usa `Customer.externalContractId`, lido do **próprio** cliente
+sob escopo de empresa. Nunca de uma varredura global: um `idContrato` de
+outra empresa não desempata nada, e há regressão provando isso.
+
+`idCliente` **não** desempata contratos — é compartilhado entre os contratos
+do mesmo cliente.
+
+### Contato digitado por gente
+
+Telefone e e-mail só são gravados quando o campo local está **vazio**.
+
+São exatamente os campos que o despachante corrige à mão depois de falar com
+o cliente. Deixar a releitura do ERP sobrescrever apagaria a informação mais
+atual da empresa em favor da mais velha. Endereço e nome seguem a política
+oposta (provedor é fonte), como já era antes.
+
+### Telefone: dois slots, N valores
+
+O cadastro tem `phone` e `secondaryPhone`; o provedor pode devolver mais. O
+preenchimento olha quais slots estão **livres** e conta o que não coube em
+`phonesDiscarded`.
+
+A contagem existe para que a perda seja visível. Uma divisão cega da lista
+em dois gravaria o segundo telefone quando o primeiro slot estivesse ocupado
+por um valor manual — perdendo o primeiro **sem contá-lo**.
+
+### Coordenadas
+
+`x` é latitude, `y` é longitude (homologado geograficamente). Validadas por
+faixa antes de gravar, e `(0, 0)` é **recusado**: é o Golfo da Guiné, e na
+prática o sentinela de “não preenchido” de um cadastro.
+
+Coordenada importada entra com `locationSource = IMPORTED` e
+`locationVerified = false`, **sempre**. Marcar verificado por ter vindo de um
+cadastro afirmaria uma checagem que ninguém fez — e é essa afirmação que
+faria um técnico confiar num ponto errado em vez de procurar o endereço.
+
+**Dívida registrada:** o PRD §133–§139 descreve uma entidade
+`CustomerLocation` própria, com histórico e verificação por GPS. Os dois
+campos em `Customer` são a menor mudança segura desta etapa, não o desenho
+final.
+
+### Isolamento de falha
+
+Chatbot ausente, indisponível ou sem documento do cliente devolve
+`UNAVAILABLE` com código do catálogo — a importação pelo CallCenter já
+aconteceu e não é desfeita. O provisionamento PPPoE cai para o `login` do
+CallCenter e a política da empresa.
+
+Não há fallback de credencial: o enriquecimento usa exclusivamente a
+credencial `CHATBOT` (§8.7).
+
+---
+
 ## 9. Configuração de produção
 
 1. Gere um `AUTH_SECRET` forte: `openssl rand -base64 48`.

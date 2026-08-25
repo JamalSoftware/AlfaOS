@@ -14,6 +14,10 @@ import {
   provisionPppoeFromErp,
   type PppoeProvisionOutcome,
 } from "./pppoe-provisioning";
+import {
+  enrichCustomerFromChatbot,
+  type ErpEnrichmentResult,
+} from "./erp-customer-enrichment";
 
 /**
  * Busca e importação de cliente a partir do ERP.
@@ -117,6 +121,15 @@ export interface ErpCustomerImportResult {
    * permitiria a um caminho novo esquecer de responder.
    */
   pppoe: PppoeProvisionOutcome;
+  /**
+   * Desfecho do enriquecimento via Chatbot.
+   *
+   * Também obrigatório: `UNAVAILABLE` e `AMBIGUOUS` significam coisas
+   * opostas para quem opera — a primeira é “configure o Chatbot”, a
+   * segunda é “este cliente tem mais de um contrato e alguém precisa
+   * dizer qual”. Um campo ausente colapsaria as duas em silêncio.
+   */
+  enrichment: ErpEnrichmentResult;
 }
 
 /**
@@ -198,15 +211,44 @@ export async function importErpCustomer(
    * importação (ver `provisionPppoeFromErp`).
    */
   const withPppoe = async (
-    result: Omit<ErpCustomerImportResult, "pppoe">,
-  ): Promise<ErpCustomerImportResult> => ({
-    ...result,
-    pppoe: await provisionPppoeFromErp(companyId, actorUserId, {
-      customerId: result.customerId,
-      login: detail.login,
-      document: detail.document,
-    }),
-  });
+    result: Omit<ErpCustomerImportResult, "pppoe" | "enrichment">,
+  ): Promise<ErpCustomerImportResult> => {
+    /**
+     * Enriquecimento PRIMEIRO, provisionamento do CallCenter só se ele não
+     * resolveu a conexão.
+     *
+     * A ordem importa: o Chatbot traz login E senha real, o CallCenter só o
+     * login. Rodar o CallCenter antes criaria a conexão com senha derivada
+     * do CPF, e o enriquecimento teria de corrigi-la em seguida — duas
+     * escritas e uma auditoria de troca de procedência para um cliente que
+     * nunca precisou do palpite.
+     */
+    const enrichment = await enrichCustomerFromChatbot(
+      companyId,
+      actorUserId,
+      result.customerId,
+    );
+
+    /**
+     * O Chatbot não resolveu a conexão? O CallCenter tenta com o que tem.
+     *
+     * É o isolamento de falha em ação: uma empresa sem Chatbot, ou um
+     * Chatbot fora do ar, continua tendo o usuário PPPoE provisionado pelo
+     * `login` do CallCenter e a senha pela política da empresa.
+     */
+    const chatbotProvisioned =
+      enrichment.pppoe !== undefined && enrichment.pppoe !== "SKIPPED_NO_LOGIN";
+
+    const pppoe = chatbotProvisioned
+      ? (enrichment.pppoe as PppoeProvisionOutcome)
+      : await provisionPppoeFromErp(companyId, actorUserId, {
+          customerId: result.customerId,
+          login: detail.login,
+          document: detail.document,
+        });
+
+    return { ...result, pppoe, enrichment };
+  };
 
   const linked = await prisma.customer.findFirst({
     where: { companyId, externalProvider: provider, externalId },

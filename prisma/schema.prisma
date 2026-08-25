@@ -88,6 +88,22 @@ enum CustomerConnectionType {
   PPPOE
 }
 
+/// De onde vieram as coordenadas do cliente.
+///
+/// `IMPORTED` é coordenada do cadastro do provedor: útil para chegar perto,
+/// mas NÃO é confirmação de que alguém esteve lá. `MANUAL` é o que uma
+/// pessoa digitou. Nenhum dos dois significa verificado — `locationVerified`
+/// é campo separado justamente porque origem e verificação são perguntas
+/// diferentes.
+///
+/// Solução mínima desta etapa. O PRD §133–§139 descreve uma entidade
+/// `CustomerLocation` própria, com histórico e verificação por GPS do
+/// técnico; migrar para ela é dívida registrada, não trabalho desta versão.
+enum CustomerLocationSource {
+  MANUAL
+  IMPORTED
+}
+
 /// Política de senha PPPoE padrão da empresa.
 ///
 /// `MANUAL_ONLY` é o default deliberado: uma empresa que nunca declarou
@@ -297,6 +313,30 @@ model Customer {
   zipCode          String?
   latitude         Decimal?
   longitude        Decimal?
+
+  /// Origem das coordenadas acima. Ver `CustomerLocationSource`.
+  locationSource   CustomerLocationSource?
+  /// Alguém confirmou esta posição em campo?
+  ///
+  /// Coordenada importada do provedor entra SEMPRE como `false`. Marcar
+  /// verificado por ter vindo de um cadastro seria afirmar uma checagem que
+  /// ninguém fez — e é justamente essa afirmação que faria um técnico
+  /// confiar num ponto errado em vez de procurar o endereço.
+  locationVerified Boolean  @default(false)
+
+  /// `idContrato` do provedor, quando conhecido.
+  ///
+  /// Existe para desempatar múltiplos contratos numa releitura: `idCliente`
+  /// é compartilhado entre os contratos do mesmo cliente e não distingue um
+  /// do outro. Sem esta coluna, todo cliente com mais de um contrato ficava
+  /// permanentemente em AMBIGUOUS.
+  ///
+  /// **Não é único.** Um cliente pode ter vários contratos, e o AlfaOS
+  /// mapeia o CLIENTE (`externalId`), não o contrato — declarar unicidade
+  /// afirmaria uma cardinalidade que o provedor nunca prometeu. Indexado
+  /// para a busca, e só.
+  externalContractId String?
+
   active           Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -308,6 +348,7 @@ model Customer {
   @@unique([companyId, externalProvider, externalId])
   @@index([companyId, name])
   @@index([companyId, document])
+  @@index([companyId, externalProvider, externalContractId])
   @@index([companyId, active])
   @@map("customers")
 }
