@@ -112,7 +112,7 @@ describe("Provisionamento PPPoE a partir do ERP", () => {
       where: { customerId: customer.id },
     });
     expect(row.username).toBe(LOGIN_ERP);
-    expect(row.usernameSource).toBe("RECEITANET");
+    expect(row.usernameSource).toBe("RECEITANET_CALLCENTER");
     expect(row.passwordSource).toBe("AUTO_DOCUMENT_LAST4");
     expect(row.credentialCiphertext).not.toBeNull();
   });
@@ -282,7 +282,7 @@ describe("MANUAL nunca é sobrescrito pela automação", () => {
       where: { customerId: customer.id },
     });
     expect(row.username).toBe("novo.login");
-    expect(row.usernameSource).toBe("RECEITANET");
+    expect(row.usernameSource).toBe("RECEITANET_CALLCENTER");
   });
 
   it("login igual não produz escrita desnecessária", async () => {
@@ -516,7 +516,7 @@ describe("Importação do ERP provisiona o PPPoE", () => {
       where: { customerId: result.customerId },
     });
     expect(conn.username).toBe(LOGIN_ERP);
-    expect(conn.usernameSource).toBe("RECEITANET");
+    expect(conn.usernameSource).toBe("RECEITANET_CALLCENTER");
     expect(conn.passwordSource).toBe("AUTO_DOCUMENT_LAST4");
   });
 

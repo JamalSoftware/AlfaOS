@@ -16,8 +16,11 @@ interface ConnectionRow {
   type: string;
   username: string;
   passwordConfigured: boolean;
-  usernameSource: "MANUAL" | "RECEITANET";
-  passwordSource: "MANUAL" | "AUTO_DOCUMENT_LAST4";
+  usernameSource: "MANUAL" | "RECEITANET_CALLCENTER" | "RECEITANET_CHATBOT";
+  passwordSource:
+    | "MANUAL"
+    | "AUTO_DOCUMENT_LAST4"
+    | "RECEITANET_CHATBOT";
   active: boolean;
 }
 
@@ -29,12 +32,22 @@ interface ConnectionRow {
  */
 const USERNAME_SOURCE_LABEL: Record<ConnectionRow["usernameSource"], string> = {
   MANUAL: "Manual",
-  RECEITANET: "ReceitaNet",
+  RECEITANET_CALLCENTER: "ReceitaNet (CallCenter)",
+  RECEITANET_CHATBOT: "ReceitaNet (Chatbot)",
 };
 
+/**
+ * Rótulos da senha, em ordem de confiança.
+ *
+ "Padrão da empresa" é explicitamente um palpite derivado do CPF, e o
+ * operador precisa distingui-lo da credencial real que o Chatbot entrega —
+ * é a diferença entre uma senha que provavelmente funciona e uma que o
+ * provedor confirmou.
+ */
 const PASSWORD_SOURCE_LABEL: Record<ConnectionRow["passwordSource"], string> = {
   MANUAL: "Manual",
-  AUTO_DOCUMENT_LAST4: "Padrão da empresa",
+  AUTO_DOCUMENT_LAST4: "Padrão da empresa (CPF)",
+  RECEITANET_CHATBOT: "ReceitaNet (real)",
 };
 
 const inputClass =

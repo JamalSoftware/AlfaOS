@@ -49,6 +49,7 @@ export async function resetDatabase(): Promise<void> {
   await prisma.customer.deleteMany();
   await prisma.loginAttempt.deleteMany();
   await prisma.auditLog.deleteMany();
+  await prisma.eRPCredential.deleteMany();
   await prisma.eRPIntegration.deleteMany();
   await prisma.user.deleteMany();
   await prisma.company.deleteMany();

@@ -464,3 +464,140 @@ hipótese, não mapeamento.
   `cobranca/enviar`, `notificacao-pagamento` e `cliente/reiniciar` seguem
   intocados.
 - Nenhuma linha de URA, Chatbot ou Central do Assinante.
+
+---
+
+## ReceitaNet Chatbot — homologação real
+
+**Data:** 2026-08-25. Homologado contra a API real, em cliente real.
+
+Esta seção separa três coisas que não podem ser confundidas:
+
+| Rótulo | Significa |
+|---|---|
+| **COMPROVADO EMPIRICAMENTE** | Observado na API real e conferido contra a realidade do cliente. Não está no contrato publicado. |
+| **DOCUMENTADO OFICIALMENTE** | Está no OpenAPI publicado. |
+| **AINDA NÃO HOMOLOGADO** | Aparece na resposta, mas ninguém verificou o significado. |
+
+### Forma da resposta — DOCUMENTADO OFICIALMENTE
+
+`POST /clientes` devolve `success`, `msg` e `contratos`. Dentro de
+`contratos`: `idCliente`, `idContrato`, `razaoSocial`, `login`, `senha`,
+`coordenadas`, `telefones[]`, `endereco`, `servidor`, `contratoStatusDisplay`,
+`isPromessaPagamento`, `contratoValorAberto`, `faturasEmAberto[]`, `email`,
+`cpfCnpj`, `contratoStatus`, `existeChamado`, `isChamados`,
+`clienteLiberadoConfianca`, `usouLiberacaoConfianca`, `logins[]`, `planos[]`,
+`tecnologia`.
+
+### Credencial PPPoE — COMPROVADO EMPIRICAMENTE
+
+`contratos.logins[]` traz `login`, `senha` e `isPrincipal`.
+
+Observado: `logins[0]` coincidiu com o par solto `contratos.login`/`senha`, e
+`isPrincipal` era `true`.
+
+**O achado que muda a arquitetura:** `contratos.senha` foi comparada com a
+senha PPPoE real do cliente e conferiu — **num cliente cuja senha NÃO era os
+4 últimos dígitos do CPF**. Ou seja, a API entregou corretamente justamente a
+exceção à política padrão, que é o caso em que a derivação erraria e ninguém
+perceberia até o técnico não conseguir conectar.
+
+Consequência: `DOCUMENT_LAST4` deixou de ser fonte principal e virou
+**fallback**. A ordem de confiança passou a ser:
+
+1. `RECEITANET_CHATBOT` — credencial real do provedor;
+2. `MANUAL` — o que uma pessoa digitou, nunca sobrescrito em silêncio,
+   **nem pela credencial real**;
+3. `AUTO_DOCUMENT_LAST4` — palpite derivado do CPF.
+
+A seleção da conexão principal usa o campo `isPrincipal`, **nunca o índice**:
+uma amostra em que o principal estava na posição 0 não é ordenação garantida,
+e assumir a ordem entregaria a credencial errada no primeiro cliente fora do
+padrão.
+
+### Telefones — COMPROVADO EMPIRICAMENTE
+
+`contratos.telefones[]` foi comparado com o telefone cadastral real e
+conferiu. É fonte de telefone **mestre**, e tem precedência sobre a extração
+do rótulo `Contato:` na descrição de chamado — que continua sendo contato
+**daquela OS**, não do cadastro.
+
+O código não assume quantidade: uma, várias ou nenhuma.
+
+### Coordenadas — COMPROVADO EMPIRICAMENTE
+
+`contratos.coordenadas` traz `x` e `y`. Verificação geográfica real:
+**`x` é latitude, `y` é longitude** — os pontos caíram junto ao endereço do
+cliente.
+
+O mapeamento está fixado e testado porque a nomenclatura `x`/`y` torna a
+inversão fácil de cometer, e invertida põe o cliente do outro lado do mundo.
+
+Coordenada importada **não** é localização confirmada: confirmação por
+técnico/GPS continua sendo processo separado.
+
+### Endereço — DOCUMENTADO, com ressalvas de campo
+
+`numero` pode vir nulo. Nunca é inventado e nunca vira a string `"null"` na
+tela. `referencia` é preservada — é o que faz o técnico achar a casa quando
+não há número.
+
+### Servidor — PARCIALMENTE HOMOLOGADO
+
+Em cliente OFFLINE testado: `servidor`, `profile`, `tipo` e `interface`
+vieram preenchidos e conferidos manualmente. `ip` veio nulo; `mac`,
+`idSerial` e `elementoRede` vieram vazios.
+
+Todos são tratados como **nullable**. `tipo` **não** ganhou enum: o provider
+não publica os significados.
+
+### Planos — DOCUMENTADO, com armadilha de tipo
+
+`planos[].valor` chega como **String** nesta API. `Number()` ingênuo aceitaria
+`""` como `0` — e zero parece um plano gratuito. A normalização trata formato
+brasileiro e devolve `null` para o que não for numérico.
+
+### Segurança — o que esta API obriga
+
+**A resposta contém senha de cliente em texto puro.** Regras adotadas:
+
+- o corpo bruto nunca é logado, persistido ou devolvido a um chamador;
+- existe UMA fronteira de normalização, e depois dela o objeto é descartado;
+- a senha segue direto para a cifra da `CustomerConnection`;
+- erros carregam código, nunca trecho do corpo — uma mensagem que ecoasse o
+  payload vazaria a credencial num log;
+- toda chamada é server-side.
+
+**O token do Chatbot vai na QUERY STRING**, porque o contrato só aceita
+assim. É pior que o header do CallCenter — URL entra em log de servidor,
+proxy e histórico — e é limitação do provider, não escolha nossa. A mitigação
+possível é a chamada nunca sair do servidor, que é o caso.
+
+### Duas credenciais, dois ciclos de vida
+
+O token do CallCenter não abre o Chatbot. O AlfaOS guarda as duas
+separadamente, resolvidas por `(companyId, provider, kind)`.
+
+O isolamento é **estrutural**: cada credencial é uma LINHA. Remover a do
+Chatbot apaga uma linha e não tem como tocar a do CallCenter, porque não
+existe escrita que alcance as duas. Foi o acoplamento oposto — credencial
+como colunas de uma linha compartilhada — que já causou perda de token numa
+troca de provider.
+
+O AAD é versionado por linha. `v1` (empresa + provider) é o formato das
+credenciais migradas, e mantê-lo é o que preserva o token que a empresa já
+tinha configurado. `v2` inclui o `kind`: sem ele, as duas credenciais da
+mesma empresa teriam AAD idêntico e seriam intercambiáveis — inaceitável
+entre tokens com privilégios diferentes, já que o do Chatbot devolve senha de
+cliente. Toda gravação nova é `v2`.
+
+### Ainda pendente de confirmação do provider
+
+Nada nesta seção está no OpenAPI como semântica declarada. Continuam
+pendentes ao suporte:
+
+- `logins[].senha` é sempre a senha PPPoE vigente, ou pode estar defasada?
+- `isPrincipal` é garantidamente único por contrato?
+- `coordenadas.x`/`y` são sempre latitude/longitude, nessa ordem?
+- `servidor.tipo` — qual o conjunto de valores e o significado de cada um?
+- `planos[].valor` — qual o formato numérico garantido?

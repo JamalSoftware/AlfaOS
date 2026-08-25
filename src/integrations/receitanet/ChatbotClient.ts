@@ -1,0 +1,196 @@
+import { IntegrationError } from "../errors";
+import type { FetchLike } from "./CallCenterClient";
+
+/**
+ * Transporte HTTP da API Chatbot do ReceitaNet.
+ *
+ * Separado do CallCenter de propósito: são contratos diferentes, com
+ * autenticação diferente e credencial diferente. Compartilhar um cliente
+ * obrigaria a um punhado de condicionais internas e tornaria fácil mandar o
+ * token errado para a API errada.
+ *
+ * **Esta API devolve senha de cliente em TEXTO PURO.** Isso governa tudo aqui:
+ *
+ * - o corpo bruto NUNCA é logado, persistido ou devolvido a um chamador;
+ * - nada deste módulo escreve em disco ou em banco;
+ * - o único caminho de saída é um DTO já reduzido aos campos necessários, e a
+ *   senha segue dele direto para a cifra da `CustomerConnection`;
+ * - erros carregam código e nada do corpo — uma mensagem de erro que ecoasse o
+ *   payload vazaria a credencial num log.
+ *
+ * O token vai na QUERY STRING porque o contrato do Chatbot só aceita assim.
+ * Isso é pior que o header do CallCenter — URL entra em log de servidor, proxy
+ * e histórico — e é limitação do provider, não escolha nossa. Está registrado
+ * em `docs/RECEITANET-HOMOLOGATION.md`; a mitigação possível é a chamada ser
+ * exclusivamente server-side, que é o caso.
+ */
+
+export const CHATBOT_BASE_URL = "https://api.receitanet.net/chatbot";
+export const CHATBOT_TIMEOUT_MS = 8_000;
+
+const PROVIDER = "RECEITANET";
+const CHATBOT_HOST = "api.receitanet.net";
+const CHATBOT_BASE_PATH = "/chatbot";
+
+/** `app` identifica o tipo de integração. Não é segredo. */
+const CHATBOT_APP = "chatbot";
+
+export interface ChatbotClientOptions {
+  token: string;
+  baseUrl?: string;
+  timeoutMs?: number;
+  fetchImpl?: FetchLike;
+}
+
+/**
+ * Allowlist da base URL, pelos mesmos motivos do CallCenter: uma coluna de
+ * banco não pode decidir para onde o token viaja. Aqui pesa ainda mais, porque
+ * o token vai na URL e a resposta traz senha de cliente.
+ */
+function resolveBaseUrl(raw?: string | null): string {
+  const candidate = raw?.trim();
+  if (!candidate) {
+    return CHATBOT_BASE_URL;
+  }
+
+  const refuse = (detail: string) =>
+    new IntegrationError(
+      "AUTHENTICATION_FAILED",
+      PROVIDER,
+      `base URL do Chatbot recusada (${detail})`,
+    );
+
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    throw refuse("URL malformada");
+  }
+
+  if (url.protocol !== "https:") throw refuse("protocolo não é https");
+  if (url.username !== "" || url.password !== "") throw refuse("credencial embutida");
+  if (url.hostname !== CHATBOT_HOST) throw refuse("host não é o oficial");
+  if (url.port !== "") throw refuse("porta não padrão");
+  if (url.pathname.replace(/\/+$/, "") !== CHATBOT_BASE_PATH) {
+    throw refuse("caminho base não é /chatbot");
+  }
+  if (url.search !== "" || url.hash !== "") throw refuse("query ou fragmento");
+
+  return `https://${CHATBOT_HOST}${CHATBOT_BASE_PATH}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export class ReceitanetChatbotClient {
+  private readonly token: string;
+  private readonly baseUrl: string;
+  private readonly timeoutMs: number;
+  private readonly fetchImpl: FetchLike;
+
+  constructor(options: ChatbotClientOptions) {
+    if (!options.token || options.token.trim() === "") {
+      throw new IntegrationError(
+        "AUTHENTICATION_FAILED",
+        PROVIDER,
+        "cliente Chatbot construído sem token",
+      );
+    }
+    this.token = options.token;
+    this.baseUrl = resolveBaseUrl(options.baseUrl);
+    this.timeoutMs = options.timeoutMs ?? CHATBOT_TIMEOUT_MS;
+    this.fetchImpl = options.fetchImpl ?? defaultFetch;
+  }
+
+  /**
+   * `POST /clientes` — cliente e contratos, por CPF/CNPJ.
+   *
+   * Devolve o payload BRUTO para o adapter normalizar imediatamente. Ele não
+   * atravessa mais nenhuma camada, e nenhum chamador fora do adapter deve
+   * invocá-lo: o objeto contém senha em texto puro.
+   */
+  async buscarClientes(cpfcnpj: string): Promise<unknown> {
+    const digits = cpfcnpj.replace(/\D/g, "");
+    if (digits.length !== 11 && digits.length !== 14) {
+      throw new IntegrationError(
+        "INVALID_RESPONSE",
+        PROVIDER,
+        "documento fora do formato aceito pelo Chatbot",
+      );
+    }
+
+    const params = new URLSearchParams({
+      token: this.token,
+      app: CHATBOT_APP,
+      cpfcnpj: digits,
+    });
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    let res: Awaited<ReturnType<FetchLike>>;
+    try {
+      res = await this.fetchImpl(`${this.baseUrl}/clientes?${params.toString()}`, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        body: "",
+        signal: controller.signal,
+      });
+    } catch (error) {
+      const aborted =
+        error instanceof Error &&
+        (error.name === "AbortError" || error.name === "TimeoutError");
+      throw new IntegrationError(
+        aborted ? "TIMEOUT" : "UPSTREAM_UNAVAILABLE",
+        PROVIDER,
+        // Sem eco do erro original: ele pode carregar a URL, e a URL carrega o
+        // token.
+        aborted ? `sem resposta em ${this.timeoutMs}ms` : "falha de rede",
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (res.status === 401 || res.status === 403) {
+      throw new IntegrationError("AUTHENTICATION_FAILED", PROVIDER, `HTTP ${res.status}`);
+    }
+    if (res.status === 429) {
+      throw new IntegrationError("RATE_LIMITED", PROVIDER, "HTTP 429");
+    }
+    if (res.status >= 500) {
+      throw new IntegrationError("UPSTREAM_UNAVAILABLE", PROVIDER, `HTTP ${res.status}`);
+    }
+    if (res.status !== 200) {
+      throw new IntegrationError("INVALID_RESPONSE", PROVIDER, `HTTP ${res.status}`);
+    }
+
+    const raw = await res.text();
+    let payload: unknown;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      throw new IntegrationError("INVALID_RESPONSE", PROVIDER, "corpo não é JSON");
+    }
+
+    if (!isRecord(payload)) {
+      throw new IntegrationError("INVALID_RESPONSE", PROVIDER, "resposta não é objeto");
+    }
+    if (payload.success === false) {
+      throw new IntegrationError("CUSTOMER_NOT_FOUND", PROVIDER, "cliente não localizado");
+    }
+
+    return payload;
+  }
+}
+
+const defaultFetch: FetchLike = async (url, init) => {
+  const res = await fetch(url, {
+    method: init.method,
+    headers: init.headers,
+    ...(init.method === "GET" ? {} : { body: init.body }),
+    signal: init.signal,
+    cache: "no-store",
+  });
+  return { ok: res.ok, status: res.status, text: () => res.text() };
+};

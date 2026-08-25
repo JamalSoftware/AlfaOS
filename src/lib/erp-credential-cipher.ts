@@ -64,6 +64,17 @@ export interface EncryptedCredential {
 export interface CredentialContext {
   companyId: string;
   provider: string;
+  /**
+   * Qual API do provider a credencial abre (AAD v2).
+   *
+   * Ausente nas credenciais migradas de `ERPIntegration`, que foram
+   * cifradas quando só existia uma por empresa. Presente em toda gravação
+   * nova — sem ele, as duas credenciais da mesma empresa teriam AAD
+   * idêntico, e um ciphertext do Chatbot transplantado para a linha do
+   * CallCenter decriptaria sem protesto. São tokens com privilégios
+   * diferentes: o do Chatbot devolve senha de cliente em texto puro.
+   */
+  kind?: string | null;
 }
 
 /**
@@ -73,7 +84,16 @@ export interface CredentialContext {
  * AAD must match byte-for-byte on decrypt, so a format change fails closed
  * instead of silently accepting an old binding.
  */
-const AAD_VERSION = "v1";
+/**
+ * Formatos de AAD suportados.
+ *
+ * A versão NÃO é escolha do chamador: ela decorre de haver ou não `kind`
+ * no contexto, e o contexto decorre da linha. Deixar o chamador escolher
+ * permitiria pedir v1 para uma linha v2 e, com isso, aceitar de volta a
+ * ligação mais fraca.
+ */
+const AAD_VERSION_LEGACY = "v1";
+const AAD_VERSION_SCOPED = "v2";
 
 /**
  * Builds the Additional Authenticated Data that binds a ciphertext to one
@@ -91,11 +111,23 @@ const AAD_VERSION = "v1";
  * will be reconstructed, and GCM's tag check then rejects it.
  */
 export function buildCredentialAad(context: CredentialContext): Buffer {
-  const { companyId, provider } = context;
-  const encoded =
-    `alfaos:erp-credential:${AAD_VERSION}:` +
+  const { companyId, provider, kind } = context;
+  const base =
     `${companyId.length}:${companyId}:${provider.length}:${provider}`;
-  return Buffer.from(encoded, "utf8");
+
+  // Sem `kind`, reproduz byte a byte o formato que cifrou as credenciais
+  // já existentes — é o que as mantém decriptáveis depois da migração.
+  if (kind === undefined || kind === null) {
+    return Buffer.from(
+      `alfaos:erp-credential:${AAD_VERSION_LEGACY}:${base}`,
+      "utf8",
+    );
+  }
+
+  return Buffer.from(
+    `alfaos:erp-credential:${AAD_VERSION_SCOPED}:${base}:${kind.length}:${kind}`,
+    "utf8",
+  );
 }
 
 /**

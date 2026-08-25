@@ -2,6 +2,10 @@ import type { ConnectionPasswordSource, PppoePasswordPolicy } from "@prisma/clie
 import { logAudit } from "./audit";
 import { createCustomerConnection, updateCustomerConnection } from "./customer-connections";
 import { prisma } from "./prisma";
+import {
+  selectPrincipalLogin,
+  type ChatbotLogin,
+} from "@/integrations/chatbot-enrichment";
 
 /**
  * Provisionamento automático do acesso PPPoE a partir do ERP.
@@ -19,9 +23,21 @@ import { prisma } from "./prisma";
  *    provisionamento automático desiste e reporta, em vez de escolher.
  *
  * Este módulo NÃO fala com o ReceitaNet e NÃO envia nada para lá. Ele consome o
- * `login` que a consulta read-only já trouxe e grava credencial LOCAL, que é a
- * que o técnico usa. Nenhuma alteração é propagada para o provider, para o
- * RADIUS ou para o roteador.
+ * que a consulta read-only já trouxe e grava credencial LOCAL, que é a que o
+ * técnico usa. Nenhuma alteração é propagada para o provider, para o RADIUS ou
+ * para o roteador.
+ *
+ * ## Ordem de confiança da senha
+ *
+ * 1. **Credencial real do Chatbot.** É a senha que o provedor de fato usa.
+ *    Foi validada em campo justamente num cliente cuja senha era EXCEÇÃO à
+ *    política padrão — o caso em que a derivação erraria e ninguém
+ *    perceberia até o técnico não conseguir conectar.
+ * 2. **`MANUAL` existente.** Nunca sobrescrita em silêncio, nem pela
+ *    credencial real: se alguém digitou aquela senha para aquele cliente,
+ *    houve um motivo que o sistema não conhece.
+ * 3. **`DOCUMENT_LAST4`.** Palpite derivado do CPF. Só entra quando não há
+ *    credencial real disponível — virou FALLBACK, não fonte principal.
  */
 
 /** Só dígitos. Máscara é apresentação e não pode influenciar a derivação. */
@@ -78,10 +94,20 @@ export type PppoeProvisionOutcome =
 
 export interface ProvisionPppoeInput {
   customerId: string;
-  /** `login` do ERP. Validado operacionalmente como o usuário PPPoE. */
+  /**
+   * `login` do CallCenter. Validado operacionalmente como o usuário PPPoE,
+   * mas SEM senha — o CallCenter não expõe credencial.
+   */
   login: string | null;
-  /** Documento do cliente, para a política de senha. */
+  /** Documento do cliente, para o fallback da política da empresa. */
   document: string | null;
+  /**
+   * Credenciais reais vindas do Chatbot, quando disponíveis.
+   *
+   * Contêm senha em texto puro e são consumidas aqui, seguindo direto para
+   * a cifra. Não são logadas, auditadas nem devolvidas.
+   */
+  chatbotLogins?: ChatbotLogin[];
 }
 
 /**
@@ -122,15 +148,37 @@ export async function provisionPppoeFromErp(
         return "FAILED";
       }
 
-      const password = derivePolicyPassword(company.pppoePasswordPolicy, input.document);
+      /**
+       * A credencial real ganha do palpite. Selecionada por `isPrincipal`,
+       * nunca pelo índice do array.
+       */
+      const principal = selectPrincipalLogin(input.chatbotLogins ?? []);
+      const realPassword = principal?.password ?? null;
+
+      const password =
+        realPassword ??
+        derivePolicyPassword(company.pppoePasswordPolicy, input.document);
+
       const passwordSource: ConnectionPasswordSource =
-        password === null ? "MANUAL" : "AUTO_DOCUMENT_LAST4";
+        realPassword !== null
+          ? "RECEITANET_CHATBOT"
+          : password !== null
+            ? "AUTO_DOCUMENT_LAST4"
+            : "MANUAL";
+
+      // Usuário do Chatbot também tem precedência: veio da mesma leitura
+      // que a senha, e o par tem de ficar coerente.
+      const username = principal?.login ?? login;
+      const usernameSource =
+        principal !== null
+          ? ("RECEITANET_CHATBOT" as const)
+          : ("RECEITANET_CALLCENTER" as const);
 
       await createCustomerConnection(companyId, actorUserId, {
         customerId: input.customerId,
-        username: login,
+        username,
         password,
-        usernameSource: "RECEITANET",
+        usernameSource,
         passwordSource,
       });
       return "CREATED";
@@ -155,7 +203,7 @@ export async function provisionPppoeFromErp(
 
     await updateCustomerConnection(companyId, connection.id, actorUserId, {
       username: login,
-      usernameSource: "RECEITANET",
+      usernameSource: "RECEITANET_CALLCENTER",
     });
     return "USERNAME_UPDATED";
   } catch {

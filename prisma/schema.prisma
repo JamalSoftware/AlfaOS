@@ -18,6 +18,18 @@ enum ERPProvider {
   RECEITANET
 }
 
+/// Qual API do provider a credencial abre.
+///
+/// O ReceitaNet publica APIs distintas, cada uma com sua própria
+/// integração cadastrada do lado dele — o token do CallCenter não abre o
+/// Chatbot. Mesmo que uma empresa por acaso configure o MESMO valor nas
+/// duas, elas continuam sendo credenciais separadas: o ciclo de vida é
+/// independente, e trocar uma nunca pode derrubar a outra.
+enum ERPCredentialKind {
+  CALLCENTER
+  CHATBOT
+}
+
 enum ServiceOrderPriority {
   LOW
   NORMAL
@@ -96,9 +108,16 @@ enum PppoePasswordPolicy {
 /// desfaça o que uma pessoa digitou. `MANUAL` é o default, porque toda
 /// conexão que já existia foi criada à mão e não pode ser sobrescrita
 /// retroativamente por um provider.
+///
+/// A distinção por API não é burocracia: CallCenter e Chatbot são
+/// contratos diferentes, com credenciais diferentes e confiabilidade
+/// diferente. O Chatbot entrega a credencial real do cliente; o CallCenter
+/// entrega só o login. Saber de qual das duas veio um dado é o que permite
+/// decidir se uma releitura pode substituí-lo.
 enum ConnectionUsernameSource {
   MANUAL
-  RECEITANET
+  RECEITANET_CALLCENTER
+  RECEITANET_CHATBOT
 }
 
 /// De onde veio a senha da conexão.
@@ -107,9 +126,21 @@ enum ConnectionUsernameSource {
 /// duas: `MANUAL` marca a senha que alguém definiu para aquele cliente
 /// específico — exatamente o caso que a política padrão da empresa não
 /// pode atropelar.
+///
+/// Ordem de confiança, do mais forte ao mais fraco:
+///
+/// 1. `RECEITANET_CHATBOT` — a credencial REAL do cliente, como o provedor
+///    a conhece. Foi validada em campo inclusive num cliente cuja senha
+///    era exceção à política padrão, que é justamente o caso em que a
+///    derivação erraria.
+/// 2. `MANUAL` — alguém digitou para aquele cliente. Nunca sobrescrita
+///    em silêncio, nem pelo Chatbot.
+/// 3. `AUTO_DOCUMENT_LAST4` — palpite da política da empresa. Só vale
+///    quando não há credencial real disponível.
 enum ConnectionPasswordSource {
   MANUAL
   AUTO_DOCUMENT_LAST4
+  RECEITANET_CHATBOT
 }
 
 /// Unit of a material declared as used on a service order. Deliberately a
@@ -149,8 +180,64 @@ model Company {
   diagnosticSnapshots    CustomerDiagnosticSnapshot[]
   customerConnections    CustomerConnection[]
   serviceOrderCounter    ServiceOrderCounter?
+  erpCredentials         ERPCredential[]
 
   @@map("companies")
+}
+
+/// Uma credencial de ERP, por empresa, provider e API.
+///
+/// Substitui os campos `credential*` de `ERPIntegration`, que só
+/// conseguiam representar UMA credencial por empresa. Aqueles campos
+/// permanecem na tabela porque removê-los é migration destrutiva; nenhum
+/// caminho novo os lê ou escreve.
+///
+/// Linha própria por credencial, e não mais colunas em `ERPIntegration`,
+/// justamente pelo isolamento de ciclo de vida: excluir a credencial do
+/// Chatbot apaga UMA linha e não tem como tocar a do CallCenter. Foi
+/// exatamente esse tipo de acoplamento que já causou perda de credencial
+/// numa troca de provider.
+model ERPCredential {
+  id        String            @id @default(cuid())
+  companyId String
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  provider  ERPProvider
+  kind      ERPCredentialKind
+
+  /// AES-256-GCM do token, base64. Nunca renderizado, nunca devolvido por
+  /// API, nunca logado.
+  credentialCiphertext String
+  /// Nonce de 12 bytes, base64. Novo a cada gravação.
+  credentialIv         String
+  /// Tag GCM. É a verificação dela que faz um ciphertext adulterado falhar.
+  credentialAuthTag    String
+  /// Últimos 4 caracteres do token, só para o operador reconhecer QUAL
+  /// credencial está configurada.
+  credentialLast4      String?
+
+  /// Formato do AAD desta linha.
+  ///
+  /// `v1` liga o ciphertext a (empresa, provider) — é o formato das
+  /// credenciais migradas de `ERPIntegration`, e mantê-lo é o que preserva
+  /// o token que a empresa já tinha configurado.
+  ///
+  /// `v2` liga também ao `kind`. Sem isso, as duas credenciais da mesma
+  /// empresa teriam AAD idêntico, e um ciphertext do Chatbot transplantado
+  /// para a linha do CallCenter decriptaria — anulando justamente a
+  /// proteção que o AAD existe para dar, num par de tokens com privilégios
+  /// diferentes.
+  ///
+  /// Toda gravação nova usa `v2`; `v1` só sobrevive até a empresa
+  /// reconfigurar aquele token.
+  aadVersion           String   @default("v2")
+
+  credentialUpdatedAt  DateTime @default(now())
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([companyId, provider, kind])
+  @@index([companyId])
+  @@map("erp_credentials")
 }
 
 model LoginAttempt {
