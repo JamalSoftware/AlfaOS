@@ -19,6 +19,20 @@ const CONNECTION_USERNAME = "pppoe-e2e@provedor";
 const CONNECTION_PASSWORD = "Sen#aPPPoE-E2E-Zq7W";
 const ORDER_DESCRIPTION = "OS do E2E de acesso PPPoE.";
 
+/** Dois telefones distintos: o teste prova que os DOIS chegam à tela. */
+const CUSTOMER_PHONE = "11987654321";
+const CUSTOMER_SECONDARY_PHONE = "1133224455";
+
+/**
+ * Cliente do estado VAZIO: sem telefone alternativo, sem senha PPPoE.
+ * Existe para provar o que a tela faz na ausência do dado — o caso que
+ * uma fixture completa nunca exercita.
+ */
+const SPARSE_CUSTOMER_NAME = "Cliente PPPoE E2E Sem Contato";
+const SPARSE_ORDER_DESCRIPTION = "OS do E2E de acesso PPPoE sem contato.";
+let sparseCustomerId = "";
+let sparseOrderUrl = "";
+
 const E2E_DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
   "postgresql://alfaos:alfaos_dev_password@localhost:5432/alfaos_test?schema=public";
@@ -82,7 +96,12 @@ test.beforeAll(async () => {
   });
 
   const customer = await prisma.customer.create({
-    data: { companyId: techUser.companyId, name: CUSTOMER_NAME },
+    data: {
+      companyId: techUser.companyId,
+      name: CUSTOMER_NAME,
+      phone: CUSTOMER_PHONE,
+      secondaryPhone: CUSTOMER_SECONDARY_PHONE,
+    },
   });
   customerId = customer.id;
   customerEditUrl = `/clientes/${customer.id}/editar`;
@@ -101,11 +120,50 @@ test.beforeAll(async () => {
   });
   orderUrl = `/ordens/${order.id}`;
   orderNumber = order.number;
+
+  // Só o telefone principal; o alternativo fica ausente de propósito.
+  const sparseCustomer = await prisma.customer.create({
+    data: {
+      companyId: techUser.companyId,
+      name: SPARSE_CUSTOMER_NAME,
+      phone: CUSTOMER_PHONE,
+    },
+  });
+  sparseCustomerId = sparseCustomer.id;
+
+  /**
+   * Conexão COM usuário e SEM senha. É um estado legítimo do cadastro —
+   * o login veio do ERP, a senha ainda não — e a tela precisa dizer isso
+   * em vez de mascarar um valor que não existe.
+   */
+  await prisma.customerConnection.create({
+    data: {
+      companyId: techUser.companyId,
+      customerId: sparseCustomer.id,
+      username: "pppoe-sem-senha@provedor",
+    },
+  });
+
+  const sparseOrder = await prisma.serviceOrder.create({
+    data: {
+      companyId: techUser.companyId,
+      number: await allocateServiceOrderNumber(prisma, techUser.companyId),
+      customerId: sparseCustomer.id,
+      technicianId: technician.id,
+      type: "Manutenção",
+      description: SPARSE_ORDER_DESCRIPTION,
+      status: "ASSIGNED",
+      assignedAt: new Date(),
+    },
+  });
+  sparseOrderUrl = `/ordens/${sparseOrder.id}`;
 });
 
 test.afterAll(async () => {
   const orders = await prisma.serviceOrder.findMany({
-    where: { description: ORDER_DESCRIPTION },
+    where: {
+      description: { in: [ORDER_DESCRIPTION, SPARSE_ORDER_DESCRIPTION] },
+    },
     select: { id: true },
   });
   const ids = orders.map((o) => o.id);
@@ -115,8 +173,12 @@ test.afterAll(async () => {
     });
     await prisma.serviceOrder.deleteMany({ where: { id: { in: ids } } });
   }
-  await prisma.customerConnection.deleteMany({ where: { customerId } });
-  await prisma.customer.deleteMany({ where: { name: CUSTOMER_NAME } });
+  await prisma.customerConnection.deleteMany({
+    where: { customerId: { in: [customerId, sparseCustomerId] } },
+  });
+  await prisma.customer.deleteMany({
+    where: { name: { in: [CUSTOMER_NAME, SPARSE_CUSTOMER_NAME] } },
+  });
   const emails = [TECH_EMAIL, OTHER_TECH_EMAIL];
   await prisma.technician.deleteMany({
     where: { user: { email: { in: emails } } },
@@ -168,11 +230,15 @@ test("ADMIN vê a seção Acesso do cliente com usuário e estado da senha", asy
   await expect(page.getByTestId("pppoe-username")).toHaveText(
     CONNECTION_USERNAME,
   );
-  // Estado DECLARADO, sem campo mascarado sugerindo que a senha veio junto.
-  await expect(page.getByTestId("pppoe-password-status")).toHaveText(
-    "Configurada",
+  /**
+   * Mascara, nao o texto claro. E o comprimento e FIXO: derivá-lo da senha
+   * real vazaria quantos caracteres ela tem — informacao que estreita forca
+   * bruta sem ninguem revelar nada.
+   */
+  await expect(page.getByTestId("pppoe-password")).toHaveText("••••");
+  await expect(page.getByTestId("pppoe-password")).not.toHaveText(
+    CONNECTION_PASSWORD,
   );
-  await expect(page.getByTestId("pppoe-password")).toHaveCount(0);
 
   // Nada de texto claro no HTML servido, exatamente como na tela do técnico.
   expect(await page.content()).not.toContain(CONNECTION_PASSWORD);
@@ -196,7 +262,7 @@ test("a senha não está no HTML inicial da OS e só aparece após o clique", as
    * em props de Server Component, ela apareceria aqui.
    */
   expect(await page.content()).not.toContain(CONNECTION_PASSWORD);
-  await expect(page.getByTestId("pppoe-password")).toHaveText("••••••••••");
+  await expect(page.getByTestId("pppoe-password")).toHaveText("••••");
 
   await page.getByTestId("pppoe-reveal").click();
   await expect(page.getByTestId("pppoe-password")).toHaveText(
@@ -205,7 +271,7 @@ test("a senha não está no HTML inicial da OS e só aparece após o clique", as
 
   // Ocultar tira do DOM de novo.
   await page.getByRole("button", { name: "Ocultar" }).click();
-  await expect(page.getByTestId("pppoe-password")).toHaveText("••••••••••");
+  await expect(page.getByTestId("pppoe-password")).toHaveText("••••");
   expect(await page.content()).not.toContain(CONNECTION_PASSWORD);
 });
 
@@ -334,3 +400,161 @@ for (const status of ["ASSIGNED", "IN_PROGRESS"] as const) {
     }
   });
 }
+
+/**
+ * A mascara nao pode contar o tamanho da senha.
+ *
+ * `CONNECTION_PASSWORD` tem comprimento proprio; a mascara tem quatro
+ * caracteres sempre. Se um dia alguem a derivar do valor real, este teste
+ * quebra.
+ */
+test("a mascara tem comprimento fixo, independente da senha real", async ({
+  page,
+}) => {
+  await login(page, TECH_EMAIL);
+  await expect(page).toHaveURL(/\/minhas-os/);
+  await page.goto(orderUrl);
+
+  const mascara = page.getByTestId("pppoe-password");
+  await expect(mascara).toHaveText("••••");
+
+  const texto = (await mascara.textContent()) ?? "";
+  expect(texto.length).toBe(4);
+  expect(texto.length).not.toBe(CONNECTION_PASSWORD.length);
+  expect(await page.content()).not.toContain(CONNECTION_PASSWORD);
+});
+
+/**
+ * Revelar e ocultar: o texto claro entra so depois da acao explicita e sai
+ * do estado do client quando deixa de ser necessario.
+ */
+test("ocultar a senha devolve a mascara", async ({ page }) => {
+  await login(page, TECH_EMAIL);
+  await expect(page).toHaveURL(/\/minhas-os/);
+  await page.goto(orderUrl);
+
+  await expect(page.getByTestId("pppoe-password")).toHaveText("••••");
+
+  await page.getByTestId("pppoe-reveal").click();
+  await expect(page.getByTestId("pppoe-password")).toHaveText(
+    CONNECTION_PASSWORD,
+  );
+
+  await page.getByTestId("pppoe-hide").click();
+  await expect(page.getByTestId("pppoe-password")).toHaveText("••••");
+});
+
+/**
+ * O toast de copia nao pode carregar a senha. Ele aparece na tela e pode
+ * ficar visivel por cima do ombro de qualquer um.
+ */
+test("copiar a senha nao expoe o valor no rotulo", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await login(page, TECH_EMAIL);
+  await expect(page).toHaveURL(/\/minhas-os/);
+  await page.goto(orderUrl);
+
+  await page.getByTestId("pppoe-copy-password").click();
+  await expect(page.getByTestId("pppoe-copy-password")).toHaveText("Copiada");
+
+  // O rotulo confirma a acao sem repetir o segredo.
+  const rotulo = (await page.getByTestId("pppoe-copy-password").textContent()) ?? "";
+  expect(rotulo).not.toContain(CONNECTION_PASSWORD);
+});
+
+/**
+ * Os dois telefones, em campos separados.
+ *
+ * Quem está em campo liga para o número que atende. Concatenar os dois num
+ * campo só produz um texto que ninguém consegue tocar para discar, e perde
+ * qual é qual.
+ */
+test("o técnico vê os DOIS telefones do cliente, cada um discável", async ({
+  page,
+}) => {
+  await login(page, TECH_EMAIL);
+  await expect(page).toHaveURL(/\/minhas-os/);
+  await page.goto(orderUrl);
+
+  const principal = page.getByTestId("customer-phone");
+  const alternativo = page.getByTestId("customer-secondary-phone");
+
+  await expect(principal).toBeVisible();
+  await expect(alternativo).toBeVisible();
+
+  // Campos independentes: cada um discando o SEU número.
+  await expect(principal).toHaveAttribute("href", `tel:${CUSTOMER_PHONE}`);
+  await expect(alternativo).toHaveAttribute(
+    "href",
+    `tel:${CUSTOMER_SECONDARY_PHONE}`,
+  );
+
+  // E nenhum deles carrega o outro dentro de si.
+  const textoPrincipal = (await principal.textContent()) ?? "";
+  expect(textoPrincipal).not.toContain(CUSTOMER_SECONDARY_PHONE.slice(-4));
+});
+
+/**
+ * Mesma OS, olhos do ADMIN: os dois telefones continuam lá.
+ */
+test("o ADMIN também vê os dois telefones", async ({ page }) => {
+  await login(page, ADMIN_EMAIL);
+  await expect(page).toHaveURL(/\/dashboard/);
+  await page.goto(orderUrl);
+
+  await expect(page.getByTestId("customer-phone")).toBeVisible();
+  await expect(page.getByTestId("customer-secondary-phone")).toBeVisible();
+});
+
+/**
+ * Ausência de dado: a tela não pode inventar linha nem mentir estado.
+ *
+ * Sem telefone alternativo, o rótulo inteiro some — uma linha permanentemente
+ * vazia dizendo "Não informado" treina o olho a ignorar a região inteira,
+ * inclusive quando ela tiver conteúdo. Já o telefone principal é campo fixo:
+ * ausente, ele DECLARA a ausência.
+ */
+test("sem telefone alternativo a linha não é renderizada; sem nenhum, declara a ausência", async ({
+  page,
+}) => {
+  await login(page, TECH_EMAIL);
+  await expect(page).toHaveURL(/\/minhas-os/);
+  await page.goto(sparseOrderUrl);
+
+  await expect(page.getByTestId("customer-phone")).toBeVisible();
+  await expect(page.getByTestId("customer-secondary-phone")).toHaveCount(0);
+  await expect(page.getByText("Telefone alternativo")).toHaveCount(0);
+
+  // Agora sem telefone NENHUM.
+  await prisma.customer.update({
+    where: { id: sparseCustomerId },
+    data: { phone: null },
+  });
+  await page.reload();
+
+  await expect(page.getByTestId("customer-phone")).toHaveCount(0);
+  await expect(page.getByText("Não informado").first()).toBeVisible();
+});
+
+/**
+ * Senha ausente ≠ senha escondida.
+ *
+ * A máscara diz “existe um valor aqui”. Mostrá-la num cadastro sem senha
+ * mandaria o técnico tentar revelar algo que não existe, e ele descobriria
+ * isso na porta do cliente.
+ */
+test("conexão sem senha declara a ausência em vez de mascarar", async ({
+  page,
+}) => {
+  await login(page, TECH_EMAIL);
+  await expect(page).toHaveURL(/\/minhas-os/);
+  await page.goto(sparseOrderUrl);
+
+  await expect(page.getByTestId("pppoe-panel")).toBeVisible();
+  await expect(
+    page.getByText("Não configurada para este cliente."),
+  ).toBeVisible();
+
+  await expect(page.getByTestId("pppoe-password")).toHaveCount(0);
+  await expect(page.getByTestId("pppoe-reveal")).toHaveCount(0);
+});

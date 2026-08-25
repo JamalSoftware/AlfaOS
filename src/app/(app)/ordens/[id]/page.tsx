@@ -443,20 +443,43 @@ export default async function OrderDetailPage({
                 <dt className="text-xs font-medium text-slate-500">Telefone</dt>
                 <dd className="mt-0.5 text-sm text-slate-900">
                   {order.customer.phone ? (
-                    formatBrazilianPhone(order.customer.phone) ?? order.customer.phone
+                    /*
+                      `tel:` porque quem lê isto num celular, em campo, está a
+                      um toque de precisar ligar. O número já está visível na
+                      tela — o link não expõe nada novo.
+                    */
+                    <a
+                      data-testid="customer-phone"
+                      href={`tel:${order.customer.phone}`}
+                      className="text-blue-600 hover:text-blue-700"
+                    >
+                      {formatBrazilianPhone(order.customer.phone) ??
+                        order.customer.phone}
+                    </a>
                   ) : (
                     <span className="text-slate-500">Não informado</span>
                   )}
                 </dd>
               </div>
+              {/*
+                O alternativo só aparece quando existe. Uma linha
+                permanentemente vazia dizendo "Não informado" treina o olho a
+                ignorar a região inteira, inclusive quando ela tiver conteúdo.
+              */}
               {order.customer.secondaryPhone && (
                 <div>
                   <dt className="text-xs font-medium text-slate-500">
                     Telefone alternativo
                   </dt>
                   <dd className="mt-0.5 text-sm text-slate-900">
-                    {formatBrazilianPhone(order.customer.secondaryPhone) ??
-                      order.customer.secondaryPhone}
+                    <a
+                      data-testid="customer-secondary-phone"
+                      href={`tel:${order.customer.secondaryPhone}`}
+                      className="text-blue-600 hover:text-blue-700"
+                    >
+                      {formatBrazilianPhone(order.customer.secondaryPhone) ??
+                        order.customer.secondaryPhone}
+                    </a>
                   </dd>
                 </div>
               )}

@@ -21,18 +21,30 @@ import { useState } from "react";
 
 type PppoeVariant = "admin" | "technician";
 
+/**
+ * Máscara da senha. Quatro caracteres, SEMPRE.
+ *
+ * O comprimento é fixo de propósito e não tem relação nenhuma com a senha
+ * real: derivá-lo do valor verdadeiro vazaria quantos caracteres ela tem —
+ * informação que estreita um ataque de força bruta sem que ninguém precise
+ * revelar nada.
+ *
+ * Isto é APRESENTAÇÃO. A senha não chega ao componente no render inicial;
+ * o que chega é `passwordConfigured`, um booleano.
+ */
+const PASSWORD_MASK = "••••";
+
 interface PppoeAccessPanelProps {
   orderId: string;
   connectionId: string;
   username: string;
   passwordConfigured: boolean;
   /**
-   * `admin` é leitura administrativa: o estado da senha é declarado em texto
-   * ("Configurada"), sem campo mascarado sugerindo que a senha já está ali.
-   * `technician` é uso operacional em campo: campo mascarado, mostrar e copiar.
+   * Muda o que a tela oferece, não o que ela sabe.
    *
-   * Em NENHUMA das duas a senha é revelada automaticamente — as duas exigem a
-   * mesma requisição explícita e auditada.
+   * As duas variantes mostram a mesma máscara e exigem a MESMA requisição
+   * explícita e auditada para ver o texto claro. Em nenhuma delas a senha
+   * chega junto com a página.
    */
   variant: PppoeVariant;
   /**
@@ -101,7 +113,6 @@ export function PppoeAccessPanel({
   const buttonClass =
     "rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60";
 
-  const isAdmin = variant === "admin";
 
   return (
     <div data-testid="pppoe-panel" data-variant={variant}>
@@ -139,33 +150,21 @@ export function PppoeAccessPanel({
         ) : (
           <>
             {/*
-              Variante administrativa: o estado é DECLARADO. A tela do ADMIN
-              existe para conferir que o acesso está cadastrado, não para
-              consumir a credencial — um campo mascarado ali sugeriria que a
-              senha veio junto com a página, e ela não vem.
+              Máscara nas duas variantes.
 
-              Quando o ADMIN de fato revela, o texto claro aparece no bloco
-              abaixo: senão o valor não teria onde ser exibido após o clique.
+              O ADMIN antes lia “Configurada” em texto. A máscara comunica a
+              mesma coisa e ainda deixa claro ONDE o valor vai aparecer
+              depois do clique — e continua sendo só apresentação: o que o
+              componente recebe é um booleano.
             */}
-            {isAdmin && password === null && (
-              <p
-                data-testid="pppoe-password-status"
-                className="mt-1 text-sm font-medium text-slate-900"
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <code
+                data-testid="pppoe-password"
+                className="min-w-0 flex-1 break-all rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-900"
               >
-                Configurada
-              </p>
-            )}
-
-            {(!isAdmin || password !== null) && (
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <code
-                  data-testid="pppoe-password"
-                  className="min-w-0 flex-1 break-all rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-900"
-                >
-                  {password ?? "••••••••••"}
-                </code>
-              </div>
-            )}
+                {password ?? PASSWORD_MASK}
+              </code>
+            </div>
 
             {canReveal ? (
               <div className="mt-2 flex flex-wrap gap-2">
@@ -182,10 +181,13 @@ export function PppoeAccessPanel({
                 ) : (
                   <button
                     type="button"
+                    data-testid="pppoe-hide"
+                    // Descarta o texto claro do estado do client assim que
+                    // ele deixa de ser necessário.
                     onClick={() => setPassword(null)}
                     className={buttonClass}
                   >
-                    Ocultar
+                    Ocultar senha
                   </button>
                 )}
                 {/*
