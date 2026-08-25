@@ -187,3 +187,130 @@ test("termo em branco limpa o resultado anterior em vez de contradizê-lo", asyn
   await expect(page.getByText("Informe um termo de busca.")).toBeVisible();
   await expect(page.getByText(EMPTY_STATE)).toBeHidden();
 });
+
+/**
+ * A regressao do caso real da v0.7.2.
+ *
+ * Ate aqui, um cliente ja cadastrado era 'selecionado' pela tela SEM passar
+ * pela importacao. O atalho era legitimo quando importar significava apenas
+ * criar o Customer; depois que passou a significar TAMBEM enriquecer
+ * (telefone, e-mail, endereco, coordenadas e a credencial PPPoE real), ele
+ * virou o motivo de nenhum cliente ja cadastrado receber nada disso.
+ *
+ * O sintoma em campo: OS sem telefone e sem acesso PPPoE, num cliente
+ * importado com sucesso.
+ */
+test("cliente ja cadastrado TAMBEM passa pela importacao", async ({ page }) => {
+  await login(page, ADMIN_EMAIL);
+
+  let importCalls = 0;
+
+  await page.route(SEARCH_ENDPOINT, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          hits: [
+            {
+              externalId: "15678",
+              name: "Cliente Ja Cadastrado",
+              document: "10020030044",
+              city: "Cidade",
+              state: "SP",
+              // O ponto do teste: a tela SABE que o cliente ja existe.
+              localCustomerId: "cliente-local-existente",
+            },
+          ],
+        },
+      }),
+    });
+  });
+
+  await page.route("**/api/integrations/customers/import", async (route) => {
+    importCalls += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          customerId: "cliente-local-existente",
+          outcome: "ALREADY_LINKED",
+          name: "Cliente Ja Cadastrado",
+          enrichment: { outcome: "SUCCESS" },
+        },
+      }),
+    });
+  });
+
+  await page.goto("/ordens/novo");
+  await search(page, "Cliente");
+
+  // O rotulo diz o que a acao faz: seleciona E atualiza.
+  const acao = page.getByRole("button", { name: "Selecionar e atualizar" });
+  await expect(acao).toBeVisible();
+  await acao.click();
+
+  // A prova: a importacao FOI chamada, e nao pulada.
+  await expect
+    .poll(() => importCalls, { timeout: 10000 })
+    .toBe(1);
+});
+
+/**
+ * Importacao parcial precisa aparecer. O operador que nao for avisado
+ * descobre o cadastro incompleto com o tecnico ja na porta do cliente.
+ */
+test("enriquecimento incompleto vira aviso na tela", async ({ page }) => {
+  await login(page, ADMIN_EMAIL);
+
+  await page.route(SEARCH_ENDPOINT, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          hits: [
+            {
+              externalId: "15678",
+              name: "Cliente Novo",
+              document: null,
+              city: null,
+              state: null,
+              localCustomerId: null,
+            },
+          ],
+        },
+      }),
+    });
+  });
+
+  await page.route("**/api/integrations/customers/import", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          customerId: "cliente-novo",
+          outcome: "CREATED",
+          name: "Cliente Novo",
+          enrichment: { outcome: "UNAVAILABLE", code: "NOT_CONFIGURED" },
+        },
+      }),
+    });
+  });
+
+  await page.goto("/ordens/novo");
+  await search(page, "Cliente");
+  await page.getByRole("button", { name: "Importar e usar" }).click();
+
+  // Importou, mas o aviso aparece junto.
+  await expect(page.getByText("Cliente Novo foi importado")).toBeVisible();
+  await expect(
+    page.getByText("enriquecimento ReceitaNet Chatbot não pôde ser concluído"),
+  ).toBeVisible();
+
+  // E nenhum detalhe do provedor vaza para a tela.
+  const html = await page.content();
+  expect(html).not.toContain("NOT_CONFIGURED");
+});

@@ -206,6 +206,27 @@ export async function enrichCustomerFromChatbot(
   actorUserId: string,
   customerId: string,
 ): Promise<ErpEnrichmentResult> {
+  /**
+   * A garantia de não lançar precisa valer para o corpo INTEIRO.
+   *
+   * A versão anterior só protegia as chamadas ao provedor: uma falha na
+   * gravação ou na resolução do contrato escapava e derrubava a importação
+   * — que já tinha concluído a parte essencial. O enriquecimento é efeito
+   * colateral, e efeito colateral não desfaz o trabalho principal.
+   */
+  try {
+    return await runEnrichment(companyId, actorUserId, customerId);
+  } catch {
+    // Sem detalhe: a exceção pode carregar fragmento do payload.
+    return { outcome: "UNAVAILABLE", code: "ENRICHMENT_FAILED" };
+  }
+}
+
+async function runEnrichment(
+  companyId: string,
+  actorUserId: string,
+  customerId: string,
+): Promise<ErpEnrichmentResult> {
   const customer = await prisma.customer.findFirst({
     // Tenant em SQL. O `customerId` vem do fluxo interno, mas filtrar de novo
     // impede que a segurança dependa de o chamador ter feito o certo.

@@ -19,6 +19,34 @@ interface ErpHit {
   localCustomerId: string | null;
 }
 
+/**
+ * Aviso quando o enriquecimento não completou.
+ *
+ * String vazia quando deu certo — o caminho feliz não ganha ruído.
+ */
+function enrichmentWarning(outcome: string | undefined): string {
+  switch (outcome) {
+    case "AMBIGUOUS":
+      return (
+        " Atenção: existem múltiplos contratos ReceitaNet para este cliente e o enriquecimento não foi aplicado."
+      );
+    case "UNAVAILABLE":
+      return (
+        " Atenção: o enriquecimento ReceitaNet Chatbot não pôde ser concluído. Telefone e acesso PPPoE podem estar incompletos."
+      );
+    case "NOT_FOUND":
+      return (
+        " Atenção: o ReceitaNet Chatbot não localizou este cliente, e o enriquecimento não foi aplicado."
+      );
+    case "PARTIAL":
+      return (
+        " Observação: o cliente tem mais telefones no ReceitaNet do que o cadastro comporta."
+      );
+    default:
+      return "";
+  }
+}
+
 const inputClass =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100";
 
@@ -93,16 +121,20 @@ export function ServiceOrderForm({
     setErpError(null);
     setErpNotice(null);
 
-    // Já existe localmente: usa o que existe em vez de reimportar.
-    if (hit.localCustomerId) {
-      setCustomerId(hit.localCustomerId);
-      if (!customerOptions.some((c) => c.id === hit.localCustomerId)) {
-        setImported((prev) => [...prev, { id: hit.localCustomerId as string, name: hit.name }]);
-      }
-      setErpNotice(`${hit.name} já estava cadastrado e foi selecionado.`);
-      return;
-    }
-
+    /**
+     * Cliente já cadastrado NÃO é atalho.
+     *
+     * Até a v0.6, importar significava só criar o Customer, e pular a
+     * chamada para um cliente que já existia era economia legítima. Depois
+     * que importar passou a significar TAMBÉM enriquecer — telefone,
+     * e-mail, endereço, coordenadas e a credencial PPPoE real —, esse
+     * atalho virou o motivo de nenhum cliente já cadastrado receber nada
+     * disso. O sintoma era exatamente o que se via em campo: OS sem
+     * telefone e sem acesso PPPoE, num cliente importado com sucesso.
+     *
+     * `importErpCustomer` é idempotente: resolve pela identidade externa,
+     * devolve `ALREADY_LINKED` e reenriquece sem duplicar nada.
+     */
     setErpBusy(true);
     try {
       /**
@@ -128,13 +160,23 @@ export function ServiceOrderForm({
           : [...prev, { id: data.customerId, name: data.name }],
       );
       setCustomerId(data.customerId);
-      setErpNotice(
+
+      const base =
         data.outcome === "CREATED"
           ? `${data.name} foi importado e selecionado.`
           : data.outcome === "LINKED"
             ? `${data.name} já existia no AlfaOS e foi vinculado ao ReceitaNet.`
-            : `${data.name} já estava vinculado e foi selecionado.`,
-      );
+            : `${data.name} já estava vinculado e foi selecionado.`;
+
+      /**
+       * Importação parcial precisa APARECER.
+       *
+       * O cadastro básico entrou, mas telefone, endereço e acesso PPPoE não
+       * — e o operador que não for avisado descobre isso com o técnico já
+       * na porta do cliente. Mensagem do catálogo, nunca detalhe do
+       * provedor.
+       */
+      setErpNotice(`${base}${enrichmentWarning(data.enrichment?.outcome)}`);
     } catch {
       setErpError("Erro de conexão. Tente novamente.");
     } finally {
@@ -273,7 +315,7 @@ export function ServiceOrderForm({
                     onClick={() => handleErpSelect(hit)}
                     className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {hit.localCustomerId ? "Selecionar" : "Importar e usar"}
+                    {hit.localCustomerId ? "Selecionar e atualizar" : "Importar e usar"}
                   </button>
                 </li>
               ))}

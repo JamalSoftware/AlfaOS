@@ -60,6 +60,17 @@ export async function POST(request: Request) {
         customerId: result.customerId,
         outcome: result.outcome,
         name: result.detail.name,
+        /**
+         * Desfecho do enriquecimento, para a tela poder avisar.
+         *
+         * Só `outcome` e `code` — ambos de catálogo fechado. Nada de
+         * `contractIds`, corpo ou mensagem do provedor: importar com o
+         * Chatbot fora do ar é um aviso ao operador, não um dump.
+         */
+        enrichment: {
+          outcome: result.enrichment.outcome,
+          ...(result.enrichment.code ? { code: result.enrichment.code } : {}),
+        },
       });
     } catch (error) {
       if (isIntegrationError(error)) {
