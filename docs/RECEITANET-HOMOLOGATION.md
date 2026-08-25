@@ -89,7 +89,7 @@ Afirmações da documentação pública oficial:
 | `/v1/clientes` | POST | R | `nome` \| `phone` \| `cpfcnpj` (anyOf) | `ClienteResumo[]` \| erro | ✅ | Implementado |
 | `/v1/cliente` | POST | R | `idCliente` | `ClienteDetalhado` | ✅ | Implementado |
 | `/v1/cliente/verificar-acesso` | POST | R | `idCliente` | `status` 1/2 | ✅ | Implementado |
-| `/v1/chamados` | POST | R | **`idCliente` (obrigatório)** | `Chamado[]` \| erro | ✅ | **Não implementado** |
+| `/v1/chamados` | POST | R | **`idCliente` (obrigatório)** | `Chamado[]` \| erro | ✅ | **Implementado (v0.7)** |
 | `/v1/chamado` | POST | **M** | abertura de chamado | protocolo gerado | ❌ proibido | Fora de escopo |
 | `/v1/chamado/gravacao` | POST | **M** | `idSuporte`, `urlgravacao` | `success` | ❌ proibido | Fora de escopo |
 | `/v1/cobranca/enviar` | POST | **M** | envio de cobrança | — | ❌ proibido | Fora de escopo |
@@ -360,3 +360,107 @@ Regras observadas nesta investigação e obrigatórias em qualquer continuação
   usadas, isso é um risco a tratar explicitamente: URL entra em log de servidor,
   proxy, histórico e cabeçalho `Referer`.
 - Central do Assinante exigiria credencial do cliente final. Fora de questão.
+
+---
+
+## `/v1/clientes.login` — usuário PPPoE
+
+**Classificação: VALIDADO OPERACIONALMENTE. Confirmação do provider pendente.**
+
+O campo `login`, devolvido por `/v1/clientes` e `/v1/cliente`, foi comparado
+manualmente com o usuário PPPoE real de **3 clientes distintos**. Bateu nos
+3/3.
+
+O OpenAPI **não** declara essa semântica: descreve `login` apenas como o
+login do cliente no provider. A igualdade é evidência de campo, não de
+contrato — por isso está registrada como validada operacionalmente, e a
+pergunta ao suporte continua aberta (§ *Questões para o suporte*).
+
+A v0.7 usa esse campo como usuário da conexão PPPoE. Se o suporte
+desmentir a equivalência, o impacto é conhecido e limitado: as conexões de
+origem `RECEITANET` teriam o usuário errado, e as de origem `MANUAL`
+estariam intactas por construção.
+
+Nenhum outro campo foi promovido a credencial. Em particular, **não existe
+senha PPPoE em nenhuma das quatro APIs** — a senha é derivada localmente
+pela política da empresa ou digitada.
+
+## Senha PPPoE — regra da Alfa Telecom
+
+Política operacional declarada: **os 4 últimos dígitos do CPF**.
+
+Implementada como `Company.pppoePasswordPolicy`, por empresa, com dois
+valores: `MANUAL_ONLY` (default) e `DOCUMENT_LAST4`. O default não deriva
+nada — uma empresa que nunca declarou política não passa a gerar senha por
+omissão.
+
+`DOCUMENT_LAST4` exige **exatamente 11 dígitos**. CNPJ tem 14 e não recebe
+regra por analogia: a política declarada fala de CPF, e estendê-la
+inventaria uma credencial que ninguém definiu. Documento ausente, curto ou
+não numérico deixa a senha não configurada — estado legítimo.
+
+**`MANUAL` nunca é sobrescrito.** É a regra que protege o caso real: a
+maioria dos clientes segue a política, e uma minoria tem senha própria. Uma
+sincronização ingênua apagaria justamente essas, sem deixar rastro.
+`usernameSource` e `passwordSource` são independentes porque o caso comum é
+misto — login do ERP, senha trocada à mão.
+
+Nada disso é enviado ao ReceitaNet, ao RADIUS ou ao roteador. É a
+credencial **local** que o técnico usa.
+
+## Telefone — o que existe e o que não existe
+
+**Não há campo de telefone estruturado confiável** em nenhum schema
+homologado do CallCenter. Nem `/v1/clientes`, nem `/v1/cliente`.
+
+O que existe é uma **convenção de texto** dentro da `descricao` de
+`/v1/chamados`, do tipo `Contato: <telefone>`, visível no próprio exemplo
+do OpenAPI.
+
+Consequências adotadas na v0.7:
+
+- esse valor é o **contato daquele chamado**, não o telefone mestre do
+  cadastro, e **nunca** é promovido a `Customer.phone`;
+- é exibido em separado, rotulado como contato do chamado;
+- o parser é deliberadamente estreito: exige o rótulo `Contato:`, aceita só
+  10 ou 11 dígitos, e devolve nulo em qualquer dúvida. Falhar em extrair
+  custa pouco — a tela mostra o cadastro. Extrair errado manda o técnico
+  ligar para um estranho.
+
+Na OS, a ordem é: `Customer.phone`, depois `Customer.secondaryPhone`, e
+"Não informado" quando não há nenhum — nunca um travessão solto, que não
+distingue campo vazio de tela quebrada.
+
+## Chamados abertos — o que a v0.7 usa
+
+`POST /v1/chamados` está implementado como **leitura**, exposto a
+ADMIN/DISPATCHER e escopado por Ordem de Serviço (nunca por id de cliente,
+que daria um oráculo de enumeração da carteira).
+
+Duas armadilhas do contrato, ambas tratadas:
+
+1. **Teto de 10, sem paginação.** A tela avisa quando a lista atinge o teto,
+   em vez de apresentá-la como completa.
+2. **`success:false` aqui significa ZERO, não erro.** É a mesma forma que em
+   `/v1/clientes` é `INVALID_RESPONSE` desde a v0.6.1. Tratá-las igual
+   transformaria “este cliente não tem chamado aberto”, que é o caso comum,
+   num erro na tela. Coberto por regressão.
+
+`idSuporte` (SUP_CODIGO) é a identidade; `numero` (SUP_NUMERO) é o número
+visível da OS **no ReceitaNet**. Nenhum dos dois substitui
+`ServiceOrder.number`, que é o número local do AlfaOS — são dois sistemas
+numerando as próprias ordens.
+
+`tipo` continua **sem rótulo**. O contrato declara um inteiro e não publica
+o significado dos valores; a tela mostra o código. A correlação com os três
+tipos que o OSNET recebe (Manutenção, Instalação, Retirada) permanece
+hipótese, não mapeamento.
+
+## O que a v0.7 deliberadamente NÃO fez
+
+- Nenhuma sincronização global de OS. `/v1/chamados` é contexto de leitura;
+  não cria, altera nem fecha Ordem de Serviço do AlfaOS.
+- Nenhum endpoint mutante. `abertura-chamado`, `chamado/gravacao`,
+  `cobranca/enviar`, `notificacao-pagamento` e `cliente/reiniciar` seguem
+  intocados.
+- Nenhuma linha de URA, Chatbot ou Central do Assinante.

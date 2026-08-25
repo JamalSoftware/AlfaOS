@@ -15,6 +15,13 @@ import type {
 } from "./diagnostics";
 import { IntegrationError, isIntegrationError } from "./errors";
 import {
+  parseTicketContactPhone,
+  type ERPServiceTicket,
+  type ERPServiceTicketsCapability,
+  type ERPServiceTicketsResult,
+} from "./service-tickets";
+import {
+  CALLCENTER_CHAMADOS_CAP,
   ReceitanetCallCenterClient,
   type CallCenterClienteDetalhado,
   type CallCenterClienteResumo,
@@ -55,7 +62,8 @@ export class ReceitanetAdapter
   implements
     ERPIntegrationContract,
     ERPDiagnosticsCapability,
-    ERPCustomerLookupCapability
+    ERPCustomerLookupCapability,
+    ERPServiceTicketsCapability
 {
   readonly provider = "RECEITANET";
 
@@ -163,6 +171,35 @@ export class ReceitanetAdapter
 
     const rows = await this.client.searchClientes(filters);
     return rows.map((row) => toSummary(row));
+  }
+
+  /**
+   * Chamados ABERTOS do cliente. Somente leitura.
+   *
+   * O contrato limita a 10 e não pagina, então o teto viaja junto no
+   * resultado: a tela precisa poder dizer que a lista pode estar truncada
+   * em vez de apresentá-la como completa.
+   */
+  async listOpenTickets(externalId: string): Promise<ERPServiceTicketsResult> {
+    const id = parseIdCliente(externalId, this.provider);
+    const rows = await this.client.listarChamados(id);
+    return {
+      tickets: rows.map((row): ERPServiceTicket => {
+        const description = text(row.descricao);
+        return {
+          externalId: String(row.idSuporte),
+          externalNumber:
+            typeof row.numero === "number" ? String(row.numero) : null,
+          protocol: text(row.protocolo),
+          description,
+          typeCode:
+            typeof row.tipo === "number" ? String(row.tipo) : null,
+          forecast: text(row.data_previsao),
+          contactPhone: parseTicketContactPhone(description),
+        };
+      }),
+      cap: CALLCENTER_CHAMADOS_CAP,
+    };
   }
 
   async getCustomerDetail(externalId: string): Promise<ERPCustomerDetail> {

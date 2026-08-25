@@ -66,7 +66,7 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 - **estado da investigação de descoberta global de OS**, separado em COMPROVADO / DESCARTADO / HIPÓTESE / AGUARDANDO RECEITANET;
 - **pendências com o suporte** — perguntas fechadas, cada uma amarrada a uma lacuna concreta.
 
-**Quando:** antes de chamar qualquer rota ReceitaNet ainda não implementada; ao avaliar se uma capacidade existe de fato; ao retomar a investigação de sincronização/descoberta de OS; ou ao preparar contato com o suporte do ReceitaNet.
+**Quando:** antes de chamar qualquer rota ReceitaNet ainda não implementada; ao avaliar se uma capacidade existe de fato; ao retomar a investigação de sincronização/descoberta de OS; ao mexer em acesso PPPoE (o documento registra a política `DOCUMENT_LAST4`, a regra de que `MANUAL` nunca é sobrescrito e a validação operacional de `login` como usuário PPPoE); ou ao preparar contato com o suporte do ReceitaNet.
 **Quando NÃO:** tarefas que não tocam ReceitaNet. Para o contrato interno de adapters e o modelo de erro, o documento certo continua sendo `docs/ERP-INTEGRATIONS.md` — este aqui é sobre a API do provider, não sobre a camada AlfaOS.
 
 É o documento que registra o que **não existe**: consultar antes de assumir que uma funcionalidade é possível. A conclusão central hoje é que nenhuma das quatro APIs lista chamados por empresa — toda leitura de OS exige `idCliente` conhecido.

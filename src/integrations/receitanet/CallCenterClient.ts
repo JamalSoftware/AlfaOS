@@ -24,6 +24,15 @@ export const CALLCENTER_BASE_URL = "https://api.receitanet.net/callcenter";
 const CALLCENTER_HOST = "api.receitanet.net";
 const CALLCENTER_BASE_PATH = "/callcenter";
 
+/**
+ * Teto de chamados que `/v1/chamados` devolve, declarado no contrato.
+ *
+ * Não é escolha nossa e não há paginação: o 11º chamado aberto simplesmente
+ * não é alcançável. Exportado para que a tela avise, em vez de apresentar a
+ * lista como completa.
+ */
+export const CALLCENTER_CHAMADOS_CAP = 10;
+
 /** Deadline próprio do cliente. O call site de diagnóstico tem o seu também. */
 export const CALLCENTER_TIMEOUT_MS = 8_000;
 
@@ -360,6 +369,45 @@ export class ReceitanetCallCenterClient {
     }
     return payload as unknown as CallCenterVerificarAcesso;
   }
+
+  /**
+   * `POST /v1/chamados` — chamados ABERTOS do cliente.
+   *
+   * O contrato declara, textualmente, “Retorna **até 10** chamados abertos
+   * do cliente, em ordem decrescente de previsão”. Não há paginação: o 11º
+   * não é alcançável por esta rota. Quem consome precisa dizer isso ao
+   * operador em vez de apresentar a lista como completa.
+   *
+   * **`success:false` aqui é ZERO RESULTADOS, não erro.** O próprio OpenAPI
+   * traz o exemplo `nenhum`: `{success:false, message:"Nenhum chamado
+   * localizado."}`. É a MESMA forma que em `/v1/clientes` significa resposta
+   * não confiável — e tratá-la igual aqui transformaria “este cliente não
+   * tem chamado aberto”, que é o caso comum, num erro na tela.
+   *
+   * A diferença não é estilo: em `/v1/clientes` a lista vazia tem
+   * representação própria (`[]`), então um objeto ali é anomalia. Aqui o
+   * contrato usa o objeto PARA dizer vazio.
+   */
+  async listarChamados(idCliente: number): Promise<CallCenterChamado[]> {
+    const payload = await this.post<unknown>("/v1/chamados", {
+      idCliente: String(idCliente),
+    });
+
+    if (Array.isArray(payload)) {
+      return payload as CallCenterChamado[];
+    }
+
+    if (isRecord(payload) && payload.success === false) {
+      // Zero chamados abertos. Desfecho normal, documentado no contrato.
+      return [];
+    }
+
+    throw new IntegrationError(
+      "INVALID_RESPONSE",
+      PROVIDER,
+      "resposta de chamados não é lista",
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -403,6 +451,26 @@ export interface CallCenterClienteDetalhado {
   planos?: CallCenterPlano[];
   tecnologia?: number | null;
   servidor?: { manutencao?: boolean | string };
+}
+
+/**
+ * Um chamado aberto, como `/v1/chamados` o devolve.
+ *
+ * `numero` é o SUP_NUMERO — o número que o cliente e o técnico enxergam.
+ * `idSuporte` é o SUP_CODIGO, a chave interna do ReceitaNet. A distinção só
+ * está documentada no OpenAPI da URA, e é ela que decide qual dos dois serve
+ * de identidade (`docs/RECEITANET-HOMOLOGATION.md`).
+ *
+ * `tipo` é um inteiro SEM tabela de significado publicada. Fica como veio —
+ * traduzir aqui inventaria o mapeamento.
+ */
+export interface CallCenterChamado {
+  idSuporte: number;
+  numero: number | null;
+  protocolo: string | null;
+  descricao: string;
+  tipo: number;
+  data_previsao: string;
 }
 
 export interface CallCenterVerificarAcesso {

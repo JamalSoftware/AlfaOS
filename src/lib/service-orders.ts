@@ -105,6 +105,14 @@ export interface ServiceOrderCustomerInfo {
   name: string;
   document: string | null;
   phone: string | null;
+  /**
+   * Segundo contato do cadastro.
+   *
+   * Entra na OS porque telefone que não atende é o motivo nº 1 de uma
+   * visita perdida — e o dado já existia no cadastro sem chegar a quem vai
+   * a campo.
+   */
+  secondaryPhone: string | null;
   city: string | null;
   state: string | null;
 }
@@ -207,6 +215,7 @@ const ORDER_INCLUDE = {
       name: true,
       document: true,
       phone: true,
+      secondaryPhone: true,
       city: true,
       state: true,
     },
@@ -239,6 +248,7 @@ export function toPublicServiceOrder(order: {
     name: string;
     document: string | null;
     phone: string | null;
+    secondaryPhone: string | null;
     city: string | null;
     state: string | null;
   };

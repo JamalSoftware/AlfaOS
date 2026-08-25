@@ -8,6 +8,7 @@ import {
   REVEALABLE_ORDER_STATUSES,
 } from "@/lib/customer-connections";
 import { PppoeAccessPanel } from "@/components/PppoeAccessPanel";
+import { formatBrazilianPhone } from "@/integrations/service-tickets";
 import {
   EXECUTION_TEXT_MAX_LENGTH,
   formatServiceOrderNumber,
@@ -21,6 +22,7 @@ import { PriorityBadge, StatusBadge } from "@/components/OrderBadges";
 import { getServiceOrderClosingBundle } from "@/lib/service-order-closing";
 import { getCustomerDiagnostic } from "@/lib/customer-diagnostics";
 import { CustomerDiagnosticPanel } from "@/components/CustomerDiagnosticPanel";
+import { ReceitanetContextPanel } from "@/components/ReceitanetContextPanel";
 import { AssignTechnicianForm } from "@/components/AssignTechnicianForm";
 import { ServiceOrderExecutionForm } from "@/components/ServiceOrderExecutionForm";
 import { StartServiceOrderButton } from "@/components/StartServiceOrderButton";
@@ -155,6 +157,19 @@ export default async function OrderDetailPage({
   }
 
   const isStaff = !isOwnerTechnician;
+
+  /**
+   * Predicado EXPLICITO para o bloco do ERP, e nao `isStaff`.
+   *
+   * `isStaff` e derivado por negacao (`!isOwnerTechnician`) e hoje coincide,
+   * porque um tecnico nao-dono ja levou 404 acima. Mas o bloco alcanca dado
+   * financeiro do cliente, e um gate desses nao pode depender de uma coincidencia
+   * que a proxima mudanca de fluxo desfaz em silencio. Aqui a regra e a mesma
+   * que a rota aplica, escrita do mesmo jeito.
+   */
+  const canSeeErpContext =
+    session.profile === AccessProfile.ADMIN ||
+    session.profile === AccessProfile.DISPATCHER;
 
   /**
    * Conexão de acesso do cliente desta OS.
@@ -415,10 +430,36 @@ export default async function OrderDetailPage({
                 <dt className="text-xs font-medium text-slate-500">Documento</dt>
                 <dd className="mt-0.5 text-sm text-slate-900">{order.customer.document ?? "—"}</dd>
               </div>
+              {/*
+                Telefone é o que faz o técnico conseguir chegar. Um travessão
+                solto no lugar dele é ambíguo: o operador não sabe se o campo
+                está vazio no cadastro ou se a tela deixou de carregar. Dizer
+                "Não informado" nomeia o problema e aponta para o conserto.
+
+                O telefone alternativo só aparece quando existe — uma linha
+                permanentemente vazia treina o olho a ignorar a região.
+              */}
               <div>
                 <dt className="text-xs font-medium text-slate-500">Telefone</dt>
-                <dd className="mt-0.5 text-sm text-slate-900">{order.customer.phone ?? "—"}</dd>
+                <dd className="mt-0.5 text-sm text-slate-900">
+                  {order.customer.phone ? (
+                    formatBrazilianPhone(order.customer.phone) ?? order.customer.phone
+                  ) : (
+                    <span className="text-slate-500">Não informado</span>
+                  )}
+                </dd>
               </div>
+              {order.customer.secondaryPhone && (
+                <div>
+                  <dt className="text-xs font-medium text-slate-500">
+                    Telefone alternativo
+                  </dt>
+                  <dd className="mt-0.5 text-sm text-slate-900">
+                    {formatBrazilianPhone(order.customer.secondaryPhone) ??
+                      order.customer.secondaryPhone}
+                  </dd>
+                </div>
+              )}
               <div className="sm:col-span-2">
                 <dt className="text-xs font-medium text-slate-500">Cidade</dt>
                 <dd className="mt-0.5 text-sm text-slate-900">
@@ -502,6 +543,16 @@ export default async function OrderDetailPage({
             orderId={order.id}
             initialDiagnostic={diagnosticView}
           />
+
+          {/*
+            Contexto operacional do ERP: contrato, plano e chamados abertos.
+
+            Somente ADMIN/DISPATCHER. O bloco alcanca dado financeiro do
+            cliente, e o tecnico em campo nao precisa dele para executar o
+            atendimento -- a rota tambem recusa TECHNICIAN, entao esconder aqui
+            e consequencia do controle, nao o controle.
+          */}
+          {canSeeErpContext && <ReceitanetContextPanel orderId={order.id} />}
 
           {isExecuting && order.execution && (
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
