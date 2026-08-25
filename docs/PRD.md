@@ -1237,6 +1237,13 @@ Não é obrigatório para o AlfaOS 1.0:
 
 # 40. ALFAOS 1.2
 
+> **Reorganizado em 2026-08-25.** Vários itens desta lista deixaram de ser
+> "possíveis recursos de uma versão futura" e viraram escopo classificado da
+> trilha Field: notificações, checklist dinâmico, modo offline, estoque,
+> medição óptica, teste de velocidade e localização de técnicos estão em §194,
+> cada um com prioridade própria. Esta seção fica como registro da intenção
+> original.
+
 Possíveis recursos:
 
 - GPS;
@@ -1709,7 +1716,7 @@ Administração continuará responsiva para:
 - Flutter **é** a decisão oficial para o futuro AlfaOS Field App.
 - Android **é** a primeira prioridade móvel.
 - Essa decisão **substitui** a recomendação antiga de evitar Flutter indefinidamente.
-- Porém Flutter **NÃO faz parte do escopo imediato** da `v0.3` nem da `v0.4` — nenhuma linha de Flutter deve ser escrita nessas versões.
+- Porém Flutter **NÃO faz parte do escopo imediato de nenhuma versão até que a trilha Field seja formalmente autorizada** — nenhuma linha de Flutter deve ser escrita antes disso. (O texto original desta linha citava `v0.3` e `v0.4`, que já passaram; a ressalva nunca foi sobre aquelas duas versões em particular, e sim sobre a ausência de autorização — ver §194 e §195.)
 - O web/PWA existente (Next.js) **continua sendo a interface atual** do Core, inclusive para o técnico — `/minhas-os` e `/ordens/[id]` permanecem válidos e não são substituídos por esta decisão.
 - O Field App Flutter **começa somente quando a trilha correspondente for formalmente autorizada** (ver seção 118, trilha "Field App") — não quando o Core chegar numa versão específica, e não automaticamente.
 - **Estar planejado neste PRD não autoriza implementação antecipada.** "Flutter foi aprovado como decisão de produto" não significa "comece a migrar o AlfaOS para Flutter agora" — são duas afirmações diferentes, e só a primeira está registrada aqui. Ver seção 119 (Princípio de Escopo), que se aplica a esta decisão como a qualquer outra da Parte II.
@@ -2000,7 +2007,12 @@ Regras críticas (autorização, multi-tenancy, máquina de estados, concorrênc
 
 Prioridade inicial: **Android**. iOS poderá ser suportado posteriormente conforme necessidade — não é um compromisso desta fase.
 
-> **Fora de escopo agora.** Esta é uma decisão de arquitetura para quando a trilha "Field App" for formalmente autorizada (seção 118) — não um sinal para começar a implementar. Não iniciar nenhum trabalho de Flutter durante `v0.3`/`v0.4`. Ver seção 61 para o texto completo desta ressalva e seção 119 para o princípio geral de escopo.
+> **Fora de escopo agora.** Esta é uma decisão de arquitetura para quando a trilha "Field App" for formalmente autorizada (seção 118) — não um sinal para começar a implementar. Ver seção 61 para o texto completo desta ressalva e seção 119 para o princípio geral de escopo.
+
+**A especificação completa do Field está na Parte V (§150–§195):** experiência,
+notificações, registro de dispositivo, offline, evidências, checklist,
+ferramentas técnicas e as fundações de backend que precisam existir antes. Esta
+seção continua sendo a decisão de plataforma; a Parte V é o produto.
 
 ---
 
@@ -2127,7 +2139,12 @@ Classificação detalhada por ferramenta nas seções 83–88 e na tabela da se�
 
 ---
 
-# 83. WI-FI ANALYZER **[DIFERENCIAL]**
+# 83. WI-FI ANALYZER **[DIFERENCIAL — P0 na trilha Field, §174]**
+
+> **Reclassificado em 2026-08-25.** Continua sendo DIFERENCIAL para o produto
+> (§117), e passou a ser **P0 do Field MVP**: é a ferramenta que atende a
+> reclamação mais comum do assinante e que hoje o técnico substitui por
+> aplicativo de terceiro no celular pessoal. Especificação em §174.
 
 Funcionalidade do Flutter/Android. Mostrar: SSID, banda, canal, RSSI, largura, redes próximas, ocupação, interferência.
 
@@ -2143,7 +2160,7 @@ Não prometer capacidades que Android/iOS não permitam — o acesso real ao sca
 
 ---
 
-# 84. RECOMENDADOR DE CONFIGURAÇÃO WI-FI **[DIFERENCIAL]**
+# 84. RECOMENDADOR DE CONFIGURAÇÃO WI-FI **[DIFERENCIAL — P0 na trilha Field, §174]**
 
 Com base nas medições (seção 83), o AlfaOS poderá recomendar canal, largura, banda, posicionamento, necessidade de segundo AP ou de Mesh.
 
@@ -2177,17 +2194,27 @@ Download  112 Mbps             Download  487 Mbps
 Jitter    17 ms                Jitter    2 ms
 ```
 
-Pode virar evidência anexada à OS (ver seção 92, Fotos e Evidências — mesmo princípio de evidência estruturada).
+Pode virar evidência anexada à OS (ver seção 92 e, para o modelo estruturado que a substitui no Field, §162 e §176). Especificação da comparação antes/depois em §175.
 
 ---
 
-# 87. SPEED TEST **[DIFERENCIAL]**
+# 87. SPEED TEST **[DIFERENCIAL — P0 na trilha Field, §179]**
+
+> **Reclassificado em 2026-08-25:** P0 do Field MVP. Servidor de teste próprio
+> ou regional continua FUTURO.
 
 Ferramenta para registrar: download, upload, ping, jitter, perda de pacotes (quando disponível), tipo de conexão do teste (Wi-Fi/cabo, quando conhecido), data/hora. Servidor de teste próprio/regional é **[FUTURO]**, não parte desta fase.
 
 ---
 
-# 88. ASSISTENTE DE CONFIGURAÇÃO DE ROTEADORES **[FUTURO]**
+# 88. ASSISTENTE DE CONFIGURAÇÃO DE ROTEADORES **[revisado — ver §178]**
+
+> **Reclassificado em 2026-08-25.** Esta seção tratava o assunto inteiro como
+> FUTURO. A §178 separa duas coisas que não são a mesma: a versão **assistida**
+> — o app mostra os valores certos e o técnico digita — é **P0 do Field MVP** e
+> não depende de integrar nenhum fabricante. A versão **automatizada**, com
+> `RouterAdapter` por modelo, é **P1** e continua exigindo ACS/TR-069/API
+> oficial em vez de scraping de HTML.
 
 Cadastro de equipamentos homologados por fabricante/modelo (TP-Link, ZTE, Tenda, outros), cada um podendo conter guia, configuração WAN/PPPoE/VLAN/Wi-Fi/segurança, firmware homologado, problemas conhecidos, procedimentos.
 
@@ -2195,7 +2222,10 @@ Estudar futuramente ACS, TR-069, TR-369, APIs oficiais de fabricantes (ver seç�
 
 ---
 
-# 89. QR CODE / BARCODE **[DIFERENCIAL]**
+# 89. QR CODE / BARCODE **[DIFERENCIAL — leitura básica P0 na trilha Field, §180]**
+
+> **Reclassificado em 2026-08-25:** a **leitura** é P0 do Field MVP; o vínculo e
+> a baixa completos dependem do ledger de inventário (§181), que é P1.
 
 Field App usará a câmera para escanear ONU, ONT, roteador, TV Box e outros equipamentos, lendo serial, MAC, QR ou barcode. Após a leitura: identificar equipamento, consultar cliente, consultar estoque, vincular ativo à OS, realizar baixa, consultar histórico.
 
@@ -2203,7 +2233,12 @@ Depende do módulo de Estoque por Técnico (seção 90) para as funções de ví
 
 ---
 
-# 90. ESTOQUE POR TÉCNICO **[FUTURO]**
+# 90. ESTOQUE POR TÉCNICO **[FUTURO — P1 na trilha Field, §181]**
+
+> **Decisão de modelagem acrescentada em 2026-08-25 (§181):** o estoque é um
+> **ledger de movimentos com histórico imutável**, não um contador. Saldo é
+> derivado. Um contador perde a história e, quando diverge da prateleira, não
+> há como descobrir onde.
 
 Cada técnico poderá possuir estoque individual:
 
@@ -2223,7 +2258,11 @@ Suportar futuramente: entrada, transferência, consumo, devolução, equipamento
 
 ---
 
-# 91. CHECKLISTS INTELIGENTES **[DIFERENCIAL]**
+# 91. CHECKLISTS INTELIGENTES **[DIFERENCIAL — P0 na trilha Field, §165]**
+
+> **Reclassificado em 2026-08-25:** P0 do Field MVP. A §165 especifica o
+> checklist configurável por `companyId` + `ServiceOrderType`, e a §166 fixa que
+> **quem valida a conclusão é o backend**, nunca o aplicativo.
 
 O checklist deve variar por tipo de OS:
 
@@ -2248,6 +2287,13 @@ Objetivo: o técnico não precisa memorizar todo o protocolo — o sistema orien
 Complementa a seção 31. Além dos campos já definidos (`company_id`, `service_order_id`, `uploaded_by`, `file_path`, `mime_type`, `size`, `created_at`), considerar: compressão, upload em background, fila offline (depende da seção 98), timestamp, metadata mínima necessária, retenção, segurança.
 
 Não depender exclusivamente de metadata do aparelho como prova absoluta — a integridade da evidência deve vir do registro server-side (quem, quando, para qual OS), não de EXIF não verificável.
+
+> **Estendido em 2026-08-25 (§162).** Esta seção tratava foto como arquivo com
+> metadados. No Field ela passa a ser **evidência categorizada**: `category`
+> obrigatória, categorias exigíveis por `ServiceOrderType`, `hash` para
+> deduplicação e imutabilidade após `COMPLETED`. Um álbum de doze fotos sem
+> rótulo não prova nada seis meses depois — ninguém sabe qual é a CTO e qual é
+> o acabamento.
 
 ---
 
@@ -2283,7 +2329,19 @@ Central técnica futura contendo equipamentos, configurações, problemas recorr
 
 ---
 
-# 98. MODO OFFLINE **[FUTURO — requisito arquitetural relevante quando chegar a hora]**
+# 98. MODO OFFLINE **[revisado — fundação é P0 do Field MVP, §158]**
+
+> **Reclassificado em 2026-08-25.** Esta seção marcava modo offline como FUTURO.
+> A **fundação offline é P0 do Field MVP** (§158–§161): um aplicativo de campo
+> que exige rede não é um aplicativo de campo, e retrofit de offline depois é
+> reescrita — cada tela escrita assumindo resposta imediata do servidor precisa
+> ser refeita.
+> 
+> Continua FUTURO a **maturidade completa** de sincronização: merge assistido,
+> pré-sincronização preditiva e cache seletivo de base de conhecimento.
+> 
+> O parágrafo abaixo sobre `version`/`expectedVersion` estava certo e virou
+> decisão fixada na §161.
 
 Requisito arquitetural do Field App, não trivial. O técnico deve poder trabalhar em áreas sem conectividade.
 
@@ -2307,7 +2365,21 @@ Sincronização
 
 ---
 
-# 99. SEGURANÇA DO DISPOSITIVO **[DIFERENCIAL]**
+# 99. SEGURANÇA DO DISPOSITIVO **[revisado — parte é P0, ver §191]**
+
+> **Reclassificado em 2026-08-25.** Esta seção tratava o bloco inteiro como
+> DIFERENCIAL. Três itens são **P0 do Field MVP**, porque sem eles o primeiro
+> aparelho em campo já nasce com um problema sem solução: **armazenamento
+> seguro do token**, **registro de dispositivo** (`MobileDevice`, §155) e
+> **revogação server-side de sessão e dispositivo**. Celular perdido é o
+> cenário que os justifica — sem eles, cortar o acesso exige trocar a senha do
+> usuário, o que derruba os outros aparelhos dele e ainda deixa o push
+> entregando OS ao aparelho perdido.
+> 
+> Continuam DIFERENCIAL: PIN/biometria, lista de sessões na interface, versão
+> mínima do app e bloqueio de versões inseguras.
+> 
+> Contrato de segurança em `docs/SECURITY.md` §8.9.
 
 Para o Field App, prever: armazenamento seguro de token, criptografia/proteção de dados locais apropriada, PIN/biometria, dispositivos autorizados, lista de sessões, revogação, logout remoto, tratamento de celular perdido, versão mínima do app, possibilidade de bloquear versões inseguras.
 
@@ -2486,6 +2558,15 @@ Estratégia interna de desenvolvimento, não funcionalidade do produto — detal
 
 Não classificar tudo como MVP. Classificação por módulo/bloco:
 
+> **Duas escalas, dois eixos — desde 2026-08-25.** Esta tabela classifica o
+> **produto inteiro**. A Parte V (§194) classifica a **trilha Field** em
+> P0/P1/P2. As duas convivem: uma capability pode ser DIFERENCIAL para o
+> produto e P0 para o Field — é o caso do Wi-Fi Analyzer, que diferencia o
+> AlfaOS de sistemas tradicionais **e** é indispensável no primeiro aplicativo
+> que o técnico vai usar. Quando as duas colunas divergirem, **a §194 é a
+> autoridade sobre o que entra no Field**, e esta tabela sobre o que o produto
+> considera essencial.
+
 | Módulo / Funcionalidade | Classificação |
 | --- | --- |
 | AlfaOS Core (empresas, usuários, técnicos, clientes, OS, máquina de estados) | MVP |
@@ -2497,7 +2578,7 @@ Não classificar tudo como MVP. Classificação por módulo/bloco:
 | Localização/enriquecimento de Customer via ERP (seção 128) | IMPORTANTE |
 | Recolhimento de equipamentos — fluxo completo (seção 126) | FUTURO |
 | Entrega de carnê — workflow com desfechos próprios (seção 127) | FUTURO |
-| Motor de regras por tipo de OS (checklist, obrigatoriedades dinâmicas) | FUTURO |
+| Motor de regras por tipo de OS (checklist, obrigatoriedades dinâmicas) | FUTURO — **P0 na trilha Field** (§164, §165, §166) |
 | Identidade individual do técnico / desativação sem perda de histórico | MVP |
 | Integração ReceitaNet real | IMPORTANTE |
 | Cliente ausente / reagendamento | IMPORTANTE |
@@ -2506,7 +2587,7 @@ Não classificar tudo como MVP. Classificação por módulo/bloco:
 | SLA (aprofundamento operacional) | IMPORTANTE |
 | Privacidade básica de dados pessoais (minimização, mascaramento de CPF, proteção de GPS/fotos/assinatura, AuditLog, sessão, isolamento multi-tenant) | MVP — requisito transversal obrigatório |
 | Governança avançada de privacidade (retenção configurável, workflows de titular, automação de ciclo de vida) | IMPORTANTE |
-| Field App Flutter (app nativo) | DIFERENCIAL |
+| Field App Flutter (app nativo) — especificação completa na Parte V | DIFERENCIAL |
 | GPS, rota, mapa dos atendimentos | DIFERENCIAL |
 | Localização do cliente confirmada em campo (`CustomerLocation`, seção 134) | IMPORTANTE |
 | Compartilhamento de localização do técnico (`TechnicianLocation`, seção 135) | DIFERENCIAL |
@@ -2516,16 +2597,25 @@ Não classificar tudo como MVP. Classificação por módulo/bloco:
 | Despacho assistido — sistema sugere, pessoa decide (seção 137) | FUTURO |
 | Roteirização de múltiplas OS (Route Optimization Engine) | FUTURO |
 | Diagnóstico Rápido do cliente | DIFERENCIAL |
-| Technician Toolkit (Wi-Fi Analyzer, speed test, antes/depois, recomendador Wi-Fi, teste por cômodos) | DIFERENCIAL |
-| Assistente de configuração de roteadores | FUTURO |
-| QR Code / Barcode de equipamentos | DIFERENCIAL |
-| Checklists inteligentes dinâmicos | DIFERENCIAL |
+| Technician Toolkit (Wi-Fi Analyzer, speed test, antes/depois, recomendador Wi-Fi, teste por cômodos) | DIFERENCIAL — **Wi-Fi Analyzer, recomendador, speed test, gateway discovery e quick diagnostics são P0 na trilha Field** (§174–§179); teste por cômodos continua FUTURO |
+| Assistente de configuração de roteadores | **assistida: P0 na trilha Field** (§178) · **automatizada por adapter: P1** · acesso remoto: FUTURO |
+| QR Code / Barcode de equipamentos | DIFERENCIAL — **leitura básica é P0 na trilha Field** (§180); vínculo e baixa dependem do ledger (P1) |
+| Checklists inteligentes dinâmicos | DIFERENCIAL — **P0 na trilha Field** (§165) |
 | Comunicação integrada (ligação/WhatsApp/chat) | DIFERENCIAL |
 | Segurança avançada de dispositivo (biometria, revogação remota) | DIFERENCIAL |
 | Avaliação do atendimento pelo cliente | DIFERENCIAL |
-| Estoque por técnico (completo, com RMA/rastreabilidade) | FUTURO |
-| Modo offline completo | FUTURO |
-| Base de conhecimento | FUTURO |
+| Estoque por técnico (completo, com RMA/rastreabilidade) — modelado como **ledger de movimentos**, não contador (§181) | FUTURO — **P1 na trilha Field** |
+| Modo offline — **fundação** (outbox local, idempotência, política de conflito) | **P0 na trilha Field** (§158–§161) |
+| Modo offline — **maturidade completa** (merge assistido, pré-sync preditiva, cache seletivo) | FUTURO |
+| Base de conhecimento | FUTURO — **P1 na trilha Field** (§183) |
+| Notificações push + central de notificações | **P0 na trilha Field** (§153, §154) |
+| Registro de dispositivo móvel (`MobileDevice`, revogação remota) | **P0 na trilha Field** (§155) |
+| Transactional Outbox + fila de jobs com retry | **P0 na trilha Field** (§156, §157) |
+| Evidências fotográficas estruturadas por categoria | MVP (evolução da §31/§92) — **P0 na trilha Field** (§162) |
+| Registro de execução de ferramentas (`ToolExecution`) | **P0 na trilha Field** (§176) |
+| Field API — versionamento, idempotência, contratos de sync | **P0 na trilha Field** (§192, §195) |
+| Formulários dinâmicos configuráveis por empresa | FUTURO — **P2 na trilha Field** (§192) |
+| Skills do técnico, disponibilidade e turnos | IMPORTANTE — **P1 na trilha Field** (§185) |
 | Pré-diagnóstico remoto | FUTURO |
 | Correlação de incidentes | FUTURO |
 | Integração OLT / RADIUS / ACS / FiberMap | FUTURO |
@@ -2563,30 +2653,38 @@ Detalhamento na seção 131.
 
 ## Field App
 
-Após o Core amadurecer:
+> **Ordem revisada em 2026-08-25. A §194 é a autoridade.** A sequência
+> original colocava **Offline depois de GPS/Rotas**. Isso se inverteu: a
+> fundação offline é **P0** (§158) e o tracking é **P1** (§186). Offline não é
+> uma camada que se acrescenta sobre um app pronto — ele determina a forma de
+> toda tela e de toda rota mutante, e adicioná-lo depois é reescrever as duas.
 
 ```text
-Flutter (base do app)
+P0   base do app + offline foundation + notificações
+      + evidências estruturadas + toolkit essencial
  ↓
-GPS / Rotas
+P1   GPS / rotas / mapa · inventário como ledger
+      OLT/ONU · SLA · base de conhecimento
  ↓
-Offline
- ↓
-Equipamentos / Estoque
- ↓
-Field Operations completas
+P2   comunicação · IA · despacho inteligente · formulários dinâmicos
 ```
+
+Detalhamento item a item na §194; fundações de backend na §195.
 
 ## Technician Toolkit
 
+> **Ordem revisada em 2026-08-25 (§194).** Wi-Fi Analyzer, recomendação de
+> canal, gateway discovery, quick diagnostics e speed test entram **juntos no
+> P0** — são o conjunto mínimo que substitui os aplicativos de terceiro que o
+> técnico usa hoje no celular pessoal. Teste por cômodos continua FUTURO.
+
 ```text
-Wi-Fi Analyzer
+P0   Wi-Fi Analyzer · recomendação de canal · gateway discovery
+      quick diagnostics · speed test · configuração assistida de roteador
  ↓
-Teste por cômodos
+P1   antes/depois · óptica/OLT · automação de roteador por adapter
  ↓
-Speed Test avançado
- ↓
-Diagnóstico automático
+FUTURO   teste de cobertura por cômodos · servidor de teste próprio
 ```
 
 ## Network Intelligence
@@ -2946,6 +3044,11 @@ Depois disso, sem ordem fixada: descoberta global de OS **quando e se** o
 ReceitaNet liberar API (§141) · Field App em Flutter · GPS ·
 `CustomerLocation` · mapa operacional · roteirização · modo offline ·
 ferramentas técnicas.
+
+**A trilha Field tem roadmap próprio, em P0/P1/P2, na §194**, e as fundações
+de backend que ela exige estão na §195. Ela não avança em paralelo
+automaticamente: começa quando for formalmente autorizada, como qualquer
+outra (§119).
 
 Cada etapa exige escopo aprovado antes de virar código, e auditoria independente quando tocar superfície crítica.
 
@@ -3745,4 +3848,1413 @@ encaminhado. Cada estado precisa de rótulo, ícone ou forma além da cor.
 
 Persistir quando for tecnicamente adequado. `System` é o padrão: respeita o que
 o aparelho já decidiu, inclusive o agendamento automático de noite.
+
+---
+
+# PARTE V — ALFAOS FIELD: ARQUITETURA, TOOLKIT E FUNDAÇÕES DE BACKEND
+
+Registrada em 2026-08-25. Define o **AlfaOS Field** por inteiro — o aplicativo
+do técnico, as ferramentas técnicas que ele carrega e os serviços de backend
+que precisam existir para sustentá-lo.
+
+As Partes I a IV permanecem válidas. A Parte V faz três coisas:
+
+1. **especifica** o que a Parte II descrevia como intenção (§75, §82–§91, §98);
+2. **reclassifica** o que a Parte II marcou como DIFERENCIAL ou FUTURO e passou
+   a ser P0 do Field — cada reclassificação está marcada na seção de origem e
+   consolidada na §191;
+3. **acrescenta** o que não existia em nenhuma parte: notificações, registro de
+   dispositivo, outbox transacional, fila de jobs, sincronização offline e o
+   modelo de execução de ferramentas.
+
+> **A §119 se aplica a toda a Parte V.** Nada aqui está implementado. Estar
+> especificado não autoriza escrever código, criar migration nem iniciar
+> Flutter. A trilha Field começa quando for formalmente autorizada.
+
+**P0 · P1 · P2 classificam a trilha Field**, não o produto inteiro. A
+classificação MVP/IMPORTANTE/DIFERENCIAL/FUTURO da §117 continua descrevendo o
+AlfaOS como um todo. As duas convivem: uma capability pode ser DIFERENCIAL para
+o produto e P0 para o Field — é exatamente o caso do Wi-Fi Analyzer, que
+diferencia o AlfaOS de sistemas tradicionais **e** é indispensável no primeiro
+aplicativo que o técnico vai usar.
+
+---
+
+# 150. ALFAOS FIELD — VISÃO OFICIAL
+
+> **O AlfaOS Field é a aplicação operacional móvel de execução de serviços em
+> campo. Ele não é um painel Web reduzido.**
+
+Plataforma: **Flutter**, **Android primeiro**, iOS posteriormente — decisão já
+registrada em §61 e §75, sem alteração.
+
+## Desenhado para a rua
+
+Um painel administrativo é lido sentado, com as duas mãos, numa tela grande,
+com internet. Nada disso é verdade em campo. O Field é desenhado para:
+
+```text
+trabalho em rua          conectividade instável
+uso com uma mão          atendimento rápido
+sol forte e noite        baixa distração
+ações grandes e claras   operação offline
+ferramentas técnicas
+```
+
+Encolher o painel Web para caber num celular produz um aplicativo que funciona
+na demonstração e falha na calçada: alvos de toque pequenos demais para luva,
+texto ilegível sob sol, e a suposição de rede que a rua não cumpre.
+
+## O backend continua sendo a autoridade
+
+**O Flutter não duplica regra crítica.** Tenancy, ownership, máquina de estados,
+concorrência, idempotência, validação de conclusão e auditoria vivem no Core e
+só nele (§130).
+
+Regra duplicada é regra que diverge: a cópia do app fica para trás a cada
+release e a diferença aparece como falha de autorização em campo, não como erro
+de compilação. O app **coleta e apresenta**; o Core **decide**.
+
+---
+
+# 151. PRIORIDADE DA TELA DA OS NO FIELD
+
+Estende a §145 — mesmo princípio, aplicado à tela completa de execução:
+
+```text
+ 1. identificação da OS        9. plano
+ 2. cliente                   10. descrição do serviço
+ 3. telefone principal        11. checklist
+ 4. telefone alternativo      12. evidências / fotos
+ 5. endereço                  13. materiais / equipamentos
+ 6. navegação                 14. assinatura
+ 7. PPPoE                     15. conclusão
+ 8. diagnóstico
+```
+
+A ordem não é estética: é a sequência real de um atendimento. Quem chega
+precisa **identificar, ligar e chegar** antes de qualquer outra coisa; quem já
+está dentro da casa precisa **executar e registrar**.
+
+**Ruído de implementação sai da tela.** Nome do provider, código de capability,
+origem do dado e rótulo de integração descrevem *como o AlfaOS obteve* a
+informação — não ajudam a atender.
+
+**ReceitaNet não ocupa card permanente** na experiência normal do técnico
+(§145). O dado aparece onde é útil; a origem não vira seção.
+
+---
+
+# 152. TEMA NO FIELD
+
+O sistema de temas da §149 vale integralmente no Field: **Light · Dark ·
+System**, com **System como padrão**, sobre tokens semânticos, e estado
+operacional nunca transmitido só por cor.
+
+O Field acrescenta uma exigência que o painel Web não tem: legibilidade em
+**dia · noite · baixa iluminação · dentro de veículo · plantão**.
+
+Tema escuro aqui é **capability operacional**, não preferência estética. Uma
+tela branca a brilho máximo às três da manhã arruína a visão adaptada ao escuro
+por minutos — o técnico fica sem enxergar a caixa de emenda que veio consertar.
+
+---
+
+# 153. NOTIFICAÇÕES PUSH — P0
+
+**Obrigatórias no MVP do Field.** Um aplicativo de campo sem push obriga o
+técnico a abrir o app periodicamente para descobrir se algo mudou — o que
+significa que ele não descobre.
+
+## Eventos iniciais
+
+```text
+SERVICE_ORDER_ASSIGNED
+SERVICE_ORDER_REASSIGNED_TO_TECHNICIAN
+SERVICE_ORDER_REMOVED_FROM_TECHNICIAN
+SERVICE_ORDER_SCHEDULE_CHANGED
+SERVICE_ORDER_PRIORITY_CHANGED
+SERVICE_ORDER_REOPENED
+SERVICE_ORDER_CANCELLED
+```
+
+Futuro: `SLA_NEAR_DUE` · `ROUTE_CHANGED` · `IMPORTANT_MESSAGE` ·
+`ASSISTANCE_REQUEST`.
+
+## O que a notificação carrega
+
+```text
+Nova ordem de serviço
+OS Nº 184 foi atribuída a você.
+```
+
+O número operacional (§123) identifica sem revelar nada. **Push NUNCA contém:**
+
+```text
+CPF · senha PPPoE · login sensível desnecessário
+endereço completo · telefone · diagnóstico detalhado
+```
+
+**A tela bloqueada revela o mínimo.** Uma notificação aparece sobre a tela
+travada, num aparelho apoiado no painel do carro, visível para qualquer um que
+passe. É a superfície menos controlada do produto inteiro: o conteúdo não passa
+por autenticação, não expira e pode ficar na central de notificações do sistema
+operacional por dias.
+
+Detalhe fica atrás do toque, não na prévia.
+
+## Deep link
+
+Tocar na notificação abre **a OS correspondente**. O destino é resolvido pelo
+identificador da OS, e a autorização é verificada na abertura — um deep link
+não é prova de acesso. Notificação para OS que já foi reatribuída leva a uma
+negação limpa, nunca ao conteúdo.
+
+---
+
+# 154. CENTRAL DE NOTIFICAÇÕES
+
+O Field tem central própria, dentro do aplicativo:
+
+```text
+lida / não lida · contador · data e hora · tipo
+referência à OS · deep link
+marcar uma como lida · marcar todas como lidas
+```
+
+> **Push não é fonte de verdade.**
+
+A `Notification` interna é registrada **mesmo quando o push externo falha**.
+Push depende de token válido, de aparelho ligado, de rede e de um provider de
+terceiro que pode descartar a mensagem sem avisar. Um sistema que trata a
+entrega do push como o fato perde a atribuição inteira quando o Google decide
+que aquele token expirou.
+
+A central é o registro; o push é apenas o aviso.
+
+---
+
+# 155. MOBILEDEVICE — REGISTRO DE DISPOSITIVO
+
+O backend precisa do conceito de **instalação**, não de aparelho genérico.
+
+```text
+MobileDevice
+  id · companyId · userId · installationId
+  platform · registro de push protegido
+  registeredAt · lastSeenAt · lastPushAt
+  active · appVersion · deviceMetadata mínimo
+```
+
+Um usuário pode ter **mais de um dispositivo**, quando a política da empresa
+permitir.
+
+## Operações
+
+```text
+registrar · renovar token · desativar · logout
+revogar celular perdido · substituir aparelho
+```
+
+**Revogar precisa ser imediato e do lado do servidor.** Celular perdido é o
+cenário que justifica esta entidade existir: sem ela, a única forma de cortar o
+acesso é trocar a senha do usuário, o que derruba os outros aparelhos dele e
+não impede que o token de push continue entregando OS para o aparelho perdido.
+
+## Não atrelar ao número de telefone
+
+Número de telefone muda, é reciclado pela operadora e pertence à pessoa, não à
+empresa. Usá-lo como identidade de dispositivo entrega notificações operacionais
+a quem receber o número depois.
+
+`deviceMetadata` guarda o **mínimo necessário** para suporte — modelo e versão
+de sistema bastam. Inventário de aparelho é vigilância acidental.
+
+---
+
+# 156. TRANSACTIONAL OUTBOX — P0
+
+> **Evento importante não pode depender de chamada externa dentro da transação
+> principal.**
+
+```text
+TRANSACTION
+ ├── alterar ServiceOrder
+ ├── criar ServiceOrderEvent
+ └── criar OutboxEvent
+COMMIT
+
+        depois, fora da transação
+
+Worker → processa Outbox → Notification → provider de push
+```
+
+Chamar o FCM de dentro da transação cria dois desfechos igualmente ruins: a
+transação fica aberta esperando rede de terceiro, ou o push é enviado e a
+transação sofre rollback — e o técnico recebe notificação de uma atribuição que
+não existe.
+
+**Com outbox: se o provider estiver fora, a OS continua correta e o evento não
+se perde.** Ele fica na fila até ser entregue.
+
+```text
+OutboxEvent
+  eventId · companyId · eventType
+  aggregateType · aggregateId
+  createdAt · availableAt · processedAt
+  attemptCount · status
+```
+
+**Sem segredos no payload.** O outbox é uma tabela que sobrevive à transação,
+é lida por workers, aparece em dump de banco e em backup. Ele carrega
+**referência** ao agregado, não o conteúdo sensível dele — o worker relê o que
+precisa no momento de processar.
+
+`companyId` no evento não é redundância: o worker precisa dele para respeitar
+isolamento de tenant sem reconsultar o agregado.
+
+---
+
+# 157. JOB QUEUE E RETRY
+
+Fila prevista para: **push · fotos · PDFs · integrações ERP · notificações ·
+tarefas de sincronização** e, no futuro, **OLT/RADIUS/ACS**.
+
+```text
+PENDING → PROCESSING → COMPLETED
+                    ↘ FAILED
+```
+
+Retry com **backoff exponencial** ou política equivalente. Retry imediato em
+laço contra um provider já sobrecarregado é uma negação de serviço que o AlfaOS
+aplica contra si mesmo.
+
+> **Falha definitiva precisa ser observável e recuperável.**
+
+Um job que esgotou as tentativas e desapareceu em silêncio é pior do que um
+job que nunca rodou: ninguém sabe que faltou. `FAILED` fica visível, com motivo
+e contagem de tentativas, e pode ser reprocessado.
+
+---
+
+# 158. OFFLINE-FIRST — P0
+
+> **O Field nasce preparado para operar offline. Offline não é melhoria futura
+> de UI.**
+
+**Esta decisão substitui a classificação da §98**, que tratava modo offline como
+FUTURO. A razão da mudança: um aplicativo de campo que exige rede não é um
+aplicativo de campo. O técnico entra em prédio com laje de concreto, em área
+rural e em caixa subterrânea — e é exatamente ali que ele precisa registrar o
+que fez.
+
+Retrofit de offline depois é reescrita: cada tela escrita assumindo resposta
+imediata do servidor precisa ser refeita.
+
+## O que o técnico faz sem rede
+
+Conforme cache e permissões:
+
+```text
+abrir OS já sincronizadas · consultar dados necessários
+iniciar atendimento · preencher checklist
+registrar fotos · materiais · equipamentos
+assinatura · observações
+tentativas de contato · impedimentos
+finalizar localmente como PENDENTE DE SYNC
+```
+
+**"Finalizado localmente" nunca é apresentado como concluído.** A conclusão é
+decidida pelo servidor (§166). O app mostra o estado real: registrado aqui,
+aguardando sincronização.
+
+## Segredo offline tem política própria
+
+> **Por padrão, senha PPPoE em texto claro NÃO é persistida offline.**
+
+Cache offline é armazenamento durável num aparelho que anda pela rua e é
+roubado. Toda a arquitetura da §132 e de `docs/SECURITY.md` §8.5 existe para
+que o texto claro só saia do servidor sob pedido explícito e auditado; gravá-lo
+no disco do celular anularia isso em silêncio.
+
+Qualquer exceção a essa regra exige política explícita da empresa, prazo de
+validade e registro — nunca é o comportamento padrão.
+
+---
+
+# 159. FIELD LOCAL OUTBOX
+
+Ação feita offline vira **operação local pendente**, não estado alterado.
+
+```text
+START_ORDER · CHECKLIST_ITEM · ADD_PHOTO
+USE_MATERIAL · SCAN_EQUIPMENT · ADD_NOTE
+SIGNATURE · COMPLETE_ORDER
+```
+
+```text
+operação local
+  localOperationId · serviceOrderId · type
+  createdAt · payload seguro
+  syncStatus · retryCount
+
+PENDING → SYNCING → SYNCED
+                 ↘ CONFLICT
+                 ↘ FAILED
+```
+
+## O técnico enxerga o status
+
+```text
+Sincronização
+  ✓ início
+  ✓ checklist
+  ↻ 3 fotos
+  ! 1 material
+  ↻ assinatura
+```
+
+Sincronização silenciosa é sincronização que o técnico descobre que falhou
+quando o despachante liga cobrando. O estado por item — e não uma barra global —
+é o que permite agir sobre o item que travou.
+
+`payload seguro` é literal: a operação local guarda o que o técnico registrou,
+nunca credencial nem token.
+
+---
+
+# 160. IDEMPOTÊNCIA MOBILE
+
+> **Toda operação mutante vinda do Field carrega `idempotencyKey` /
+> `localOperationId`.**
+
+O caso concreto: o celular envia `COMPLETE_ORDER` três vezes quando a internet
+volta, porque o app não sabe se as duas primeiras chegaram. **O resultado é UMA
+conclusão.**
+
+Não pode existir:
+
+```text
+material duplicado · foto duplicada · assinatura duplicada
+conclusão duplicada · timeline duplicada
+```
+
+A chave é gerada **no dispositivo, no momento da ação** — não no envio. Gerada
+no envio, cada retentativa produz uma chave nova e a proteção não existe.
+
+Isto estende a §24, que já é regra do Core; a novidade é que a chave passa a vir
+do cliente e precisa ser tratada como entrada não confiável: escopada por
+empresa e por técnico, nunca aceita como prova de autorização.
+
+---
+
+# 161. CONFLITOS OFFLINE
+
+Usa o `version`/CAS que já existe no Core (§23) — **não inventar um segundo
+mecanismo de concorrência**.
+
+| Situação | Política |
+|---|---|
+| Evento imutável (foto, assinatura, evento de timeline) | **não sobrescrever** |
+| Mudança incompatível (a OS foi cancelada ou reatribuída enquanto o técnico estava offline) | **CONFLICT** explícito |
+| Dado não crítico | merge explícito **quando seguro** |
+
+> **Nunca "last write wins" silencioso para decisão operacional crítica.**
+
+O cenário que a política precisa sobreviver: o técnico fica sem rede, o
+despachante cancela a OS, o técnico executa e sincroniza. Sobrescrever o
+cancelamento apagaria uma decisão da operação; descartar o trabalho apagaria
+duas horas de campo. As duas são inaceitáveis — por isso o desfecho é
+`CONFLICT`, visível para gente resolver.
+
+---
+
+# 162. EVIDÊNCIAS ESTRUTURADAS — P0
+
+> **Fotos não são anexos genéricos. São evidências categorizadas.**
+
+**Isto especifica e estende a §31 e a §92.** Um álbum de doze fotos sem rótulo
+não prova nada seis meses depois, quando o cliente contesta a instalação:
+ninguém sabe qual delas é a CTO e qual é o acabamento.
+
+## Categorias
+
+```text
+BEFORE_SERVICE · INSTALLATION_LOCATION · CABLE_ROUTE
+CTO · ONU_ONT · ROUTER · EQUIPMENT
+OPTICAL_READING · WIFI_TEST · SPEED_TEST
+AFTER_SERVICE · CUSTOM · OTHER
+```
+
+**`ServiceOrderType` define quais categorias são obrigatórias** (§164 e §165).
+
+Exemplo — INSTALAÇÃO:
+
+```text
+antes      local
+durante    CTO · passagem · ONU · roteador · acabamento
+testes     potência · Wi-Fi · velocidade
+final      instalação concluída
+```
+
+## Metadados
+
+```text
+companyId · serviceOrderId · technicianId
+category · capturedAt · uploadedAt · caption
+file metadata · location (opcional)
+syncStatus · hash para deduplicação
+estado imutável / auditoria
+```
+
+**Não confiar somente no EXIF.** Metadado de aparelho é editável e o relógio do
+celular é ajustável pelo próprio usuário. A integridade vem do registro
+server-side — quem enviou, quando chegou, para qual OS — como a §92 já
+estabelecia.
+
+**Não expor localização sem necessidade.** A coordenada de uma foto é a casa de
+um cliente. Ela entra quando serve a um propósito operacional declarado, com o
+mesmo tratamento da §138.
+
+## Depois de COMPLETED
+
+O técnico **não apaga evidência histórica**. Correção posterior existe, é
+**auditada**, e preserva o registro anterior — mesma regra de imutabilidade do
+fechamento (`docs/SERVICE-ORDER-CLOSING.md`) e da reabertura (§168).
+
+---
+
+# 163. UPLOAD RESILIENTE
+
+```text
+compressão controlada · tamanho máximo · retry · fila
+progresso · retomada quando possível · deduplicação
+thumbnail · upload em background quando permitido
+```
+
+> **Nunca exigir upload completo das fotos antes de o técnico continuar
+> preenchendo a OS offline.**
+
+Bloquear o formulário até o upload terminar transforma uma tarefa de trinta
+segundos numa espera indefinida em rede de borda — e o técnico contorna
+deixando de fotografar. A regra que atrapalha o registro produz menos evidência,
+não mais.
+
+Foto entra na fila local (§159); o preenchimento continua.
+
+---
+
+# 164. SERVICEORDERTYPE COMO MOTOR DE EXECUÇÃO
+
+**Estende a §125.** O tipo de OS deixa de ser rótulo e passa a **orientar a
+execução**. Cada tipo pode definir:
+
+```text
+checklist · campos obrigatórios · fotos obrigatórias
+testes obrigatórios · assinatura · materiais
+equipamentos · permissões de conclusão
+```
+
+Exemplos de tipo:
+
+```text
+INSTALAÇÃO INTERNET · MANUTENÇÃO INTERNET
+RETIRADA EQUIPAMENTO · INSTALAÇÃO CÂMERA
+MANUTENÇÃO CÂMERA · ENTREGA DE CARNÊ
+```
+
+> **O produto não faz hard-code de workflow de ISP.**
+
+O AlfaOS é multiempresa (§6). Uma empresa que instala câmeras e outra que
+entrega carnê usam o mesmo motor; o que muda é a configuração do tipo, não o
+código. Workflow em `if` por tipo vira um arquivo que ninguém consegue alterar
+sem release — e a próxima empresa precisa de um tipo que não está lá.
+
+---
+
+# 165. CHECKLIST DINÂMICO — P0
+
+Configurável por `companyId` + `ServiceOrderType`. **Substitui a classificação
+DIFERENCIAL da §91 no escopo do Field: é P0.**
+
+Tipos de item:
+
+```text
+boolean · texto · número · seleção
+foto · medição · equipamento · assinatura · confirmação
+```
+
+Modificadores: `required` · `optional` · `conditional`.
+
+Exemplo de condicional:
+
+```text
+"Potência acima do limite?"  →  exige justificativa e foto
+```
+
+> **A conclusão é validada pelo backend** (§166). O checklist no app orienta; ele
+> não autoriza.
+
+---
+
+# 166. VALIDATION ENGINE DE CONCLUSÃO
+
+> **O Flutter não decide sozinho se a OS pode ser concluída.**
+
+O backend verifica:
+
+```text
+estado · ownership · version
+checklist obrigatório · fotos obrigatórias
+materiais · equipamentos · assinatura
+medições · impedimentos · regras do tipo
+```
+
+A validação no cliente é conveniência — ela evita uma ida ao servidor para dizer
+o óbvio. Ela não é controle: um app modificado, uma versão antiga em campo ou
+uma requisição montada à mão passam por cima dela.
+
+## A resposta é estruturada, não uma frase
+
+```text
+Não é possível concluir:
+  · foto da ONU
+  · teste de velocidade
+  · assinatura
+```
+
+Uma lista de códigos permite que o app leve o técnico direto ao item que falta.
+Uma mensagem de texto obriga ele a procurar.
+
+---
+
+# 167. WORK EVENTS E TEMPO OPERACIONAL
+
+> **A máquina de estados oficial não muda.**
+
+```text
+PENDING → ASSIGNED → IN_PROGRESS → COMPLETED
+```
+
+**Não criar dezenas de estados principais.** Cada estado novo multiplica as
+transições que precisam ser validadas, testadas e auditadas — e a §20 fica
+impossível de manter correta.
+
+O que o campo precisa registrar são **eventos auxiliares**, que não alteram o
+estado da OS:
+
+```text
+TRAVEL_STARTED · ARRIVED · CHECKED_IN
+PAUSED · RESUMED · CONTACT_ATTEMPT
+BLOCKED · WORK_RESUMED
+```
+
+Deles derivam: **tempo de deslocamento · tempo no local · tempo ativo · tempo
+parado · tempo total**.
+
+## Check-in / chegada
+
+```text
+timestamp · GPS quando autorizado e disponível · accuracy
+```
+
+**No primeiro MVP, não bloquear por geofence.** GPS de celular erra dezenas de
+metros em área urbana densa e falha dentro de prédio — exatamente onde o
+atendimento acontece. Bloquear o início do trabalho por uma coordenada
+imprecisa impede atendimento real para prevenir uma fraude hipotética.
+
+Futuro: **sugerir** ou validar chegada por proximidade — sugerir, não impedir.
+
+Vale a regra da §130: **o app coleta, o Core decide.** Coordenada enviada pelo
+aparelho é dado de entrada, nunca prova de autorização.
+
+---
+
+# 168. TENTATIVAS DE CONTATO
+
+**Não depender de observação em texto livre.** "Liguei e não atendeu" escrito
+numa caixa de observação não é consultável, não vira métrica e não sustenta uma
+cobrança contestada.
+
+```text
+ação        PHONE_CALL · WHATSAPP · SMS · OTHER
+resultado   ANSWERED · NO_ANSWER · BUSY
+            INVALID_NUMBER · CUSTOMER_REQUESTED_LATER
+timestamp   obrigatório
+```
+
+> **Não capturar conteúdo de conversa por padrão.**
+
+Registrar que houve uma ligação é dado operacional. Registrar o que foi dito é
+outra categoria de coisa, com outras obrigações de LGPD (§113) — e o AlfaOS não
+precisa dela para operar.
+
+---
+
+# 169. IMPEDIMENTOS
+
+Ação no Field: **"Não consegui executar"**.
+
+```text
+CUSTOMER_ABSENT · CUSTOMER_NOT_ANSWERING · NO_ACCESS
+MISSING_MATERIAL · EXTERNAL_NETWORK_ISSUE · WEATHER
+NEED_SECOND_TECHNICIAN · NEED_SPECIAL_EQUIPMENT
+SAFETY_RISK · OTHER
+```
+
+Motivos **configuráveis por empresa**. O tipo de impedimento pode exigir
+comentário, foto ou nova previsão.
+
+> **Impedimento não é conclusão falsa.**
+
+Sem esta ação, o técnico que não conseguiu entrar tem duas saídas: concluir uma
+OS que não executou, ou deixá-la aberta sem explicação. A primeira corrompe o
+histórico e o indicador de qualidade; a segunda deixa o despachante sem
+informação. O impedimento é a terceira saída, e é a correta.
+
+Complementa a §94 (cliente ausente) e a §95 (reagendamento).
+
+---
+
+# 170. REABERTURA
+
+> **`COMPLETED` nunca volta atrás sem histórico.**
+
+```text
+reabertura
+  motivo · responsável · timestamp · evento imutável
+```
+
+Alterar o estado sem registro apagaria a evidência de que o serviço foi dado
+por concluído uma vez — que é justamente o fato relevante numa reincidência
+(§101) e numa contestação.
+
+Estende a §110.
+
+---
+
+# 171. AGENDA DO TÉCNICO
+
+```text
+Hoje · Próximas · Atrasadas · Urgentes · Concluídas recentemente
+```
+
+Ordenação por **prioridade · agendamento · SLA · rota futura**.
+
+"Atrasadas" e "Urgentes" existem como recortes próprios porque são as duas
+listas em que estar no fim da rolagem equivale a não existir.
+
+---
+
+# 172. NAVEGAÇÃO E CONFIRMAÇÃO DE LOCALIZAÇÃO
+
+## Navegação
+
+O cliente tem coordenadas do ReceitaNet quando o enriquecimento as trouxe
+(§143). O Field abre **Google Maps** ou **Waze**:
+
+```text
+coordenada válida  →  navegação por coordenada
+sem coordenada     →  fallback para endereço textual
+```
+
+Coordenada importada permanece **`verified = false`** até confirmação em campo
+(§134, §143).
+
+## Confirmação de localização — Field v1
+
+```text
+técnico no local  →  [Confirmar localização]
+                  →  GPS atual · comparação · confirmação explícita
+```
+
+> **Não marcar `verified = true` só por receber a localização do telefone.**
+
+O aparelho reporta onde ele está, não que o técnico conferiu que aquele é o
+ponto de instalação. Confirmação automática produziria uma base inteira de
+coordenadas "verificadas" com a precisão do GPS do momento — e a §134 existe
+exatamente para distinguir uma coisa da outra.
+
+---
+
+# 173. TOOLBOX — ORGANIZAÇÃO
+
+Área central no Field: **FERRAMENTAS**, organizada por domínio.
+
+```text
+Wi-Fi · Rede · Roteador · Fibra · Equipamentos
+```
+
+> **Não virar lista desorganizada de atalhos.**
+
+Uma gaveta com quinze ferramentas sem agrupamento custa mais tempo para
+encontrar a certa do que executá-la. O agrupamento por domínio corresponde ao
+modo como o problema chega: *o Wi-Fi está ruim*, *a fibra caiu*.
+
+**Estende a §82.** As ferramentas das §83–§88 passam a ter classificação de
+trilha Field na §191.
+
+---
+
+# 174. WI-FI ANALYZER — P0
+
+Android prioritário. **Reclassificado: a §83 marcava DIFERENCIAL; no escopo do
+Field é P0.** É a ferramenta que resolve a reclamação mais comum do assinante e
+que hoje o técnico substitui por aplicativo de terceiro no celular pessoal.
+
+Exibir, **quando a plataforma permitir**:
+
+```text
+SSID · BSSID quando permitido · RSSI
+banda · canal · largura · frequência
+redes próximas · ocupação observada
+```
+
+## Vocabulário honesto
+
+> **Nunca dizer "canal completamente limpo".**
+
+Usar **"canal recomendado"** ou **"menor ocupação observada"**.
+
+O scanner vê o que estava no ar durante a varredura, do ponto onde o celular
+estava, com as limitações da API da plataforma. Chamar isso de "limpo" promete
+uma medição que o aparelho não fez — e a promessa volta como reclamação quando
+o vizinho liga o forno de micro-ondas.
+
+## Recomendação de canal
+
+```text
+2.4 GHz   avaliar preferencialmente canais não sobrepostos
+          quando aplicável ao país/região (conceitualmente 1 / 6 / 11)
+5 GHz     considerar canais disponíveis e regulamentação local
+```
+
+Resultado estruturado:
+
+```text
+canal atual · canal recomendado
+nível de interferência · confiança da recomendação
+```
+
+**"Confiança" é campo de primeira classe**, não enfeite: uma recomendação obtida
+de uma varredura curta num único ponto não tem o mesmo peso de outra obtida de
+várias — e o técnico precisa saber a diferença antes de mexer no roteador do
+cliente.
+
+> **Não alterar o roteador automaticamente sem ação do técnico.**
+
+A recomendação é determinística e baseada em regra técnica (§84). IA (§108)
+poderá refiná-la depois, nunca como primeira implementação.
+
+## Wi-Fi Score — conceito futuro
+
+Pontuação **0–100** composta de: RSSI · interferência · ocupação · perda ·
+latência · jitter · qualidade da internet.
+
+> **O score é ajuda, não diagnóstico absoluto.**
+
+**Guardar as métricas base, não apenas o score final.** A fórmula vai mudar; as
+medições não. Guardar só o número torna impossível recalcular, comparar
+historicamente ou entender por que um atendimento pontuou 62.
+
+---
+
+# 175. QUICK DIAGNOSTICS — P0
+
+Ferramenta **"Executar diagnóstico"**:
+
+```text
+Wi-Fi → gateway → DNS → internet
+      → latência → perda → jitter
+      → PPPoE → ONU/OLT quando disponível
+      → speed test
+```
+
+A ordem é a do caminho real do pacote: cada etapa só faz sentido se a anterior
+passou. Um diagnóstico que testa tudo em paralelo devolve seis falhas quando o
+problema é um — e não diz qual.
+
+Resultado **estruturado**, com ação **[Salvar na OS]** (§176).
+
+## Antes / Depois
+
+```text
+ANTES                        DEPOIS
+RSSI · canal · perda         RSSI · canal · perda
+latência · jitter            latência · jitter
+speed test                   speed test
+potência óptica              potência óptica
+```
+
+**Estende a §86.** É a evidência objetiva de que o serviço mudou alguma coisa —
+e a única defesa contra a contestação de que "continua igual".
+
+---
+
+# 176. TOOLEXECUTION — MODELO DE BACKEND
+
+> **Resultado de ferramenta não vira texto solto na observação.**
+
+```text
+ToolExecution
+  id · companyId
+  serviceOrderId (nullable) · customerId (nullable)
+  technicianId · toolType
+  startedAt · completedAt · status
+  resultSanitized
+  appVersion · deviceId (opcional)
+```
+
+```text
+WIFI_ANALYSIS · CHANNEL_ANALYSIS · CONNECTIVITY_TEST
+SPEED_TEST · OPTICAL_TEST · ROUTER_CONFIGURATION
+GATEWAY_DISCOVERY · DEVICE_SCAN
+```
+
+`serviceOrderId` e `customerId` são anuláveis de propósito: o técnico usa o
+Wi-Fi Analyzer para conferir a própria rede, sem OS aberta, e isso é uso
+legítimo.
+
+`appVersion` não é telemetria: quando uma ferramenta passar a devolver resultado
+diferente, é o que permite saber se a rede mudou ou se foi a versão do app.
+
+> **NUNCA guardar em `resultSanitized`:**
+
+```text
+senha PPPoE · token · segredo de roteador · credencial em claro
+```
+
+O nome do campo é a regra: o que entra ali já passou por sanitização. Uma
+execução de `ROUTER_CONFIGURATION` naturalmente teria a senha do Wi-Fi e a
+credencial PPPoE no meio do resultado — e é exatamente por isso que este aviso
+existe. Guarda-se **o que foi configurado**, nunca **com qual segredo**.
+
+---
+
+# 177. GATEWAY DISCOVERY — P0
+
+```text
+Gateway detectado: 10.0.0.1
+[Copiar]  [Abrir painel]
+```
+
+> **Detectar em runtime. Não pressupor `192.168.0.1` nem `192.168.1.1`.**
+
+Provedor que entrega roteador com faixa própria, cliente com roteador em
+cascata e instalação anterior com IP alterado quebram o palpite — e o técnico
+perde minutos tentando endereços que não respondem.
+
+---
+
+# 178. CONFIGURAÇÃO DE ROTEADOR
+
+## Assistida — P0
+
+> **No primeiro MVP o AlfaOS NÃO tenta automatizar roteador arbitrário.**
+
+Tela assistida:
+
+```text
+PPPoE     usuário
+          senha via revelação segura (§132, SECURITY §8.5)
+
+Wi-Fi     nome 2.4 · nome 5 · senha
+          canal recomendado · largura sugerida
+
+[Copiar]  [Abrir gateway]
+```
+
+Isso já reduz o tempo de instalação sem prometer o que não se pode entregar: o
+técnico digita valores corretos, prontos, sem procurar contrato nem inventar
+senha.
+
+**Reclassificação: a §88 marcava o assistente como FUTURO. A versão assistida é
+P0; a automatizada é P1.**
+
+## Automatizada — P1
+
+```text
+RouterConfigurationService
+        ↓
+RouterAdapter  (fabricante · modelo · firmware/capability)
+```
+
+Preferir, nesta ordem: **ACS · TR-069 · USP/TR-369 · API oficial do fabricante**.
+
+> **Não adotar scraping frágil de HTML como arquitetura principal.**
+
+A interface web de roteador doméstico muda entre revisões de firmware sem aviso
+e sem versionamento. Um adapter construído sobre ela quebra em campo, no
+aparelho de um cliente, sem que ninguém tenha alterado nada do lado do AlfaOS.
+Scraping pode existir como último recurso por modelo — nunca como a fundação.
+
+Mesma regra da §81: nenhum fabricante vira dependência de arquitetura.
+
+## Router Profile
+
+A empresa define templates — por exemplo `INSTALLATION_DEFAULT`:
+
+```text
+PPPoE · padrão de SSID · política de senha Wi-Fi
+2.4 GHz · 5 GHz · política de canal · largura
+DNS · política de administração remota
+```
+
+O técnico **aplica** um profile suportado. **A configuração gera auditoria** —
+quem aplicou, em qual equipamento, sob qual OS, e o que mudou. Nunca os
+segredos aplicados (§176).
+
+## Acesso remoto ao roteador
+
+> **NÃO recomendar expor a interface web do roteador na WAN como estratégia
+> principal.**
+
+É um painel administrativo com credencial padrão de fábrica, exposto à internet,
+na casa do cliente — varrido em minutos e usado para redirecionar DNS.
+
+Caminhos futuros: **ACS/TR-069/USP · VPN ou túnel · rede de gerência · API
+controlada**. O acesso é **autorizado, auditado e temporário quando aplicável**.
+
+---
+
+# 179. SPEED TEST — P0
+
+```text
+download · upload · latência · jitter
+packetLoss quando disponível
+
+timestamp · tipo de conexão (Wi-Fi/Ethernet quando detectável) · resultado
+```
+
+Vinculável à OS via `ToolExecution` (§176).
+
+> **Não prometer precisão laboratorial em dispositivo móvel.**
+
+O resultado é limitado pelo rádio Wi-Fi do celular, não pelo link do cliente.
+Um teste de 300 Mbps num aparelho cujo Wi-Fi entrega 200 mede o aparelho. Por
+isso o **tipo de conexão do teste** é registrado junto: sem ele, o número não
+significa nada seis meses depois.
+
+**Reclassificação: §87 marcava DIFERENCIAL; no Field é P0.** Servidor de teste
+próprio ou regional continua FUTURO.
+
+---
+
+# 180. QR / BARCODE E EQUIPAMENTOS — P0
+
+Câmera para ler **QR · barcode · serial · MAC quando codificado**.
+
+```text
+Estoque → Técnico → OS → Cliente
+```
+
+```text
+Equipamento
+  manufacturer · model · serial · mac
+  assetTag · status · condition
+```
+
+**Reclassificação: §89 marcava DIFERENCIAL; a leitura básica é P0 do Field.** O
+vínculo e a baixa completos dependem do ledger de inventário (§181), que é P1.
+
+Digitar serial de ONU à mão, agachado dentro de um armário, é a origem mais
+comum de equipamento vinculado ao cliente errado.
+
+---
+
+# 181. INVENTÁRIO COMO LEDGER — P1
+
+> **Não controlar estoque com `quantity = quantity - 1`.**
+
+Um contador guarda o saldo e perde a história. Quando ele diverge da prateleira —
+e diverge — não há como descobrir onde: qualquer uma das últimas trezentas
+operações pode ter falhado no meio, e nenhuma delas deixou registro.
+
+Movimentos, com **histórico imutável**:
+
+```text
+WAREHOUSE_TO_TECHNICIAN · TECHNICIAN_TO_CUSTOMER
+CUSTOMER_TO_TECHNICIAN · TECHNICIAN_TO_TECHNICIAN
+TECHNICIAN_TO_WAREHOUSE · RETURN · DEFECTIVE · DISPOSAL
+```
+
+O saldo passa a ser **derivado** dos movimentos, e toda divergência tem um
+movimento que a explica.
+
+**Estende a §90**, que já previa estoque por técnico com rastreabilidade; a
+novidade é a decisão de modelá-lo como ledger.
+
+## Histórico do ativo
+
+O cliente tem histórico de equipamento: **instalado · removido · substituído ·
+devolvido**, cada um com `serial · MAC · técnico · OS · data · condição`.
+
+É o que responde "de quem é esta ONU e quem a colocou aqui" três anos depois.
+
+---
+
+# 182. FIBER TOOLKIT E MEDIÇÃO ÓPTICA — P1
+
+Integrações futuras: **OLT · ONU/ONT · RADIUS · ACS** (§104–§106).
+
+Dados possíveis:
+
+```text
+ONU online/offline · LOS · serial
+potência RX/TX · uptime · OLT · PON
+profile · IP · MAC
+```
+
+> **Os dados vêm do backend. O Flutter NÃO recebe credencial de OLT.**
+
+Credencial de OLT dá acesso administrativo à rede de acesso inteira — todos os
+assinantes daquele equipamento, não só o cliente da OS. Ela não sai do servidor
+por nenhum motivo, exatamente como o token de ERP (§189).
+
+## Medição óptica
+
+```text
+potência medida · unidade dBm
+origem: MANUAL · DEVICE · OLT · ONU
+timestamp · técnico
+```
+
+**A origem é obrigatória.** Uma leitura digitada pelo técnico e outra lida da OLT
+têm confiabilidade diferente, e comparar antes/depois (§175) misturando as duas
+produz uma diferença que não existiu.
+
+---
+
+# 183. BASE DE CONHECIMENTO E HISTÓRICO DO CLIENTE — P1
+
+## Base de conhecimento contextual
+
+Não é uma biblioteca; é **o procedimento certo na tela certa**:
+
+```text
+OS do tipo "Sem conexão"  →  procedimentos relevantes
+```
+
+Conteúdo: **texto · imagem · vídeo ou link · checklist · documento · modelo de
+equipamento**. Cache offline seletivo é futuro. Estende a §97.
+
+## Histórico do cliente
+
+> **O técnico não precisa de timeline infinita.**
+
+```text
+últimas OS · problemas recorrentes · equipamentos
+última instalação · últimas medições
+```
+
+**Sem informação financeira desnecessária.** O técnico não precisa saber se o
+cliente está inadimplente para consertar o link, e saber muda a forma como ele
+é atendido. Mesma regra da §145 e da §113.
+
+Estende a §100 e a §101.
+
+---
+
+# 184. SLA ENGINE — P1
+
+```text
+SLA por tipo e prioridade · business hours
+pausas justificadas · dueAt · breachAt
+
+eventos: SLA_NEAR_DUE · SLA_BREACHED
+```
+
+Os eventos alimentam notificações (§153). **Pausas justificadas** são o que
+impede que um impedimento legítimo (§169) conte como atraso do técnico.
+
+Aprofunda a §112.
+
+---
+
+# 185. SKILLS, DISPONIBILIDADE E TURNO
+
+## TechnicianSkill
+
+```text
+FTTH · Wi-Fi · Câmeras · IPTV
+Elétrica · Rádio · Configuração de roteador · Cabeamento
+
+skill · level/certificação (opcional) · active
+```
+
+É o pré-requisito do despacho assistido (§137): sem saber competência, o sistema
+só pode sugerir por distância.
+
+## Disponibilidade
+
+```text
+disponível · em atendimento · deslocamento
+folga · férias · plantão · indisponível
+```
+
+> **Não misturar disponibilidade com estado da OS.**
+
+São eixos independentes: um técnico de folga pode ter OS `ASSIGNED` para
+amanhã, e um técnico disponível pode não ter OS nenhuma. Fundir os dois
+produziria estados impossíveis e quebraria a §20.
+
+---
+
+# 186. TRACKING E PRIVACIDADE — P1
+
+Regido integralmente pela §135 e pela §138. Esta seção acrescenta a política de
+coleta.
+
+> **Tracking apenas com finalidade operacional clara: horário de trabalho,
+> atendimento, rota.**
+
+## Frequência adaptativa
+
+```text
+em movimento   10–15 s, ou por distância relevante
+parado         30–60 s ou mais
+```
+
+Frequência fixa alta destrói a bateria — e um aplicativo que descarrega o
+celular do técnico ao meio-dia é desinstalado, junto com todo o resto.
+
+> **Não transformar em rastreamento permanente.**
+
+LGPD (§113): **transparência · retenção · controle de acesso · finalidade ·
+auditoria**. Fora da jornada, não há finalidade operacional — e sem finalidade,
+não há base legal.
+
+---
+
+# 187. MAPA OPERACIONAL E ROTEIRIZAÇÃO
+
+Regido pela §136 (mapa) e pela §137 (despacho e roteirização). Sem duplicação;
+só o que a trilha Field acrescenta.
+
+Estados visuais do técnico são **derivados**, nunca uma segunda máquina de
+estados:
+
+```text
+AVAILABLE · TRAVELING · IN_SERVICE · OFFLINE
+```
+
+> **Não criar nova state machine de OS.**
+
+Progressão da roteirização:
+
+```text
+P0/P1   abrir Maps/Waze (§172)
+P1      rota do dia · ordenação assistida
+P2      smart routing: localização · SLA · prioridade
+        skill · carga · jornada · distância
+```
+
+---
+
+# 188. COMUNICAÇÃO — PTT, CHAT E REMOTE ASSIST — P2
+
+**Não entram no primeiro MVP.** Registrados como capability aprovada.
+
+## Rádio / PTT
+
+Comunicação push-to-talk entre técnicos. Prever eventualmente: **canal da
+empresa · grupo · OS · pedido de ajuda técnica**.
+
+## Chat contextual
+
+Mensagem vinculada a **ServiceOrder · Customer · grupo de técnicos** — mais útil
+que conversa solta, porque a resposta fica onde o problema está, e não numa
+rolagem que ninguém reencontra.
+
+Retenção e auditoria apropriadas (§113).
+
+## Remote assist
+
+Técnico pede ajuda de outro técnico ou supervisor: **chat · foto · vídeo ao
+vivo**. Estende a §96.
+
+---
+
+# 189. AI COPILOT — P2
+
+Estende a §108.
+
+| A IA pode | A IA NÃO pode |
+|---|---|
+| resumir histórico | concluir OS sozinha |
+| sugerir diagnóstico | revelar senha sem autorização |
+| buscar na base de conhecimento | executar mudança crítica sem confirmação |
+| sugerir checklist | |
+| explicar equipamento | |
+
+A coluna da direita não é conservadorismo: são exatamente as três superfícies
+que o Core protege com ownership, auditoria obrigatória e máquina de estados.
+Uma sugestão errada custa um clique; uma conclusão errada corrompe histórico,
+SLA e faturamento.
+
+---
+
+# 190. OBSERVABILIDADE DO BACKEND
+
+Obrigatória para os fluxos assíncronos que a Parte V introduz. Sem ela, "o
+técnico não recebeu a notificação" é impossível de investigar.
+
+```text
+OS atribuída      09:14:03
+evento no outbox  09:14:03
+worker processou  09:14:04
+provider de push  09:14:04
+```
+
+Identificadores que amarram a cadeia:
+
+```text
+correlationId · eventId · notificationId
+deviceId · jobId · attemptCount
+```
+
+> **Sem PII e sem segredos.** Vale a §63 integralmente: um identificador
+> correlaciona sem revelar.
+
+---
+
+# 191. SEGURANÇA DO FIELD
+
+Detalhe operacional em `docs/SECURITY.md`. Aqui ficam os invariantes de produto.
+
+## Token e sessão
+
+```text
+armazenamento seguro da plataforma (Keystore/Keychain)
+access token curto · refresh controlado · revogação
+```
+
+**Celular perdido: o ADMIN revoga sessão e dispositivo** (§155), do lado do
+servidor, sem depender de o aparelho estar ligado.
+
+## Segredos
+
+> **Não persistir plaintext PPPoE de forma duradoura** (§158).
+
+> **Não guardar token ReceitaNet no Field.**
+
+## O Field nunca fala com o ERP
+
+```text
+Field  →  AlfaOS API  →  ReceitaNet
+```
+
+Um token de ERP no aplicativo estaria em centenas de aparelhos fora do controle
+da empresa, e valeria para a base inteira de clientes — não só para a OS aberta.
+A rota passa pelo Core, onde a autorização por OS já existe (§132) e onde a
+credencial nunca sai do servidor (`docs/SECURITY.md` §8.7).
+
+Estende a §99.
+
+---
+
+# 192. FIELD API — CONTRATO
+
+> **Toda capability que o Field precisa existe como contrato de backend. O
+> Flutter não acessa banco.**
+
+O contrato precisa definir:
+
+```text
+versionamento · erros estruturados · idempotência
+paginação · concorrência/version · contratos de sincronização offline
+```
+
+**Versionamento não é formalidade.** Aplicativo móvel não atualiza junto com o
+servidor: uma versão antiga fica em campo por semanas, no celular de quem está
+sem espaço para atualizar. O backend precisa servir as duas.
+
+## Formulários configuráveis — P2
+
+A empresa poderá configurar campos extras e checklists **sem nova versão do
+app**. Não implementar agora — mas a arquitetura de checklist (§165) e de tipo
+de OS (§164) deve preservar a possibilidade, porque adicioná-la depois sobre
+um checklist com formato fixo é reescrever as duas.
+
+---
+
+# 193. RECEITANET NO FIELD
+
+Sem novidade e sem duplicação: vale integralmente a **§141**.
+
+Não existe API pública para descobrir globalmente as OS da empresa; o suporte
+confirmou. **Não fuzzar endpoint.** Hoje: **cliente conhecido → `/v1/chamados`**
+(§142). Descoberta global é capability futura do provider.
+
+O Field não muda nada disso, porque **o Field não fala com o ReceitaNet** (§191).
+
+---
+
+# 194. ROADMAP DO FIELD — P0 / P1 / P2
+
+Classificação da **trilha Field**. Convive com a §117, que classifica o produto
+inteiro — ver a nota de abertura da Parte V.
+
+## FIELD MVP — P0
+
+```text
+login · registro de dispositivo · push · central de notificações
+Minhas OS · agenda básica · detalhe
+dois telefones · endereço · Maps/Waze
+PPPoE · diagnóstico simples · plano
+check-in · início · checklist
+fotos estruturadas · materiais · QR/barcode básico
+tentativa de contato · impedimentos
+assinatura · conclusão validada
+fundação offline · outbox local · status de sync · idempotência
+Wi-Fi Analyzer · recomendação de canal · gateway discovery
+configuração assistida de roteador · quick diagnostics · speed test
+tema Light/Dark/System
+```
+
+## FIELD v1 — P1
+
+```text
+tracking · mapa · rotas
+inventário completo · histórico de equipamento
+OLT/ONU · potência óptica · ACS · automação de roteador
+diagnóstico antes/depois · base de conhecimento
+SLA · skills do técnico · turnos e disponibilidade
+confirmação de localização do cliente · diagnóstico avançado
+```
+
+## FUTURO — P2
+
+```text
+PTT/rádio · chat contextual · remote assist
+AI Copilot · despacho inteligente · otimização de rota
+manutenção preditiva · formulários dinâmicos configuráveis
+```
+
+---
+
+# 195. FUNDAÇÕES DE BACKEND ANTES DO FIELD
+
+O que precisa **existir ou estar arquitetado** antes ou durante o
+desenvolvimento do Flutter:
+
+```text
+domínio de Notification      MobileDevice
+Transactional Outbox         processamento de jobs
+Field API                    idempotência
+contratos de sincronização   definições de checklist
+modelo de evidência          ToolExecution
+ledger de inventário         segurança de sessão e dispositivo
+```
+
+> **Isto não significa implementar tudo antes de começar o Flutter. Significa
+> que a arquitetura precisa estar definida.**
+
+A distinção importa: `MobileDevice` e o outbox podem ser implementados em
+paralelo ao app. Mas **idempotência e contrato de sincronização não podem ser
+acrescentados depois** — eles determinam a forma de toda rota mutante que o
+Field vai chamar, e retrofit significa reescrever o app e o backend juntos.
+
+A ordem de implementação é decisão de escopo de cada versão (§119), não desta
+seção.
 

@@ -77,11 +77,37 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 
 O documento também traz o mapeamento de identidade da sincronização planejada para a v0.8 (`idSuporte` → `externalId`, `numero` → `externalNumber`, `protocolo` → `externalProtocol`) e as duas armadilhas de `/v1/chamados` que viram requisito ao implementá-la.
 
-## Futuro Field App (Flutter)
+## AlfaOS Field, toolkit do técnico e fundações de backend
 
-**Carregar:** documentação específica do Field App/Flutter, quando existir — este projeto ainda não tem um app Flutter nem documentação correspondente.
-**Quando:** quando esse projeto for iniciado e a documentação existir.
-**Quando NÃO:** não aplicável até lá.
+**Carregar:** `docs/PRD.md` **Parte V (§150–§195)** — a especificação completa do Field. Carregue apenas o bloco relevante à tarefa, não a Parte inteira:
+
+| Assunto | Seções |
+|---|---|
+| Visão, tela da OS no Field, tema | §150–§152 |
+| Notificações push, central, `MobileDevice` | §153–§155 |
+| Transactional Outbox, fila de jobs, retry | §156, §157 |
+| Offline, outbox local, idempotência, conflitos | §158–§161 |
+| Evidências estruturadas e upload resiliente | §162, §163 |
+| `ServiceOrderType` como motor, checklist, validação de conclusão | §164–§166 |
+| Work events, check-in, contato, impedimento, reabertura, agenda | §167–§171 |
+| Navegação e confirmação de localização | §172 |
+| Toolbox: Wi-Fi, diagnóstico, gateway, roteador, speed test | §173–§179 |
+| `ToolExecution` | §176 |
+| QR/equipamentos e inventário como ledger | §180, §181 |
+| Fibra, óptica, base de conhecimento, histórico, SLA, skills | §182–§185 |
+| Tracking, mapa, roteirização | §186, §187 |
+| Comunicação, IA, observabilidade | §188–§190 |
+| Segurança do Field e contrato da Field API | §191, §192 |
+| Roadmap P0/P1/P2 e fundações de backend | §194, §195 |
+
+**Quando:** a tarefa envolve o aplicativo do técnico, notificações, sincronização offline, evidências, checklist dinâmico, ferramentas técnicas, inventário, ou qualquer fundação de backend que o Field exige.
+**Quando NÃO:** tarefas do painel Web sem relação com o Field, integrações ERP, ou módulos já cobertos por doc próprio. Para segurança de token móvel, dispositivo e segredo offline, o documento é `docs/SECURITY.md` §8.9.
+
+**Nada da Parte V está implementado** — não existe app Flutter, nem push, nem outbox, nem `ToolExecution`. É especificação, e a §119 se aplica: estar no PRD não autoriza implementar.
+
+**Duas escalas de prioridade convivem:** a §117 classifica o produto inteiro (MVP/IMPORTANTE/DIFERENCIAL/FUTURO); a §194 classifica a trilha Field (P0/P1/P2). Uma capability pode ser DIFERENCIAL e P0 ao mesmo tempo — conferir as duas antes de concluir que algo está ou não no escopo.
+
+**Documentação própria do Flutter:** ainda não existe. Criar quando a trilha for autorizada, e registrar aqui.
 
 ## Geolocalização, mapa operacional e despacho
 

@@ -856,6 +856,143 @@ credencial `CHATBOT` (§8.7).
 
 ---
 
+## 8.9. AlfaOS Field — superfície móvel (ESPECIFICAÇÃO, não implementado)
+
+> **Nada desta seção existe em código.** É o contrato de segurança que a trilha
+> Field precisa cumprir quando for autorizada — PRD Parte V, §150–§195. Está
+> aqui, e não só no PRD, porque cada item abaixo é uma decisão que fica cara de
+> reverter depois que o aplicativo estiver em campo.
+
+### O Field nunca fala com o ERP
+
+```text
+Field  →  AlfaOS API  →  ReceitaNet
+```
+
+Um token de ERP no aplicativo estaria em centenas de aparelhos fora do controle
+da empresa, e vale para a **base inteira de clientes** — não só para a OS aberta.
+A credencial não sai do servidor (§8.7), e a autorização por OS que já existe
+para diagnóstico e para PPPoE (§8.5) continua sendo a fronteira.
+
+### Token e sessão no dispositivo
+
+- Token no **armazenamento seguro da plataforma** (Keystore/Keychain), nunca em
+  arquivo de preferências nem em banco local em claro.
+- **Access token curto, refresh controlado, revogação do lado do servidor.**
+  Token longo transforma um aparelho roubado em acesso válido por semanas.
+- A revogação precisa ser **server-side e imediata**, sem depender de o aparelho
+  estar ligado ou conectado — um dispositivo perdido não coopera.
+
+### Registro de dispositivo
+
+`MobileDevice` (§155) existe por causa de um cenário específico: **celular
+perdido**. Sem ele, cortar o acesso exige trocar a senha do usuário, o que
+derruba os outros aparelhos dele **e** não impede que o token de push continue
+entregando ordens de serviço ao aparelho perdido.
+
+- O ADMIN revoga **sessão e dispositivo**, não só a senha.
+- `deviceMetadata` guarda o **mínimo** para suporte. Inventário de aparelho é
+  vigilância acidental.
+- **Não usar número de telefone como identidade de dispositivo.** Número é
+  reciclado pela operadora e pertence à pessoa; quem receber o número depois
+  passaria a receber notificação operacional da empresa.
+
+### Privacidade da notificação
+
+A prévia do push é **a superfície menos controlada do produto**: aparece sobre a
+tela bloqueada, não passa por autenticação, não expira, e pode ficar na central
+do sistema operacional por dias — num aparelho apoiado no painel do carro.
+
+**Nunca em push:**
+
+```text
+CPF · senha PPPoE · login sensível desnecessário
+endereço completo · telefone · diagnóstico detalhado
+```
+
+O número operacional da OS (§8.5.1) identifica sem revelar. O detalhe fica atrás
+do toque, e a autorização é verificada **na abertura** — deep link não é prova
+de acesso. Notificação para OS já reatribuída leva a uma negação limpa.
+
+### Segredo em cache offline
+
+> **Por padrão, senha PPPoE em texto claro NÃO é persistida offline.**
+
+Cache offline é armazenamento durável num aparelho que anda pela rua. Toda a
+arquitetura da §8.5 existe para que o texto claro só saia do servidor sob pedido
+explícito, `no-store` e com auditoria obrigatória — gravá-lo no disco do celular
+anula os três em silêncio, e a revelação deixa de ter registro porque deixa de
+acontecer.
+
+Exceção exige política explícita da empresa, prazo de validade e registro. Nunca
+é o comportamento padrão.
+
+**Token de ERP não vai para o Field em nenhuma hipótese** — nem em cache, nem em
+memória, nem "temporariamente".
+
+### Idempotência como entrada não confiável
+
+A `idempotencyKey`/`localOperationId` (§160) vem **do cliente**. Ela evita
+duplicação; ela **não** prova autorização.
+
+- Escopada por empresa e por técnico. Uma chave de outro tenant não pode
+  alcançar nem colidir com a linha de ninguém.
+- Reapresentar a chave de outra pessoa não pode devolver o resultado dela — isso
+  seria um oráculo sobre operações alheias.
+- Continua valendo tudo da §8 desta página e da §44 do PRD: ownership e tenancy
+  são verificados **antes** da desduplicação, nunca no lugar dela.
+
+### Validação de conclusão é do servidor
+
+O checklist e as obrigatoriedades do tipo de OS (§164–§166) são avaliados no
+**backend**. A validação no app é conveniência: um app modificado, uma versão
+antiga ainda em campo ou uma requisição montada à mão passam por cima dela.
+
+Vale a regra permanente do projeto: **UI não é controle de segurança.**
+
+### Outbox e workers
+
+- **Sem segredos no payload do outbox** (§156). A tabela sobrevive à transação,
+  é lida por workers e aparece em dump e em backup. Ela carrega **referência** ao
+  agregado; o worker relê o que precisa na hora de processar.
+- `companyId` viaja no evento para que o worker respeite o isolamento de tenant
+  sem reconsultar o agregado.
+- Observabilidade (§190) correlaciona por identificador — `correlationId`,
+  `eventId`, `notificationId`, `deviceId`, `jobId`. **Sem PII e sem segredos**,
+  como já exige a §63 do PRD.
+
+### Coordenada enviada pelo aparelho
+
+**O app coleta, o Core decide.** Nenhuma checagem de acesso passa a depender de
+onde o técnico diz estar (PRD §130). Check-in com GPS (§167) é registro
+operacional, não autorização — e no primeiro MVP não bloqueia por geofence,
+porque GPS urbano erra dezenas de metros e falha dentro de prédio, exatamente
+onde o atendimento acontece.
+
+Confirmação de localização do cliente **nunca** marca `verified = true` só por
+receber a posição do telefone (§172).
+
+### Resultado de ferramenta
+
+`ToolExecution.resultSanitized` (§176) **nunca** guarda senha PPPoE, token,
+segredo de roteador ou credencial em claro. O aviso existe porque uma execução
+de `ROUTER_CONFIGURATION` naturalmente teria a senha do Wi-Fi e a credencial
+PPPoE no meio do resultado: guarda-se **o que foi configurado**, nunca **com
+qual segredo**.
+
+Credencial de OLT não chega ao Flutter (§182) — ela dá acesso administrativo a
+todos os assinantes daquele equipamento, não só ao cliente da OS.
+
+### Evidência é imutável depois de COMPLETED
+
+O técnico não apaga evidência histórica (§162). Correção posterior existe, é
+auditada e preserva o registro anterior — mesma regra do fechamento (§8.2) e da
+reabertura (PRD §170).
+
+Localização de foto não é exposta sem necessidade: a coordenada de uma foto é a
+casa de um cliente.
+
+---
 ## 9. Configuração de produção
 
 1. Gere um `AUTH_SECRET` forte: `openssl rand -base64 48`.

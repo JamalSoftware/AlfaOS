@@ -179,13 +179,19 @@ Depois dela, **concluído e sem tag** — a trilha v0.7, capability **Chatbot**:
 * credencial PPPoE real do provider, com hierarquia de procedência (`MANUAL` nunca sobrescrita automaticamente);
 * máscara de comprimento fixo da senha PPPoE e os dois telefones do cliente na OS.
 
-Também sem tag: a arquitetura de geolocalização e mapa operacional (PRD Parte III, §133–§139) e a Parte IV do PRD (§140–§149) — **documentação apenas, sem código**.
+Também sem tag, **documentação apenas, sem código**:
+
+* geolocalização e mapa operacional (PRD Parte III, §133–§139);
+* ReceitaNet operacional, UX do técnico e design system (Parte IV, §140–§149);
+* **AlfaOS Field, toolkit do técnico e fundações de backend (Parte V, §150–§195)** — aplicativo Flutter, notificações push, `MobileDevice`, transactional outbox, fila de jobs, offline-first, evidências estruturadas, checklist dinâmico, `ToolExecution`, inventário como ledger. Nada disso existe em código.
 
 **Próxima etapa: `v0.7.x` — UX do técnico (PRD §145–§148) e tema claro/escuro (§149).** Depois, `v0.8`: `/v1/chamados` → `ServiceOrder` EXTERNAL por cliente conhecido (§142).
 
 **Não existe descoberta global de OS.** Confirmado pelo suporte do ReceitaNet: nenhuma API pública lista as OS da empresa. É limitação do provider, não dívida do AlfaOS — não retomar a investigação, não fuzzar endpoint (PRD §141).
 
 Geolocalização é capability oficial registrada e **não** entra na v0.7.x nem na v0.8 (PRD §131).
+
+**A trilha Field não começou e não começa sozinha.** Nenhuma linha de Flutter, nenhum FCM, nenhum outbox, nenhum `ToolExecution` — a Parte V é especificação, e a §119 se aplica: estar no PRD não autoriza implementar. Duas escalas de prioridade convivem e precisam ser conferidas juntas: §117 classifica o produto (MVP/IMPORTANTE/DIFERENCIAL/FUTURO), §194 classifica a trilha Field (P0/P1/P2).
 
 ## Princípios
 
