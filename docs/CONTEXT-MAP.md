@@ -56,6 +56,21 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 **Quando:** a tarefa envolve adapters de ERP, diagnóstico de conectividade do cliente, sincronização, ou a futura integração real com o ReceitaNet.
 **Quando NÃO:** tarefas que não tocam a camada de integração. **Antes de implementar qualquer chamada ReceitaNet**, ler a seção 1 de `docs/ERP-INTEGRATIONS.md` — ela separa o que está IMPLEMENTADO (CallCenter read-only, v0.6), o que está documentado e deliberadamente fora, e o que não existe em nenhuma API. Complementam: `docs/PRD.md` §129 (estado das quatro APIs) e §121–§131 (propriedade da OS e posição dos ERPs). O §64 continua valendo — nenhuma chamada fora do que o OpenAPI descreve.
 
+## Homologação ReceitaNet
+
+**Carregar:** `docs/RECEITANET-HOMOLOGATION.md` — o levantamento read-only das quatro APIs oficiais (CallCenter, URA, Chatbot, Central do Assinante). Contém:
+
+- **evidência real dos endpoints** — extraída dos OpenAPI oficiais e dos testes já executados contra a API, não de suposição;
+- **divergências entre OpenAPI e comportamento real** — inclusive as duas armadilhas de `/v1/chamados`: o teto documentado de 10 registros e o `success:false` que ali significa *zero resultados*, e não erro como em `/v1/clientes`;
+- **matriz READ-ONLY/MUTANTE** por rota, nas quatro APIs, com o que é proibido chamar;
+- **estado da investigação de descoberta global de OS**, separado em COMPROVADO / DESCARTADO / HIPÓTESE / AGUARDANDO RECEITANET;
+- **pendências com o suporte** — perguntas fechadas, cada uma amarrada a uma lacuna concreta.
+
+**Quando:** antes de chamar qualquer rota ReceitaNet ainda não implementada; ao avaliar se uma capacidade existe de fato; ao retomar a investigação de sincronização/descoberta de OS; ou ao preparar contato com o suporte do ReceitaNet.
+**Quando NÃO:** tarefas que não tocam ReceitaNet. Para o contrato interno de adapters e o modelo de erro, o documento certo continua sendo `docs/ERP-INTEGRATIONS.md` — este aqui é sobre a API do provider, não sobre a camada AlfaOS.
+
+É o documento que registra o que **não existe**: consultar antes de assumir que uma funcionalidade é possível. A conclusão central hoje é que nenhuma das quatro APIs lista chamados por empresa — toda leitura de OS exige `idCliente` conhecido.
+
 ## Futuro Field App (Flutter)
 
 **Carregar:** documentação específica do Field App/Flutter, quando existir — este projeto ainda não tem um app Flutter nem documentação correspondente.
