@@ -573,6 +573,19 @@ para segurança:
 - **Plaintext fora da resposta inicial.** A senha nunca entra em props de
   Server Component nem no HTML servido — verificado por E2E que inspeciona
   `page.content()` na OS e na tela administrativa, inclusive após reload.
+- **A máscara tem comprimento FIXO, nunca derivado do valor real.** O
+  componente recebe `passwordConfigured`, um booleano, e desenha um número
+  constante de caracteres. Uma máscara com um símbolo por caractere da senha
+  vazaria o comprimento a quem olhasse a tela — informação que estreita força
+  bruta sem que ninguém revele nada, e que sobrevive a foto de tela e a
+  ombro alheio. Há regressão E2E comparando o tamanho da máscara com o da
+  senha da fixture e exigindo que sejam diferentes.
+- **Senha ausente não é mascarada.** Conexão com `username` e sem credencial
+  declara a ausência. Mascarar afirmaria que existe um valor a revelar, e o
+  técnico descobriria o contrário na porta do cliente.
+- **Cópia não repete o segredo em rótulo nem em toast.** A confirmação diz
+  que a senha foi copiada, nunca qual é: uma notificação fica visível na tela
+  depois que o usuário já desviou o olhar.
 
 ## 8.5.1. Número operacional da OS
 

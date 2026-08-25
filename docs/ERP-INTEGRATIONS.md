@@ -1,4 +1,4 @@
-# Integrações ERP e Diagnóstico do Cliente — AlfaOS (v0.6)
+# Integrações ERP e Diagnóstico do Cliente — AlfaOS (v0.7.2)
 
 Como o AlfaOS fala com sistemas externos e como o diagnóstico de conectividade
 do cliente chega até a tela. Complementa `docs/ARCHITECTURE.md` (camadas) e
@@ -71,17 +71,44 @@ Existe no contrato e foi deliberadamente deixado de fora desta etapa:
 | Gravação / finalizar chamado | CallCenter, URA | operação mutante; exige `urlgravacao` |
 | Listar chamados do cliente | CallCenter, URA, Chatbot, Central | sem uso no fluxo atual |
 | Faturas / débitos | CallCenter, URA, Chatbot, Central | fora do escopo |
-| URA · Chatbot · Central do Assinante | — | nenhuma linha de código |
+| URA · Central do Assinante | — | nenhuma linha de código |
+
+### CHATBOT — IMPLEMENTADO (v0.7.2)
+
+Capability independente da CallCenter, com credencial própria por empresa.
+Homologada contra a API real, em cliente real — ver
+`docs/RECEITANET-HOMOLOGATION.md`.
+
+| Capacidade | Situação |
+| --- | --- |
+| Validação da credencial (`/empresa`) | IMPLEMENTADO |
+| Enriquecimento cadastral do cliente | IMPLEMENTADO |
+| Telefones, e-mail | IMPLEMENTADO |
+| Endereço com número e referência | IMPLEMENTADO |
+| Coordenadas | IMPLEMENTADO |
+| PPPoE usuário e senha real | IMPLEMENTADO |
+| `idContrato` → `Customer.externalContractId` | IMPLEMENTADO |
+| Planos, servidor, contexto de conexão | Leitura ao vivo, **não persistido** |
+
+**Read-only.** Nenhuma operação mutante do Chatbot foi implementada.
+
+**Sem fallback entre capabilities.** CHATBOT não cai para CALLCENTER e o
+contrário também não: hosts, autenticação e schemas são diferentes, e um
+fallback silencioso apresentaria dado de uma API como se fosse da outra.
 
 ### NÃO EXISTE EM NENHUMA API
 
-Nenhum dos quatro OpenAPI analisados expõe: **número do endereço**, telefone do
-cliente, coordenadas, PPPoE (usuário ou senha), ONU, potência óptica, MAC, OLT,
-listagem de OS por empresa, delta sync ou webhook. Ver `docs/PRD.md` §129.
+> **Corrigido em 2026-08-25.** Este bloco afirmava que nenhuma API expunha
+> número do endereço, telefone, coordenadas ou PPPoE. Isso valia para as quatro
+> APIs **lidas em spec**; contra a API real, a **Chatbot entrega os quatro**. A
+> lacuna era de leitura, não do provider.
+
+Continua sem existir em nenhuma API: **ONU**, potência óptica, MAC de
+equipamento de rede, OLT, **listagem de OS por empresa** (confirmado pelo
+suporte — `docs/PRD.md` §141), delta sync e webhook.
 
 Consequência prática: o AlfaOS **não preenche** esses campos a partir do ERP e
-não os inventa. Número do endereço continua vindo do cadastro AlfaOS, e é dele
-que o técnico depende para chegar.
+não os inventa.
 
 ### Lacuna conhecida do CallCenter
 
@@ -111,10 +138,15 @@ via AAD do AES-GCM. Consequência operacional: **trocar o `provider` de uma
 integração invalida a credencial**, que é apagada explicitamente na troca.
 Detalhe em `docs/SECURITY.md` §8.4.
 
-**Ainda não há credenciais por API.** Hoje só o CallCenter é usado, então um
-token basta. Quando URA/Chatbot/Central entrarem, o AAD precisará passar a
-`(companyId, provider, api)` — o que invalida as credenciais existentes e é uma
-migração deliberada, não um ajuste.
+**Credenciais por API — IMPLEMENTADO na v0.7.1.** A resolução é
+`(companyId, provider, credentialKind)`, com `credentialKind ∈ {CALLCENTER,
+CHATBOT}`. Configurar, trocar ou remover uma **não** remove, sobrescreve nem
+invalida a outra.
+
+O AAD é **versionado por linha**: `v1` = `(companyId, provider)` para as linhas
+migradas, `v2` = `(companyId, provider, kind)` para as novas. A versão vem
+sempre da própria linha — nunca de request, query ou browser. Detalhe em
+`docs/SECURITY.md` §8.7.
 
 ### Alcançável ≠ credencial validada
 

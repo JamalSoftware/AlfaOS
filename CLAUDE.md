@@ -163,17 +163,29 @@ O projeto possui:
 * `v0.3-technician-execution`
 * `v0.4-service-order-closing`
 * `v0.5-receitanet-diagnostics`
-* `v0.5.1-pilot-readiness` (commit `5f18785`)
+* `v0.5.1-pilot-readiness`
+* `v0.6-receitanet-callcenter`
+* `v0.6.1-receitanet-hardening`
+* `v0.6.2-erp-provider-binding`
 
-**Baseline tagueada: `v0.5.1-pilot-readiness`** — auditada e endurecida.
+**Baseline tagueada: `v0.6.2-erp-provider-binding`** — auditada e endurecida.
 
-A `v0.5.1` entregou: origem `INTERNAL`/`EXTERNAL` da OS, catálogo `ServiceOrderType`, criação de OS própria, `Customer.externalId`, histórico recente do técnico, invalidação da credencial de ERP na troca de provider e acesso PPPoE do cliente (`CustomerConnection`) — mais a arquitetura de OS própria no PRD (Parte III).
+A trilha v0.6 entregou a integração ReceitaNet **CallCenter read-only**: busca de cliente, detalhe, diagnóstico de conectividade e chamados abertos por cliente, com a credencial de ERP vinculada criptograficamente a `(companyId, provider)`.
 
-A auditoria adversarial final encontrou um HIGH (técnico desativado ainda revelava a senha PPPoE) e um MEDIUM (revelação não falhava fechada se a auditoria falhasse). Ambos corrigidos antes da tag, com regressão permanente.
+Depois dela, **concluído e sem tag** — a trilha v0.7, capability **Chatbot**:
 
-Depois dela, ainda **sem tag**: a arquitetura de geolocalização e mapa operacional no PRD (Parte III, seções 133–139) — documentação apenas, sem código.
+* credenciais independentes por API (`CALLCENTER` e `CHATBOT`), com AAD versionado por linha (`v1`/`v2`);
+* enriquecimento cadastral real do cliente — telefones, e-mail, endereço com número e referência, coordenadas, `externalContractId`;
+* credencial PPPoE real do provider, com hierarquia de procedência (`MANUAL` nunca sobrescrita automaticamente);
+* máscara de comprimento fixo da senha PPPoE e os dois telefones do cliente na OS.
 
-**Próxima etapa: `v0.6` — ReceitaNet Foundation, CallCenter read-only.** Geolocalização é capability oficial registrada, mas NÃO entra na v0.6 (PRD §131).
+Também sem tag: a arquitetura de geolocalização e mapa operacional (PRD Parte III, §133–§139) e a Parte IV do PRD (§140–§149) — **documentação apenas, sem código**.
+
+**Próxima etapa: `v0.7.x` — UX do técnico (PRD §145–§148) e tema claro/escuro (§149).** Depois, `v0.8`: `/v1/chamados` → `ServiceOrder` EXTERNAL por cliente conhecido (§142).
+
+**Não existe descoberta global de OS.** Confirmado pelo suporte do ReceitaNet: nenhuma API pública lista as OS da empresa. É limitação do provider, não dívida do AlfaOS — não retomar a investigação, não fuzzar endpoint (PRD §141).
+
+Geolocalização é capability oficial registrada e **não** entra na v0.7.x nem na v0.8 (PRD §131).
 
 ## Princípios
 

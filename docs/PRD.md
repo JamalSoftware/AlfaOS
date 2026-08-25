@@ -2805,15 +2805,26 @@ complementar        → o que o ERP não tem, o AlfaOS preenche
 
 Dois pontos decorrem diretamente da análise das APIs (seção 129) e devem orientar o desenho:
 
-**Nenhum ERP entrega o cadastro completo.** Telefone, número do endereço e coordenadas não aparecem em nenhuma das APIs ReceitaNet analisadas. Um técnico precisa de endereço com número para chegar ao cliente. O enriquecimento é, portanto, **parcial por natureza** — o AlfaOS não pode tratar "sincronizado" como sinônimo de "cadastro completo".
+**Nenhum ERP entrega o cadastro completo.** O enriquecimento é **parcial por natureza** — o AlfaOS não pode tratar "sincronizado" como sinônimo de "cadastro completo", e o que falta continua sendo preenchido no AlfaOS.
 
-**Campo preenchido no AlfaOS não pode ser silenciosamente sobrescrito por sync.** Se um despachante corrigiu o número da casa que o ERP não tem, uma sincronização posterior não pode apagar a correção. A regra de precedência campo a campo é **decisão pendente** e precisa ser resolvida antes da primeira importação real de cliente.
+> **Corrigido pela homologação de 2026-08-25 (§140).** A afirmação original desta seção — de que telefone, número do endereço e coordenadas não apareciam em nenhuma API ReceitaNet — valia para as quatro APIs **lidas em spec**. Contra a API real, a **Chatbot** devolve telefones, e-mail, endereço com número e referência, e coordenadas. A lacuna era de leitura, não do provider. O princípio acima sobrevive: o Chatbot também não entrega tudo, e nenhum ERP entrega.
+
+**Campo preenchido no AlfaOS não pode ser silenciosamente sobrescrito por sync.** Se um despachante corrigiu o número da casa que o ERP não tem, uma sincronização posterior não pode apagar a correção.
+
+A regra de precedência campo a campo **deixou de ser decisão pendente** e está fixada na §143: contato preenche apenas o que está vazio, credencial obedece a uma hierarquia de procedência, e localização importada nunca nasce verificada.
 
 ---
 
 # 129. ESTADO REAL DAS APIS RECEITANET
 
 **Esta seção substitui a seção 27 quanto ao estado factual.** A seção 64 (regra crítica) permanece integralmente válida.
+
+> **Atualizada em 2026-08-25 pela §140.** O quadro abaixo descreve as APIs **como lidas em spec**, em 2026-08-24, antes de qualquer chamada real. Duas conclusões desta seção foram superadas por homologação contra a API real e não devem mais ser citadas como estado atual:
+>
+> - *"CallCenter é hoje a melhor candidata"* — continua verdadeiro **para busca, detalhe e diagnóstico**, e deixou de ser a resposta única: o enriquecimento cadastral e a credencial PPPoE vêm da **Chatbot**. As duas são capabilities independentes (§140).
+> - *"nenhuma API devolve telefone, número do endereço ou coordenada"* — falso desde a homologação da Chatbot. Ver §140 e `docs/RECEITANET-HOMOLOGATION.md`.
+>
+> O que **não** mudou, e agora tem confirmação do próprio provider: não existe listagem global de OS da empresa (§141).
 
 Foram localizados e lidos **quatro OpenAPI oficiais**:
 
@@ -2906,13 +2917,22 @@ Web e Field são **clientes** dessa autoridade. Nenhum dos dois reimplementa qua
 Substitui a ordem da seção 69 daqui para frente. **Indicativo, não promessa contratual** — a seção 119 se aplica a cada etapa.
 
 ```text
-v0.5-receitanet-diagnostics                     [CONCLUÍDO — auditado e endurecido]
+v0.5-receitanet-diagnostics                     [CONCLUÍDO — tagueado]
         ↓
-v0.5.1-pilot-readiness                          [CONCLUÍDO — auditado e endurecido]
-Pilot Readiness + fundação para OS próprias
+v0.5.1-pilot-readiness                          [CONCLUÍDO — tagueado]
         ↓
-v0.6
+v0.6 · v0.6.1 · v0.6.2                          [CONCLUÍDO — tagueado]
 ReceitaNet Foundation — CallCenter read-only
+        ↓
+v0.7 · v0.7.1 · v0.7.2                          [CONCLUÍDO — sem tag]
+Chatbot: enriquecimento cadastral + credencial PPPoE real
+credenciais independentes por capability
+        ↓
+v0.7.x                                          [PRÓXIMA ETAPA]
+UX do técnico (§145–§148) + tema claro/escuro (§149)
+        ↓
+v0.8
+/v1/chamados → ServiceOrder EXTERNAL por cliente (§142)
         ↓
 Piloto
 1 técnico + OS reais
@@ -2922,15 +2942,18 @@ Estabilização da API
 AlfaOS Field (Flutter)
 ```
 
+Depois disso, sem ordem fixada: descoberta global de OS **quando e se** o
+ReceitaNet liberar API (§141) · Field App em Flutter · GPS ·
+`CustomerLocation` · mapa operacional · roteirização · modo offline ·
+ferramentas técnicas.
+
 Cada etapa exige escopo aprovado antes de virar código, e auditoria independente quando tocar superfície crítica.
 
 **Geolocalização e mapa operacional (seções 133–139) são capability oficial do
-Field/Dispatch, e não alteram a próxima etapa.** A ordem acima permanece
-exatamente como está: a v0.6 continua sendo ReceitaNet CallCenter read-only.
-A implementação de geolocalização será fatiada depois — `CustomerLocation`
-pode entrar antes do Field App, porque é cadastro e vive no Core; o
-rastreamento do técnico depende do app existir. **Nada disso é antecipado
-para a v0.6.**
+Field/Dispatch, e não alteram a próxima etapa.** `CustomerLocation` pode entrar
+antes do Field App, porque é cadastro e vive no Core; o rastreamento do técnico
+depende do app existir. **Nada disso é antecipado para a v0.7.x nem para a
+v0.8** — a §119 se aplica: estar no PRD não autoriza implementar.
 
 ---
 
@@ -2966,13 +2989,19 @@ cliente. ADMIN mantém a capacidade administrativa.
 O texto claro nunca entra na resposta inicial da OS — só numa requisição
 separada, explícita e auditada. Detalhe em `docs/SECURITY.md` §8.5.
 
-## Origem futura
+## Origem da credencial
 
-Nesta versão o cadastro é **manual, no AlfaOS**. Nenhum dos quatro OpenAPI
-ReceitaNet analisados (§129) documenta usuário ou senha PPPoE, e RADIUS não
-está integrado. Uma capability futura poderá sincronizar a conexão a partir de
-fonte externa — quando existir contrato documentado para isso, e não antes
-(§64).
+> **Superado na v0.7.** O texto original desta subseção dizia que nenhum
+> OpenAPI ReceitaNet documentava usuário ou senha PPPoE e que o cadastro era
+> necessariamente manual. A **Chatbot** entrega os dois em `logins[]`, com a
+> senha em texto claro — comprovado contra a API real, não em spec.
+
+O cadastro manual continua existindo e continua sendo o padrão quando não há
+capability configurada. A procedência de cada metade — usuário e senha — é
+gravada e governa quem pode sobrescrever o quê: a regra oficial está na §144.
+
+RADIUS segue fora de escopo. A §64 continua valendo integralmente: nenhuma
+chamada além do que o contrato do provider descreve.
 
 ---
 
@@ -3314,9 +3343,16 @@ trabalho, e merece o tratamento mais restritivo dos dois.
 
 **Geolocalização é domínio do AlfaOS.**
 
-O ReceitaNet pode fornecer dados cadastrais e endereço, **quando documentado** —
-e a seção 129 registra que, das quatro APIs analisadas, apenas CallCenter e
-Central do Assinante devolvem endereço, nenhuma devolve número nem coordenada.
+O ReceitaNet pode fornecer dados cadastrais e endereço, **quando documentado**.
+
+> **Corrigido em 2026-08-25 (§140).** Esta seção afirmava que nenhuma API
+> ReceitaNet devolvia número do endereço nem coordenada. A **Chatbot devolve os
+> dois** — comprovado contra a API real. A afirmação valia para as quatro APIs
+> lidas em spec.
+
+Isso **não** transfere geolocalização para o ERP. Coordenada de provider é
+aproximação, entra como `IMPORTED` e nunca nasce verificada (§143); a
+confirmação em campo (§134) continua sendo o que torna um ponto confiável.
 
 Pertencem ao AlfaOS, sem depender de ERP nenhum:
 
@@ -3325,9 +3361,388 @@ coordenadas · confirmação em campo · mapa · rastreamento
 rotas · histórico · despacho assistido
 ```
 
-Isso não é preferência arquitetural, é constatação: **nenhum dos OpenAPI
-analisados expõe coordenada** (seção 129). Um AlfaOS que dependesse do ERP para
-geolocalização simplesmente não teria geolocalização.
+Isso não é preferência arquitetural. A justificativa original — *nenhum OpenAPI
+expõe coordenada* — caiu com a homologação da Chatbot, e a conclusão sobrevive
+por um motivo mais forte, que não depende de qual API entrega o quê:
 
-Vale a mesma regra da seção 81: nenhuma funcionalidade nova pode assumir um
-único ERP como dependência de arquitetura.
+**um AlfaOS que dependesse do ERP para geolocalização teria a geolocalização
+que aquele ERP quisesse dar.** Coordenada aproximada, sem confirmação em campo,
+sem histórico, sem rastreamento e sem rota — e nenhuma delas no dia em que a
+empresa trocar de provedor. Vale a mesma regra da seção 81: nenhuma
+funcionalidade nova pode assumir um único ERP como dependência de arquitetura.
+
+
+---
+
+# PARTE IV — RECEITANET OPERACIONAL, EXPERIÊNCIA DO TÉCNICO E DESIGN SYSTEM
+
+Registrada em 2026-08-25, depois da homologação das APIs ReceitaNet contra a
+API real e da resposta oficial do suporte do provider sobre descoberta de OS.
+
+As Partes I, II e III permanecem válidas. A Parte IV fixa o que passou a ser
+**fato verificado** em vez de hipótese, corrige duas afirmações que a Parte III
+fazia a partir de leitura de spec (§128, §129, §132) e registra três decisões
+de produto que ainda não estavam escritas em lugar nenhum: a prioridade de
+informação na tela do técnico, a separação de administração por papel e o
+sistema de temas.
+
+**A §119 se aplica a tudo aqui.** Estar registrado não autoriza implementar.
+
+---
+
+# 140. RECEITANET — DUAS CAPABILITIES INDEPENDENTES
+
+O ReceitaNet deixou de ser "uma integração" no AlfaOS. São **duas capabilities**,
+com credenciais próprias, ciclos de vida próprios e nenhuma dependência entre si:
+
+```text
+empresa
+ ├── credencial CALLCENTER   →  busca · detalhe · diagnóstico · chamados do cliente
+ └── credencial CHATBOT      →  enriquecimento cadastral · PPPoE · contexto operacional
+```
+
+| Capability | O que entrega |
+|---|---|
+| **CALLCENTER** | busca de clientes · detalhe do cliente · diagnóstico de conectividade (ONLINE/OFFLINE) · chamados abertos por cliente |
+| **CHATBOT** | enriquecimento cadastral · PPPoE login · PPPoE senha real · telefones · e-mail · endereço · coordenadas · planos · contexto de servidor/conexão |
+
+**As credenciais são independentes por empresa.** Configurar, trocar ou remover
+uma **não pode** remover, sobrescrever nem invalidar a outra. Uma empresa pode
+operar com só uma das duas, e a ausência de uma capability é um estado normal —
+não um erro.
+
+**Não existe fallback entre elas.** CHATBOT não cai para CALLCENTER, e o
+contrário também não. As duas falam com hosts diferentes, autenticam de formas
+diferentes e respondem em schemas diferentes; um fallback silencioso produziria
+dado de uma API apresentado como se fosse da outra.
+
+Detalhe de transporte, autenticação e armazenamento de credencial:
+`docs/RECEITANET-HOMOLOGATION.md` e `docs/SECURITY.md` §8.7.
+
+---
+
+# 141. DESCOBERTA GLOBAL DE OS — LIMITAÇÃO DO PROVIDER
+
+> **O suporte do ReceitaNet confirmou que não existe hoje API pública para
+> listar globalmente todas as OS da empresa.**
+
+Isto encerra a investigação registrada em `docs/RECEITANET-HOMOLOGATION.md`.
+O que era "nenhuma das quatro APIs documenta isso" passou a ser **resposta
+oficial do provider**, e a diferença importa: a primeira formulação deixava em
+aberto a possibilidade de um endpoint não publicado.
+
+**Estado atual:**
+
+```text
+cliente conhecido  →  /v1/chamados  →  OS abertas daquele cliente
+```
+
+**Estado futuro:** quando o ReceitaNet disponibilizar API ou feed global, o
+AlfaOS **adiciona uma estratégia nova de descoberta** — sem substituir o motor
+de importação já existente. Descoberta e importação são camadas separadas de
+propósito: a primeira responde *quais OS existem*, a segunda *como uma OS vira
+ServiceOrder*. Trocar a segunda porque a primeira mudou seria refazer trabalho
+auditado por um motivo que não é dele.
+
+**Consequências operacionais, todas obrigatórias:**
+
+- **Não continuar procurando nem fuzzando endpoint global.** A pergunta foi
+  respondida. Varredura de endpoint não documentado viola a §64 e, contra a API
+  de um provider real, é tráfego que ninguém autorizou.
+- **Registrar como limitação conhecida do provider, não como dívida do AlfaOS.**
+  Não é backlog, não é pendência técnica e não entra em nenhuma lista de
+  correção. O AlfaOS não tem o que consertar aqui.
+- A hipótese `Chatbot /debitos` como enumerador de clientes fica **encerrada**.
+  Mesmo se funcionasse, varredura cliente a cliente não é descoberta — é N
+  requisições por ciclo contra a API de terceiro, e a §129 já recusava tratar
+  isso como equivalente a sincronização.
+
+Isto **reforça** a §121: o motor de OS precisa ser do AlfaOS justamente porque
+não se pode depender do ERP nem para saber que uma OS existe.
+
+---
+
+# 142. SINCRONIZAÇÃO DE OS — ESCOPO DA v0.8
+
+**Não implementado.** Esta seção define o escopo; a §119 se aplica.
+
+```text
+cliente conhecido  →  CallCenter /v1/chamados  →  ServiceOrder EXTERNAL
+```
+
+## Identidade conceitual
+
+| Campo AlfaOS | Origem ReceitaNet |
+|---|---|
+| `externalProvider` | `RECEITANET` |
+| `externalId` | `idSuporte` |
+| `externalNumber` | `numero` |
+| `externalProtocol` | `protocolo` |
+
+**`ServiceOrder.number` continua sendo o número local do AlfaOS.** O número do
+ReceitaNet **nunca** é chave primária nem número local — é dado do provider,
+guardado como tal. Um número de terceiro usado como identidade local se torna
+impossível de garantir único, impossível de alocar para OS própria (§124) e
+colide no dia em que dois provedores diferentes forem integrados.
+
+A separação `id` técnico / `number` operacional (§123 e `docs/SERVICE-ORDERS.md`
+§1.3) continua valendo sem alteração.
+
+## Idempotência
+
+```text
+companyId + externalProvider + externalId
+```
+
+É a mesma chave da §123. Importar duas vezes o mesmo chamado atualiza; não
+duplica.
+
+## O que fica fora
+
+Descoberta global (§141). A v0.8 importa **por cliente conhecido** — é o que a
+API permite, e a limitação é do provider.
+
+---
+
+# 143. ENRIQUECIMENTO DE CLIENTE — IMPLEMENTADO E VALIDADO
+
+Implementado na v0.7.2 e validado contra cliente real. Fonte: capability
+**CHATBOT** (§140).
+
+Campos aplicados ao `Customer`:
+
+```text
+telefone principal · telefone alternativo · e-mail
+endereço · complemento/referência · coordenadas
+externalContractId
+PPPoE username · PPPoE senha real · fonte da credencial
+```
+
+## Precedência campo a campo
+
+Isto resolve a decisão que a §128 deixou pendente.
+
+- **Contato (telefone, e-mail): preenche apenas o que está vazio.** Um número
+  digitado por gente vale mais que um número importado — quem digitou tinha o
+  cliente na linha. Importação não corrige cadastro conferido; ela completa
+  cadastro incompleto.
+- **Credencial: hierarquia de procedência**, na §144.
+- **Localização: sempre `IMPORTED`, sempre `verified = false`.** Coordenada de
+  ERP é aproximação — frequentemente o centro do CEP. Nascer verificada faria o
+  técnico confiar num ponto que ninguém conferiu, e a confirmação em campo
+  (§134) perderia o sentido.
+
+## Enriquecimento parcial é resultado normal
+
+Múltiplos contratos, provider indisponível, cliente não localizado e mais
+telefones do que o cadastro comporta são desfechos **previstos**, não falhas.
+Cada um precisa chegar ao operador: quem não é avisado descobre o cadastro
+incompleto com o técnico já na porta do cliente.
+
+Uma falha de enriquecimento **nunca** derruba a importação do cliente nem apaga
+dado local existente.
+
+Regra de dado pessoal, ambiguidade e isolamento de falha: `docs/SECURITY.md` §8.8.
+
+---
+
+# 144. PPPoE — PROCEDÊNCIA E PAPÉIS
+
+## Hierarquia de procedência da senha
+
+| Fonte | Regra |
+|---|---|
+| `RECEITANET_CHATBOT` | fonte real do provider |
+| `MANUAL` | **nunca sobrescrita automaticamente** |
+| `AUTO_DOCUMENT_LAST4` | fallback |
+
+`MANUAL` é o valor que alguém decidiu. Uma importação que o sobrescreve
+silenciosamente destrói uma decisão humana e só se descobre quando o acesso
+falha em campo.
+
+## O que o técnico faz
+
+```text
+ver o usuário  ·  copiar o usuário
+ver a senha mascarada  ·  mostrar a senha  ·  copiar a senha
+```
+
+**A máscara tem comprimento fixo.** Não é derivada do valor real: um asterisco
+por caractere entregaria o tamanho da senha a quem olhar a tela — informação
+que estreita força bruta sem que ninguém revele nada.
+
+**Máscara é apresentação, não conteúdo.** O texto claro não chega no render
+inicial; só numa requisição separada, explícita e auditada (§132 e
+`docs/SECURITY.md` §8.5).
+
+**Senha ausente não vira máscara.** Conexão com usuário e sem senha é estado
+legítimo do cadastro, e a tela declara isso. Mascarar mandaria o técnico tentar
+revelar algo que não existe.
+
+## O que o técnico NÃO faz
+
+> **O técnico não administra a conexão do cliente.**
+
+Ver a §147.
+
+---
+
+# 145. UX DO TÉCNICO — PRIORIDADE DE INFORMAÇÃO
+
+> **Mobile-first. Máximo valor operacional com o mínimo de ruído.**
+
+A tela do técnico é lida em pé, na calçada, no sol, com uma mão. Cada bloco que
+não serve ao atendimento empurra para baixo um que serve.
+
+Ordem de prioridade:
+
+```text
+1. OS
+2. cliente
+3. telefones
+4. endereço / navegação
+5. PPPoE
+6. diagnóstico
+7. plano
+8. descrição / execução
+9. ações
+```
+
+**Informação de implementação sai da tela principal do técnico.** Nome do
+provider, código de capability, origem do dado e rótulo de integração descrevem
+*como o AlfaOS obteve* a informação — não ajudam a atender o cliente.
+
+**O provider ReceitaNet não ocupa card próprio na experiência normal do
+técnico.** O dado que ele fornece aparece onde é útil (diagnóstico, PPPoE,
+plano); a origem não vira seção.
+
+Isto não retira nada do ADMIN e do DISPATCHER, que continuam vendo o contexto
+de integração nas telas administrativas.
+
+---
+
+# 146. DIAGNÓSTICO NA TELA DO TÉCNICO
+
+Na tela normal do técnico:
+
+```text
+ONLINE / OFFLINE / UNKNOWN     ← bem destacado
+plano
+última atualização
+```
+
+**Detalhe adicional só aparece quando há exceção.** Exemplo: servidor em
+manutenção vira alerta visível, porque muda o que o técnico vai fazer.
+
+**Não mostrar permanentemente:**
+
+- código de tecnologia;
+- fonte do dado;
+- "sem manutenção informada".
+
+A ausência de exceção não é informação: ocupar espaço para dizer que nada está
+errado treina o olho a ignorar a região — inclusive no dia em que algo estiver.
+
+`UNKNOWN` continua sendo estado próprio. **Erro não é OFFLINE** — a regra
+central da §64 e de `docs/ERP-INTEGRATIONS.md` §10 vale integralmente na
+apresentação: uma falha de integração apresentada como OFFLINE manda o técnico
+investigar um problema de rede que não existe.
+
+---
+
+# 147. ADMINISTRAÇÃO DE CONEXÃO — SEPARAÇÃO POR PAPEL
+
+Some da experiência do **TECHNICIAN**:
+
+```text
+Gerenciar acesso · Trocar senha · Restaurar padrão
+Desativar · Nova conexão PPPoE
+```
+
+**Essas capabilities não são removidas do backend.** A regra é de
+apresentação e de autorização por papel, não de amputação de funcionalidade.
+Remover o código eliminaria o caminho de recuperação que o ADMIN usa quando o
+provider está indisponível ou o dado veio errado.
+
+O **ADMIN** continua com todas elas, preferencialmente reunidas numa área
+**"Ações avançadas"** — presentes, e não no caminho de quem não vai usá-las.
+
+A autorização no servidor é a autoridade. Esconder um botão é UX; a rota
+continua verificando papel, tenant e ownership como sempre — **UI não é
+controle de segurança**.
+
+---
+
+# 148. NAVEGAÇÃO CONTEXTUAL
+
+A tela de edição de cliente é alcançada por dois caminhos, e o botão de voltar
+precisa saber por qual:
+
+```text
+aberta a partir de uma OS   →  ← Voltar para OS Nº X
+aberta pelo menu Clientes   →  ← Voltar para clientes
+```
+
+Um técnico que abriu o cadastro para conferir um telefone no meio de um
+atendimento precisa voltar **para aquele atendimento**, não para uma listagem.
+
+> **Qualquer `returnTo` deve ser interno e validado no servidor.**
+
+Destino vindo da URL é entrada do usuário. Sem validação, vira redirect aberto:
+um link montado por terceiro leva o operador autenticado para fora do AlfaOS,
+numa tela que imita a de origem. Aceitar apenas caminho relativo conhecido —
+nunca URL absoluta, nunca host externo, nunca `//`.
+
+O número exibido é o **número operacional** da OS (§123), nunca o `id`.
+
+---
+
+# 149. THEME SYSTEM — CLARO, ESCURO E SISTEMA
+
+**Requisito oficial de design.** O AlfaOS suporta:
+
+```text
+Light  ·  Dark  ·  System
+```
+
+**Tema escuro é capability oficial do produto**, não preferência estética. O
+técnico trabalha de madrugada, em rua sem iluminação e dentro de caixa de
+emenda; uma tela branca a 100% de brilho arruína a visão adaptada ao escuro e
+denuncia a posição de quem está segurando o aparelho.
+
+## Semantic tokens
+
+O design system usa **tokens semânticos**, não cor hard-coded por componente:
+
+```text
+background · surface · surfaceElevated · border
+textPrimary · textSecondary · muted
+primary · success · warning · danger
+```
+
+Cor escrita direto no componente é cor que não tem contraparte no outro tema:
+o componente fica legível num e ilegível no outro, e a divergência só aparece
+quando alguém troca de tema.
+
+**Todo componente funciona nos dois temas.** Não há componente "só claro".
+
+## Estados operacionais
+
+Precisam manter contraste adequado nos dois temas:
+
+```text
+ONLINE · OFFLINE · PENDING · ASSIGNED
+IN_PROGRESS · COMPLETED · WARNING · ERROR
+```
+
+> **Não usar apenas cor para transmitir estado.**
+
+Cor sozinha exclui quem tem daltonismo, some sob luz solar direta e desaparece
+em captura de tela em escala de cinza — que é como um chamado costuma ser
+encaminhado. Cada estado precisa de rótulo, ícone ou forma além da cor.
+
+## Preferência do usuário
+
+Persistir quando for tecnicamente adequado. `System` é o padrão: respeita o que
+o aparelho já decidiu, inclusive o agendamento automático de noite.
+

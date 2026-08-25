@@ -4,6 +4,12 @@ Investigação read-only das APIs oficiais do ReceitaNet, com o objetivo especí
 de determinar se existe alguma forma autorizada de **descobrir ordens de serviço
 sem conhecer previamente o `idCliente`**.
 
+> **A pergunta central foi RESPONDIDA em 2026-08-25.** O suporte do ReceitaNet
+> confirmou que **não existe hoje API pública para listar globalmente todas as
+> OS da empresa**. A investigação está **encerrada** — ver "Descoberta global
+> de OS" abaixo. O restante do documento continua sendo a referência de
+> contrato, armadilhas e homologação das rotas que existem.
+
 Nenhum endpoint mutante foi chamado durante esta investigação. Nenhum dado
 pessoal, token ou segredo aparece neste documento.
 
@@ -231,6 +237,35 @@ não dedução.
 
 ## Descoberta global de OS
 
+### RESPOSTA OFICIAL DO PROVIDER — 2026-08-25
+
+> **Não existe atualmente API pública disponível para listar globalmente todas
+> as OS da empresa.** A API atual permite consultar chamados/OS **por cliente
+> conhecido**.
+
+Isto encerra a investigação. A diferença em relação ao que já estava
+documentado abaixo não é cosmética: "nenhuma das quatro APIs documenta isso"
+deixava em aberto a possibilidade de um endpoint não publicado; a resposta do
+suporte fecha essa porta.
+
+**Consequências, todas obrigatórias:**
+
+- **Não continuar procurando nem fuzzando endpoint global.** A pergunta foi
+  respondida. Varredura de rota não documentada viola a §64 do PRD e, contra a
+  API de um provider real, é tráfego que ninguém autorizou.
+- **Isto é limitação conhecida do provider, não dívida do AlfaOS.** Não entra
+  em backlog nem em lista de correção — não há o que corrigir do lado do
+  AlfaOS.
+- **As hipóteses abaixo ficam encerradas**, incluindo `Chatbot /debitos` como
+  enumerador de clientes. Mesmo se funcionasse, varredura cliente a cliente não
+  é descoberta: é N requisições por ciclo contra API de terceiro.
+- **Quando o ReceitaNet liberar API ou feed global**, o AlfaOS **adiciona uma
+  estratégia nova de descoberta** — sem substituir o motor de importação. As
+  duas camadas respondem perguntas diferentes: descoberta diz *quais OS
+  existem*, importação diz *como uma OS vira ServiceOrder*. Ver PRD §141.
+
+O material abaixo permanece como registro de como se chegou a essa conclusão.
+
 ### COMPROVADO
 
 - **Nenhuma das quatro APIs oferece listagem de chamados por empresa.** Todos os
@@ -274,6 +309,10 @@ não dedução.
 
 ### AGUARDANDO RECEITANET
 
+> **A pergunta 1 ("existe listagem global?") foi respondida: NÃO.** As
+> perguntas abaixo continuam abertas, mas nenhuma delas bloqueia a v0.8 — a
+> importação por cliente conhecido não depende de nenhuma.
+
 - Existe integração OSNET documentada para terceiros, ou é partner-to-partner
   fechada?
 - O registro `sistema_integracoes` aceita um tipo que dê escopo de empresa em
@@ -305,8 +344,9 @@ Perguntas fechadas, cada uma derivada de uma lacuna concreta acima.
 
 **Descoberta de OS**
 
-1. Existe algum endpoint, em qualquer das quatro APIs, que liste chamados de
-   **toda a empresa** sem `idCliente`? Se não existe hoje, está no roadmap?
+1. ~~Existe algum endpoint, em qualquer das quatro APIs, que liste chamados de
+   **toda a empresa** sem `idCliente`?~~ **RESPONDIDA em 2026-08-25: não
+   existe.** A parte "está no roadmap?" segue sem resposta.
 2. Existe consulta read-only por **protocolo** ou por **`idSuporte`**? Hoje
    `idSuporte` só aparece em `chamado-gravacao`, que é mutante.
 3. `POST /v1/chamados` documenta *"até 10 chamados"*. O que acontece com o 11º?
@@ -627,3 +667,73 @@ leitura ao vivo no bloco operacional da OS.
 
 Nenhuma operação mutante do ReceitaNet foi implementada em nenhuma das duas
 APIs.
+
+---
+
+## Sincronização de OS — estratégia da v0.8
+
+**Não implementado.** Escopo definido; o PRD §142 é a fonte, esta seção é o
+recorte de provider.
+
+```text
+cliente conhecido  →  CallCenter POST /v1/chamados  →  ServiceOrder EXTERNAL
+```
+
+### Mapeamento de identidade
+
+| Campo AlfaOS | Campo ReceitaNet |
+|---|---|
+| `externalProvider` | `RECEITANET` |
+| `externalId` | `idSuporte` |
+| `externalNumber` | `numero` |
+| `externalProtocol` | `protocolo` |
+
+**`ServiceOrder.number` continua sendo o número local do AlfaOS.** O `numero`
+do ReceitaNet **nunca** vira chave primária nem número local — vai para
+`externalNumber` como dado do provider. Número de terceiro usado como
+identidade local é impossível de garantir único e colide no dia em que um
+segundo provedor for integrado.
+
+### Idempotência
+
+```text
+companyId + externalProvider + externalId
+```
+
+### Armadilhas que já valem para esta rota
+
+As duas já documentadas acima passam a ser requisito de implementação, não
+curiosidade:
+
+- **`success: false` em `/v1/chamados` significa ZERO RESULTADOS**, não erro.
+  Tratá-lo como falha faria toda importação de cliente sem chamado aberto
+  parecer indisponibilidade do provider.
+- **Teto de 10 registros, sem paginação e sem sinal de truncamento.** Um
+  cliente com mais de 10 chamados abertos importa incompleto **em silêncio**.
+  A pergunta 3 ao suporte segue aberta; até lá, o comportamento precisa ser
+  tratado como limite conhecido e visível ao operador.
+
+### O que a v0.8 NÃO faz
+
+- Descoberta global de OS. Não existe (§141 do PRD).
+- Nenhuma operação mutante. `abertura-chamado` e `chamado/gravacao` continuam
+  intocados.
+
+---
+
+## Capabilities — estado consolidado
+
+```text
+empresa
+ ├── credencial CALLCENTER   →  busca · detalhe · diagnóstico · chamados do cliente
+ └── credencial CHATBOT      →  enriquecimento · PPPoE · contexto operacional
+```
+
+As duas credenciais são **independentes por empresa**: configurar, trocar ou
+remover uma não afeta a outra. **Não existe fallback entre elas** — hosts,
+autenticação e schemas são diferentes, e um fallback silencioso apresentaria
+dado de uma API como se fosse da outra.
+
+Uma empresa operando com só uma das duas é estado normal, não erro.
+
+Detalhe de armazenamento, AAD e fronteira do plaintext: `docs/SECURITY.md` §8.7.

@@ -54,7 +54,7 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 
 **Carregar:** `docs/ERP-INTEGRATIONS.md` — contrato/capabilities, modelo normalizado de diagnóstico, snapshot, modelo de erros, timeout, cenários do MockERP e o estado de implementação da integração ReceitaNet. O fluxo de sync de OS continua em `docs/SERVICE-ORDERS.md`.
 **Quando:** a tarefa envolve adapters de ERP, diagnóstico de conectividade do cliente, sincronização, ou a futura integração real com o ReceitaNet.
-**Quando NÃO:** tarefas que não tocam a camada de integração. **Antes de implementar qualquer chamada ReceitaNet**, ler a seção 1 de `docs/ERP-INTEGRATIONS.md` — ela separa o que está IMPLEMENTADO (CallCenter read-only, v0.6), o que está documentado e deliberadamente fora, e o que não existe em nenhuma API. Complementam: `docs/PRD.md` §129 (estado das quatro APIs) e §121–§131 (propriedade da OS e posição dos ERPs). O §64 continua valendo — nenhuma chamada fora do que o OpenAPI descreve.
+**Quando NÃO:** tarefas que não tocam a camada de integração. **Antes de implementar qualquer chamada ReceitaNet**, ler a seção 1 de `docs/ERP-INTEGRATIONS.md` — ela separa o que está IMPLEMENTADO (CallCenter read-only v0.6 **e Chatbot v0.7.2**), o que está documentado e deliberadamente fora, e o que não existe em nenhuma API. Complementam: `docs/PRD.md` §140 (as duas capabilities e suas credenciais independentes), §141 (por que não existe descoberta global de OS), §142 (escopo da sincronização na v0.8) e §121–§131 (propriedade da OS e posição dos ERPs). O §129 descreve as APIs **como lidas em spec** e tem duas conclusões superadas — ler a nota no topo dele antes de citar. O §64 continua valendo — nenhuma chamada fora do que o OpenAPI descreve.
 
 ## Homologação ReceitaNet
 
@@ -71,7 +71,11 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 
 **Credenciais:** o armazenamento, o isolamento entre CallCenter e Chatbot, o AAD `v1`/`v2` e a fronteira do plaintext PPPoE estão em `docs/SECURITY.md` §8.7 — leia antes de tocar qualquer fluxo de token de ERP.
 
-É o documento que registra o que **não existe**: consultar antes de assumir que uma funcionalidade é possível. A conclusão central hoje é que nenhuma das quatro APIs lista chamados por empresa — toda leitura de OS exige `idCliente` conhecido.
+É o documento que registra o que **não existe**: consultar antes de assumir que uma funcionalidade é possível.
+
+**Conclusão central, agora confirmada pelo suporte do provider (2026-08-25):** não existe API pública para listar globalmente as OS da empresa. Toda leitura de OS exige `idCliente` conhecido. A investigação está **encerrada** — não retomar, não fuzzar endpoint global. É limitação do provider, não dívida do AlfaOS (`docs/PRD.md` §141).
+
+O documento também traz o mapeamento de identidade da sincronização planejada para a v0.8 (`idSuporte` → `externalId`, `numero` → `externalNumber`, `protocolo` → `externalProtocol`) e as duas armadilhas de `/v1/chamados` que viram requisito ao implementá-la.
 
 ## Futuro Field App (Flutter)
 
@@ -84,6 +88,14 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 **Carregar:** `docs/PRD.md` §133–§139 — `CustomerLocation`, `TechnicianLocation`, `OperationalMap`, despacho assistido, roteirização e privacidade da localização. As seções 77–79 descrevem a experiência do técnico em campo e são complementares (a §77 foi revisada pela §134, e a §79 não é o mesmo mapa da §136).
 **Quando:** a tarefa envolve coordenadas, GPS, mapa, rota, proximidade de técnicos ou despacho.
 **Quando NÃO:** qualquer outra coisa. Nada disso está implementado — é arquitetura registrada, e a seção 119 se aplica: estar no PRD não autoriza implementar.
+
+## Experiência do técnico e design system
+
+**Carregar:** `docs/PRD.md` §145–§149 — prioridade de informação na tela do técnico, apresentação do diagnóstico, separação de administração por papel, navegação contextual (`returnTo`) e o sistema de temas claro/escuro/sistema.
+**Quando:** a tarefa muda a tela do técnico, decide o que aparece ou some por papel, mexe em navegação entre OS e cadastro, ou toca cor, token de design e tema.
+**Quando NÃO:** backend sem superfície visível, integração, ou qualquer módulo sem UI. Para a regra de autorização por trás do que a tela esconde, o documento é `docs/SECURITY.md` — **esconder botão é UX, não controle de acesso**.
+
+Nada de §145–§149 está implementado além do que a v0.7.2 já entregou em PPPoE e telefones; é requisito registrado, e a §119 se aplica.
 
 ## Quando usar Context7
 
