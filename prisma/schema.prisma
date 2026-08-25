@@ -76,6 +76,42 @@ enum CustomerConnectionType {
   PPPOE
 }
 
+/// Política de senha PPPoE padrão da empresa.
+///
+/// `MANUAL_ONLY` é o default deliberado: uma empresa que nunca declarou
+/// política não passa a derivar senha automaticamente por omissão. A
+/// derivação só existe onde alguém a escolheu.
+///
+/// `DOCUMENT_LAST4` é a regra operacional da Alfa Telecom — os quatro
+/// últimos dígitos do CPF. Vale por empresa, nunca global: outro provedor
+/// no mesmo AlfaOS pode ter regra diferente ou nenhuma.
+enum PppoePasswordPolicy {
+  MANUAL_ONLY
+  DOCUMENT_LAST4
+}
+
+/// De onde veio o usuário da conexão.
+///
+/// Existe para uma única finalidade: impedir que uma releitura do ERP
+/// desfaça o que uma pessoa digitou. `MANUAL` é o default, porque toda
+/// conexão que já existia foi criada à mão e não pode ser sobrescrita
+/// retroativamente por um provider.
+enum ConnectionUsernameSource {
+  MANUAL
+  RECEITANET
+}
+
+/// De onde veio a senha da conexão.
+///
+/// Mesma lógica de `ConnectionUsernameSource`, e a mais importante das
+/// duas: `MANUAL` marca a senha que alguém definiu para aquele cliente
+/// específico — exatamente o caso que a política padrão da empresa não
+/// pode atropelar.
+enum ConnectionPasswordSource {
+  MANUAL
+  AUTO_DOCUMENT_LAST4
+}
+
 /// Unit of a material declared as used on a service order. Deliberately a
 /// short fixed list, not a catalogue: v0.4 records what the technician says
 /// was consumed, it does not manage stock.
@@ -90,6 +126,11 @@ model Company {
   id        String   @id @default(cuid())
   name      String
   document  String?  @unique
+
+  /// Política de senha PPPoE padrão desta empresa. Ver
+  /// `PppoePasswordPolicy` — o default não deriva nada.
+  pppoePasswordPolicy PppoePasswordPolicy @default(MANUAL_ONLY)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -200,6 +241,13 @@ model CustomerConnection {
   customer   Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
   type       CustomerConnectionType @default(PPPOE)
   username   String
+
+  /// Procedência do usuário e da senha, independentes entre si: é comum o
+  /// login vir do ERP e a senha ter sido trocada à mão para um cliente.
+  /// Guardar um só campo para os dois obrigaria a escolher qual metade
+  /// perder.
+  usernameSource ConnectionUsernameSource @default(MANUAL)
+  passwordSource ConnectionPasswordSource @default(MANUAL)
 
   /// AES-256-GCM da senha, base64. Nula enquanto a senha nao foi
   /// configurada — username sem senha e um estado legitimo.

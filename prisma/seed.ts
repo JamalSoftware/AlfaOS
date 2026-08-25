@@ -50,6 +50,18 @@ async function main() {
     document: "98.765.432/0001-01",
   });
 
+  /**
+   * Politica de senha PPPoE da Alfa Telecom: ultimos 4 digitos do CPF.
+   *
+   * So dela. A Empresa Teste B fica no default MANUAL_ONLY de proposito, para
+   * que a suite tenha um tenant sem derivacao e a regra nao possa virar
+   * comportamento global sem alguem notar.
+   */
+  await prisma.company.update({
+    where: { id: companyA.id },
+    data: { pppoePasswordPolicy: "DOCUMENT_LAST4" },
+  });
+
   await upsertUser({
     companyId: companyA.id,
     name: "Administrador Alfa",

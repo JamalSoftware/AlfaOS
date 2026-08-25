@@ -10,6 +10,7 @@ import {
   CONNECTION_USERNAME_MAX_LENGTH,
   updateCustomerConnection,
 } from "@/lib/customer-connections";
+import { restoreDefaultPassword } from "@/lib/pppoe-provisioning";
 
 const MANAGE_PROFILES = [AccessProfile.ADMIN];
 
@@ -26,8 +27,26 @@ const updateConnectionSchema = z
       .max(CONNECTION_PASSWORD_MAX_LENGTH)
       .optional(),
     active: z.boolean().optional(),
+    /**
+     * Restaura a senha padrão da empresa. `literal(true)` e não `boolean`:
+     * `false` não significa nada aqui, e aceitá-lo criaria um segundo jeito
+     * de dizer “não faça nada”.
+     *
+     * `usernameSource` e `passwordSource` NÃO entram neste schema de
+     * propósito. Quem decide a procedência é o servidor que aplicou a
+     * regra — aceitá-la do cliente deixaria marcar uma senha digitada como
+     * automática e, com isso, autorizá-la a ser sobrescrita depois.
+     */
+    restoreDefaultPassword: z.literal(true).optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (v) => !(v.restoreDefaultPassword && v.password !== undefined),
+    // As duas juntas são uma contradição: uma define a senha, a outra a
+    // recalcula. Aplicar as duas na ordem errada gravaria a que o operador
+    // não quis.
+    { message: "Não é possível definir e restaurar a senha na mesma requisição." },
+  );
 
 export async function PATCH(
   request: Request,
@@ -80,6 +99,30 @@ export async function PATCH(
       return jsonError("Conexão não encontrada.", 404);
     }
 
+    if (parsed.data.restoreDefaultPassword) {
+      const restored = await restoreDefaultPassword(
+        session.companyId,
+        context.params.connectionId,
+        session.id,
+      );
+      if (!restored.applied) {
+        /**
+         * Motivo em código, não em texto livre: a tela traduz. E `NOT_FOUND`
+         * vira 404 pelo mesmo motivo da checagem de posse acima — não
+         * confirmar a existência de um id que a empresa não enxerga.
+         */
+        if (restored.reason === "NOT_FOUND") {
+          return jsonError("Conexão não encontrada.", 404);
+        }
+        return jsonError(
+          restored.reason === "NO_POLICY"
+            ? "A empresa não tem política de senha padrão configurada."
+            : "O cliente não tem CPF válido para derivar a senha padrão.",
+          400,
+        );
+      }
+    }
+
     const connection = await updateCustomerConnection(
       session.companyId,
       context.params.connectionId,
@@ -87,6 +130,13 @@ export async function PATCH(
       {
         username: parsed.data.username,
         password: parsed.data.password,
+        /**
+         * Senha digitada é sempre MANUAL — é exatamente a marca que impede
+         * a política da empresa de sobrescrevê-la numa importação futura.
+         */
+        ...(parsed.data.password !== undefined ? { passwordSource: "MANUAL" as const } : {}),
+        /** Usuário digitado idem: deixa de acompanhar o provider. */
+        ...(parsed.data.username !== undefined ? { usernameSource: "MANUAL" as const } : {}),
         active: parsed.data.active,
       },
     );

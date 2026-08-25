@@ -1,4 +1,9 @@
-import { AccessProfile, type CustomerConnection } from "@prisma/client";
+import {
+  AccessProfile,
+  type ConnectionPasswordSource,
+  type ConnectionUsernameSource,
+  type CustomerConnection,
+} from "@prisma/client";
 import { logAudit, logAuditRequired } from "./audit";
 import {
   ConnectionCredentialUnavailableError,
@@ -51,6 +56,15 @@ export interface PublicCustomerConnection {
    * QUAL credencial está configurada; numa senha ele só vaza um quarto dela.
    */
   passwordConfigured: boolean;
+  /**
+   * Procedência de cada metade da credencial.
+   *
+   * É metadado, não segredo: dizer que a senha veio da política da empresa
+   * não revela nada sobre ela. Serve ao operador para saber se pode
+   * restaurar o padrão sem destruir uma senha que alguém definiu à mão.
+   */
+  usernameSource: ConnectionUsernameSource;
+  passwordSource: ConnectionPasswordSource;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -64,6 +78,8 @@ export function toPublicCustomerConnection(
     type: connection.type,
     username: connection.username,
     passwordConfigured: connection.credentialCiphertext !== null,
+    usernameSource: connection.usernameSource,
+    passwordSource: connection.passwordSource,
     active: connection.active,
     createdAt: connection.createdAt,
     updatedAt: connection.updatedAt,
@@ -106,6 +122,15 @@ export interface CreateCustomerConnectionInput {
   username: string;
   /** Opcional: cadastrar o usuário antes de ter a senha é legítimo. */
   password?: string | null;
+  /**
+   * Procedência. Parâmetro de SERVIÇO, deliberadamente ausente do schema
+   * HTTP: quem decide que uma senha é `AUTO_DOCUMENT_LAST4` é o servidor
+   * que a derivou, nunca o cliente que a enviou. Aceitar isto do request
+   * deixaria qualquer ADMIN marcar uma senha digitada como automática e,
+   * com isso, autorizá-la a ser sobrescrita depois.
+   */
+  usernameSource?: ConnectionUsernameSource;
+  passwordSource?: ConnectionPasswordSource;
 }
 
 export interface UpdateCustomerConnectionInput {
@@ -113,6 +138,9 @@ export interface UpdateCustomerConnectionInput {
   /** Quando presente, SUBSTITUI a senha. Nunca é devolvida em lugar nenhum. */
   password?: string;
   active?: boolean;
+  /** Ver `CreateCustomerConnectionInput` — parâmetro de serviço, não de HTTP. */
+  usernameSource?: ConnectionUsernameSource;
+  passwordSource?: ConnectionPasswordSource;
 }
 
 export async function listCustomerConnections(
@@ -164,7 +192,20 @@ export async function createCustomerConnection(
   try {
     created = await prisma.$transaction(async (tx) => {
       const row = await tx.customerConnection.create({
-        data: { companyId, customerId: customer.id, type: "PPPOE", username },
+        data: {
+          companyId,
+          customerId: customer.id,
+          type: "PPPOE",
+          username,
+          usernameSource: input.usernameSource ?? "MANUAL",
+          /**
+           * Sem senha gravada, a procedência é `MANUAL`: não houve
+           * derivação automática nenhuma a registrar, e marcar
+           * `AUTO_*` aqui autorizaria uma sobrescrita futura de algo
+           * que nunca foi automático.
+           */
+          passwordSource: password === null ? "MANUAL" : (input.passwordSource ?? "MANUAL"),
+        },
       });
       if (password === null) return row;
 
@@ -220,6 +261,8 @@ export async function updateCustomerConnection(
   const data: {
     username?: string;
     active?: boolean;
+    usernameSource?: ConnectionUsernameSource;
+    passwordSource?: ConnectionPasswordSource;
     credentialCiphertext?: string;
     credentialIv?: string;
     credentialAuthTag?: string;
@@ -228,6 +271,12 @@ export async function updateCustomerConnection(
 
   if (input.username !== undefined) {
     data.username = normalizeUsername(input.username);
+  }
+  if (input.usernameSource !== undefined) {
+    data.usernameSource = input.usernameSource;
+  }
+  if (input.passwordSource !== undefined) {
+    data.passwordSource = input.passwordSource;
   }
   if (input.active !== undefined) {
     data.active = input.active;

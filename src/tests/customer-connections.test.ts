@@ -222,14 +222,21 @@ describe("Armazenamento da senha", () => {
     expect(list[0].passwordConfigured).toBe(true);
     // Conjunto EXATO de campos: mais forte que procurar strings proibidas,
     // porque falha tambem se um campo novo entrar sem ninguem notar.
+    //
+    // `usernameSource`/`passwordSource` entraram na v0.7 e sao metadado de
+    // procedencia, nao segredo: dizer que a senha veio da politica da
+    // empresa nao revela nada sobre o valor dela. Cada novo campo aqui
+    // precisa dessa justificativa explicita antes de entrar na lista.
     expect(Object.keys(list[0]).sort()).toEqual([
       "active",
       "createdAt",
       "id",
       "passwordConfigured",
+      "passwordSource",
       "type",
       "updatedAt",
       "username",
+      "usernameSource",
     ]);
 
     const dump = JSON.stringify(list);

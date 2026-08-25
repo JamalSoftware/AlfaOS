@@ -10,6 +10,10 @@ import { logAudit } from "./audit";
 import { resolveCompanyAdapter } from "./erp-adapter";
 import { badRequest, conflict, isUniqueConstraintError, notFound } from "./errors";
 import { prisma } from "./prisma";
+import {
+  provisionPppoeFromErp,
+  type PppoeProvisionOutcome,
+} from "./pppoe-provisioning";
 
 /**
  * Busca e importação de cliente a partir do ERP.
@@ -105,6 +109,14 @@ export interface ErpCustomerImportResult {
   customerId: string;
   outcome: ErpCustomerImportOutcome;
   detail: ERPCustomerDetail;
+  /**
+   * O que o provisionamento automático de PPPoE fez.
+   *
+   * Obrigatório de propósito: o operador precisa distinguir “o provider
+   * não informou login” de “tentou e falhou”, e um campo opcional
+   * permitiria a um caminho novo esquecer de responder.
+   */
+  pppoe: PppoeProvisionOutcome;
 }
 
 /**
@@ -179,6 +191,23 @@ export async function importErpCustomer(
     zipCode: detail.zipCode,
   });
 
+  /**
+   * Provisiona o acesso PPPoE e devolve o resultado da importação já
+   * anotado. Roda DEPOIS de o cliente existir, porque a conexão referencia
+   * o `customerId`; e nunca lança, para que a credencial não derrube a
+   * importação (ver `provisionPppoeFromErp`).
+   */
+  const withPppoe = async (
+    result: Omit<ErpCustomerImportResult, "pppoe">,
+  ): Promise<ErpCustomerImportResult> => ({
+    ...result,
+    pppoe: await provisionPppoeFromErp(companyId, actorUserId, {
+      customerId: result.customerId,
+      login: detail.login,
+      document: detail.document,
+    }),
+  });
+
   const linked = await prisma.customer.findFirst({
     where: { companyId, externalProvider: provider, externalId },
     select: { id: true },
@@ -186,7 +215,7 @@ export async function importErpCustomer(
   if (linked) {
     await prisma.customer.update({ where: { id: linked.id }, data: fromErp });
     await audit(companyId, actorUserId, linked.id, provider, externalId, "ALREADY_LINKED");
-    return { customerId: linked.id, outcome: "ALREADY_LINKED", detail };
+    return withPppoe({ customerId: linked.id, outcome: "ALREADY_LINKED", detail });
   }
 
   if (detail.document) {
@@ -207,7 +236,7 @@ export async function importErpCustomer(
         data: { ...fromErp, externalProvider: provider, externalId },
       });
       await audit(companyId, actorUserId, updated.id, provider, externalId, "LINKED");
-      return { customerId: updated.id, outcome: "LINKED", detail };
+      return withPppoe({ customerId: updated.id, outcome: "LINKED", detail });
     }
   }
 
@@ -232,14 +261,14 @@ export async function importErpCustomer(
         select: { id: true },
       });
       if (raced) {
-        return { customerId: raced.id, outcome: "ALREADY_LINKED", detail };
+        return withPppoe({ customerId: raced.id, outcome: "ALREADY_LINKED", detail });
       }
     }
     throw error;
   }
 
   await audit(companyId, actorUserId, created.id, provider, externalId, "CREATED");
-  return { customerId: created.id, outcome: "CREATED", detail };
+  return withPppoe({ customerId: created.id, outcome: "CREATED", detail });
 }
 
 async function audit(

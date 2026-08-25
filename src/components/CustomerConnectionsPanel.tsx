@@ -16,8 +16,26 @@ interface ConnectionRow {
   type: string;
   username: string;
   passwordConfigured: boolean;
+  usernameSource: "MANUAL" | "RECEITANET";
+  passwordSource: "MANUAL" | "AUTO_DOCUMENT_LAST4";
   active: boolean;
 }
+
+/**
+ * Rótulos de procedência.
+ *
+ * Não é enfeite: é o que diz ao operador se “Restaurar padrão” vai
+ * descartar uma senha que alguém definiu para aquele cliente.
+ */
+const USERNAME_SOURCE_LABEL: Record<ConnectionRow["usernameSource"], string> = {
+  MANUAL: "Manual",
+  RECEITANET: "ReceitaNet",
+};
+
+const PASSWORD_SOURCE_LABEL: Record<ConnectionRow["passwordSource"], string> = {
+  MANUAL: "Manual",
+  AUTO_DOCUMENT_LAST4: "Padrão da empresa",
+};
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100";
@@ -41,6 +59,18 @@ export function CustomerConnectionsPanel({
   const [replacingId, setReplacingId] = useState<string | null>(null);
   const [replacement, setReplacement] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  /** Copia o USUÁRIO. A senha tem o seu próprio fluxo, na OS do técnico. */
+  async function copyUsername(connection: ConnectionRow) {
+    try {
+      await navigator.clipboard.writeText(connection.username);
+      setCopiedId(connection.id);
+      window.setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      setError("Não foi possível copiar. Copie manualmente.");
+    }
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -144,6 +174,10 @@ export function CustomerConnectionsPanel({
                   <p className="mt-0.5 truncate font-medium text-slate-900">
                     {connection.username}
                   </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Fonte do usuário:{" "}
+                    {USERNAME_SOURCE_LABEL[connection.usernameSource]}
+                  </p>
                   <p className="mt-1 text-sm">
                     Senha:{" "}
                     <span
@@ -158,6 +192,12 @@ export function CustomerConnectionsPanel({
                         : "Não configurada"}
                     </span>
                   </p>
+                  {connection.passwordConfigured && (
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Origem da senha:{" "}
+                      {PASSWORD_SOURCE_LABEL[connection.passwordSource]}
+                    </p>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <span
@@ -181,6 +221,27 @@ export function CustomerConnectionsPanel({
                     {connection.passwordConfigured
                       ? "Trocar senha"
                       : "Definir senha"}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="copy-username"
+                    onClick={() => copyUsername(connection)}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+                  >
+                    {copiedId === connection.id ? "Copiado" : "Copiar usuário"}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="restore-default-password"
+                    disabled={pendingId === connection.id}
+                    onClick={() =>
+                      patchConnection(connection.id, {
+                        restoreDefaultPassword: true,
+                      })
+                    }
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Restaurar padrão
                   </button>
                   <button
                     type="button"
