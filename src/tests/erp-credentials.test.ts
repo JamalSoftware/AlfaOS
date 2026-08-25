@@ -15,6 +15,10 @@ import {
   isCredentialEncryptionConfigured,
 } from "@/lib/erp-credential-cipher";
 import {
+  getCredentialFor,
+  saveCredentialFor,
+} from "@/lib/erp-credential-store";
+import {
   getCredential as readCredential,
   getCredentialStatus,
   hasCredential,
@@ -498,7 +502,7 @@ describe("Autorização da rota de credencial", () => {
     const saved = await putCredential(
       apiRequest(
         "/api/integrations/credential",
-        { method: "PUT", body: { token: TOKEN } },
+        { method: "PUT", body: { kind: "CALLCENTER", token: TOKEN } },
         s.token,
       ),
     );
@@ -510,7 +514,7 @@ describe("Autorização da rota de credencial", () => {
     const replaced = await putCredential(
       apiRequest(
         "/api/integrations/credential",
-        { method: "PUT", body: { token: OTHER_TOKEN } },
+        { method: "PUT", body: { kind: "CALLCENTER", token: OTHER_TOKEN } },
         s.token,
       ),
     );
@@ -518,10 +522,11 @@ describe("Autorização da rota de credencial", () => {
     expect((await replaced.json()).data.credential.last4).toBe("ZZ99");
 
     const removed = await deleteCredential(
-      apiRequest("/api/integrations/credential", { method: "DELETE" }, s.token),
+      apiRequest("/api/integrations/credential", { method: "DELETE", body: { kind: "CALLCENTER" } }, s.token),
     );
     expect(removed.status).toBe(200);
-    expect((await removed.json()).data.credential.configured).toBe(false);
+    const afterRemove = (await removed.json()).data.credentials;
+    expect(afterRemove.find((c: { kind: string }) => c.kind === "CALLCENTER").configured).toBe(false);
   });
 
   it("DISPATCHER e TECHNICIAN recebem 403 em todos os verbos", async () => {
@@ -535,13 +540,13 @@ describe("Autorização da rota de credencial", () => {
       const write = await putCredential(
         apiRequest(
           "/api/integrations/credential",
-          { method: "PUT", body: { token: TOKEN } },
+          { method: "PUT", body: { kind: "CALLCENTER", token: TOKEN } },
           token,
         ),
       );
       expect(write.status).toBe(403);
       const del = await deleteCredential(
-        apiRequest("/api/integrations/credential", { method: "DELETE" }, token),
+        apiRequest("/api/integrations/credential", { method: "DELETE", body: { kind: "CALLCENTER" } }, token),
       );
       expect(del.status).toBe(403);
     }
@@ -558,7 +563,7 @@ describe("Autorização da rota de credencial", () => {
         await putCredential(
           apiRequest("/api/integrations/credential", {
             method: "PUT",
-            body: { token: TOKEN },
+            body: { kind: "CALLCENTER", token: TOKEN },
           }),
         )
       ).status,
@@ -566,7 +571,7 @@ describe("Autorização da rota de credencial", () => {
     expect(
       (
         await deleteCredential(
-          apiRequest("/api/integrations/credential", { method: "DELETE" }),
+          apiRequest("/api/integrations/credential", { method: "DELETE", body: { kind: "CALLCENTER" } }),
         )
       ).status,
     ).toBe(401);
@@ -579,7 +584,7 @@ describe("Autorização da rota de credencial", () => {
         "/api/integrations/credential",
         {
           method: "PUT",
-          body: { token: TOKEN },
+          body: { kind: "CALLCENTER", token: TOKEN },
           headers: { Origin: "https://evil.test" },
         },
         s.token,
@@ -597,7 +602,15 @@ describe("Multi-tenancy de credenciais", () => {
   it("ADMIN da empresa B não lê, não substitui e não remove a credencial de A", async () => {
     await integrationFor(fixture.companyA.id);
     await integrationFor(fixture.companyB.id);
-    await saveCredential(fixture.companyA.id, fixture.adminA.id, TOKEN);
+    // A rota escreve no store NOVO desde o cutover; o cenario precisa
+    // montar a credencial de A no mesmo lugar que a rota consultaria.
+    await saveCredentialFor(
+      fixture.companyA.id,
+      fixture.adminA.id,
+      "RECEITANET",
+      "CALLCENTER",
+      TOKEN,
+    );
 
     const tokenB = await createTokenFor(fixture.adminB.id);
 
@@ -609,25 +622,34 @@ describe("Multi-tenancy de credenciais", () => {
     expect(read.status).toBe(200);
     const raw = await read.text();
     expect(raw).not.toContain(TOKEN);
-    expect(JSON.parse(raw).data.credential.configured).toBe(false);
+    expect(
+      JSON.parse(raw).data.credentials.find(
+        (c: { kind: string }) => c.kind === "CALLCENTER",
+      ).configured,
+    ).toBe(false);
 
     // B removing "the" credential must not touch A's.
     await deleteCredential(
-      apiRequest("/api/integrations/credential", { method: "DELETE" }, tokenB),
+      apiRequest("/api/integrations/credential", { method: "DELETE", body: { kind: "CALLCENTER" } }, tokenB),
     );
-    expect(await hasCredential(fixture.companyA.id)).toBe(true);
-    expect(await readCredential(fixture.companyA.id, "RECEITANET")).toBe(TOKEN);
+    expect(
+      await getCredentialFor(fixture.companyA.id, "RECEITANET", "CALLCENTER"),
+    ).toBe(TOKEN);
 
     // And B saving its own does not disturb A's.
     await putCredential(
       apiRequest(
         "/api/integrations/credential",
-        { method: "PUT", body: { token: OTHER_TOKEN } },
+        { method: "PUT", body: { kind: "CALLCENTER", token: OTHER_TOKEN } },
         tokenB,
       ),
     );
-    expect(await readCredential(fixture.companyA.id, "RECEITANET")).toBe(TOKEN);
-    expect(await readCredential(fixture.companyB.id, "RECEITANET")).toBe(OTHER_TOKEN);
+    expect(
+      await getCredentialFor(fixture.companyA.id, "RECEITANET", "CALLCENTER"),
+    ).toBe(TOKEN);
+    expect(
+      await getCredentialFor(fixture.companyB.id, "RECEITANET", "CALLCENTER"),
+    ).toBe(OTHER_TOKEN);
   });
 });
 
@@ -661,7 +683,7 @@ describe("Contrato da rota", () => {
       const res = await putCredential(
         apiRequest(
           "/api/integrations/credential",
-          { method: "PUT", body: { token: TOKEN, [field]: "evil" } },
+          { method: "PUT", body: { kind: "CALLCENTER", token: TOKEN, [field]: "evil" } },
           s.token,
         ),
       );
@@ -676,7 +698,7 @@ describe("Contrato da rota", () => {
     await putCredential(
       apiRequest(
         "/api/integrations/credential",
-        { method: "PUT", body: { token: TOKEN } },
+        { method: "PUT", body: { kind: "CALLCENTER", token: TOKEN } },
         s.token,
       ),
     );
@@ -720,7 +742,7 @@ describe("Contrato da rota", () => {
       const res = await putCredential(
         apiRequest(
           "/api/integrations/credential",
-          { method: "PUT", body: { token: TOKEN } },
+          { method: "PUT", body: { kind: "CALLCENTER", token: TOKEN } },
           s.token,
         ),
       );
@@ -740,7 +762,7 @@ describe("Contrato da rota", () => {
     const res = await putCredential(
       apiRequest(
         "/api/integrations/credential",
-        { method: "PUT", body: { token: TOKEN } },
+        { method: "PUT", body: { kind: "CALLCENTER", token: TOKEN } },
         token,
       ),
     );

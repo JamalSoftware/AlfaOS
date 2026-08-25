@@ -628,6 +628,141 @@ segurança:
   significa "o ERP não informou", não "o ERP informou vazio".
 - **`/ping` não valida credencial** — ver `docs/ERP-INTEGRATIONS.md` §1.
 
+## 8.7. Credenciais por API do provider — v0.7.1
+
+### O store operacional
+
+`ERPCredential` é a **única fonte operacional** de credenciais de ERP. Uma
+linha por `(companyId, provider, kind)`, com `kind` ∈ `CALLCENTER` |
+`CHATBOT`.
+
+As colunas `credential*` de `ERPIntegration` continuam **fisicamente** no
+banco — removê-las é migration destrutiva — mas estão **inertes**: nenhum
+caminho de produção as lê ou escreve. Há regressão que prova as duas coisas:
+gravar não as toca, e uma credencial existente apenas nelas NÃO é aceita
+pelo adapter.
+
+### Por que uma linha por credencial
+
+O isolamento é **estrutural**, não uma regra a lembrar. Gravar a credencial
+do Chatbot é um `upsert` numa linha; removê-la é um `delete` numa linha. Não
+existe escrita capaz de alcançar as duas.
+
+Foi o acoplamento oposto — credencial como colunas de uma linha
+compartilhada — que produziu a perda de token numa troca de provider
+(§8.4). Com linhas separadas, aquele modo de falha deixa de existir por
+construção.
+
+### Sem fallback entre APIs
+
+O token do CallCenter **não** abre o Chatbot, e vice-versa. Falta de
+credencial é indisponibilidade daquela capability, nunca motivo para tentar
+a outra chave: cair para o outro token concederia a uma API um acesso que a
+empresa nunca configurou.
+
+Chatbot ausente devolve `null` — estado legítimo — e o CallCenter continua
+funcionando ao lado. Isolamento de falha em ambas as direções.
+
+### AAD versionado por linha
+
+| Versão | Vínculo | Quando |
+|---|---|---|
+| `v1` | empresa + provider | Credenciais **migradas** de `ERPIntegration` |
+| `v2` | empresa + provider + **kind** | Toda gravação nova |
+
+`v1` existe por uma razão só: os ciphertexts migrados foram cifrados quando
+havia uma credencial por empresa. Recomputar o AAD como `v2` mudaria os
+bytes, a verificação GCM rejeitaria, e a empresa perderia um token que
+estava funcionando. Regravar aquele token promove a linha para `v2`.
+
+`v2` fecha o transplante entre APIs: sem o `kind` no AAD, as duas
+credenciais da mesma empresa teriam vínculo idêntico e seriam
+intercambiáveis — inaceitável entre tokens com privilégios diferentes, já
+que o do Chatbot devolve senha de cliente.
+
+A versão **sai da linha**, nunca do request. Regressões cobrem: downgrade
+`v2`→`v1` não decripta; ciphertext do CallCenter na linha do Chatbot não
+decripta; ciphertext da empresa A na empresa B não decripta.
+
+### Token do Chatbot na query string
+
+O contrato do Chatbot aceita `token` e `app` **apenas** como parâmetros de
+query. É pior que o header do CallCenter — URL entra em log de servidor,
+proxy, histórico e `Referer` — e é limitação do provider, não escolha nossa.
+
+Mitigações adotadas:
+
+- a chamada é **exclusivamente server-side**; o token nunca chega ao browser;
+- `redirect: "error"` (abaixo), sem o qual um 30x levaria a URL inteira —
+  token incluso — ao host do `Location`;
+- mensagens de erro **nunca** ecoam a URL nem o erro original do transporte,
+  porque ambos a carregam.
+
+### Redirect e Content-Type
+
+Os dois clientes usam `redirect: "error"`. A allowlist de base URL valida a
+URL que **nós** montamos, não o destino de um redirect — seguir um 30x
+sairia do host allowlisted carregando credencial. `error` e não `manual`:
+não existe decisão a tomar, sair do host é sempre errado.
+
+O `Content-Type` é validado antes do parse. Um 200 com `text/html` é portal
+cativo ou página de erro de proxy, não resposta da API. Ausência do cabeçalho
+é tolerada (API terse existe); presença com tipo errado é `INVALID_RESPONSE`.
+O tipo recebido e o corpo **não** entram na mensagem de erro.
+
+### Normalização do token
+
+Num ponto só (`normalizeCredentialToken`). Apara espaço nas pontas —
+incluindo a quebra de linha do "colei com newline" — e **recusa caractere
+de controle no meio**. Um CRLF interno num valor que vira header HTTP é
+injeção de cabeçalho, e o token do CallCenter vai exatamente num header.
+
+Caractere válido interno nunca é alterado: normalizar demais gravaria uma
+credencial diferente da que o provedor emitiu.
+
+### Fronteira do plaintext PPPoE
+
+A resposta do Chatbot contém **senha de cliente em texto puro**. Regras:
+
+- o corpo bruto **nunca** é logado, persistido ou devolvido a um chamador;
+- existe **uma** fronteira de normalização, e depois dela o objeto é
+  descartado;
+- a senha segue direto para a cifra da `CustomerConnection` (§8.5);
+- nenhum `console.log`, logger, `AuditLog`, timeline, cache, snapshot ou
+  `error.message` recebe senha;
+- só o endpoint explícito e auditado de reveal devolve plaintext, depois que
+  a senha já está cifrada.
+
+A auditoria da troca de procedência registra `MANUAL`/`AUTO_DOCUMENT_LAST4`/
+`RECEITANET_CHATBOT` e o id da conexão — **nunca** o valor antigo ou novo.
+
+### Rate limit de capability
+
+Endpoints que disparam chamada ao provider têm teto por
+`(empresa, usuário, capability)`. Um clique nosso vira uma requisição lá, e
+sem teto uma tela em loop gasta a cota da EMPRESA — a punição do provider
+recairia sobre todos os operadores dela.
+
+O teto é consumido **depois** da autorização, para que sondagem anônima ou
+cross-tenant não consuma cota de ninguém.
+
+**Limitação conhecida:** o estado é em memória do processo. Com mais de uma
+instância, o teto efetivo é multiplicado. Aceitável hoje porque o alvo é
+acidente (loop de UI, clique repetido) e o AlfaOS roda em instância única;
+se a implantação virar multi-instância, o limite precisa migrar para
+armazenamento compartilhado antes de ser tratado como controle.
+
+### Risco residual aceito
+
+**Tamanho de resposta não é limitado.** `res.text()` lê o corpo inteiro. Um
+provider comprometido ou um proxy hostil poderia devolver payload muito
+grande e pressionar a memória do processo. Não implementado nesta release
+porque exigiria trocar o transporte por leitura em streaming nos dois
+clientes, e o vetor depende de o host allowlisted já estar comprometido —
+cenário em que há problemas maiores. Registrado para revisão futura.
+
+---
+
 ## 9. Configuração de produção
 
 1. Gere um `AUTH_SECRET` forte: `openssl rand -base64 48`.

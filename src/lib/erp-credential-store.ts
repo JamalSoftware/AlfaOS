@@ -31,6 +31,57 @@ import { prisma } from "./prisma";
 export const CREDENTIAL_MIN_LENGTH = 8;
 export const CREDENTIAL_MAX_LENGTH = 4096;
 
+/**
+ * Normaliza e valida um token, num lugar só.
+ *
+ * Espalhar `trim()` pelos chamadores é como um token acaba gravado com um
+ * `\n` invisível colado no fim: ele passa na validação, falha na
+ * autenticação, e o operador jura que digitou certo — porque digitou.
+ *
+ * O que é recusado, e por quê:
+ *
+ * - **CR/LF**: além de ser colagem acidental, um `\r\n` num valor que vira
+ *   header HTTP é injeção de cabeçalho. Aqui o token do CallCenter vai
+ *   exatamente num header.
+ * - **Outros caracteres de controle**: não existem em token real e
+ *   atravessariam para log e URL de formas imprevisíveis.
+ *
+ * O que NÃO é tocado: qualquer caractere válido no meio. Normalizar demais
+ * gravaria uma credencial diferente da que o provedor emitiu.
+ */
+export function normalizeCredentialToken(raw: string): string {
+  const token = raw.trim();
+
+  if (token === "") {
+    throw badRequest("Informe o token da integração.");
+  }
+  // eslint-disable-next-line no-control-regex -- é exatamente o que se recusa
+  if (/[\u0000-\u001F\u007F]/.test(token)) {
+    throw badRequest(
+      "Token contém caractere inválido. Verifique se não houve quebra de linha ao colar.",
+    );
+  }
+  if (token.length < CREDENTIAL_MIN_LENGTH) {
+    throw badRequest(`Token deve ter ao menos ${CREDENTIAL_MIN_LENGTH} caracteres.`);
+  }
+  if (token.length > CREDENTIAL_MAX_LENGTH) {
+    throw badRequest(`Token deve ter no máximo ${CREDENTIAL_MAX_LENGTH} caracteres.`);
+  }
+
+  return token;
+}
+
+/**
+ * Últimos 4 caracteres, num helper só.
+ *
+ * `slice(-4)` espalhado é como um dos pontos passa a calcular sobre o valor
+ * cru enquanto outro calcula sobre o normalizado — e aí o rótulo da tela
+ * deixa de corresponder ao token gravado.
+ */
+export function credentialLast4(normalizedToken: string): string {
+  return normalizedToken.slice(-4);
+}
+
 export interface ErpCredentialSlotStatus {
   kind: ERPCredentialKind;
   configured: boolean;
@@ -99,20 +150,16 @@ export async function saveCredentialFor(
   kind: ERPCredentialKind,
   token: string,
 ): Promise<ErpCredentialSlotStatus> {
-  if (token.length < CREDENTIAL_MIN_LENGTH) {
-    throw badRequest(`Token deve ter ao menos ${CREDENTIAL_MIN_LENGTH} caracteres.`);
-  }
-  if (token.length > CREDENTIAL_MAX_LENGTH) {
-    throw badRequest(`Token deve ter no máximo ${CREDENTIAL_MAX_LENGTH} caracteres.`);
-  }
+  // Normalização e validação num ponto só — ver `normalizeCredentialToken`.
+  const normalized = normalizeCredentialToken(token);
 
   /**
    * Cifra ANTES de qualquer escrita: chave ausente lança aqui, e nada é
    * gravado. O contexto vem da empresa da sessão e do par (provider, kind) da
    * própria chamada — nada que o cliente HTTP envie influencia o AAD.
    */
-  const encrypted = encryptCredential(token, { companyId, provider, kind });
-  const last4 = token.slice(-4);
+  const encrypted = encryptCredential(normalized, { companyId, provider, kind });
+  const last4 = credentialLast4(normalized);
 
   const saved = await prisma.eRPCredential.upsert({
     where: { companyId_provider_kind: { companyId, provider, kind } },

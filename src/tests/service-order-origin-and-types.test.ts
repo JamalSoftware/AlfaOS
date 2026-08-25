@@ -20,6 +20,11 @@ import {
   getCredentialStatus,
   saveCredential,
 } from "@/lib/erp-credentials";
+import {
+  getCredentialFor,
+  listCredentialStatus,
+  saveCredentialFor,
+} from "@/lib/erp-credential-store";
 import { DomainError } from "@/lib/errors";
 import {
   allocateTestServiceOrderNumber,
@@ -658,18 +663,30 @@ describe("Troca de provider invalida a credencial", () => {
       },
     });
 
-    await saveCredential(
+    /**
+     * Store OPERACIONAL, nao o legado.
+     *
+     * O invariante que este teste protege nao mudou -- trocar de provider nao
+     * pode deixar para tras uma credencial que a tela anuncia como valida e
+     * nenhum adapter consegue usar. O que mudou foi ONDE a credencial mora,
+     * e um teste apontado para o lugar antigo deixaria o novo desprotegido.
+     */
+    await saveCredentialFor(
       fixture.companyA.id,
       fixture.adminA.id,
+      "MOCK",
+      "CALLCENTER",
       "token-secreto-do-mock-1234",
     );
 
-    const before = await getCredentialStatus(fixture.companyA.id);
+    const [before] = await listCredentialStatus(fixture.companyA.id, "MOCK", [
+      "CALLCENTER",
+    ]);
     expect(before.configured).toBe(true);
     expect(before.last4).toBe("1234");
-    expect(await getCredential(fixture.companyA.id, "MOCK")).toBe(
-      "token-secreto-do-mock-1234",
-    );
+    expect(
+      await getCredentialFor(fixture.companyA.id, "MOCK", "CALLCENTER"),
+    ).toBe("token-secreto-do-mock-1234");
 
     const token = await createTokenFor(fixture.adminA.id);
     const res = await testConnection(
@@ -684,16 +701,26 @@ describe("Troca de provider invalida a credencial", () => {
     expect(payload.data.invalidatedCredential).toBe(true);
     expect(payload.data.integration.provider).toBe("RECEITANET");
 
-    const after = await getCredentialStatus(fixture.companyA.id);
-    expect(after.provider).toBe("RECEITANET");
-    // Antes da v0.5.1 estas três continuavam anunciando uma credencial que
-    // não decriptava mais.
-    expect(after.configured).toBe(false);
-    expect(after.last4).toBeNull();
-    expect(after.updatedAt).toBeNull();
+    const [afterCallCenter] = await listCredentialStatus(
+      fixture.companyA.id,
+      "RECEITANET",
+      ["CALLCENTER"],
+    );
+    // Antes da v0.5.1 estas continuavam anunciando uma credencial que nao
+    // decriptava mais.
+    expect(afterCallCenter.configured).toBe(false);
+    expect(afterCallCenter.last4).toBeNull();
 
-    // Ausente, não corrompida: nada a decriptar significa `null`, não erro.
-    expect(await getCredential(fixture.companyA.id, "RECEITANET")).toBeNull();
+    // Ausente, nao corrompida: nada a decriptar significa `null`, nao erro.
+    expect(
+      await getCredentialFor(fixture.companyA.id, "RECEITANET", "CALLCENTER"),
+    ).toBeNull();
+    // E a linha do provider ANTIGO foi de fato removida.
+    expect(
+      await prisma.eRPCredential.count({
+        where: { companyId: fixture.companyA.id, provider: "MOCK" },
+      }),
+    ).toBe(0);
 
     const row = await prisma.eRPIntegration.findUniqueOrThrow({
       where: { companyId: fixture.companyA.id },
@@ -709,7 +736,13 @@ describe("Troca de provider invalida a credencial", () => {
       data: { companyId: fixture.companyA.id, provider: "MOCK", name: "Mock" },
     });
     const secret = "token-secreto-do-mock-1234";
-    await saveCredential(fixture.companyA.id, fixture.adminA.id, secret);
+    await saveCredentialFor(
+      fixture.companyA.id,
+      fixture.adminA.id,
+      "MOCK",
+      "CALLCENTER",
+      secret,
+    );
 
     const token = await createTokenFor(fixture.adminA.id);
     await testConnection(

@@ -7,7 +7,7 @@ import {
 import { IntegrationError, isIntegrationError } from "@/integrations/errors";
 import { prisma } from "@/lib/prisma";
 import { resolveCompanyAdapter } from "@/lib/erp-adapter";
-import { saveCredential } from "@/lib/erp-credentials";
+import { saveCredentialFor } from "@/lib/erp-credential-store";
 import {
   apiRequest,
   createTokenFor,
@@ -482,9 +482,11 @@ describe("Resolução da credencial", () => {
         enabled: true,
       },
     });
-    await saveCredential(
+    await saveCredentialFor(
       fixture.companyA.id,
       fixture.adminA.id,
+      "MOCK",
+      "CALLCENTER",
       "token-gravado-sob-mock",
     );
 
@@ -495,7 +497,13 @@ describe("Resolução da credencial", () => {
     );
   });
 
-  it("credencial gravada sob o provider pedido continua sendo entregue", async () => {
+  /**
+   * Este teste gravava no store LEGADO (`ERPIntegration.credential*`) e
+   * provava que o adapter o lia. Depois do cutover da v0.7.1 ele prova o
+   * oposto do que provava: a credencial vem de `ERPCredential`, endereçada
+   * por (empresa, provider, API).
+   */
+  it("credencial do CALLCENTER no store novo é a entregue ao adapter", async () => {
     await prisma.eRPIntegration.create({
       data: {
         companyId: fixture.companyA.id,
@@ -504,9 +512,11 @@ describe("Resolução da credencial", () => {
         enabled: true,
       },
     });
-    await saveCredential(
+    await saveCredentialFor(
       fixture.companyA.id,
       fixture.adminA.id,
+      "RECEITANET",
+      "CALLCENTER",
       "token-gravado-sob-receitanet",
     );
 
@@ -545,9 +555,11 @@ describe("Teste de conexão na troca de provider (regressão do 502)", () => {
         enabled: true,
       },
     });
-    await saveCredential(
+    await saveCredentialFor(
       fixture.companyA.id,
       fixture.adminA.id,
+      "MOCK",
+      "CALLCENTER",
       "token-gravado-sob-mock",
     );
 

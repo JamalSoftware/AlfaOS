@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { requirePageProfile } from "@/lib/guards";
 import { prisma } from "@/lib/prisma";
 import { getCredentialStatus } from "@/lib/erp-credentials";
+import { listCredentialStatus } from "@/lib/erp-credential-store";
 import { TestConnectionButton } from "./TestConnectionButton";
 import { IntegrationToggle } from "./IntegrationToggle";
 import { ErpCredentialForm } from "./ErpCredentialForm";
@@ -51,7 +52,19 @@ export default async function IntegrationsPage() {
   });
 
   const enabled = integration?.enabled ?? false;
+  /**
+   * `getCredentialStatus` continua sendo consultado apenas para saber se a
+   * criptografia está disponível no servidor — informação de ambiente, não
+   * credencial. Os slots vêm do store operacional.
+   */
   const credential = await getCredentialStatus(session.companyId);
+  const slots = await listCredentialStatus(
+    session.companyId,
+    integration?.provider ?? "MOCK",
+    ["CALLCENTER", "CHATBOT"],
+  );
+  const slotOf = (kind: "CALLCENTER" | "CHATBOT") =>
+    slots.find((s) => s.kind === kind);
 
   return (
     <div>
@@ -113,15 +126,25 @@ export default async function IntegrationsPage() {
           four characters and a timestamp. The token itself never reaches this
           payload, so it is not in the page's HTML either.
         */}
-        <ErpCredentialForm
-          initialStatus={{
-            provider: credential.provider,
-            configured: credential.configured,
-            last4: credential.last4,
-            updatedAt: credential.updatedAt?.toISOString() ?? null,
-            encryptionAvailable: credential.encryptionAvailable,
-          }}
-        />
+        {/*
+          Um bloco por API. Cada um endereça exclusivamente a sua credencial:
+          gravar, testar ou remover uma NUNCA toca a outra — o isolamento é
+          estrutural (uma linha por credencial), e a tela apenas o reflete.
+        */}
+        {(["CALLCENTER", "CHATBOT"] as const).map((kind) => (
+          <div key={kind} className="mt-4 border-t border-slate-100 pt-4 first:mt-0 first:border-0 first:pt-0">
+            <ErpCredentialForm
+              initialStatus={{
+                provider: integration?.provider ?? "MOCK",
+                kind,
+                configured: slotOf(kind)?.configured ?? false,
+                last4: slotOf(kind)?.last4 ?? null,
+                updatedAt: slotOf(kind)?.updatedAt?.toISOString() ?? null,
+                encryptionAvailable: credential.encryptionAvailable,
+              }}
+            />
+          </div>
+        ))}
       </div>
 
       <div className="mt-6 max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

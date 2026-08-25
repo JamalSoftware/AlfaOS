@@ -3,13 +3,27 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+export type CredentialKindView = "CALLCENTER" | "CHATBOT";
+
 export interface CredentialStatusView {
   provider: string;
+  /** Qual API esta credencial abre. Cada bloco cuida só da sua. */
+  kind: CredentialKindView;
   configured: boolean;
   last4: string | null;
   updatedAt: string | null;
   encryptionAvailable: boolean;
 }
+
+const KIND_LABEL: Record<CredentialKindView, string> = {
+  CALLCENTER: "ReceitaNet CallCenter",
+  CHATBOT: "ReceitaNet Chatbot",
+};
+
+const KIND_HINT: Record<CredentialKindView, string> = {
+  CALLCENTER: "Busca de clientes, detalhe, verificar acesso e chamados.",
+  CHATBOT: "Enriquecimento do cadastro e credencial PPPoE real do cliente.",
+};
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -61,7 +75,9 @@ export function ErpCredentialForm({
       const res = await fetch("/api/integrations/credential", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
+        // A API é endereçada explicitamente: gravar uma credencial nunca
+        // pode tocar a outra.
+        body: JSON.stringify({ kind: status.kind, token }),
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
@@ -72,7 +88,12 @@ export function ErpCredentialForm({
       // secret material at all.
       setToken("");
       setEditing(false);
-      setStatus(payload.data.credential);
+      setStatus((prev) => ({
+        ...prev,
+        configured: payload.data.credential.configured,
+        last4: payload.data.credential.last4,
+        updatedAt: payload.data.credential.updatedAt,
+      }));
       setNotice(
         "Credencial salva. A conexão poderá ser validada quando a integração " +
           "ReceitaNet estiver configurada com documentação oficial.",
@@ -95,13 +116,24 @@ export function ErpCredentialForm({
       const res = await fetch("/api/integrations/credential", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: status.kind }),
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
         setError(payload?.error ?? "Não foi possível remover a credencial.");
         return;
       }
-      setStatus(payload.data.credential);
+      // A resposta do DELETE traz o status das DUAS credenciais; este bloco
+      // cuida exclusivamente da sua.
+      const mine = payload.data.credentials?.find(
+        (c: { kind: string }) => c.kind === status.kind,
+      );
+      setStatus((prev) => ({
+        ...prev,
+        configured: mine?.configured ?? false,
+        last4: mine?.last4 ?? null,
+        updatedAt: mine?.updatedAt ?? null,
+      }));
       setToken("");
       setEditing(true);
       setNotice("Credencial removida.");
@@ -116,9 +148,12 @@ export function ErpCredentialForm({
   return (
     <div
       className="border-t border-slate-100 pt-5"
-      data-testid="erp-credential"
+      data-testid={`erp-credential-${status.kind}`}
     >
-      <h3 className="text-sm font-semibold text-slate-900">Token / API Key</h3>
+      <h3 className="text-sm font-semibold text-slate-900">
+        {KIND_LABEL[status.kind]}
+      </h3>
+      <p className="mt-0.5 text-xs text-slate-500">{KIND_HINT[status.kind]}</p>
       <p className="mt-0.5 text-xs text-slate-500">
         Credencial usada para autenticar no ERP desta empresa. Armazenada
         criptografada; não é possível exibi-la novamente depois de salva.
