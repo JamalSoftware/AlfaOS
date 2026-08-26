@@ -993,6 +993,49 @@ Localização de foto não é exposta sem necessidade: a coordenada de uma foto 
 casa de um cliente.
 
 ---
+## 8.10. Preferência de tema — v0.7.3
+
+Superfície pequena, mas com uma característica que merece regra: um valor
+controlado pelo cliente que termina como atributo do `<html>`.
+
+### Allowlist fechada
+
+A preferência vem do `localStorage`, que é gravável por qualquer script na
+origem e editável à mão pelo usuário. Ela é validada contra exatamente
+`light` | `dark` | `system` — nos três pontos que a leem: o script inline do
+`<head>`, o provider e o próprio `onChange` do seletor. Qualquer outra coisa
+vira o padrão, em silêncio.
+
+Sem isso, uma string arbitrária entraria no DOM. Não é execução de script —
+`setAttribute` não avalia nada —, mas é valor arbitrário num atributo que o
+CSS usa como seletor, e a fronteira certa é rejeitar na entrada.
+
+**Nunca aceitar classe ou CSS vindo do usuário.** O que o produto aceita é a
+escolha entre três temas conhecidos, não uma folha de estilo.
+
+### `dangerouslySetInnerHTML` no script do tema
+
+O script inline do `<head>` é injetado assim porque é o único caminho para
+script inline em React. É seguro **por construção, não por sorte**:
+`THEME_SCRIPT` é uma constante estática de `@/lib/theme`, sem nenhuma
+interpolação de dado de requisição, sessão ou banco.
+
+Há regressão travando as duas propriedades: a string não contém `</script`
+nem `<!--`, e o valor lido do storage passa pela allowlist antes de chegar ao
+`setAttribute`. No instante em que alguém interpolar dado ali, vira XSS.
+
+### O tema não toca nada de domínio
+
+Não existe rota, nem coluna, nem sessão envolvida: a preferência é do
+navegador. Autenticação, perfil, tenant, revelação de senha PPPoE e
+credencial de ERP seguem exatamente como antes — o tema é apresentação, e não
+tem acesso a nenhum deles.
+
+A senha PPPoE continua mascarada por `passwordConfigured` (§8.5): a máscara
+não depende de tema, e trocar de tema não revela nada.
+
+---
+
 ## 9. Configuração de produção
 
 1. Gere um `AUTH_SECRET` forte: `openssl rand -base64 48`.

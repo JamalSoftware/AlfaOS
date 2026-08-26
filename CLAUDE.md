@@ -179,13 +179,15 @@ Depois dela, **concluído e sem tag** — a trilha v0.7, capability **Chatbot**:
 * credencial PPPoE real do provider, com hierarquia de procedência (`MANUAL` nunca sobrescrita automaticamente);
 * máscara de comprimento fixo da senha PPPoE e os dois telefones do cliente na OS.
 
+E a **v0.7.3 — design system e temas** (também sem tag): tokens semânticos em `src/app/globals.css`, temas Claro/Escuro/Sistema com padrão `system`, seletor no rodapé da Sidebar, e `StatusPill` como componente de estado operacional. **Não escrever cor de paleta direto no componente** — use os tokens; ver `docs/PRD.md` §149 e `docs/CONTEXT-MAP.md`.
+
 Também sem tag, **documentação apenas, sem código**:
 
 * geolocalização e mapa operacional (PRD Parte III, §133–§139);
 * ReceitaNet operacional, UX do técnico e design system (Parte IV, §140–§149);
 * **AlfaOS Field, toolkit do técnico e fundações de backend (Parte V, §150–§195)** — aplicativo Flutter, notificações push, `MobileDevice`, transactional outbox, fila de jobs, offline-first, evidências estruturadas, checklist dinâmico, `ToolExecution`, inventário como ledger. Nada disso existe em código.
 
-**Próxima etapa: `v0.7.x` — UX do técnico (PRD §145–§148) e tema claro/escuro (§149).** Depois, `v0.8`: `/v1/chamados` → `ServiceOrder` EXTERNAL por cliente conhecido (§142).
+**Próxima etapa: `v0.7.x` — UX do técnico e redesign mobile da tela da OS (PRD §145–§148, §151).** O tema (§149) já foi entregue na v0.7.3. Depois, `v0.8`: `/v1/chamados` → `ServiceOrder` EXTERNAL por cliente conhecido (§142).
 
 **Não existe descoberta global de OS.** Confirmado pelo suporte do ReceitaNet: nenhuma API pública lista as OS da empresa. É limitação do provider, não dívida do AlfaOS — não retomar a investigação, não fuzzar endpoint (PRD §141).
 

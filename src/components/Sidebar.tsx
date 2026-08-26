@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import type { AccessProfile } from "@prisma/client";
 import { navigationFor, PROFILE_LABELS } from "@/lib/navigation";
 import { Icon } from "./icons";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface SidebarProps {
   profile: AccessProfile;
@@ -82,6 +83,12 @@ function UserFooter({ userName, profile }: SidebarProps) {
           </button>
         </form>
       </div>
+      {/*
+        O seletor mora aqui porque este rodapé é o único ponto que atende os
+        dois lados: aparece no desktop e na gaveta do celular, e alcança todos
+        os perfis — a página de configurações é só de ADMIN.
+      */}
+      <ThemeToggle />
     </div>
   );
 }

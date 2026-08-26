@@ -3851,6 +3851,59 @@ o aparelho já decidiu, inclusive o agendamento automático de noite.
 
 ---
 
+## IMPLEMENTADO na v0.7.3
+
+Esta seção deixou de ser só requisito. O que foi construído, e as decisões
+que valem para quem for mexer nisso depois:
+
+**Os tokens vivem em `src/app/globals.css`** e são expostos ao Tailwind por
+`tailwind.config.ts`. A troca de tema acontece nas VARIÁVEIS, não nos
+componentes — é por isso que o codebase não tem `dark:` espalhado. Um
+componente escreve `bg-surface` uma vez e funciona nos dois temas.
+
+Nomes concretos, mapeando os conceituais desta seção:
+
+```text
+background · surface · surface-elevated · surface-subtle · surface-muted
+border · border-subtle · border-strong
+fg · fg-secondary · fg-muted
+primary · primary-hover · primary-fg · primary-text · primary-text-hover
+confirm · confirm-hover · focus · focus-soft
+success-* · warning-* · danger-* · info-* · progress-* · neutral-*
+input-bg · input-border · overlay
+```
+
+**`primary` e `primary-text` são tokens diferentes de propósito.** O azul que
+funciona como FUNDO de botão, com texto branco em cima, tem contraste de 3:1
+quando usado como TEXTO sobre o fundo escuro — reprova em AA. São dois papéis
+com requisitos opostos, e um token só forçaria a escolher qual dos dois
+quebrar.
+
+**Persistência: `localStorage`, não banco.** `User` não tinha nenhuma
+superfície de preferências, e criar tabela, migration, rota e autorização
+para guardar uma escolha visual seria escopo desproporcional — a §57 e a
+regra de não criar migration sem necessidade se aplicam. A consequência
+aceita e conhecida: a preferência é por navegador, não segue o usuário para
+outro aparelho. Quando existir uma tela de preferências de usuário, o tema é
+candidato natural a migrar para lá.
+
+**Padrão `system`, resolvido antes do primeiro paint.** Um script inline e
+bloqueante no `<head>` lê a preferência, resolve contra
+`prefers-color-scheme` e escreve `data-theme` no `<html>`. Aplicar o tema num
+efeito de React exibiria a página clara por alguns quadros — o flash branco
+que o tema escuro existe para evitar.
+
+**O valor passa por allowlist fechada.** Ele vem do `localStorage`, que o
+usuário edita à mão, e termina num atributo do DOM. Qualquer coisa fora de
+`light`/`dark`/`system` vira o padrão. Ver `docs/SECURITY.md` §8.10.
+
+**`StatusPill` é o componente de estado operacional**, com ponto e rótulo por
+extenso. Status de OS, prioridade e conectividade passaram por ele. É a base
+reutilizável para a etapa de UX mobile (§145, §151) — que **não** faz parte
+desta versão.
+
+---
+
 # PARTE V — ALFAOS FIELD: ARQUITETURA, TOOLKIT E FUNDAÇÕES DE BACKEND
 
 Registrada em 2026-08-25. Define o **AlfaOS Field** por inteiro — o aplicativo

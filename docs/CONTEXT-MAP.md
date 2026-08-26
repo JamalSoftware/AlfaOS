@@ -115,6 +115,16 @@ O documento também traz o mapeamento de identidade da sincronização planejada
 **Quando:** a tarefa envolve coordenadas, GPS, mapa, rota, proximidade de técnicos ou despacho.
 **Quando NÃO:** qualquer outra coisa. Nada disso está implementado — é arquitetura registrada, e a seção 119 se aplica: estar no PRD não autoriza implementar.
 
+## Design system e temas
+
+**Carregar:** `src/app/globals.css` (os tokens) e `tailwind.config.ts` (como eles viram classe). `docs/PRD.md` §149 registra as decisões; `docs/SECURITY.md` §8.10, a allowlist.
+**Quando:** a tarefa toca cor, contraste, tema, ou adiciona componente visual novo.
+**Quando NÃO:** lógica de domínio, integração, backend.
+
+Regra que evita o problema que o sistema existe para resolver: **não escrever cor de paleta direto no componente** (`bg-white`, `text-slate-900`, `bg-red-50`). Use o token semântico. Cor crua não tem contraparte no outro tema, e a divergência só aparece quando alguém troca de tema. O codebase tem **zero** utilitário de cor crua hoje — a única exceção deliberada é `SignatureCanvas`, que fixa branco e tinta escura porque produz uma imagem renderizada fora do aplicativo.
+
+Estado operacional usa `StatusPill`, com ponto e rótulo: **cor nunca é o único sinal**.
+
 ## Experiência do técnico e design system
 
 **Carregar:** `docs/PRD.md` §145–§149 — prioridade de informação na tela do técnico, apresentação do diagnóstico, separação de administração por papel, navegação contextual (`returnTo`) e o sistema de temas claro/escuro/sistema.
