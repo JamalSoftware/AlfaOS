@@ -1082,6 +1082,11 @@ Coletar:
 
 Relacionar exclusivamente à OS da empresa correta.
 
+> **Não confundir com a assinatura da §214**, acrescentada em 2026-08-26: lá
+> quem assina é o TÉCNICO, reconhecendo o recebimento de patrimônio da
+> empresa. Signatário, momento e documento diferentes; o mecanismo de
+> captura e integridade é o mesmo.
+
 ---
 
 # 34. PDF
@@ -2240,6 +2245,11 @@ Depende do módulo de Estoque por Técnico (seção 90) para as funções de ví
 > derivado. Um contador perde a história e, quando diverge da prateleira, não
 > há como descobrir onde.
 
+> **Complementado em 2026-08-26 (Parte VII).** Esta seção trata do MATERIAL
+> que o técnico consome no atendimento. A FERRAMENTA que a empresa lhe cede
+> — e que precisa voltar — é custódia de patrimônio (§210), sobre o mesmo
+> ledger.
+
 Cada técnico poderá possuir estoque individual:
 
 ```text
@@ -2615,6 +2625,7 @@ Não classificar tudo como MVP. Classificação por módulo/bloco:
 | Segurança avançada de dispositivo (biometria, revogação remota) | DIFERENCIAL |
 | Avaliação do atendimento pelo cliente | DIFERENCIAL |
 | Estoque por técnico (completo, com RMA/rastreabilidade) — modelado como **ledger de movimentos**, não contador (§181) | FUTURO — **P1 na trilha Field** |
+| Custódia de patrimônio do técnico — ferramentas, EPI, termo de cautela, conferência periódica (§210–§223) | IMPORTANTE — **P1** |
 | Modo offline — **fundação** (outbox local, idempotência, política de conflito) | **P0 na trilha Field** (§158–§161) |
 | Modo offline — **maturidade completa** (merge assistido, pré-sync preditiva, cache seletivo) | FUTURO |
 | Base de conhecimento | FUTURO — **P1 na trilha Field** (§183) |
@@ -4948,6 +4959,12 @@ vínculo e a baixa completos dependem do ledger de inventário (§181), que é P
 Digitar serial de ONU à mão, agachado dentro de um armário, é a origem mais
 comum de equipamento vinculado ao cliente errado.
 
+> **Alcance confirmado em 2026-08-26 (§222).** A decisão de NÃO exigir QR
+> vale para ferramenta e patrimônio cedido ao técnico, e **não** alcança
+> esta seção: leitura de QR, código de barras, serial e MAC continua P0 do
+> Field para equipamento instalado no cliente. Lá o código já vem de
+> fábrica; na ferramenta, alguém teria de criá-lo e colá-lo.
+
 ---
 
 # 181. INVENTÁRIO COMO LEDGER — P1
@@ -4968,6 +4985,21 @@ TECHNICIAN_TO_WAREHOUSE · RETURN · DEFECTIVE · DISPOSAL
 
 O saldo passa a ser **derivado** dos movimentos, e toda divergência tem um
 movimento que a explica.
+
+> **Estendido em 2026-08-26 (§215).** Este ledger é **um só**, e cobre
+> também o patrimônio cedido ao técnico. A custódia de ferramenta usa os
+> movimentos acima — `WAREHOUSE_TO_TECHNICIAN` é a entrega,
+> `TECHNICIAN_TO_TECHNICIAN` a transferência, `TECHNICIAN_TO_WAREHOUSE` a
+> devolução — e acrescenta cinco que consumível não faz:
+>
+> ```text
+> INSPECTED · LOST · STOLEN
+> SENT_TO_MAINTENANCE · RETURNED_FROM_MAINTENANCE
+> ```
+>
+> **Nenhum enum concorrente, nenhum segundo motor.** O que o asset
+> acrescenta é identidade, condição e responsável — não outro inventário.
+> A fronteira entre consumível e asset está na §211.
 
 **Estende a §90**, que já previa estoque por técnico com rastreabilidade; a
 novidade é a decisão de modelá-lo como ledger.
@@ -5858,4 +5890,414 @@ campo**, e ela já era P1 lá (§172) — não foi antecipada aqui.
 
 Amarrar o primeiro aplicativo a um quadro de despacho que ainda não existe
 adiaria o APK por uma capability que o técnico em campo nunca abre.
+
+---
+
+# PARTE VII — CUSTÓDIA DE PATRIMÔNIO DO TÉCNICO
+
+Registrada em 2026-08-26.
+
+As Partes I a VI permanecem válidas. Esta parte trata do que a empresa CEDE
+ao técnico — furadeira, power meter, máquina de fusão, escada, EPI — e que
+volta, ou deveria voltar.
+
+É assunto vizinho do inventário (§90, §181) e **não** é o mesmo: material de
+instalação é consumido no cliente, ferramenta fica com a pessoa e tem de
+voltar. A §211 fixa essa fronteira antes de qualquer modelagem.
+
+> **A §119 se aplica.** Nada desta parte está implementado. Nenhum schema,
+> nenhuma migration, nenhuma entidade.
+
+**Nada aqui bloqueia o primeiro APK Alpha do Field** (§223).
+
+---
+
+# 210. CUSTÓDIA DE PATRIMÔNIO — CAPABILITY OFICIAL
+
+> **O AlfaOS registra qual item da empresa está com qual técnico, desde
+> quando, em que condição, e com a assinatura de quem recebeu.**
+
+O sistema precisa responder, a qualquer momento:
+
+```text
+qual item está com qual técnico     quando foi entregue
+quem entregou                        condição na entrega
+acessórios que acompanharam          assinatura do recebimento
+conferências realizadas              transferências
+devoluções                           danos, extravios
+manutenções                          histórico completo
+```
+
+## A custódia é do TECHNICIAN, não do User
+
+Não é preciosismo de modelagem. `User` é a conta de acesso; `Technician` é o
+registro operacional, e é dele que a empresa cobra a ferramenta. Um usuário
+pode ser desativado, ter o perfil alterado ou deixar de ser técnico — e a
+furadeira continua com a pessoa.
+
+Vale a regra permanente do projeto: **nunca confiar em `technicianId` enviado
+pelo cliente** para determinar de quem é a custódia.
+
+## Categorias
+
+```text
+TOOLS · WORK_EQUIPMENT · PPE
+VEHICLE_ACCESSORY · SPECIAL_EQUIPMENT · OTHER
+```
+
+Configuráveis por empresa. **Nada de hard-code de telecom**: o AlfaOS é
+multiempresa (§6), e uma empresa que instala câmeras cede outro conjunto de
+ferramentas. Vale a §164 — o que muda entre empresas é configuração, não
+código.
+
+---
+
+# 211. ASSET E CONSUMÍVEL — A FRONTEIRA COM O LEDGER
+
+Esta seção existe para impedir dois motores de inventário.
+
+| | CONSUMÍVEL | ASSET |
+|---|---|---|
+| Exemplo | cabo, conector, abraçadeira | furadeira, power meter, máquina de fusão |
+| O que acontece | é **consumido** no atendimento | **volta**, ou deveria |
+| Identidade | fungível: 50 metros são 50 metros | própria: *aquela* furadeira |
+| O que se rastreia | quantidade e movimento | identidade, condição e **custódia** |
+| Fim de vida | baixa no consumo | devolução, manutenção ou baixa patrimonial |
+
+> **Um ledger só.** A §181 já decidiu que inventário é ledger de movimentos
+> com histórico imutável, e essa decisão vale para os dois. O que o asset
+> acrescenta não é outro motor: é **identidade, condição e responsável**.
+
+Um contador nunca serviu para ferramenta — "3 furadeiras" não diz qual está
+quebrada nem com quem. Mas a resposta não é um segundo sistema; é o mesmo
+ledger carregando um pouco mais sobre a linha.
+
+## Modelo conceitual — `Asset`
+
+```text
+Asset
+  id · companyId · category
+  name
+  manufacturer? · model? · serialNumber?
+  patrimonyNumber/assetTag?
+  referenceValue? · description?
+  status
+```
+
+**Serial e patrimônio são opcionais, de propósito.** Uma escada não tem
+número de série, e exigir um obrigaria a inventar — que é como um cadastro
+começa a mentir. O que identifica é a linha, não o código colado nela (§222).
+
+---
+
+# 212. ASSETCUSTODY
+
+```text
+AssetCustody
+  companyId · assetId · technicianId
+
+  deliveredAt · deliveredByUserId
+  conditionAtDelivery · notes
+  signedAt?
+
+  returnedAt? · returnedToUserId? · conditionAtReturn?
+```
+
+> **Custódia é responsabilidade temporária sobre um ativo.**
+
+Ela tem começo, meio e fim — e o fim é um registro, não a ausência de um. Uma
+custódia encerrada continua existindo: é ela que responde quem estava com a
+ferramenta em março.
+
+`conditionAtDelivery` e `conditionAtReturn` são o par que dá sentido ao
+resto. Sem o primeiro, toda avaria vira discussão sobre quando apareceu.
+
+---
+
+# 213. ENTREGA E TERMO DE CAUTELA
+
+```text
+almoxarifado seleciona o ativo
+  → seleciona o técnico
+  → registra condição e acessórios
+  → foto, quando fizer sentido
+  → o técnico CONFERE
+  → o técnico assina
+  → custódia ativa
+```
+
+Registra: data e hora · ativo · técnico · responsável pela entrega · condição
+· observação · assinatura.
+
+## O termo é um instantâneo imutável
+
+O termo de cautela em PDF representa **aquele momento**, e nada depois o
+reescreve.
+
+> **Alteração posterior não reescreve termo antigo.**
+
+É o ponto inteiro de existir um termo: ele é o que a pessoa assinou. Um
+documento que se atualiza sozinho não prova nada — e a assinatura passaria a
+cobrir um texto que o signatário nunca leu.
+
+Pode conter: empresa · técnico · lista de ativos · patrimônio e serial ·
+condição · acessórios · **valor de referência quando a policy permitir** ·
+data · responsável · assinatura.
+
+O valor é condicional porque nem toda empresa quer o custo do equipamento
+impresso num papel que circula.
+
+---
+
+# 214. ASSINATURA DO RECEBIMENTO
+
+> **A assinatura é vinculada ao INSTANTÂNEO que foi conferido, não guardada
+> como imagem solta.**
+
+Preserva: signatário · timestamp · referência ao snapshot/versão · integridade
+conforme a arquitetura já usada no fechamento da OS.
+
+Uma imagem sem vínculo prova que alguém assinou alguma coisa. Vinculada ao
+snapshot, ela prova **o que** foi assinado — e é essa a diferença entre um
+registro e um enfeite.
+
+## Não confundir com a assinatura do cliente
+
+A §33 e a §93 tratam da assinatura do CLIENTE no fechamento de uma OS. Esta é
+outra: o TÉCNICO reconhecendo que recebeu patrimônio da empresa. Signatário
+diferente, momento diferente, documento diferente.
+
+O que se reaproveita é o mecanismo de captura e integridade
+(`docs/SERVICE-ORDER-CLOSING.md`), não a entidade.
+
+---
+
+# 215. MOVIMENTOS — RECONCILIAÇÃO COM O LEDGER
+
+> **Nunca `asset.technicianId = X`.** O ledger da §181 vale aqui integralmente:
+> o estado atual é DERIVADO dos movimentos, e o histórico é imutável.
+
+## O vocabulário já existente cobre a maior parte
+
+A §181 declarou os movimentos do inventário. Custódia de ferramenta usa os
+MESMOS — criar um enum paralelo produziria dois vocabulários para o mesmo
+fato, divergindo no dia em que alguém acrescentasse um valor a um só deles:
+
+| Evento de custódia | Movimento na §181 |
+|---|---|
+| entrega ao técnico | `WAREHOUSE_TO_TECHNICIAN` |
+| transferência entre técnicos | `TECHNICIAN_TO_TECHNICIAN` |
+| devolução ao almoxarifado | `TECHNICIAN_TO_WAREHOUSE` |
+| dano constatado | `DEFECTIVE` |
+| baixa patrimonial | `DISPOSAL` |
+
+## O que a custódia realmente acrescenta
+
+Cinco eventos sem contraparte na §181, porque descrevem coisas que consumível
+não faz:
+
+```text
+INSPECTED                   conferência periódica (§217)
+LOST                        não localizado após conferência
+STOLEN                      furto ou roubo, com ocorrência
+SENT_TO_MAINTENANCE         saiu para conserto
+RETURNED_FROM_MAINTENANCE   voltou
+```
+
+Estes **estendem** a lista da §181; não a substituem. Um cabo não é
+inspecionado nem mandado para manutenção — por isso os cinco não existiam lá.
+
+---
+
+# 216. TRANSFERÊNCIA ENTRE TÉCNICOS
+
+```text
+Técnico A → condição registrada → Técnico B recebe
+                                 → confirma, quando a policy exigir
+```
+
+> **A custódia anterior não é sobrescrita em silêncio: ela é ENCERRADA, com
+> condição registrada, e uma nova começa.**
+
+Sobrescrever apagaria exatamente o que se quer saber quando a ferramenta
+aparecer quebrada — em qual das duas mãos ela quebrou. É a mesma razão pela
+qual o inventário virou ledger (§181).
+
+---
+
+# 217. CONFERÊNCIA PERIÓDICA
+
+A empresa confere, de tempos em tempos, a carga de cada técnico.
+
+```text
+Furadeira      em posse · bom estado
+Power meter    em posse · desgaste
+Escada         danificada
+Ferramenta X   não localizada
+```
+
+Cada item registra: **status · condição · observação · foto opcional**. Ao
+final, o técnico confirma e assina; o responsável confere.
+
+## Periodicidade
+
+Configurável **por empresa** — 30, 60, 90 dias, ou intervalo próprio.
+
+> **Nenhum número global.** Uma empresa com power meter de dez mil reais
+> confere mais que uma que cedeu alicate e chave de fenda, e um padrão fixo
+> obrigaria as duas ao ritmo errado.
+
+Conceitos derivados: **última conferência · próxima conferência · conferência
+vencida**.
+
+## Alertas
+
+Painel futuro poderá mostrar: conferências vencidas · ativos não localizados ·
+ativos danificados · itens em manutenção · itens aguardando devolução.
+
+---
+
+# 218. OCORRÊNCIAS
+
+```text
+EXTRAVIO · FURTO · ROUBO · DANO
+DESGASTE · NÃO_LOCALIZADO · OUTRO
+```
+
+Registra: ativo · técnico · data · descrição · fotos opcionais · responsável.
+
+> **Ocorrência não apaga histórico.** Ela é mais uma linha, como tudo no
+> ledger. Um item dado como extraviado que reaparece produz outro registro —
+> não a remoção do primeiro.
+
+`DESGASTE` está na lista de propósito, ao lado de `DANO`: ferramenta gasta
+pelo uso normal não é a mesma coisa que ferramenta quebrada, e tratá-las
+igual transformaria depreciação em acusação.
+
+---
+
+# 219. O QUE O ALFAOS NÃO DECIDE
+
+> **O AlfaOS documenta. Ele não julga, não cobra e não desconta.**
+
+| O AlfaOS FAZ | O AlfaOS NÃO FAZ |
+|---|---|
+| registrar custódia | decidir culpa |
+| registrar condição | descontar salário |
+| coletar assinatura | gerar cobrança contra empregado |
+| registrar ocorrência | classificar negligência |
+| preservar histórico | aplicar sanção |
+
+Isto não é cautela jurídica genérica: é uma decisão de produto com
+consequência de modelagem. Desconto em folha por avaria tem regra trabalhista
+própria, exige acordo ou comprovação de dolo/culpa, e varia por convenção
+coletiva. Um sistema que automatizasse isso estaria decidindo sozinho algo que
+a lei manda uma pessoa decidir — e o registro que o AlfaOS produz é exatamente
+o insumo de que essa pessoa precisa.
+
+O processo trabalhista e financeiro fica **fora**, e o valor de referência
+(§211) existe para dimensionar patrimônio, não para calcular cobrança.
+
+---
+
+# 220. DEVOLUÇÃO E DESLIGAMENTO
+
+Checklist de devolução, e um momento em que ele importa mais: ao **inativar**
+um técnico, as custódias ainda abertas aparecem.
+
+```text
+6 ativos
+  ✓ devolvido
+  ✓ devolvido
+  ⚠ danificado
+  ✕ pendente
+  ✕ não localizado
+```
+
+> **A pendência é EVIDENTE, e o bloqueio da inativação não é decidido agora.**
+
+A distinção é deliberada. Bloquear a inativação por ferramenta pendente
+impediria de cortar o acesso de alguém que já saiu — e cortar acesso é uma
+urgência de segurança (`SECURITY.md` §8.9), enquanto cobrar uma furadeira é
+uma questão administrativa. Amarrar as duas faz a urgente esperar pela outra.
+
+Desativação **não apaga histórico**: a regra do Core vale aqui igual. As
+custódias, os termos e as ocorrências permanecem.
+
+---
+
+# 221. PERMISSÕES E ISOLAMENTO
+
+| Perfil | Pode |
+|---|---|
+| **ADMIN** | gestão completa conforme policy |
+| **Almoxarifado/gestor** (perfil futuro possível) | entrega, devolução, conferência |
+| **TECHNICIAN** | consultar a PRÓPRIA carga · participar da conferência · assinar |
+
+> **O TECHNICIAN não remove ativo da própria custódia, não altera histórico e
+> não marca devolvido sem workflow autorizado.**
+
+Se ele pudesse encerrar a própria custódia, o registro deixaria de ser prova
+de nada — e o único momento em que isso importa é justamente aquele em que
+alguém tem motivo para mexer nele.
+
+## Multi-tenancy
+
+`Asset`, `AssetCustody`, conferência, evento e evidência são **sempre**
+escopados por empresa, filtrados em SQL. Nenhuma empresa enxerga ativo ou
+custódia de outra. Vale a §7 e o `CLAUDE.md` sem exceção.
+
+## Auditoria
+
+Entrega · transferência · devolução · conferência · ocorrência · mudança de
+condição · assinatura — todos com ator, empresa e momento, no padrão do
+`AuditLog` já existente (§46). Histórico tenant-scoped.
+
+---
+
+# 222. SEM QR PARA FERRAMENTA — DECISÃO DE PRODUTO
+
+> **QR Code NÃO é requisito para ferramenta e patrimônio cedido ao técnico.**
+
+Nada de etiqueta QR, scanner de ferramenta, nem obrigação de colar código em
+patrimônio.
+
+A localização do ativo usa o que o cadastro já tem: **nome · patrimônio ·
+serial · categoria · busca · a lista do próprio técnico**.
+
+Uma etiqueta colada numa furadeira que vive em caçamba de caminhonete não
+sobrevive ao inverno, e um fluxo que depende dela para conferir a carga passa
+a falhar exatamente nos itens mais usados.
+
+## O alcance desta decisão é ESTRITO
+
+Ela vale para ferramenta e patrimônio do técnico. Ela **não** revoga a §180 —
+leitura de QR, código de barras, serial e MAC continua sendo **P0 do Field**
+para equipamento instalado no cliente: ONU, ONT, roteador, câmera.
+
+São problemas diferentes. Lá, o código já vem de fábrica na caixa e digitar
+serial à mão dentro de um armário é a origem mais comum de equipamento
+vinculado ao cliente errado. Aqui, o código teria de ser criado e colado por
+alguém.
+
+---
+
+# 223. ROADMAP DA CUSTÓDIA
+
+| Capability | Prioridade |
+|---|---|
+| Custódia de patrimônio (§210–§216) | **P1** |
+| Conferência periódica (§217) | **P1** |
+| Termo de cautela em PDF (§213) | **P1** |
+| Checklist de devolução (§220) | **P1** |
+| Alertas de conferência e pendência (§217) | **P1** |
+| "Minha carga" no Field (consulta, conferência, assinatura) | **P1** — Field v1 |
+
+## Não bloqueia o primeiro APK Alpha
+
+> **O P0 do Field (§194) permanece exatamente como está.**
+
+Consultar a própria carga é útil e não é o que faz o técnico atender um
+cliente. Amarrar o primeiro aplicativo a um módulo de patrimônio que ainda não
+existe no backend adiaria o APK por uma tela que ninguém abre em campo.
 

@@ -43,6 +43,7 @@ Regra geral: leia a seção "Sempre" em toda sessão nova, depois **só** as se�
 **Carregar:** somente a auditoria da versão relevante à tarefa atual — não releia o histórico completo de auditorias.
 * `docs/FOUNDATION-AUDIT.md` — contexto histórico da v0.1, raramente necessário hoje.
 * `docs/V0.2-AUDIT.md` — achados e correções do ciclo v0.2/v0.2.1/v0.2.2/v0.2.3. Útil para entender decisões de concorrência (`version`/`expectedVersion`) e elegibilidade de técnico antes de mexer nessas áreas.
+* `docs/V0.7-AUDIT.md` — checkpoint da trilha v0.7: os três bloqueadores (PPPOE-01, RATE-01, GATE-01), as correções, a reauditoria focal e os riscos aceitos. **Leia antes de mexer em procedência de credencial PPPoE, rate limit de capability ou procedência do diagnóstico** — as três áreas já regrediram uma vez, e o documento registra por quê. Traz também os três INFO aceitos e a lacuna dos LOW históricos.
 * Auditoria da v0.3, quando existir (ex.: `docs/V0.3-AUDIT.md`) — carregar antes de iniciar `v0.4`, ou ao investigar algo relacionado à execução do técnico.
 
 **Quando:** a tarefa é uma nova rodada de auditoria, ou precisa entender o que já foi encontrado/corrigido antes de mexer numa área historicamente sensível.
@@ -139,6 +140,20 @@ Duas regras que a v0.7.4 fixou e são fáceis de desfazer sem perceber:
 
 * **A simplificação é do TECHNICIAN, não do produto.** ADMIN e DISPATCHER continuam vendo id interno, origem, número no ERP e contexto ReceitaNet — é com isso que se abre chamado com o provedor. Ver PRD §145 e §151.
 * **`returnTo` passa por allowlist fechada e por verificação de tenant.** As duas, não uma. Detalhe em `docs/SECURITY.md` §8.11.
+
+## Custódia de patrimônio do técnico
+
+**Carregar:** `docs/PRD.md` §210–§223 — `Asset`, `AssetCustody`, termo de cautela, assinatura do recebimento, conferência periódica, ocorrências, devolução e permissões.
+**Quando:** a tarefa envolve ferramenta, EPI ou equipamento de trabalho cedido ao técnico.
+**Quando NÃO:** material consumido no atendimento — isso é inventário (§90, §181). A fronteira entre os dois está na §211.
+
+Três decisões que são fáceis de desfazer sem perceber:
+
+* **Um ledger só** (§215). Custódia usa os movimentos da §181 e acrescenta cinco que consumível não faz. Não criar enum concorrente.
+* **Sem QR para ferramenta** (§222). A decisão é ESTRITA a patrimônio do técnico e **não** revoga a §180 — leitura de QR/serial/MAC continua P0 do Field para equipamento instalado no cliente.
+* **O AlfaOS documenta, não julga** (§219). Nada de desconto automático, cobrança ou atribuição de culpa: o processo trabalhista fica fora.
+
+Nada disso está implementado — é especificação, e a §119 se aplica.
 
 ## Design system e temas
 
