@@ -9,6 +9,7 @@ import {
 import { listCustomerConnections } from "@/lib/customer-connections";
 import { CustomerForm } from "@/components/CustomerForm";
 import { CustomerConnectionsPanel } from "@/components/CustomerConnectionsPanel";
+import { ReceitanetOrderSyncPanel } from "@/components/ReceitanetOrderSyncPanel";
 import { parseReturnTo } from "@/lib/return-to";
 import { notFound } from "next/navigation";
 
@@ -114,6 +115,21 @@ export default async function EditCustomerPage({
           */}
           <CustomerForm mode="edit" customer={customer} backHref={volta.href} />
         </div>
+
+        {/*
+          Sincronizacao das OS abertas no provedor.
+
+          ADMIN e DISPATCHER — os mesmos perfis que a rota aceita. O tecnico
+          nao dispara sincronizacao administrativa; ele trabalha a OS depois
+          que ela existe e lhe e atribuida.
+        */}
+        <ReceitanetOrderSyncPanel
+          customerId={customer.id}
+          linked={
+            customer.externalProvider === "RECEITANET" &&
+            Boolean(customer.externalId)
+          }
+        />
 
         {isAdmin && (
           <CustomerConnectionsPanel

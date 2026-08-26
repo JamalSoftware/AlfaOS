@@ -416,7 +416,14 @@ export interface ERPOrderCustomerInput {
   zipCode?: string;
 }
 
-export interface ImportServiceOrderInput {
+/**
+ * Os campos da OS em si, sem o cadastro do cliente.
+ *
+ * Separado porque as duas entradas de importacao diferem exatamente nisto: a
+ * sincronizacao em lote traz o cadastro do provider junto, e a por cliente
+ * conhecido nao traz — `/v1/chamados` devolve chamado, nao cliente.
+ */
+export interface ImportedServiceOrderFields {
   externalProvider: string;
   externalId: string;
   externalNumber?: string;
@@ -425,12 +432,49 @@ export interface ImportServiceOrderInput {
   description: string;
   priority: ServiceOrderPriority;
   scheduledAt?: string | null;
+}
+
+export interface ImportServiceOrderInput extends ImportedServiceOrderFields {
   customer: ERPOrderCustomerInput;
 }
 
 export interface ImportServiceOrderResult {
   serviceOrder: PublicServiceOrder;
   created: boolean;
+}
+
+/**
+ * Importação para um cliente que JÁ EXISTE no AlfaOS.
+ *
+ * É o caminho da sincronização por cliente conhecido: o ReceitaNet devolve
+ * chamados por `idCliente`, e a resposta de `/v1/chamados` **não carrega
+ * dado cadastral nenhum**. Passar por `importServiceOrder` obrigaria a
+ * inventar um `customer` de entrada, e o upsert de lá apagaria nome,
+ * telefone e endereço reais com os campos vazios que o chamado não tem.
+ *
+ * A garantia de tenant é do CHAMADOR: `customerId` precisa ter sido
+ * resolvido sob `companyId`. A checagem abaixo é a segunda linha, não a
+ * primeira.
+ */
+export async function importServiceOrderForCustomer(
+  companyId: string,
+  actorId: string,
+  customerId: string,
+  input: ImportedServiceOrderFields,
+): Promise<ImportServiceOrderResult> {
+  /*
+    Releitura sob a empresa da sessão, por SQL. Um `customerId` de outro
+    tenant morre aqui mesmo que tenha passado por alguma checagem anterior —
+    é barato e fecha a porta para um segundo chamador descuidado.
+  */
+  const customer = await prisma.customer.findFirst({
+    where: { id: customerId, companyId },
+    select: { id: true },
+  });
+  if (!customer) {
+    throw notFound("Cliente não encontrado.");
+  }
+  return persistImportedServiceOrder(companyId, actorId, customer.id, input);
 }
 
 /**
@@ -479,6 +523,23 @@ export async function importServiceOrder(
     },
   });
 
+  return persistImportedServiceOrder(companyId, actorId, customer.id, input);
+}
+
+/**
+ * O núcleo da importação, com o cliente já resolvido.
+ *
+ * Extraído porque duas entradas precisam dele — a sincronização em lote,
+ * que traz o cadastro do provider, e a por cliente conhecido, que não traz.
+ * Duplicar esta transação seria duplicar a corrida que ela resolve, e a
+ * cópia divergiria na primeira correção feita em só um dos lados.
+ */
+async function persistImportedServiceOrder(
+  companyId: string,
+  actorId: string,
+  customerId: string,
+  input: ImportedServiceOrderFields,
+): Promise<ImportServiceOrderResult> {
   const uniqueKey = {
     companyId_externalProvider_externalId: {
       companyId,
@@ -548,7 +609,7 @@ export async function importServiceOrder(
           number,
           externalProvider: input.externalProvider,
           externalId: input.externalId,
-          customerId: customer.id,
+          customerId,
           priority: input.priority,
           status: "PENDING",
           // Nasceu em sistema externo. O CHECK do banco garante que
