@@ -89,11 +89,26 @@ test("critério de aceite: sync, atribuição e ownership do técnico", async ({
   await openOrderByExternalNumber(page, "10001");
   const orderLabel = await currentOrderLabel(page);
   expect(orderLabel).toMatch(/^OS Nº \d+$/);
-  // O número do ERP não sumiu: virou detalhe, sob "Nº no ERP".
-  await expect(page.getByText("10001")).toBeVisible();
   await expect(page.getByText("Pendente").first()).toBeVisible();
+
+  /*
+    O número do ERP e a origem viraram DETALHE na v0.7.4: moram em seções
+    recolhidas, e a tela abre com elas fechadas de propósito.
+
+    Exigir `toBeVisible()` sobre conteúdo de um `<details>` fechado testaria o
+    contrário do que o produto decidiu. O teste correto é o que um operador
+    faz: confere que a seção está lá, abre, e então lê o conteúdo.
+  */
+  const integracao = page.getByTestId("integration-section");
+  await expect(integracao).toBeVisible();
+  await integracao.locator("summary").click();
+  await expect(integracao.getByText("10001")).toBeVisible();
+
+  const administrativos = page.getByTestId("admin-details-section");
+  await expect(administrativos).toBeVisible();
+  await administrativos.locator("summary").click();
   // Origem + provider: "Externa" sozinha nao diz de onde a OS veio.
-  await expect(page.getByText("Externa (ERP) · MOCK")).toBeVisible();
+  await expect(administrativos.getByText("Externa (ERP) · MOCK")).toBeVisible();
   const orderUrl = page.url();
 
   await page.goto("/tecnicos/novo");

@@ -366,26 +366,23 @@ export default async function OrderDetailPage({
     tipo público da OS e acrescentá-lo lá o colocaria no payload das
     listagens que o técnico recebe.
   */
+  /*
+    SÓ identidade da OS e da integração — dados que não mudam enquanto a
+    página está aberta.
+
+    "Tecnologia" e "Fonte do diagnóstico" saíram daqui e voltaram para o
+    painel de diagnóstico. Elas descrevem o SNAPSHOT, e o snapshot é
+    atualizado por um botão no cliente: renderizadas no servidor, ficavam
+    congeladas na leitura anterior — e, num cliente que ainda não tinha
+    snapshot, simplesmente não existiam. A auditoria da v0.7.x pegou as duas
+    coisas. Dado vivo mora onde o estado vive.
+  */
   const staffIntegrationRows = [
     { label: "Nº no ERP", value: order.externalNumber },
     {
       label: "Provedor",
       value: order.externalProvider
         ? providerLabel(order.externalProvider)
-        : null,
-    },
-    {
-      label: "Tecnologia",
-      // Código cru do provider: o contrato declara inteiro e não documenta
-      // o significado. Traduzir para "Fibra" seria inventar.
-      value: diagnosticSnapshot?.technology
-        ? `código ${diagnosticSnapshot.technology}`
-        : null,
-    },
-    {
-      label: "Fonte do diagnóstico",
-      value: diagnosticSnapshot
-        ? providerLabel(diagnosticSnapshot.provider)
         : null,
     },
   ];
@@ -623,6 +620,12 @@ export default async function OrderDetailPage({
           <CustomerDiagnosticPanel
             orderId={order.id}
             initialDiagnostic={diagnosticView}
+            /*
+              Mesmo predicado de papel do bloco ERP, escrito do mesmo jeito.
+              Não uso `isStaff` aqui: ele é derivado por negação e coincide
+              hoje por acidente do fluxo, não por regra.
+            */
+            mostrarProcedencia={canSeeErpContext}
           />
 
           {/*

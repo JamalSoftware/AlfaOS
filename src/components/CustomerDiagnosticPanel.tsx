@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { providerLabel } from "@/lib/provider-labels";
 import { StatusPill, type StatusTone } from "./StatusPill";
 
 /**
@@ -89,9 +90,25 @@ function formatTime(iso: string): string {
 export function CustomerDiagnosticPanel({
   orderId,
   initialDiagnostic,
+  mostrarProcedencia = false,
 }: {
   orderId: string;
   initialDiagnostic: DiagnosticView | null;
+  /**
+   * Quem produziu esta observação — só para ADMIN e DISPATCHER.
+   *
+   * Mora AQUI, e não numa linha renderizada no servidor, porque a procedência
+   * pertence ao snapshot: ela muda junto com ele. A v0.7.4 a moveu para a
+   * seção recolhida de integração e criou dois defeitos que a auditoria
+   * encontrou — num cliente sem snapshot a linha não existia, e depois de um
+   * refresh manual ela continuava descrevendo a leitura ANTERIOR, porque o
+   * servidor não renderiza de novo. Uma procedência stale é pior que nenhuma:
+   * ela afirma que um provedor respondeu quando quem respondeu foi outro.
+   *
+   * O técnico não recebe: saber que o dado veio do ReceitaNet não muda o que
+   * ele faz na casa do cliente.
+   */
+  mostrarProcedencia?: boolean;
 }) {
   const [diagnostic, setDiagnostic] = useState(initialDiagnostic);
   const [loading, setLoading] = useState(false);
@@ -192,10 +209,25 @@ export function CustomerDiagnosticPanel({
             </dd>
           </div>
           {/*
-            Tecnologia, servidor e fonte moram em "Informações de
-            integração". Aqui eles empurrariam para baixo a única linha que
-            responde "o cliente está no ar?".
+            Procedência para o staff: uma linha compacta, DEPOIS das duas que
+            respondem "o cliente está no ar?", e nunca no lugar delas.
+
+            Vem do mesmo estado que o refresh atualiza, então não tem como
+            ficar stale. O código de tecnologia entra junto porque é o que se
+            informa ao abrir chamado com o provedor, e é lido no mesmo momento
+            — separá-los faria um dos dois envelhecer sozinho.
           */}
+          {mostrarProcedencia && (
+            <div
+              data-testid="diagnostic-source"
+              className="flex flex-wrap gap-x-2 border-t border-border-subtle pt-2 text-xs text-fg-muted"
+            >
+              <span>Origem: {providerLabel(diagnostic.provider)}</span>
+              {diagnostic.technology && (
+                <span>· tecnologia código {diagnostic.technology}</span>
+              )}
+            </div>
+          )}
         </dl>
       ) : (
         !failure && (

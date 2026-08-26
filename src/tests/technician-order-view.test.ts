@@ -533,3 +533,60 @@ describe("o que o técnico continua vendo", () => {
     expect(porTestId(tree, "admin-details-section")).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Procedência do diagnóstico — onde ela mora
+// ---------------------------------------------------------------------------
+
+/**
+ * A auditoria da v0.7.x encontrou a procedência do diagnóstico STALE.
+ *
+ * A v0.7.4 a moveu do painel (estado do cliente, atualizado pelo refresh) para
+ * uma linha renderizada no servidor. Duas consequências: num cliente sem
+ * snapshot a linha não existia, e depois de um refresh manual ela continuava
+ * descrevendo a leitura anterior — o servidor não renderiza de novo.
+ *
+ * A correção devolve o dado vivo a quem tem o estado vivo. Estes testes travam
+ * as duas metades: o painel recebe o predicado de papel, e a seção recolhida
+ * não volta a carregar dado derivado do snapshot.
+ */
+describe("a procedência do diagnóstico acompanha o snapshot", () => {
+  function painel(tree: unknown) {
+    return propsDe(tree, "CustomerDiagnosticPanel")[0];
+  }
+
+  it("ADMIN recebe a origem no painel, onde o refresh a atualiza", async () => {
+    const c = await cenario();
+    await comoAdmin();
+    const tree = await renderOrderPage(c.orderId);
+
+    expect(painel(tree)?.mostrarProcedencia).toBe(true);
+  });
+
+  it("o técnico não recebe a origem", async () => {
+    const c = await cenario();
+    await comoTecnico();
+    const tree = await renderOrderPage(c.orderId);
+
+    // O painel continua lá — o que sai é a linha de procedência.
+    expect(painel(tree)).toBeDefined();
+    expect(painel(tree)?.mostrarProcedencia).toBe(false);
+  });
+
+  /**
+   * O que fez o dado envelhecer: rótulos derivados do snapshot dentro de uma
+   * seção que o servidor renderiza uma vez só. Se voltarem para lá, voltam
+   * stale — por isso a ausência é asserção, não coincidência.
+   */
+  it("a seção de integração não carrega mais dado derivado do snapshot", async () => {
+    const c = await cenario();
+    await comoAdmin();
+    const texto = flatten(await renderOrderPage(c.orderId));
+
+    expect(texto).not.toContain("Fonte do diagnóstico");
+    expect(texto).not.toContain("Tecnologia");
+    // A identidade da OS, que não muda com refresh nenhum, continua lá.
+    expect(texto).toContain("Nº no ERP");
+    expect(texto).toContain("ID interno da OS");
+  });
+});

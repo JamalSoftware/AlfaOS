@@ -22,7 +22,17 @@ const PASSWORD = "AlfaOS@2026";
  * contagem.
  */
 const TYPE_NAME = "Vistoria E2E";
+/**
+ * Tipo EXCLUSIVO do teste de desativação.
+ *
+ * Antes ele reaproveitava o tipo que o teste anterior criava pela interface.
+ * Funcionava enquanto o vizinho passasse; quando o vizinho falhou, este falhou
+ * junto — por um motivo que nada tinha a ver com o que ele verifica. A
+ * auditoria da v0.7.x registrou a cascata. Estado próprio elimina a classe.
+ */
+const TYPE_TOGGLE = "Vistoria E2E (desativação)";
 const ORDER_DESCRIPTION = "OS interna criada pelo E2E de tipos.";
+const TOGGLE_ORDER_DESCRIPTION = "OS do E2E de desativação de tipo.";
 const CUSTOMER_NAME = "Cliente Tipos E2E";
 const COMPLETED_DESCRIPTION = "Atendimento concluído do E2E de tipos.";
 
@@ -103,7 +113,11 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   const orders = await prisma.serviceOrder.findMany({
-    where: { description: { in: [ORDER_DESCRIPTION, COMPLETED_DESCRIPTION] } },
+    where: {
+      description: {
+        in: [ORDER_DESCRIPTION, COMPLETED_DESCRIPTION, TOGGLE_ORDER_DESCRIPTION],
+      },
+    },
     select: { id: true },
   });
   const ids = orders.map((o) => o.id);
@@ -115,7 +129,9 @@ test.afterAll(async () => {
   }
   await prisma.customer.deleteMany({ where: { name: CUSTOMER_NAME } });
   // Depois das OS: o vínculo typeId é onDelete Restrict.
-  await prisma.serviceOrderType.deleteMany({ where: { name: TYPE_NAME } });
+  await prisma.serviceOrderType.deleteMany({
+    where: { name: { in: [TYPE_NAME, TYPE_TOGGLE] } },
+  });
   const emails = [TECH_EMAIL, OTHER_TECH_EMAIL];
   await prisma.technician.deleteMany({
     where: { user: { email: { in: emails } } },
@@ -142,15 +158,52 @@ test("ADMIN cria tipo, abre OS interna com ele e vê a origem no detalhe", async
   await page.getByRole("button", { name: "Criar OS" }).click();
 
   await expect(page).toHaveURL(/\/ordens\/[a-z0-9]+$/);
-  // O rótulo do tipo foi copiado do catálogo, e a origem é INTERNAL porque a
-  // OS nasceu aqui — não porque falta id externo.
+  // O rótulo do tipo foi copiado do catálogo e continua na visão principal.
   await expect(page.getByText(TYPE_NAME).first()).toBeVisible();
-  await expect(page.getByText("Interna (AlfaOS)")).toBeVisible();
+
+  /*
+    A origem é INTERNAL porque a OS nasceu aqui — não porque falta id externo.
+
+    Ela mora em "Detalhes administrativos" desde a v0.7.4, recolhida. Abrir a
+    seção é parte do teste: é o que o operador faz, e é o que prova que o dado
+    continua alcançável depois da compactação.
+  */
+  const administrativos = page.getByTestId("admin-details-section");
+  await expect(administrativos).toBeVisible();
+  await administrativos.locator("summary").click();
+  await expect(administrativos.getByText("Interna (AlfaOS)")).toBeVisible();
 });
 
 test("tipo desativado sai do formulário de nova OS sem afetar a OS já criada", async ({
   page,
 }) => {
+  /*
+    Estado PRÓPRIO, criado aqui — o teste roda sozinho.
+
+    O tipo e a OS que ele precisa são dele, e não sobras do teste anterior.
+    Criados pelo Prisma porque o que está sob teste é DESATIVAR um tipo, não
+    cadastrá-lo: cadastrar pela interface já é o teste de cima.
+  */
+  const customer = await prisma.customer.findFirstOrThrow({
+    where: { name: CUSTOMER_NAME },
+  });
+  const tipo = await prisma.serviceOrderType.create({
+    data: { companyId: customer.companyId, name: TYPE_TOGGLE, sortOrder: 90 },
+  });
+  await prisma.serviceOrder.create({
+    data: {
+      companyId: customer.companyId,
+      number: await allocateServiceOrderNumber(prisma, customer.companyId),
+      customerId: customer.id,
+      typeId: tipo.id,
+      // Rótulo copiado, como faz a criação real: é ele que sobrevive à
+      // desativação do catálogo.
+      type: TYPE_TOGGLE,
+      description: TOGGLE_ORDER_DESCRIPTION,
+      status: "PENDING",
+    },
+  });
+
   await login(page, ADMIN_EMAIL);
   // Espera a navegacao do login terminar: sem isso o goto abaixo corre contra
   // o redirect e pode aterrissar de volta em /login.
@@ -160,18 +213,18 @@ test("tipo desativado sai do formulário de nova OS sem afetar a OS já criada",
   // `filter({ hasText })` e nao `getByRole("row", { name })`: o nome
   // acessivel de um <tr> sem aria-label nao e derivado das celulas de forma
   // confiavel, e o seletor por role simplesmente nunca casava.
-  const row = page.locator("tbody tr").filter({ hasText: TYPE_NAME });
+  const row = page.locator("tbody tr").filter({ hasText: TYPE_TOGGLE });
   await row.getByRole("button", { name: "Desativar" }).click();
   await expect(row.getByRole("button", { name: "Reativar" })).toBeVisible();
 
   await page.goto("/ordens/novo");
   await expect(
-    page.getByLabel("Tipo *").getByRole("option", { name: TYPE_NAME }),
+    page.getByLabel("Tipo *").getByRole("option", { name: TYPE_TOGGLE }),
   ).toHaveCount(0);
 
-  // A OS criada no teste anterior continua exibindo o rótulo original.
-  await page.goto("/ordens");
-  await expect(page.getByText(TYPE_NAME).first()).toBeVisible();
+  // A OS que já usava o tipo continua exibindo o rótulo original.
+  await page.goto(`/ordens?search=${encodeURIComponent(TOGGLE_ORDER_DESCRIPTION)}`);
+  await expect(page.getByText(TYPE_TOGGLE).first()).toBeVisible();
 });
 
 test("técnico vê as próprias OS concluídas recentes", async ({ page }) => {
