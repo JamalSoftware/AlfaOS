@@ -3,7 +3,10 @@ import { assertProfile, jsonError, jsonOk, runApi } from "@/lib/api";
 import { getSessionUser } from "@/lib/session";
 import { getCompanyServiceOrder } from "@/lib/service-orders";
 import { loadErpOperationalContext } from "@/lib/erp-operational-context";
-import { consumeCapabilityToken } from "@/lib/capability-rate-limit";
+import {
+  enforceCapabilityLimit,
+  ERP_CAPABILITIES,
+} from "@/lib/capability-rate-limit";
 
 /**
  * Contexto operacional do cliente no ERP, escopado por ORDEM DE SERVIÇO.
@@ -50,18 +53,12 @@ export async function GET(
      * loop gasta a cota da EMPRESA, e a punição do provider recai sobre todos os
      * operadores dela.
      */
-    const quota = consumeCapabilityToken(
+    const limited = enforceCapabilityLimit(
       session.companyId,
       session.id,
-      "receitanet-context",
+      ERP_CAPABILITIES.RECEITANET_CONTEXT,
     );
-    if (!quota.allowed) {
-      return jsonError(
-        "Muitas consultas ao ReceitaNet. Aguarde alguns instantes.",
-        429,
-        { retryAfterSeconds: quota.retryAfterSeconds },
-      );
-    }
+    if (limited) return limited;
 
     /**
      * O `customerId` vem da OS, resolvida sob a empresa da sessão — nunca do

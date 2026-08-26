@@ -9,6 +9,10 @@ import { isIntegrationError } from "@/integrations/errors";
 import { resolveChatbotClient, resolveCompanyAdapter } from "@/lib/erp-adapter";
 import type { ERPConnectionResult } from "@/integrations/contract";
 import { CLEARED_CREDENTIAL_FIELDS } from "@/lib/erp-credentials";
+import {
+  enforceCapabilityLimit,
+  ERP_CAPABILITIES,
+} from "@/lib/capability-rate-limit";
 
 const schema = z.object({
   provider: z.nativeEnum(ERPProvider).optional(),
@@ -34,6 +38,18 @@ export async function POST(request: Request) {
     if (session.profile !== AccessProfile.ADMIN) {
       return jsonError("Acesso negado. Requer perfil ADMIN.", 403);
     }
+
+    /**
+     * Testar a conexão é um clique deliberado, mas continua sendo uma
+     * requisição ao provider por clique — e o botão é o mais fácil de repetir
+     * quando algo não funciona. Teto depois da autorização.
+     */
+    const limited = enforceCapabilityLimit(
+      session.companyId,
+      session.id,
+      ERP_CAPABILITIES.TEST_CONNECTION,
+    );
+    if (limited) return limited;
 
     let provider: ERPProvider = "MOCK";
     let kind: "CALLCENTER" | "CHATBOT" = "CALLCENTER";

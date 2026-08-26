@@ -5,6 +5,10 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { getSessionUser } from "@/lib/session";
 import { isIntegrationError } from "@/integrations/errors";
 import { searchErpCustomers } from "@/lib/erp-customer-lookup";
+import {
+  enforceCapabilityLimit,
+  ERP_CAPABILITIES,
+} from "@/lib/capability-rate-limit";
 
 /**
  * Busca administrativa de cliente no ERP.
@@ -60,6 +64,21 @@ export async function POST(request: Request) {
     if (!parsed.success) {
       return jsonError("Informe ao menos um filtro de busca.", 400);
     }
+
+    /**
+     * Teto DEPOIS da autorização: uma sondagem anônima ou de outra empresa não
+     * pode gastar a cota de quem tem direito a ela.
+     *
+     * Cada busca aqui vira uma requisição ao CallCenter. Sem teto, um campo de
+     * filtro em loop consome a cota da EMPRESA, e a punição do provider recai
+     * sobre todos os operadores dela.
+     */
+    const limited = enforceCapabilityLimit(
+      session.companyId,
+      session.id,
+      ERP_CAPABILITIES.CUSTOMER_SEARCH,
+    );
+    if (limited) return limited;
 
     try {
       // `companyId` vem da sessão. Não existe campo de empresa no schema.

@@ -5,6 +5,10 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { getSessionUser } from "@/lib/session";
 import { isIntegrationError } from "@/integrations/errors";
 import { importErpCustomer } from "@/lib/erp-customer-lookup";
+import {
+  enforceCapabilityLimit,
+  ERP_CAPABILITIES,
+} from "@/lib/capability-rate-limit";
 
 const LOOKUP_PROFILES = [AccessProfile.ADMIN, AccessProfile.DISPATCHER];
 
@@ -44,6 +48,22 @@ export async function POST(request: Request) {
     if (!parsed.success) {
       return jsonError("Dados inválidos.", 400);
     }
+
+    /**
+     * O amplificador mais caro da aplicação, e por isso o teto importa mais
+     * aqui: uma importação é detalhe no CallCenter MAIS `/clientes` no Chatbot,
+     * e a resposta do Chatbot carrega senha de cliente em texto puro.
+     *
+     * Reimportar o mesmo cliente é idempotente no cadastro, mas NÃO é grátis
+     * lá fora — cada repetição refaz as duas chamadas. Teto depois da
+     * autorização.
+     */
+    const limited = enforceCapabilityLimit(
+      session.companyId,
+      session.id,
+      ERP_CAPABILITIES.CUSTOMER_IMPORT,
+    );
+    if (limited) return limited;
 
     try {
       const result = await importErpCustomer(

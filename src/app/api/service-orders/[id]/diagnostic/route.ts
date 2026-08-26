@@ -11,6 +11,10 @@ import {
   getCustomerDiagnostic,
   refreshCustomerDiagnostic,
 } from "@/lib/customer-diagnostics";
+import {
+  enforceCapabilityLimit,
+  ERP_CAPABILITIES,
+} from "@/lib/capability-rate-limit";
 
 /**
  * Diagnostics are scoped to a SERVICE ORDER, not to a customer id.
@@ -109,6 +113,24 @@ export async function POST(
     if (!parsed.success) {
       return jsonError("Dados inválidos.", 400, parsed.error.flatten());
     }
+
+    /**
+     * O único amplificador que o TECHNICIAN alcança — e o mais fácil de
+     * repetir, porque "Atualizar diagnóstico" é um botão que se aperta de novo
+     * quando o cliente ainda está offline. Sem teto, um celular em campo gasta
+     * a cota da EMPRESA.
+     *
+     * Só o POST: o GET lê o snapshot local e não fala com ninguém.
+     *
+     * Teto DEPOIS da autorização, para que sondar OS de outro técnico não
+     * consuma cota nenhuma.
+     */
+    const limited = enforceCapabilityLimit(
+      auth.session.companyId,
+      auth.session.id,
+      ERP_CAPABILITIES.CUSTOMER_DIAGNOSTIC,
+    );
+    if (limited) return limited;
 
     const result = await refreshCustomerDiagnostic(
       auth.session.companyId,

@@ -756,8 +756,40 @@ Endpoints que disparam chamada ao provider têm teto por
 sem teto uma tela em loop gasta a cota da EMPRESA — a punição do provider
 recairia sobre todos os operadores dela.
 
+**Cobertura, endpoint por endpoint.** Até a v0.7.5 esta seção afirmava
+cobertura geral enquanto o teto existia em UMA rota — a auditoria da v0.7.x
+mediu e registrou (RATE-01). A lista abaixo é a cobertura real, e existe
+justamente para que a afirmação volte a ser verificável:
+
+| Rota | Capability | Teto/min |
+|---|---|---|
+| `POST /api/integrations/customers/search` | `erp-customer-search` | 20 |
+| `POST /api/integrations/customers/import` | `erp-customer-import` | 30 |
+| `POST /api/integrations/test-connection` | `erp-test-connection` | 10 |
+| `POST /api/service-orders/:id/diagnostic` | `customer-diagnostic` | 10 |
+| `POST /api/integrations/sync` | `erp-order-sync` | 5 |
+| `GET /api/service-orders/:id/receitanet-context` | `receitanet-context` | 10 |
+
+Cada capability tem balde próprio: esgotar a busca não impede importar. Os
+tetos diferem porque o uso real difere — busca é dirigida por digitação,
+importação é um clique por linha de uma lista, sincronização é operação em
+lote. Um teto que barra trabalho normal não protege cota nenhuma; só ensina
+a equipe a trabalhar contra a ferramenta.
+
+O `GET` do diagnóstico **não** consome cota: ele lê o snapshot local e não
+fala com ninguém. Só o `POST`, que é a releitura, amplifica.
+
+`POST /api/service-orders/:id/diagnostic` é o único que o TECHNICIAN alcança,
+e é o mais fácil de repetir — "Atualizar diagnóstico" é um botão que se aperta
+de novo quando o cliente ainda está offline. Recusa devolve **429** com
+`Muitas solicitações. Tente novamente em instantes.` e apenas
+`retryAfterSeconds` no corpo: nunca token, URL, código do provider ou o nome
+interno da capability.
+
 O teto é consumido **depois** da autorização, para que sondagem anônima ou
-cross-tenant não consuma cota de ninguém.
+cross-tenant não consuma cota de ninguém. Há regressão cobrindo as três
+formas: sem sessão, com perfil sem permissão, e técnico sondando OS de outro
+técnico — nenhuma delas gasta a cota de quem tem direito a ela.
 
 **Limitação conhecida:** o estado é em memória do processo. Com mais de uma
 instância, o teto efetivo é multiplicado. Aceitável hoje porque o alvo é
