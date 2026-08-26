@@ -22,6 +22,8 @@ import { getServiceOrderClosingBundle } from "@/lib/service-order-closing";
 import { getCustomerDiagnostic } from "@/lib/customer-diagnostics";
 import { CustomerDiagnosticPanel } from "@/components/CustomerDiagnosticPanel";
 import { CustomerContactCard } from "@/components/CustomerContactCard";
+import { Disclosure, FieldList } from "@/components/Disclosure";
+import { providerLabel } from "@/lib/provider-labels";
 import { buildReturnTo } from "@/lib/return-to";
 import { ReceitanetContextPanel } from "@/components/ReceitanetContextPanel";
 import { AssignTechnicianForm } from "@/components/AssignTechnicianForm";
@@ -268,24 +270,31 @@ export default async function OrderDetailPage({
     para baixo a que importa. Aqui campo sem valor não é renderizado: quatro
     travessões seguidos ocupam meia tela para não dizer nada.
   */
-  const staffInfoRows = [
-    { label: "Nº no ERP", value: order.externalNumber ?? "—" },
+  /*
+    Datas e origem — fatos do domínio AlfaOS. Campo sem valor NÃO é
+    renderizado, aqui também: quatro travessões seguidos ocupam espaço para
+    não dizer nada, e o operador não distingue "não tem" de "não carregou".
+  */
+  const staffAdminRows = [
     {
       label: "Origem",
       // O provider acompanha a origem porque "Externa" sozinha não diz de onde.
       value:
         order.origin === "EXTERNAL" && order.externalProvider
-          ? `${SERVICE_ORDER_ORIGIN_LABELS[order.origin]} · ${order.externalProvider}`
+          ? `${SERVICE_ORDER_ORIGIN_LABELS[order.origin]} · ${providerLabel(order.externalProvider)}`
           : SERVICE_ORDER_ORIGIN_LABELS[order.origin],
     },
-    { label: "Agendamento", value: formatDate(order.scheduledAt) },
-    { label: "Atribuída em", value: formatDate(order.assignedAt) },
-    { label: "Iniciada em", value: formatDate(order.startedAt) },
-    ...(order.completedAt
-      ? [{ label: "Concluída em", value: formatDate(order.completedAt) }]
-      : []),
-    { label: "Criada em", value: formatDate(order.createdAt) },
-  ];
+    { label: "Agendamento", date: order.scheduledAt },
+    { label: "Atribuída em", date: order.assignedAt },
+    { label: "Iniciada em", date: order.startedAt },
+    { label: "Concluída em", date: order.completedAt },
+    { label: "Criada em", date: order.createdAt },
+  ].flatMap((row) => {
+    if ("value" in row) return [{ label: row.label, value: row.value }];
+    return row.date
+      ? [{ label: row.label, value: formatDate(row.date) }]
+      : [];
+  });
 
   const technicianInfoRows = [
     { label: "Agendamento", date: order.scheduledAt },
@@ -296,7 +305,7 @@ export default async function OrderDetailPage({
     .filter((row) => row.date !== null)
     .map((row) => ({ label: row.label, value: formatDate(row.date) }));
 
-  const infoRows = isOwnerTechnician ? technicianInfoRows : staffInfoRows;
+  const infoRows = technicianInfoRows;
 
   const canStart = isOwnerTechnician && order.status === "ASSIGNED";
   const isExecuting = isOwnerTechnician && order.status === "IN_PROGRESS";
@@ -347,6 +356,39 @@ export default async function OrderDetailPage({
         serverMaintenance: diagnosticSnapshot.serverMaintenance,
       }
     : null;
+
+  /*
+    Identificadores de integração — o que se cola num chamado com o
+    provedor ou numa consulta ao banco.
+
+    `externalProtocol` NÃO entra: o campo ainda não existe no schema, é
+    escopo da v0.8 (PRD §142). `externalId` também não, porque não está no
+    tipo público da OS e acrescentá-lo lá o colocaria no payload das
+    listagens que o técnico recebe.
+  */
+  const staffIntegrationRows = [
+    { label: "Nº no ERP", value: order.externalNumber },
+    {
+      label: "Provedor",
+      value: order.externalProvider
+        ? providerLabel(order.externalProvider)
+        : null,
+    },
+    {
+      label: "Tecnologia",
+      // Código cru do provider: o contrato declara inteiro e não documenta
+      // o significado. Traduzir para "Fibra" seria inventar.
+      value: diagnosticSnapshot?.technology
+        ? `código ${diagnosticSnapshot.technology}`
+        : null,
+    },
+    {
+      label: "Fonte do diagnóstico",
+      value: diagnosticSnapshot
+        ? providerLabel(diagnosticSnapshot.provider)
+        : null,
+    },
+  ];
 
   return (
     <div>
@@ -581,7 +623,6 @@ export default async function OrderDetailPage({
           <CustomerDiagnosticPanel
             orderId={order.id}
             initialDiagnostic={diagnosticView}
-            variant={isOwnerTechnician ? "technician" : "staff"}
           />
 
           {/*
@@ -611,14 +652,47 @@ export default async function OrderDetailPage({
           )}
 
           {/*
-            Contexto operacional do ERP: contrato, plano e chamados abertos.
+            Integração, recolhida.
 
-            Somente ADMIN/DISPATCHER. O bloco alcanca dado financeiro do
-            cliente, e o tecnico em campo nao precisa dele para executar o
-            atendimento -- a rota tambem recusa TECHNICIAN, entao esconder aqui
-            e consequencia do controle, nao o controle.
+            Somente ADMIN/DISPATCHER: o contexto do ERP alcança dado
+            financeiro do cliente, e a rota também recusa TECHNICIAN —
+            esconder aqui é consequência do controle, não o controle.
+
+            Recolhida porque **permissão não é prioridade**. O ADMIN pode ver
+            identificador de ERP e código de tecnologia; nada disso precisa
+            estar aberto enquanto ele acompanha um atendimento. Quem abre é
+            quem vai falar com o provedor.
+
+            A consulta ao ReceitaNet já era sob demanda e continua: abrir a
+            seção não dispara requisição nenhuma.
           */}
-          {canSeeErpContext && <ReceitanetContextPanel orderId={order.id} />}
+          {canSeeErpContext && (
+            <Disclosure
+              data-testid="integration-section"
+              title="Informações de integração"
+              hint="Identificadores do ERP e consulta ao provedor"
+            >
+              <div className="space-y-4">
+                <FieldList
+                  rows={[
+                    ...staffIntegrationRows,
+                    {
+                      label: "ID interno da OS",
+                      value: (
+                        <span
+                          data-testid="order-internal-id"
+                          className="break-all font-mono text-xs text-fg-muted"
+                        >
+                          {order.id}
+                        </span>
+                      ),
+                    },
+                  ]}
+                />
+                <ReceitanetContextPanel orderId={order.id} />
+              </div>
+            </Disclosure>
+          )}
 
           {isExecuting && order.execution && (
             <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
@@ -682,42 +756,32 @@ export default async function OrderDetailPage({
           )}
 
           {/*
-            Sem nenhuma linha, o card inteiro não é renderizado. Um cartão
-            com título e nada dentro é pior que a ausência dele: parece tela
-            quebrada, e ocupa uma rolagem inteira no celular.
-          */}
-          {infoRows.length > 0 && (
-          <Card title="Detalhes">
-            <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {infoRows.map((row) => (
-                <div key={row.label}>
-                  <dt className="text-xs font-medium text-fg-muted">{row.label}</dt>
-                  <dd className="mt-0.5 text-sm text-fg">{row.value}</dd>
-                </div>
-              ))}
-            </dl>
-            {/*
-              O id técnico fica AQUI, no fim de "Detalhes", e não no cabeçalho:
-              ele é o que se cola num chamado de suporte ou numa consulta ao
-              banco, não o que se diz ao telefone. A identificação operacional
-              é "OS Nº X", no topo da página.
+            Datas da OS.
 
-              E é do STAFF. Quem abre chamado com o suporte é quem está no
-              escritório; para o técnico em campo é uma linha de 25 caracteres
-              que não leva a lugar nenhum.
-            */}
-            {isStaff && (
-            <div className="mt-4 border-t border-border-subtle pt-3">
-              <dt className="text-xs font-medium text-fg-muted">
-                ID técnico (diagnóstico)
-              </dt>
-              <dd className="mt-0.5 break-all font-mono text-xs text-fg-muted">
-                {order.id}
-              </dd>
-            </div>
-            )}
-          </Card>
-          )}
+            O TÉCNICO vê um card aberto e curto — só as datas que existem, e
+            é a experiência já validada em campo. O STAFF vê a mesma coisa
+            recolhida, sob "Detalhes administrativos": ele tem MAIS linhas
+            (origem, criada em) e nenhuma delas muda o que se faz agora.
+
+            Em ambos, campo sem valor não é renderizado, e sem nenhuma linha
+            o bloco inteiro some. Um cartão com título e nada dentro parece
+            tela quebrada.
+          */}
+          {isOwnerTechnician
+            ? infoRows.length > 0 && (
+                <Card title="Detalhes">
+                  <FieldList rows={infoRows} />
+                </Card>
+              )
+            : staffAdminRows.length > 0 && (
+                <Disclosure
+                  data-testid="admin-details-section"
+                  title="Detalhes administrativos"
+                  hint="Como e quando esta OS foi criada"
+                >
+                  <FieldList rows={staffAdminRows} />
+                </Disclosure>
+              )}
 
           <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
             <h2 className="mb-4 text-base font-semibold text-fg">Timeline</h2>

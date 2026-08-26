@@ -54,7 +54,19 @@ function flatten(node: unknown, seen = new Set<object>()): string {
   if (typeof node !== "object") return "";
   if (seen.has(node)) return "";
   seen.add(node);
-  if (!isElementLike(node)) return "";
+
+  /*
+    Objeto simples também entra.
+
+    Sem isto a promessa desta função era falsa: uma prop que é objeto ou
+    array de objetos — `rows={[{ label, value }]}` — passava inteira
+    despercebida, e um segredo dentro dela passaria junto.
+  */
+  if (!isElementLike(node)) {
+    return Object.entries(node as Record<string, unknown>)
+      .map(([key, value]) => `${key}:${flatten(value, seen)}`)
+      .join(" ");
+  }
   return Object.entries(node.props ?? {})
     .map(([key, value]) => `${key}:${flatten(value, seen)}`)
     .join(" ");
@@ -381,20 +393,24 @@ describe("acesso PPPoE do técnico", () => {
 // ---------------------------------------------------------------------------
 
 describe("diagnóstico", () => {
-  it("o técnico recebe a variante enxuta; o staff, a detalhada", async () => {
+  /**
+   * A visão principal é a MESMA para os dois perfis, e compacta.
+   *
+   * Havia uma variante `staff` que abria código de tecnologia, provider e
+   * a linha "sem manutenção informada". As três foram para "Informações de
+   * integração", recolhida: permissão não é prioridade.
+   */
+  it("é compacto para os dois perfis", async () => {
     const c = await cenario();
 
-    await comoTecnico();
-    expect(
-      propsDe(await renderOrderPage(c.orderId), "CustomerDiagnosticPanel")[0]
-        ?.variant,
-    ).toBe("technician");
-
-    await comoAdmin();
-    expect(
-      propsDe(await renderOrderPage(c.orderId), "CustomerDiagnosticPanel")[0]
-        ?.variant,
-    ).toBe("staff");
+    for (const entrar of [comoTecnico, comoAdmin]) {
+      await entrar();
+      const tree = await renderOrderPage(c.orderId);
+      const painel = propsDe(tree, "CustomerDiagnosticPanel")[0];
+      expect(painel).toBeDefined();
+      // Sem variante: não há duas telas para divergirem.
+      expect(painel?.variant).toBeUndefined();
+    }
   });
 });
 
@@ -471,15 +487,49 @@ describe("o que o técnico continua vendo", () => {
     expect(propsDe(tree, "StartServiceOrderButton")).toHaveLength(1);
   });
 
-  it("o staff mantém a tela completa", async () => {
+  /**
+   * Compactar não é remover. O staff continua alcançando tudo — só que
+   * recolhido, sob duas seções que ele abre quando vai falar com o
+   * provedor ou conferir uma data.
+   */
+  it("o staff mantém acesso a tudo, agora recolhido", async () => {
     const c = await cenario();
     await comoAdmin();
     const tree = await renderOrderPage(c.orderId);
     const texto = flatten(tree);
 
-    expect(texto).toContain("ID técnico");
+    expect(porTestId(tree, "integration-section")).toHaveLength(1);
+    expect(porTestId(tree, "admin-details-section")).toHaveLength(1);
+
+    expect(texto).toContain("ID interno da OS");
     expect(texto).toContain("Origem");
     expect(texto).toContain("Nº no ERP");
+    expect(texto).toContain(c.orderId);
     expect(propsDe(tree, "ReceitanetContextPanel").length).toBeGreaterThan(0);
+  });
+
+  /**
+   * Recolhido de verdade: `<details>` sem `open`. Aberto por padrão, a
+   * compactação seria só reordenação.
+   */
+  it("as duas seções nascem fechadas", async () => {
+    const c = await cenario();
+    await comoAdmin();
+    const tree = await renderOrderPage(c.orderId);
+
+    for (const id of ["integration-section", "admin-details-section"]) {
+      const secao = porTestId(tree, id)[0];
+      expect(secao?.props?.defaultOpen, id).toBeFalsy();
+    }
+  });
+
+  /** O técnico não ganha nenhuma das duas. */
+  it("o técnico não recebe as seções administrativas", async () => {
+    const c = await cenario();
+    await comoTecnico();
+    const tree = await renderOrderPage(c.orderId);
+
+    expect(porTestId(tree, "integration-section")).toHaveLength(0);
+    expect(porTestId(tree, "admin-details-section")).toHaveLength(0);
   });
 });

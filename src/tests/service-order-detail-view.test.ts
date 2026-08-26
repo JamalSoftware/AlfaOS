@@ -99,7 +99,18 @@ function flatten(node: unknown, seen = new Set<object>()): string {
   if (seen.has(node)) return "";
   seen.add(node);
 
-  if (!isElementLike(node)) return "";
+  /*
+    Objeto simples também entra.
+
+    Sem isto a promessa desta função era falsa: uma prop que é objeto ou
+    array de objetos — `rows={[{ label, value }]}` — passava inteira
+    despercebida, e um segredo dentro dela passaria junto.
+  */
+  if (!isElementLike(node)) {
+    return Object.entries(node as Record<string, unknown>)
+      .map(([key, value]) => `${key}:${flatten(value, seen)}`)
+      .join(" ");
+  }
   return Object.entries(node.props ?? {})
     .map(([key, value]) => `${key}:${flatten(value, seen)}`)
     .join(" ");
@@ -230,9 +241,14 @@ describe("Identificação da OS na tela", () => {
     const tree = await renderOrderPage(s.orderId);
     const whole = flatten(tree);
 
-    // Continua na página (diagnóstico) e no href, apenas não como identificação.
+    // Continua na página e no href, apenas não como identificação.
     expect(whole).toContain(s.orderId);
-    expect(whole).toContain("ID técnico");
+    /*
+      Rotulado, e agora recolhido sob "Informações de integração": ele é o
+      que se cola num chamado de suporte, não o que se acompanha durante um
+      atendimento.
+    */
+    expect(whole).toContain("ID interno da OS");
   });
 
   it("a tela do técnico dono também mostra o número operacional", async () => {

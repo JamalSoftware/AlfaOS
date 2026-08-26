@@ -279,9 +279,17 @@ test.describe("o ADMIN não foi simplificado junto", () => {
     await page.goto(orderUrl);
 
     await expect(page.getByRole("link", { name: "Gerenciar acesso" })).toBeVisible();
+
+    // Recolhido, não removido: o conteúdo do <details> continua no HTML.
     const html = await page.content();
-    expect(html).toContain("ID técnico");
-    expect(html).toContain("Nº no ERP");
+    expect(html).toContain("ID interno da OS");
+
+    /*
+      "Nº no ERP" NÃO aparece — e é o comportamento correto. Esta OS nasceu
+      interna e não tem número externo; a linha some em vez de virar um
+      travessão que o operador não sabe se é "não tem" ou "não carregou".
+    */
+    expect(html).not.toContain("Nº no ERP");
   });
 
   test("as ações administrativas existem, recolhidas quando o acesso veio do provedor", async ({
@@ -386,6 +394,105 @@ test.describe("voltar para onde se veio", () => {
 });
 
 // ---------------------------------------------------------------------------
+// A visão compacta do ADMIN
+// ---------------------------------------------------------------------------
+
+test.describe("OS do ADMIN — operacional na frente, resto recolhido", () => {
+  test("a visão principal não abre ruído de integração", async ({ page }) => {
+    await login(page, ADMIN_EMAIL);
+    await page.goto(orderUrl);
+
+    // O que responde ao acompanhamento fica aberto.
+    await expect(page.getByTestId("customer-card")).toBeVisible();
+    await expect(page.getByTestId("diagnostic-panel")).toBeVisible();
+    await expect(page.getByTestId("service-description")).toBeVisible();
+
+    /*
+      O que descreve COMO o dado foi obtido não. Isso não é falta de
+      permissão — as seções estão na página, fechadas.
+    */
+    for (const id of ["integration-section", "admin-details-section"]) {
+      const secao = page.getByTestId(id);
+      await expect(secao).toBeVisible();
+      expect(
+        await secao.evaluate((el) => el.hasAttribute("open")),
+        id,
+      ).toBe(false);
+    }
+
+    // Fechadas, o conteúdo não está na tela.
+    await expect(page.getByTestId("order-internal-id")).toBeHidden();
+    await expect(page.getByTestId("load-receitanet-context")).toBeHidden();
+  });
+
+  test("abrir a integração revela identificadores e a consulta ao provedor", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await page.goto(orderUrl);
+
+    await page.getByTestId("integration-section").locator("summary").click();
+
+    await expect(page.getByTestId("order-internal-id")).toBeVisible();
+    await expect(page.getByTestId("order-internal-id")).toHaveText(orderId);
+    // A consulta continua sob demanda: abrir a seção não dispara requisição.
+    await expect(page.getByTestId("load-receitanet-context")).toBeVisible();
+    await expect(page.getByText("Fonte do diagnóstico")).toHaveCount(
+      // Só aparece quando existe snapshot; a fixture não tem um.
+      await page.getByText("Fonte do diagnóstico").count(),
+    );
+  });
+
+  test("detalhes administrativos abrem, e campo vazio não aparece", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await page.goto(orderUrl);
+
+    await page
+      .getByTestId("admin-details-section")
+      .locator("summary")
+      .click();
+
+    const secao = page.getByTestId("admin-details-section");
+    await expect(secao.getByText("Origem", { exact: true })).toBeVisible();
+    await expect(secao.getByText("Atribuída em")).toBeVisible();
+
+    /*
+      A fixture não tem agendamento nem início. As linhas não podem existir
+      com travessão — o operador não distingue "não tem" de "não carregou".
+    */
+    await expect(secao.getByText("Agendamento")).toHaveCount(0);
+    await expect(secao.getByText("Iniciada em")).toHaveCount(0);
+    await expect(secao.getByText("—", { exact: true })).toHaveCount(0);
+  });
+
+  /** Compactar não removeu capability administrativa nenhuma. */
+  test("o ADMIN mantém Gerenciar acesso", async ({ page }) => {
+    await login(page, ADMIN_EMAIL);
+    await page.goto(orderUrl);
+
+    await expect(
+      page.getByRole("link", { name: "Gerenciar acesso" }),
+    ).toBeVisible();
+  });
+
+  /** O diagnóstico do ADMIN ficou tão enxuto quanto o do técnico. */
+  test("o diagnóstico não mostra tecnologia nem fonte na visão principal", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await page.goto(orderUrl);
+
+    const painel = page.getByTestId("diagnostic-panel");
+    await expect(painel.getByTestId("diagnostic-technology")).toHaveCount(0);
+    await expect(painel.getByTestId("diagnostic-maintenance")).toHaveCount(0);
+    await expect(painel.getByText("Sem manutenção informada")).toHaveCount(0);
+    await expect(painel.getByText("Fonte", { exact: true })).toHaveCount(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Inspeção visual automatizada
 // ---------------------------------------------------------------------------
 
@@ -476,14 +583,36 @@ for (const tema of ["light", "dark"] as const) {
   test.describe(`medições — tema ${tema}`, () => {
     test.use({ colorScheme: tema });
 
-    test(`a OS do técnico se comporta em ${LARGURAS.join(", ")}px`, async ({
+    for (const [perfil, email] of [
+      ["técnico", TECH_EMAIL],
+      ["admin", ADMIN_EMAIL],
+    ] as const) {
+    test(`a OS do ${perfil} se comporta em ${LARGURAS.join(", ")}px`, async ({
       page,
     }) => {
-      await login(page, TECH_EMAIL);
+      await login(page, email);
 
       for (const largura of LARGURAS) {
         await page.setViewportSize({ width: largura, height: 900 });
         await page.goto(orderUrl, { waitUntil: "networkidle" });
+
+        /*
+          Para o admin, as seções recolhidas são ABERTAS antes de medir.
+          Fechadas, o conteúdo delas nunca entraria na auditoria de
+          contraste — e é justamente ali que mora texto pequeno em fonte
+          monoespaçada.
+        */
+        if (perfil === "admin") {
+          for (const id of [
+            "integration-section",
+            "admin-details-section",
+          ]) {
+            const secao = page.getByTestId(id);
+            if ((await secao.count()) > 0) {
+              await secao.locator("summary").click();
+            }
+          }
+        }
 
         // O tema resolvido tem de ser o emulado — sem preferência gravada,
         // `system` segue o aparelho.
@@ -495,14 +624,20 @@ for (const tema of ["light", "dark"] as const) {
 
         const r = await page.evaluate(AUDITORIA);
 
-        expect(r.inspecionados, `${tema}/${largura}px sem conteúdo`)
-          .toBeGreaterThan(10);
-        expect(r.overflow, `${tema}/${largura}px overflow`).toBeNull();
+        expect(
+          r.inspecionados,
+          `${perfil} ${tema}/${largura}px sem conteúdo`,
+        ).toBeGreaterThan(10);
+        expect(
+          r.overflow,
+          `${perfil} ${tema}/${largura}px overflow`,
+        ).toBeNull();
         expect(
           r.problemas,
-          `${tema}/${largura}px:\n  ${r.problemas.join("\n  ")}`,
+          `${perfil} ${tema}/${largura}px:\n  ${r.problemas.join("\n  ")}`,
         ).toEqual([]);
       }
     });
+    }
   });
 }

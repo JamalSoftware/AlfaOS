@@ -25,21 +25,22 @@ export interface DiagnosticView {
   serverMaintenance?: boolean | null;
 }
 
-/**
- * Quanto do diagnóstico a tela mostra.
- *
- * `technician` é uso em campo: conectividade e quando foi observada, mais
- * o alerta quando há EXCEÇÃO. Código de tecnologia, nome do provider e a
- * linha "sem manutenção informada" saem — nenhum deles muda o que o
- * técnico vai fazer, e ausência de problema não precisa de linha própria.
- * Uma região que repete "está tudo normal" treina o olho a pulá-la,
- * inclusive no dia em que ela disser outra coisa.
- *
- * `staff` é diagnóstico de integração: o ADMIN precisa saber de qual
- * provider veio o dado e qual código de tecnologia ele devolveu, porque é
- * com isso que se abre chamado com o provedor.
- */
-export type DiagnosticVariant = "technician" | "staff";
+/*
+  Conectividade, quando foi observada, e alerta quando há EXCEÇÃO. Só isso.
+
+  Havia duas variantes aqui, e a do staff mostrava código de tecnologia,
+  nome do provider e a linha "sem manutenção informada". As três saíram da
+  visão principal — não porque o ADMIN não possa vê-las, mas porque
+  permissão não é prioridade: elas descrevem COMO o AlfaOS obteve o dado, e
+  quem acompanha um atendimento quer saber se o cliente está no ar.
+
+  Continuam disponíveis, recolhidas, em "Informações de integração" — que é
+  onde se olha para abrir chamado com o provedor.
+
+  E ausência de problema não precisa de linha própria: uma região que
+  repete "está tudo normal" treina o olho a pulá-la, inclusive no dia em
+  que ela disser outra coisa.
+*/
 
 /**
  * Tom por estado de conectividade.
@@ -60,19 +61,11 @@ const STATUS_LABELS: Record<string, string> = {
   UNKNOWN: "Desconhecido",
 };
 
-/** Mock data must never be presented as if it came from a real ERP. */
-const PROVIDER_LABELS: Record<string, string> = {
-  MOCK: "Mock ERP",
-  RECEITANET: "ReceitaNet",
-};
 
 function statusLabel(status: string): string {
   return STATUS_LABELS[status] ?? STATUS_LABELS.UNKNOWN;
 }
 
-function providerLabel(provider: string): string {
-  return PROVIDER_LABELS[provider] ?? provider;
-}
 
 function formatTime(iso: string): string {
   return new Intl.DateTimeFormat("pt-BR", {
@@ -96,13 +89,10 @@ function formatTime(iso: string): string {
 export function CustomerDiagnosticPanel({
   orderId,
   initialDiagnostic,
-  variant = "staff",
 }: {
   orderId: string;
   initialDiagnostic: DiagnosticView | null;
-  variant?: DiagnosticVariant;
 }) {
-  const detalhado = variant === "staff";
   const [diagnostic, setDiagnostic] = useState(initialDiagnostic);
   const [loading, setLoading] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -201,45 +191,11 @@ export function CustomerDiagnosticPanel({
               {formatTime(diagnostic.observedAt)}
             </dd>
           </div>
-          {detalhado && diagnostic.technology != null && (
-            <div className="flex items-center justify-between gap-3">
-              <dt className="text-fg-muted">Tecnologia</dt>
-              <dd
-                data-testid="diagnostic-technology"
-                className="font-medium text-fg"
-              >
-                {/* Código do provider, sem tradução — ver DiagnosticView. */}
-                código {diagnostic.technology}
-              </dd>
-            </div>
-          )}
-          {detalhado && diagnostic.serverMaintenance != null && (
-            <div className="flex items-center justify-between gap-3">
-              <dt className="text-fg-muted">Servidor</dt>
-              <dd
-                data-testid="diagnostic-maintenance"
-                className={
-                  diagnostic.serverMaintenance
-                    ? "font-semibold text-warning-fg"
-                    : "font-medium text-fg"
-                }
-              >
-                {diagnostic.serverMaintenance
-                  ? "Em manutenção"
-                  : "Sem manutenção informada"}
-              </dd>
-            </div>
-          )}
-          {detalhado && (
-            <div className="flex items-center justify-between gap-3">
-              <dt className="text-fg-muted">Fonte</dt>
-              {/* The provider label is what the SERVER resolved, so mock data is
-                  never presented as if it came from a real ERP. */}
-              <dd className="font-medium text-fg">
-                {providerLabel(diagnostic.provider)}
-              </dd>
-            </div>
-          )}
+          {/*
+            Tecnologia, servidor e fonte moram em "Informações de
+            integração". Aqui eles empurrariam para baixo a única linha que
+            responde "o cliente está no ar?".
+          */}
         </dl>
       ) : (
         !failure && (
