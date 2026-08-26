@@ -198,13 +198,35 @@ export async function provisionPppoeFromErp(
     const usernameChanged = !usernameIsManual && connection.username !== username;
 
     /**
-     * A senha decide primeiro, porque é a única que uma releitura pode
-     * CORRIGIR. `MANUAL` fica de fora por construção.
+     * Existe senha ARMAZENADA nesta conexão?
+     *
+     * `credentialCiphertext` nulo é, no schema, a representação de "senha ainda
+     * não configurada" — `username` sem senha é estado legítimo. É esse campo,
+     * e não a procedência, que responde se há segredo guardado.
      */
-    const canUpgradePassword =
-      realPassword !== null &&
-      (connection.passwordSource === "AUTO_DOCUMENT_LAST4" ||
-        connection.passwordSource === "RECEITANET_CHATBOT");
+    const hasStoredPassword = connection.credentialCiphertext !== null;
+
+    /**
+     * Senha MANUAL de verdade: alguém digitou, e existe o que proteger.
+     *
+     * `passwordSource` é NOT NULL com default `MANUAL`, então uma conexão
+     * criada pela automação sem senha derivável nasce rotulada como manual sem
+     * que ninguém tenha digitado nada. Ler a procedência sem exigir senha
+     * gravada transformava esse default num bloqueio permanente: quando o
+     * Chatbot trazia a credencial REAL, ela era recusada e o operador lia
+     * "definida à mão" sobre uma senha que não existia (auditoria, PPPOE-01).
+     *
+     * A proteção não foi enfraquecida — ela passou a exigir que haja segredo a
+     * proteger. Sem ciphertext não há trabalho humano a preservar.
+     */
+    const passwordIsManual =
+      hasStoredPassword && connection.passwordSource === "MANUAL";
+
+    /**
+     * A senha decide primeiro, porque é a única que uma releitura pode
+     * CORRIGIR. `MANUAL` de verdade fica de fora por construção.
+     */
+    const canUpgradePassword = realPassword !== null && !passwordIsManual;
 
     if (canUpgradePassword) {
       /**
@@ -212,12 +234,22 @@ export async function provisionPppoeFromErp(
        * caminho: clientes provisionados antes do Chatbot carregam um palpite
        * derivado do CPF, e sem esta troca continuariam carregando para sempre.
        *
+       * Conexão SEM senha entra pela mesma porta: preencher o vazio com a
+       * credencial real é a mesma operação, e é ela que faz o técnico chegar
+       * ao cliente com a senha que autentica.
+       *
        * `RECEITANET_CHATBOT → RECEITANET_CHATBOT` também passa: se o provedor
        * mudou a senha, a conexão acompanha. A fonte é a mesma e a nova é mais
        * recente.
        */
-      const upgraded = connection.passwordSource === "AUTO_DOCUMENT_LAST4";
-      const previousSource = connection.passwordSource;
+      const upgraded =
+        !hasStoredPassword ||
+        connection.passwordSource === "AUTO_DOCUMENT_LAST4";
+      // Sem senha gravada, a procedência anterior não descreve nada — a
+      // auditoria registra o estado real, e não o default da coluna.
+      const previousSource = hasStoredPassword
+        ? connection.passwordSource
+        : "SEM SENHA";
 
       await updateCustomerConnection(companyId, connection.id, actorUserId, {
         password: realPassword,
@@ -245,8 +277,10 @@ export async function provisionPppoeFromErp(
      * Senha MANUAL com credencial real disponível: preservar é o desfecho
      * correto, e reportá-lo como tal deixa o operador entender por que a senha
      * do provedor não entrou.
+     *
+     * Só chega aqui quando existe senha gravada — ver `passwordIsManual`.
      */
-    if (realPassword !== null && connection.passwordSource === "MANUAL") {
+    if (realPassword !== null && passwordIsManual) {
       return "SKIPPED_MANUAL";
     }
 

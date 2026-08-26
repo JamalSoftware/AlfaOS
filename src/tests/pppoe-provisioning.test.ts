@@ -339,6 +339,263 @@ describe("MANUAL nunca é sobrescrito pela automação", () => {
 });
 
 // ---------------------------------------------------------------------------
+// PPPOE-01 — "MANUAL" sem senha gravada não é senha manual
+// ---------------------------------------------------------------------------
+
+/**
+ * A auditoria da v0.7.x encontrou um `MANUAL` FANTASMA.
+ *
+ * `passwordSource` é uma coluna NOT NULL com default `MANUAL`, então uma
+ * conexão criada pela automação sem senha derivável — CNPJ, ou empresa em
+ * `MANUAL_ONLY` — nascia rotulada como manual sem que ninguém tivesse digitado
+ * nada. Quando o Chatbot depois trazia a credencial REAL, a proteção de
+ * `MANUAL` recusava a gravação e o operador lia "definida à mão" sobre uma
+ * senha que não existia. O técnico chegava ao cliente sem senha nenhuma.
+ *
+ * A correção não enfraquece a proteção: ela passa a exigir que exista senha
+ * ARMAZENADA para haver algo manual a proteger. `credentialCiphertext IS NULL`
+ * já era, no schema, a representação de "senha não configurada" — o defeito era
+ * ler a procedência como se ela valesse sem senha.
+ */
+describe("PPPOE-01: procedência só vale quando existe senha gravada", () => {
+  const SENHA_REAL = "senha-real-do-provedor";
+
+  /** O caso B da auditoria, reproduzido inteiro. */
+  it("conexão auto-criada SEM senha aceita a credencial real do Chatbot", async () => {
+    // CNPJ: a política DOCUMENT_LAST4 não se aplica, então não há senha a derivar.
+    await policy(fixture.companyA.id, "DOCUMENT_LAST4");
+    const customer = await customerWith(fixture.companyA.id, {
+      document: CNPJ_FICTICIO,
+    });
+
+    expect(
+      await provisionPppoeFromErp(fixture.companyA.id, fixture.adminA.id, {
+        customerId: customer.id,
+        login: LOGIN_ERP,
+        document: CNPJ_FICTICIO,
+      }),
+    ).toBe("CREATED");
+
+    const antes = await prisma.customerConnection.findFirstOrThrow({
+      where: { customerId: customer.id },
+    });
+    // O estado que produzia o defeito: rótulo manual, senha nenhuma.
+    expect(antes.passwordSource).toBe("MANUAL");
+    expect(antes.credentialCiphertext).toBeNull();
+
+    // Agora o Chatbot traz a credencial real.
+    expect(
+      await provisionPppoeFromErp(fixture.companyA.id, fixture.adminA.id, {
+        customerId: customer.id,
+        login: null,
+        document: CNPJ_FICTICIO,
+        chatbotLogins: [
+          { login: LOGIN_ERP, password: SENHA_REAL, isPrincipal: true },
+        ],
+      }),
+    ).toBe("PASSWORD_UPGRADED");
+
+    const depois = await prisma.customerConnection.findFirstOrThrow({
+      where: { id: antes.id },
+    });
+    expect(depois.passwordSource).toBe("RECEITANET_CHATBOT");
+    expect(depois.credentialCiphertext).not.toBeNull();
+  });
+
+  it("empresa sem política: conexão sem senha também aceita a credencial real", async () => {
+    await policy(fixture.companyA.id, "MANUAL_ONLY");
+    const customer = await customerWith(fixture.companyA.id);
+
+    await provisionPppoeFromErp(fixture.companyA.id, fixture.adminA.id, {
+      customerId: customer.id,
+      login: LOGIN_ERP,
+      document: CPF_FICTICIO,
+    });
+    const antes = await prisma.customerConnection.findFirstOrThrow({
+      where: { customerId: customer.id },
+    });
+    expect(antes.credentialCiphertext).toBeNull();
+
+    expect(
+      await provisionPppoeFromErp(fixture.companyA.id, fixture.adminA.id, {
+        customerId: customer.id,
+        login: null,
+        document: CPF_FICTICIO,
+        chatbotLogins: [
+          { login: LOGIN_ERP, password: SENHA_REAL, isPrincipal: true },
+        ],
+      }),
+    ).toBe("PASSWORD_UPGRADED");
+
+    const depois = await prisma.customerConnection.findFirstOrThrow({
+      where: { id: antes.id },
+    });
+    expect(depois.passwordSource).toBe("RECEITANET_CHATBOT");
+    expect(depois.credentialCiphertext).not.toBeNull();
+  });
+
+  /**
+   * O caso A: a proteção que a correção NÃO pode enfraquecer.
+   *
+   * Aqui existe senha gravada e alguém a digitou. O desfecho tem de continuar
+   * sendo recusa, com o ciphertext byte a byte intacto.
+   */
+  it("senha MANUAL de verdade continua intocável pela credencial real", async () => {
+    await policy(fixture.companyA.id, "DOCUMENT_LAST4");
+    const customer = await customerWith(fixture.companyA.id);
+    const { createCustomerConnection } = await import("@/lib/customer-connections");
+    const criada = await createCustomerConnection(
+      fixture.companyA.id,
+      fixture.adminA.id,
+      {
+        customerId: customer.id,
+        username: LOGIN_ERP,
+        password: "digitada-por-gente",
+        passwordSource: "MANUAL",
+      },
+    );
+    const antes = await prisma.customerConnection.findFirstOrThrow({
+      where: { id: criada.id },
+    });
+    expect(antes.credentialCiphertext).not.toBeNull();
+
+    expect(
+      await provisionPppoeFromErp(fixture.companyA.id, fixture.adminA.id, {
+        customerId: customer.id,
+        login: null,
+        document: CPF_FICTICIO,
+        chatbotLogins: [
+          { login: LOGIN_ERP, password: SENHA_REAL, isPrincipal: true },
+        ],
+      }),
+    ).toBe("SKIPPED_MANUAL");
+
+    const depois = await prisma.customerConnection.findFirstOrThrow({
+      where: { id: criada.id },
+    });
+    expect(depois.passwordSource).toBe("MANUAL");
+    expect(depois.credentialCiphertext).toBe(antes.credentialCiphertext);
+    expect(depois.credentialIv).toBe(antes.credentialIv);
+    expect(depois.credentialAuthTag).toBe(antes.credentialAuthTag);
+    expect(depois.credentialUpdatedAt?.getTime()).toBe(
+      antes.credentialUpdatedAt?.getTime(),
+    );
+  });
+
+  /** O caso C: o palpite da política continua sendo substituível. */
+  it("AUTO_DOCUMENT_LAST4 continua cedendo lugar à credencial real", async () => {
+    await policy(fixture.companyA.id, "DOCUMENT_LAST4");
+    const customer = await customerWith(fixture.companyA.id);
+
+    await provisionPppoeFromErp(fixture.companyA.id, fixture.adminA.id, {
+      customerId: customer.id,
+      login: LOGIN_ERP,
+      document: CPF_FICTICIO,
+    });
+    const antes = await prisma.customerConnection.findFirstOrThrow({
+      where: { customerId: customer.id },
+    });
+    expect(antes.passwordSource).toBe("AUTO_DOCUMENT_LAST4");
+
+    expect(
+      await provisionPppoeFromErp(fixture.companyA.id, fixture.adminA.id, {
+        customerId: customer.id,
+        login: null,
+        document: CPF_FICTICIO,
+        chatbotLogins: [
+          { login: LOGIN_ERP, password: SENHA_REAL, isPrincipal: true },
+        ],
+      }),
+    ).toBe("PASSWORD_UPGRADED");
+
+    const depois = await prisma.customerConnection.findFirstOrThrow({
+      where: { id: antes.id },
+    });
+    expect(depois.passwordSource).toBe("RECEITANET_CHATBOT");
+    expect(depois.credentialCiphertext).not.toBe(antes.credentialCiphertext);
+  });
+
+  /**
+   * Sem senha gravada E sem credencial real: nada a fazer.
+   *
+   * O desfecho não pode virar `PASSWORD_UPGRADED` de uma senha que não existe.
+   */
+  it("sem senha gravada e sem credencial real, o desfecho não muda", async () => {
+    await policy(fixture.companyA.id, "MANUAL_ONLY");
+    const customer = await customerWith(fixture.companyA.id);
+
+    await provisionPppoeFromErp(fixture.companyA.id, fixture.adminA.id, {
+      customerId: customer.id,
+      login: LOGIN_ERP,
+      document: CPF_FICTICIO,
+    });
+
+    expect(
+      await provisionPppoeFromErp(fixture.companyA.id, fixture.adminA.id, {
+        customerId: customer.id,
+        login: LOGIN_ERP,
+        document: CPF_FICTICIO,
+      }),
+    ).toBe("UNCHANGED");
+
+    const row = await prisma.customerConnection.findFirstOrThrow({
+      where: { customerId: customer.id },
+    });
+    expect(row.credentialCiphertext).toBeNull();
+  });
+
+  /**
+   * A senha real chega ao técnico pelo fluxo seguro — a correção não vale nada
+   * se o upgrade grava algo que a revelação não consegue devolver.
+   */
+  it("depois do upgrade, a senha real é revelável pelo técnico da OS", async () => {
+    await policy(fixture.companyA.id, "MANUAL_ONLY");
+    const customer = await customerWith(fixture.companyA.id);
+
+    await provisionPppoeFromErp(fixture.companyA.id, fixture.adminA.id, {
+      customerId: customer.id,
+      login: LOGIN_ERP,
+      document: CPF_FICTICIO,
+    });
+    await provisionPppoeFromErp(fixture.companyA.id, fixture.adminA.id, {
+      customerId: customer.id,
+      login: null,
+      document: CPF_FICTICIO,
+      chatbotLogins: [
+        { login: LOGIN_ERP, password: SENHA_REAL, isPrincipal: true },
+      ],
+    });
+
+    const connection = await prisma.customerConnection.findFirstOrThrow({
+      where: { customerId: customer.id },
+    });
+    const technician = await prisma.technician.create({
+      data: { companyId: fixture.companyA.id, userId: fixture.techA.id },
+    });
+    const order = await prisma.serviceOrder.create({
+      data: {
+        companyId: fixture.companyA.id,
+        number: await allocateTestServiceOrderNumber(fixture.companyA.id),
+        customerId: customer.id,
+        technicianId: technician.id,
+        type: "Instalação",
+        description: "Atendimento de teste.",
+        status: "ASSIGNED",
+      },
+    });
+
+    expect(
+      await revealConnectionPasswordForOrder(
+        fixture.companyA.id,
+        { userId: fixture.techA.id, profile: "TECHNICIAN" },
+        order.id,
+        connection.id,
+      ),
+    ).toBe(SENHA_REAL);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Restaurar padrão — a única recalculação
 // ---------------------------------------------------------------------------
 

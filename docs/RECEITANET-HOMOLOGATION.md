@@ -445,6 +445,19 @@ sincronização ingênua apagaria justamente essas, sem deixar rastro.
 `usernameSource` e `passwordSource` são independentes porque o caso comum é
 misto — login do ERP, senha trocada à mão.
 
+**A proteção exige senha GRAVADA.** `passwordSource` é uma coluna `NOT NULL`
+com default `MANUAL`, então uma conexão criada pela automação sem senha
+derivável — CNPJ, ou empresa em `MANUAL_ONLY` — nascia rotulada como manual
+sem que ninguém tivesse digitado nada. A auditoria da v0.7.x encontrou o
+efeito (PPPOE-01): quando o Chatbot trazia a credencial real, ela era
+recusada, e o operador lia "definida à mão" sobre uma senha que não existia —
+o técnico chegava ao cliente sem senha nenhuma.
+
+Quem responde "existe segredo aqui?" é `credentialCiphertext`, que o schema
+já define como nulo enquanto a senha não foi configurada. A procedência só é
+lida quando há ciphertext. A regra não foi enfraquecida: sem senha gravada
+não há trabalho humano a preservar, e a credencial real preenche o vazio.
+
 Nada disso é enviado ao ReceitaNet, ao RADIUS ou ao roteador. É a
 credencial **local** que o técnico usa.
 
