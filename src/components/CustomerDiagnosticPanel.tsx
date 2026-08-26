@@ -26,6 +26,22 @@ export interface DiagnosticView {
 }
 
 /**
+ * Quanto do diagnóstico a tela mostra.
+ *
+ * `technician` é uso em campo: conectividade e quando foi observada, mais
+ * o alerta quando há EXCEÇÃO. Código de tecnologia, nome do provider e a
+ * linha "sem manutenção informada" saem — nenhum deles muda o que o
+ * técnico vai fazer, e ausência de problema não precisa de linha própria.
+ * Uma região que repete "está tudo normal" treina o olho a pulá-la,
+ * inclusive no dia em que ela disser outra coisa.
+ *
+ * `staff` é diagnóstico de integração: o ADMIN precisa saber de qual
+ * provider veio o dado e qual código de tecnologia ele devolveu, porque é
+ * com isso que se abre chamado com o provedor.
+ */
+export type DiagnosticVariant = "technician" | "staff";
+
+/**
  * Tom por estado de conectividade.
  *
  * UNKNOWN tem tom PRÓPRIO e neutro, nunca o de OFFLINE: erro de integração
@@ -80,10 +96,13 @@ function formatTime(iso: string): string {
 export function CustomerDiagnosticPanel({
   orderId,
   initialDiagnostic,
+  variant = "staff",
 }: {
   orderId: string;
   initialDiagnostic: DiagnosticView | null;
+  variant?: DiagnosticVariant;
 }) {
+  const detalhado = variant === "staff";
   const [diagnostic, setDiagnostic] = useState(initialDiagnostic);
   const [loading, setLoading] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -143,6 +162,21 @@ export function CustomerDiagnosticPanel({
         </div>
       )}
 
+      {/*
+        Manutenção no servidor muda o que o técnico faz: ele para de
+        procurar defeito na casa do cliente. Por isso vira ALERTA no topo,
+        e não uma linha no meio de uma lista de definições.
+      */}
+      {diagnostic?.serverMaintenance === true && (
+        <div
+          role="alert"
+          data-testid="diagnostic-maintenance-alert"
+          className="mb-3 rounded-lg border border-warning-border bg-warning-bg px-3 py-2 text-sm font-semibold text-warning-fg"
+        >
+          Servidor do cliente em manutenção.
+        </div>
+      )}
+
       {diagnostic ? (
         <dl className="space-y-2 text-sm">
           <div className="flex items-center justify-between gap-3">
@@ -167,7 +201,7 @@ export function CustomerDiagnosticPanel({
               {formatTime(diagnostic.observedAt)}
             </dd>
           </div>
-          {diagnostic.technology != null && (
+          {detalhado && diagnostic.technology != null && (
             <div className="flex items-center justify-between gap-3">
               <dt className="text-fg-muted">Tecnologia</dt>
               <dd
@@ -179,7 +213,7 @@ export function CustomerDiagnosticPanel({
               </dd>
             </div>
           )}
-          {diagnostic.serverMaintenance != null && (
+          {detalhado && diagnostic.serverMaintenance != null && (
             <div className="flex items-center justify-between gap-3">
               <dt className="text-fg-muted">Servidor</dt>
               <dd
@@ -196,14 +230,16 @@ export function CustomerDiagnosticPanel({
               </dd>
             </div>
           )}
-          <div className="flex items-center justify-between gap-3">
-            <dt className="text-fg-muted">Fonte</dt>
-            {/* The provider label is what the SERVER resolved, so mock data is
-                never presented as if it came from a real ERP. */}
-            <dd className="font-medium text-fg">
-              {providerLabel(diagnostic.provider)}
-            </dd>
-          </div>
+          {detalhado && (
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-fg-muted">Fonte</dt>
+              {/* The provider label is what the SERVER resolved, so mock data is
+                  never presented as if it came from a real ERP. */}
+              <dd className="font-medium text-fg">
+                {providerLabel(diagnostic.provider)}
+              </dd>
+            </div>
+          )}
         </dl>
       ) : (
         !failure && (

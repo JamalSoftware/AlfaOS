@@ -55,6 +55,22 @@ const inputClass =
 
 const labelClass = "mb-1 block text-sm font-medium text-fg-secondary";
 
+/**
+ * A conexão veio do provedor, ou foi digitada aqui?
+ *
+ * Muda o que a tela oferece. Numa conexão sincronizada, trocar a senha à
+ * mão é EXCEÇÃO — resolve o caso em que o provedor está errado ou fora do
+ * ar, e no resto do tempo só cria divergência entre o que o AlfaOS mostra e
+ * o que autentica de verdade. Numa conexão manual, essas ações são o único
+ * jeito de administrar, e continuam à mão.
+ */
+function veioDoProvedor(connection: ConnectionRow): boolean {
+  return (
+    connection.usernameSource !== "MANUAL" ||
+    connection.passwordSource === "RECEITANET_CHATBOT"
+  );
+}
+
 export function CustomerConnectionsPanel({
   customerId,
   connections,
@@ -222,8 +238,46 @@ export function CustomerConnectionsPanel({
                   >
                     {connection.active ? "Ativa" : "Inativa"}
                   </span>
+                  {/*
+                    Copiar o usuário é LEITURA e fica sempre à mão — é o que
+                    o operador faz o tempo todo. As três abaixo alteram o
+                    acesso do cliente.
+                  */}
                   <button
                     type="button"
+                    data-testid="copy-username"
+                    onClick={() => copyUsername(connection)}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-fg-secondary transition-colors hover:bg-surface-muted"
+                  >
+                    {copiedId === connection.id ? "Copiado" : "Copiar usuário"}
+                  </button>
+                </div>
+              </div>
+
+              {/*
+                Ações que mudam o acesso do cliente.
+
+                Numa conexão sincronizada elas ficam recolhidas: o provedor é
+                a fonte, e mexer à mão é o caso excepcional. Numa conexão
+                manual continuam abertas, porque ali são o único jeito de
+                administrar.
+
+                `<details>` nativo em vez de accordion próprio — já vem com
+                teclado, leitor de tela e estado, e não precisa de estado no
+                React nem de uma linha de JavaScript.
+              */}
+              <details
+                data-testid="connection-advanced"
+                open={!veioDoProvedor(connection)}
+                className="mt-3 border-t border-border-subtle pt-3"
+              >
+                <summary className="cursor-pointer list-none text-xs font-semibold text-fg-secondary marker:content-none">
+                  Ações avançadas
+                </summary>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    data-testid="replace-password"
                     onClick={() =>
                       setReplacingId(
                         replacingId === connection.id ? null : connection.id,
@@ -234,14 +288,6 @@ export function CustomerConnectionsPanel({
                     {connection.passwordConfigured
                       ? "Trocar senha"
                       : "Definir senha"}
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="copy-username"
-                    onClick={() => copyUsername(connection)}
-                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-fg-secondary transition-colors hover:bg-surface-muted"
-                  >
-                    {copiedId === connection.id ? "Copiado" : "Copiar usuário"}
                   </button>
                   <button
                     type="button"
@@ -258,6 +304,7 @@ export function CustomerConnectionsPanel({
                   </button>
                   <button
                     type="button"
+                    data-testid="toggle-connection-active"
                     disabled={pendingId === connection.id}
                     onClick={() =>
                       patchConnection(connection.id, {
@@ -269,7 +316,7 @@ export function CustomerConnectionsPanel({
                     {connection.active ? "Desativar" : "Reativar"}
                   </button>
                 </div>
-              </div>
+              </details>
 
               {replacingId === connection.id && (
                 <div className="mt-3 flex flex-wrap items-end gap-2">
@@ -305,13 +352,21 @@ export function CustomerConnectionsPanel({
         </ul>
       )}
 
-      <form
-        onSubmit={handleCreate}
+      {/*
+        Cadastro manual continua existindo — nem todo tenant terá ReceitaNet,
+        e é o caminho de recuperação quando o provedor está fora. Mas quando
+        já existe conexão sincronizada, criar outra à mão é excepcional e não
+        precisa ocupar o fim da tela aberta.
+      */}
+      <details
+        data-testid="new-connection"
+        open={!connections.some(veioDoProvedor)}
         className="mt-5 border-t border-border-subtle pt-5"
       >
-        <h3 className="mb-3 text-sm font-semibold text-fg">
+        <summary className="cursor-pointer list-none text-sm font-semibold text-fg marker:content-none">
           Nova conexão PPPoE
-        </h3>
+        </summary>
+        <form onSubmit={handleCreate} className="mt-3">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label htmlFor="connectionUsername" className={labelClass}>
@@ -363,7 +418,8 @@ export function CustomerConnectionsPanel({
         >
           {creating ? "Salvando..." : "Cadastrar conexão"}
         </button>
-      </form>
+        </form>
+      </details>
     </div>
   );
 }

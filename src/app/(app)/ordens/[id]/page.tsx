@@ -8,7 +8,6 @@ import {
   REVEALABLE_ORDER_STATUSES,
 } from "@/lib/customer-connections";
 import { PppoeAccessPanel } from "@/components/PppoeAccessPanel";
-import { formatBrazilianPhone } from "@/integrations/service-tickets";
 import {
   EXECUTION_TEXT_MAX_LENGTH,
   formatServiceOrderNumber,
@@ -22,6 +21,8 @@ import { PriorityBadge, StatusBadge } from "@/components/OrderBadges";
 import { getServiceOrderClosingBundle } from "@/lib/service-order-closing";
 import { getCustomerDiagnostic } from "@/lib/customer-diagnostics";
 import { CustomerDiagnosticPanel } from "@/components/CustomerDiagnosticPanel";
+import { CustomerContactCard } from "@/components/CustomerContactCard";
+import { buildReturnTo } from "@/lib/return-to";
 import { ReceitanetContextPanel } from "@/components/ReceitanetContextPanel";
 import { AssignTechnicianForm } from "@/components/AssignTechnicianForm";
 import { ServiceOrderExecutionForm } from "@/components/ServiceOrderExecutionForm";
@@ -255,7 +256,19 @@ export default async function OrderDetailPage({
     número. Repeti-los nesta tabela faria o operador ler a mesma informação
     duas vezes para encontrar a que só existe aqui.
   */
-  const infoRows = [
+  /*
+    Duas listas, porque as duas telas respondem perguntas diferentes.
+
+    O STAFF investiga: de onde veio a OS, qual o número no ERP, quando cada
+    coisa aconteceu. Ali um travessão INFORMA — "esta OS não tem número
+    externo" é resposta útil a quem concilia com o provedor.
+
+    O TÉCNICO executa. Origem, número do ERP e id interno não mudam nada do
+    que ele fará nos próximos dez minutos, e no celular cada linha empurra
+    para baixo a que importa. Aqui campo sem valor não é renderizado: quatro
+    travessões seguidos ocupam meia tela para não dizer nada.
+  */
+  const staffInfoRows = [
     { label: "Nº no ERP", value: order.externalNumber ?? "—" },
     {
       label: "Origem",
@@ -273,6 +286,17 @@ export default async function OrderDetailPage({
       : []),
     { label: "Criada em", value: formatDate(order.createdAt) },
   ];
+
+  const technicianInfoRows = [
+    { label: "Agendamento", date: order.scheduledAt },
+    { label: "Atribuída em", date: order.assignedAt },
+    { label: "Iniciada em", date: order.startedAt },
+    { label: "Concluída em", date: order.completedAt },
+  ]
+    .filter((row) => row.date !== null)
+    .map((row) => ({ label: row.label, value: formatDate(row.date) }));
+
+  const infoRows = isOwnerTechnician ? technicianInfoRows : staffInfoRows;
 
   const canStart = isOwnerTechnician && order.status === "ASSIGNED";
   const isExecuting = isOwnerTechnician && order.status === "IN_PROGRESS";
@@ -353,7 +377,13 @@ export default async function OrderDetailPage({
           {order.type}
           {order.subtype ? ` · ${order.subtype}` : ""}
         </p>
-        <p className="mt-1 text-sm text-fg-muted">{order.description}</p>
+        {/*
+          A descrição saiu do cabeçalho e virou card próprio, abaixo do
+          diagnóstico. Aqui ela era um parágrafo apagado de 14px espremido
+          entre o tipo e o primeiro card — a resposta para "o que eu tenho
+          que fazer?" com menos peso visual que o rótulo de prioridade ao
+          lado dela.
+        */}
       </div>
 
       {/*
@@ -422,76 +452,51 @@ export default async function OrderDetailPage({
           — são consulta, não fluxo.
         */}
         <div className="space-y-4 lg:col-span-2">
-          <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
-            <h2 className="mb-1 text-base font-semibold text-fg">Cliente</h2>
-            <p className="text-sm text-fg">{order.customer.name}</p>
-            <dl className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <dt className="text-xs font-medium text-fg-muted">Documento</dt>
-                <dd className="mt-0.5 text-sm text-fg">{order.customer.document ?? "—"}</dd>
-              </div>
-              {/*
-                Telefone é o que faz o técnico conseguir chegar. Um travessão
-                solto no lugar dele é ambíguo: o operador não sabe se o campo
-                está vazio no cadastro ou se a tela deixou de carregar. Dizer
-                "Não informado" nomeia o problema e aponta para o conserto.
+          {/*
+            Cliente, contato e como chegar — as três primeiras perguntas de
+            quem abre a OS em campo: quem é, como falo com ele, onde fica.
 
-                O telefone alternativo só aparece quando existe — uma linha
-                permanentemente vazia treina o olho a ignorar a região.
-              */}
-              <div>
-                <dt className="text-xs font-medium text-fg-muted">Telefone</dt>
-                <dd className="mt-0.5 text-sm text-fg">
-                  {order.customer.phone ? (
-                    /*
-                      `tel:` porque quem lê isto num celular, em campo, está a
-                      um toque de precisar ligar. O número já está visível na
-                      tela — o link não expõe nada novo.
-                    */
-                    <a
-                      data-testid="customer-phone"
-                      href={`tel:${order.customer.phone}`}
-                      className="text-primary-text hover:text-primary-text-hover"
-                    >
-                      {formatBrazilianPhone(order.customer.phone) ??
-                        order.customer.phone}
-                    </a>
-                  ) : (
-                    <span className="text-fg-muted">Não informado</span>
-                  )}
-                </dd>
-              </div>
-              {/*
-                O alternativo só aparece quando existe. Uma linha
-                permanentemente vazia dizendo "Não informado" treina o olho a
-                ignorar a região inteira, inclusive quando ela tiver conteúdo.
-              */}
-              {order.customer.secondaryPhone && (
-                <div>
-                  <dt className="text-xs font-medium text-fg-muted">
-                    Telefone alternativo
-                  </dt>
-                  <dd className="mt-0.5 text-sm text-fg">
-                    <a
-                      data-testid="customer-secondary-phone"
-                      href={`tel:${order.customer.secondaryPhone}`}
-                      className="text-primary-text hover:text-primary-text-hover"
-                    >
-                      {formatBrazilianPhone(order.customer.secondaryPhone) ??
-                        order.customer.secondaryPhone}
-                    </a>
-                  </dd>
-                </div>
-              )}
-              <div className="sm:col-span-2">
-                <dt className="text-xs font-medium text-fg-muted">Cidade</dt>
-                <dd className="mt-0.5 text-sm text-fg">
-                  {order.customer.city ? `${order.customer.city}${order.customer.state ? `/${order.customer.state}` : ""}` : "—"}
-                </dd>
-              </div>
-            </dl>
-          </div>
+            `mostrarDocumento` só para o staff. O técnico não confere CPF na
+            porta, e documento é dado pessoal que não precisa viajar para o
+            celular dele.
+          */}
+          <CustomerContactCard
+            name={order.customer.name}
+            phone={order.customer.phone}
+            secondaryPhone={order.customer.secondaryPhone}
+            document={order.customer.document}
+            mostrarDocumento={isStaff}
+            local={{
+              address: order.customer.address,
+              number: order.customer.number,
+              complement: order.customer.complement,
+              district: order.customer.district,
+              city: order.customer.city,
+              state: order.customer.state,
+              zipCode: order.customer.zipCode,
+              /*
+                Prisma devolve `Decimal`. A conversão para número fica num
+                lugar só, e o construtor de link recusa o que não for
+                coordenada plausível.
+              */
+              latitude:
+                order.customer.latitude === null
+                  ? null
+                  : Number(order.customer.latitude),
+              longitude:
+                order.customer.longitude === null
+                  ? null
+                  : Number(order.customer.longitude),
+            }}
+          />
 
+          {/*
+            Para o técnico DONO este card só diria o nome dele mesmo e
+            "atribuída a você" — informação que ele obteve ao abrir a OS a
+            partir de Minhas OS. Some. Para o staff continua sendo a resposta
+            a "quem está com isto?".
+          */}
+          {isStaff && (
           <Card title="Técnico">
             {order.technician ? (
               <div>
@@ -508,6 +513,7 @@ export default async function OrderDetailPage({
               <p className="text-sm text-fg-muted">Nenhum técnico atribuído.</p>
             )}
           </Card>
+          )}
 
           {/*
             Acesso do cliente.
@@ -521,8 +527,18 @@ export default async function OrderDetailPage({
               title="Acesso do cliente"
               action={
                 canManageConnections ? (
+                  /*
+                    O destino de volta viaja junto. Sem ele, quem entra aqui
+                    a partir de uma OS recebe "voltar para clientes" e perde
+                    o atendimento que estava conferindo.
+
+                    O valor é uma rota interna literal, validada na chegada
+                    contra allowlist — ver `@/lib/return-to`.
+                  */
                   <Link
-                    href={`/clientes/${order.customer.id}/editar`}
+                    href={`/clientes/${order.customer.id}/editar?returnTo=${encodeURIComponent(
+                      buildReturnTo({ kind: "order", orderId: order.id }),
+                    )}`}
                     className="text-sm font-medium text-primary-text hover:text-primary-text-hover"
                   >
                     Gerenciar acesso
@@ -565,7 +581,34 @@ export default async function OrderDetailPage({
           <CustomerDiagnosticPanel
             orderId={order.id}
             initialDiagnostic={diagnosticView}
+            variant={isOwnerTechnician ? "technician" : "staff"}
           />
+
+          {/*
+            O SERVIÇO, com o peso que ele tem no atendimento.
+
+            Vem depois do diagnóstico porque essa é a ordem real: o técnico
+            confere se o cliente está no ar e então lê o que precisa fazer.
+            E vem ANTES de execução, fechamento e detalhes porque é a
+            resposta à pergunta que ele abriu a tela para responder.
+          */}
+          {order.description?.trim() && (
+            <section
+              data-testid="service-description"
+              className="rounded-2xl border border-border bg-surface p-5 shadow-sm"
+            >
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-fg-muted">
+                Serviço
+              </h2>
+              <p className="mt-1 text-sm font-semibold text-fg">
+                {order.type}
+                {order.subtype ? ` · ${order.subtype}` : ""}
+              </p>
+              <p className="mt-2 whitespace-pre-line text-base leading-relaxed text-fg">
+                {order.description}
+              </p>
+            </section>
+          )}
 
           {/*
             Contexto operacional do ERP: contrato, plano e chamados abertos.
@@ -638,6 +681,12 @@ export default async function OrderDetailPage({
             )
           )}
 
+          {/*
+            Sem nenhuma linha, o card inteiro não é renderizado. Um cartão
+            com título e nada dentro é pior que a ausência dele: parece tela
+            quebrada, e ocupa uma rolagem inteira no celular.
+          */}
+          {infoRows.length > 0 && (
           <Card title="Detalhes">
             <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {infoRows.map((row) => (
@@ -652,7 +701,12 @@ export default async function OrderDetailPage({
               ele é o que se cola num chamado de suporte ou numa consulta ao
               banco, não o que se diz ao telefone. A identificação operacional
               é "OS Nº X", no topo da página.
+
+              E é do STAFF. Quem abre chamado com o suporte é quem está no
+              escritório; para o técnico em campo é uma linha de 25 caracteres
+              que não leva a lugar nenhum.
             */}
+            {isStaff && (
             <div className="mt-4 border-t border-border-subtle pt-3">
               <dt className="text-xs font-medium text-fg-muted">
                 ID técnico (diagnóstico)
@@ -661,7 +715,9 @@ export default async function OrderDetailPage({
                 {order.id}
               </dd>
             </div>
+            )}
           </Card>
+          )}
 
           <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
             <h2 className="mb-4 text-base font-semibold text-fg">Timeline</h2>

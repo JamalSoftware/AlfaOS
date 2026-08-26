@@ -113,8 +113,26 @@ export interface ServiceOrderCustomerInfo {
    * a campo.
    */
   secondaryPhone: string | null;
+
+  /**
+   * Endereço completo e coordenada.
+   *
+   * A OS é onde o técnico decide COMO chegar, e cidade/UF sozinhas não levam
+   * ninguém a uma casa. O complemento entra junto porque "fundos" e "bloco B"
+   * são exatamente o que decide se ele encontra a porta.
+   *
+   * A coordenada é `Decimal` no Prisma; quem renderiza converte. Ela nunca
+   * aparece como texto — só dentro do link de navegação.
+   */
+  address: string | null;
+  number: string | null;
+  complement: string | null;
+  district: string | null;
   city: string | null;
   state: string | null;
+  zipCode: string | null;
+  latitude: unknown;
+  longitude: unknown;
 }
 
 export interface ServiceOrderTechnicianInfo {
@@ -210,14 +228,29 @@ export interface ListServiceOrdersParams {
 
 const ORDER_INCLUDE = {
   customer: {
+    /*
+      Endereço completo e coordenada entram aqui porque a tela da OS é
+      onde o técnico decide COMO chegar. Antes só vinham cidade e UF —
+      suficiente para listar, inútil para navegar até uma casa.
+
+      `email` continua de fora: não serve ao atendimento em campo, e o
+      menor conjunto suficiente é o conjunto certo.
+    */
     select: {
       id: true,
       name: true,
       document: true,
       phone: true,
       secondaryPhone: true,
+      address: true,
+      number: true,
+      complement: true,
+      district: true,
       city: true,
       state: true,
+      zipCode: true,
+      latitude: true,
+      longitude: true,
     },
   },
   technician: {
@@ -243,15 +276,7 @@ export function toPublicServiceOrder(order: {
   createdAt: Date;
   updatedAt: Date;
   version: number;
-  customer: {
-    id: string;
-    name: string;
-    document: string | null;
-    phone: string | null;
-    secondaryPhone: string | null;
-    city: string | null;
-    state: string | null;
-  };
+  customer: ServiceOrderCustomerInfo;
   technician: { id: string; user: { name: string } } | null;
 }): PublicServiceOrder {
   return {

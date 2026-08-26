@@ -115,6 +115,17 @@ O documento também traz o mapeamento de identidade da sincronização planejada
 **Quando:** a tarefa envolve coordenadas, GPS, mapa, rota, proximidade de técnicos ou despacho.
 **Quando NÃO:** qualquer outra coisa. Nada disso está implementado — é arquitetura registrada, e a seção 119 se aplica: estar no PRD não autoriza implementar.
 
+## Experiência do técnico na OS
+
+**Carregar:** `src/app/(app)/ordens/[id]/page.tsx` (a tela, com as diferenças por perfil), `src/components/CustomerContactCard.tsx` (contato, endereço e navegação), `src/lib/map-links.ts` (Google Maps/Waze e validação de coordenada) e `src/lib/return-to.ts` (allowlist do destino de volta).
+**Quando:** a tarefa muda o que o técnico vê na OS, o contato do cliente, a navegação até o endereço, ou a navegação contextual entre OS e cadastro.
+**Quando NÃO:** backend sem superfície visível, integrações, ou o painel administrativo de clientes.
+
+Duas regras que a v0.7.4 fixou e são fáceis de desfazer sem perceber:
+
+* **A simplificação é do TECHNICIAN, não do produto.** ADMIN e DISPATCHER continuam vendo id interno, origem, número no ERP e contexto ReceitaNet — é com isso que se abre chamado com o provedor. Ver PRD §145 e §151.
+* **`returnTo` passa por allowlist fechada e por verificação de tenant.** As duas, não uma. Detalhe em `docs/SECURITY.md` §8.11.
+
 ## Design system e temas
 
 **Carregar:** `src/app/globals.css` (os tokens) e `tailwind.config.ts` (como eles viram classe). `docs/PRD.md` §149 registra as decisões; `docs/SECURITY.md` §8.10, a allowlist.

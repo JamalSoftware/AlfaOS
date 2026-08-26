@@ -1036,6 +1036,64 @@ não depende de tema, e trocar de tema não revela nada.
 
 ---
 
+## 8.11. Navegação contextual e redirect aberto — v0.7.4
+
+A tela de edição de cliente é alcançada por dois caminhos, e o botão de
+voltar precisa saber por qual. O destino viaja na query string, o que faz
+dele **entrada do usuário**: qualquer link montado por terceiro chega ali.
+
+### Allowlist, não denylist
+
+Só passam duas rotas, casadas por inteiro com `^...$`:
+
+```text
+/clientes
+/ordens/<id no formato interno>
+```
+
+Filtrar `javascript:` e `//` seria uma corrida perdida — `\/\/`, `%2f%2f`,
+`/\`, tab no meio do esquema e dezenas de outras formas contornam listas de
+proibição. Ancorando o formato inteiro, toda essa criatividade de
+codificação fica irrelevante: a string simplesmente não casa.
+
+Sem isso é redirect aberto: o operador **autenticado** clica em "voltar" e
+cai numa tela fora do AlfaOS que imita a de origem e pede a senha de novo.
+
+### Formato não é autorização
+
+O formato do id é a primeira peneira, e só. A OS ainda é resolvida **sob a
+empresa da sessão**: um id bem formado de outro tenant passa pela allowlist
+e morre nessa checagem. Se morresse só depois, o botão viraria um oráculo —
+"esta OS existe naquela empresa" — pela simples presença do link.
+
+Falhar aqui nunca é erro de tela: um destino ruim vira "voltar para
+clientes", que sempre funciona.
+
+### Links externos de navegação
+
+Google Maps e Waze recebem endereço e coordenada por `encodeURIComponent`.
+O endereço é texto digitado por gente: um `&` num complemento
+acrescentaria um parâmetro à URL, e um `#` cortaria o resto fora.
+
+Os dois links levam `rel="noreferrer noopener"` — sem isso a URL da OS, que
+carrega o id interno, viajaria no `Referer` até o Google e o Waze.
+
+**A coordenada nunca é exibida como texto**, só dentro do `href`.
+
+### Menos dado no celular
+
+O técnico deixou de receber, no payload da OS: id interno, origem, número
+no ERP e o documento do cliente. Não é controle de acesso — é redução de
+superfície: dado que não é necessário para executar o atendimento não
+precisa viajar para um aparelho que anda pela rua.
+
+O que JÁ era controle continua igual e não foi tocado: `ReceitanetContextPanel`
+recusa TECHNICIAN na rota (§8.7), a revelação de senha PPPoE mantém posse,
+elegibilidade, Same-Origin, `no-store` e auditoria obrigatória (§8.5), e as
+rotas de conexão continuam exigindo ADMIN.
+
+---
+
 ## 9. Configuração de produção
 
 1. Gere um `AUTH_SECRET` forte: `openssl rand -base64 48`.
