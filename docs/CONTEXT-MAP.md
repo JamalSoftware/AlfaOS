@@ -111,9 +111,23 @@ O documento também traz o mapeamento de identidade da sincronização planejada
 
 ## Geolocalização, mapa operacional e despacho
 
-**Carregar:** `docs/PRD.md` §133–§139 — `CustomerLocation`, `TechnicianLocation`, `OperationalMap`, despacho assistido, roteirização e privacidade da localização. As seções 77–79 descrevem a experiência do técnico em campo e são complementares (a §77 foi revisada pela §134, e a §79 não é o mesmo mapa da §136).
-**Quando:** a tarefa envolve coordenadas, GPS, mapa, rota, proximidade de técnicos ou despacho.
-**Quando NÃO:** qualquer outra coisa. Nada disso está implementado — é arquitetura registrada, e a seção 119 se aplica: estar no PRD não autoriza implementar.
+**Carregar:** dois blocos, e eles se complementam — não leia um sem saber que o outro existe.
+
+| Bloco | Seções | O que fixa |
+|---|---|---|
+| **Arquitetura** | §133–§139 | `CustomerLocation` (modelo, origens, `source` × `verified`), `TechnicianLocation`, `OperationalMap`, despacho assistido, privacidade |
+| **Carteira e despacho** | §196–§209 | mapa da carteira, precedência entre origens, cobertura, geocodificação, escalabilidade, filtros, fronteira com o FiberMap, Central de Despacho, Smart Dispatch, roadmap |
+
+As seções 77–79 descrevem a experiência do técnico em campo e são complementares (a §77 foi revisada pela §134, e a §79 não é o mesmo mapa da §136).
+
+Três regras que a Parte VI fixou e são fáceis de desfazer sem perceber:
+
+* **A localização da carteira não depende de OS** (§196). Um mapa alimentado só por atendimento aberto mostra apenas quem está com problema.
+* **Dado de menor confiança não sobrescreve o confirmado em campo** (§197). Reimportar do ERP preserva o verificado e registra a divergência.
+* **Arrastar um cartão é UI** (§204). A atribuição passa pelo mesmo comando de sempre — auth, tenant, elegibilidade, `version`/CAS, transação, evento, outbox, notificação. Sem fluxo paralelo do Kanban.
+
+**Quando:** a tarefa envolve coordenadas, GPS, mapa, rota, proximidade de técnicos, quadro de despacho ou agenda.
+**Quando NÃO:** qualquer outra coisa. Nada disso está implementado — é arquitetura registrada, e a seção 119 se aplica: estar no PRD não autoriza implementar. Para a fronteira com o FiberMap (o AlfaOS **consulta** topologia de rede, não a copia), o ponto é a §202.
 
 ## Experiência do técnico na OS
 

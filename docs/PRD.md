@@ -2456,6 +2456,11 @@ Cliente → CTO → Porta → Splitter → Cabo → Poste → PON → OLT
 
 Permitirá diagnóstico topológico e análise de impacto.
 
+> **Fronteira registrada em 2026-08-26 (§202).** O AlfaOS **consulta** o
+> FiberMap; não copia topologia de rede para dentro de si. Um cadastro de
+> CTO no AlfaOS divergiria do FiberMap na primeira manutenção, e o técnico
+> levaria a informação errada para o poste.
+
 ---
 
 # 108. ASSISTENTE INTELIGENTE (IA) **[FUTURO]**
@@ -2589,12 +2594,17 @@ Não classificar tudo como MVP. Classificação por módulo/bloco:
 | Governança avançada de privacidade (retenção configurável, workflows de titular, automação de ciclo de vida) | IMPORTANTE |
 | Field App Flutter (app nativo) — especificação completa na Parte V | DIFERENCIAL |
 | GPS, rota, mapa dos atendimentos | DIFERENCIAL |
-| Localização do cliente confirmada em campo (`CustomerLocation`, seção 134) | IMPORTANTE |
+| Mapeamento geográfico da carteira de clientes (§196–§198) | IMPORTANTE — **P1** na trilha de mapa/despacho (§209) |
+| Localização do cliente confirmada em campo (`CustomerLocation`, seção 134) | IMPORTANTE — **P1** |
+| Precedência entre origens de coordenada (§197) | IMPORTANTE — regra, não feature |
+| Geocodificação de endereço (§199) | FUTURO — **P1/P2**, depende de provider |
 | Compartilhamento de localização do técnico (`TechnicianLocation`, seção 135) | DIFERENCIAL |
-| Mapa operacional no painel Web (`OperationalMap`, seção 136) | DIFERENCIAL |
+| Mapa operacional no painel Web (`OperationalMap`, seção 136) | DIFERENCIAL — **P1** (§209) |
+| Central de Despacho — quadro Kanban com arrastar e soltar (§203–§206) | DIFERENCIAL — **P1** |
+| Quadro + mapa + agenda sobre o mesmo motor (§207) | DIFERENCIAL — **P1/P2** |
 | Navegação abrindo app externo (Google Maps/Waze) | DIFERENCIAL |
 | Técnicos próximos ao abrir a OS | DIFERENCIAL |
-| Despacho assistido — sistema sugere, pessoa decide (seção 137) | FUTURO |
+| Despacho assistido / Smart Dispatch — sistema sugere, pessoa decide (§137, §208) | FUTURO — **P2** |
 | Roteirização de múltiplas OS (Route Optimization Engine) | FUTURO |
 | Diagnóstico Rápido do cliente | DIFERENCIAL |
 | Technician Toolkit (Wi-Fi Analyzer, speed test, antes/depois, recomendador Wi-Fi, teste por cômodos) | DIFERENCIAL — **Wi-Fi Analyzer, recomendador, speed test, gateway discovery e quick diagnostics são P0 na trilha Field** (§174–§179); teste por cômodos continua FUTURO |
@@ -3144,6 +3154,13 @@ autorização, estado ou integridade passa a depender de uma coordenada.
 
 A localização pertence ao **Customer**, não à ServiceOrder.
 
+> **Estendida em 2026-08-26.** A §196 tira desta seção a consequência que
+> faltava — a visão geográfica da CARTEIRA também não depende de OS — e a
+> §197 fixa a **precedência** entre origens, que aqui estava em aberto:
+> dado de menor confiança não sobrescreve silenciosamente o que alguém
+> confirmou em campo. As quatro origens e a separação `source` × `verified`
+> desta seção continuam sendo o modelo.
+
 O motivo é o mesmo de `CustomerConnection` (seção 132): o ponto físico é o
 mesmo em todos os atendimentos daquele cliente. Guardá-lo na OS o duplicaria a
 cada visita, e as cópias divergiriam no instante em que alguém corrigisse uma
@@ -3290,6 +3307,12 @@ quando o custo do polling passar a incomodar.
 
 O **Mapa Operacional** pertence ao **AlfaOS Web / Dispatch**.
 
+> **Estendida em 2026-08-26.** A §200 acrescenta o que faltava para o mapa
+> ser construível — bounding box, clustering, teto por resposta, e a regra
+> de que o isolamento por empresa é sempre do servidor. A §201 detalha os
+> eixos de filtro e a busca. A §207 coloca o mapa ao lado do quadro e da
+> agenda, sobre o mesmo motor.
+
 O Field App **fornece** localização e **consome** o que precisa para o próprio
 atendimento; ele não é o mapa de comando.
 
@@ -3356,6 +3379,14 @@ OS nova
 **O sistema sugere; a pessoa decide.** Automação completa de despacho fica para
 fase posterior, e essa ordem é deliberada: uma sugestão errada custa um clique,
 uma atribuição automática errada custa uma viagem.
+
+> **Detalhada em 2026-08-26 pela §208 (Smart Dispatch, P2).** O princípio
+> desta seção não muda; a §208 acrescenta os sinais considerados e uma
+> exigência nova: **a recomendação mostra os MOTIVOS, não só o nome**. Um
+> nome sozinho pede fé, e o despachante costuma saber algo que o sistema
+> não sabe.
+>
+> O quadro de despacho que executa a decisão está na §203.
 
 ## Roteirização de múltiplas OS
 
@@ -3634,6 +3665,10 @@ Isto resolve a decisão que a §128 deixou pendente.
   ERP é aproximação — frequentemente o centro do CEP. Nascer verificada faria o
   técnico confiar num ponto que ninguém conferiu, e a confirmação em campo
   (§134) perderia o sentido.
+
+  **E não sobrescreve o que já foi confirmado** — a §197 fixa a precedência.
+  Uma reimportação depois de o técnico ter corrigido o ponto preserva o valor
+  verificado e registra a divergência, em vez de escolher em silêncio.
 
 ## Enriquecimento parcial é resultado normal
 
@@ -5041,9 +5076,14 @@ só pode sugerir por distância.
 ## Disponibilidade
 
 ```text
-disponível · em atendimento · deslocamento
+disponível · em atendimento · deslocamento · pausa
 folga · férias · plantão · indisponível
 ```
+
+> **Esta lista é a única.** O despacho (§208) a USA; não define uma paralela.
+> `pausa` entrou em 2026-08-26 a pedido do despacho — almoço e intervalo
+> mantêm o técnico em jornada, e tratá-los como `indisponível` faria o quadro
+> sugerir alguém que volta em vinte minutos como se estivesse fora do dia.
 
 > **Não misturar disponibilidade com estado da OS.**
 
@@ -5276,6 +5316,14 @@ SLA · skills do técnico · turnos e disponibilidade
 confirmação de localização do cliente · diagnóstico avançado
 ```
 
+> **A Central de Despacho NÃO está nesta lista, e é deliberado (§209).**
+> Ela é capability do Web/Dispatcher: o técnico em campo nunca abre um
+> quadro de despacho. Amarrar o primeiro APK a ela adiaria o aplicativo por
+> uma tela que o usuário dele não usa.
+>
+> A única peça de mapeamento que toca o Field é a confirmação de
+> localização em campo, que já era P1 aqui (§172).
+
 ## FUTURO — P2
 
 ```text
@@ -5310,4 +5358,504 @@ Field vai chamar, e retrofit significa reescrever o app e o backend juntos.
 
 A ordem de implementação é decisão de escopo de cada versão (§119), não desta
 seção.
+
+---
+
+# PARTE VI — MAPEAMENTO DA CARTEIRA, MAPA OPERACIONAL E CENTRAL DE DESPACHO
+
+Registrada em 2026-08-26.
+
+As Partes I a V permanecem válidas. A Parte VI **não redefine** o que já está
+escrito sobre geolocalização — §133–§139 continuam sendo a arquitetura, e
+§134 continua sendo o modelo de `CustomerLocation`, com as quatro origens e a
+separação `source` × `verified`. O que esta parte faz é:
+
+1. **elevar** a localização de cliente de dado de atendimento a capability de
+   carteira — o mapa existe mesmo sem OS aberta;
+2. **fixar** a regra de precedência que faltava: dado de menor confiança não
+   sobrescreve o que alguém confirmou em campo;
+3. **acrescentar** o que não existia em parte nenhuma: cobertura de
+   mapeamento, geocodificação, escalabilidade do mapa e a Central de
+   Despacho com quadro, mapa e agenda.
+
+> **A §119 se aplica a tudo aqui.** Nada desta parte está implementado.
+> Estar especificado não autoriza escrever código, criar migration nem
+> instalar dependência de mapa.
+
+**Nada aqui bloqueia o primeiro APK do Field** (§209).
+
+---
+
+# 196. MAPEAMENTO DA CARTEIRA — CAPABILITY OFICIAL
+
+> **O AlfaOS constrói e mantém uma visão geográfica da carteira de clientes de
+> cada empresa.**
+
+Isto estende a §134, que já afirmava que a localização pertence ao `Customer`
+e não à OS. A consequência que faltava tirar: **a visão geográfica também não
+depende de OS.** Um cliente sem atendimento aberto continua no mapa; um
+cliente recém-cadastrado entra nele no dia do cadastro.
+
+Tratar o mapa como subproduto do atendimento produziria um mapa que só mostra
+quem está com problema — inútil para planejar cobertura, para abrir OS a
+partir do mapa e para despachar.
+
+## Para que serve
+
+```text
+localizar clientes            navegação do técnico
+abertura de OS a partir do    despacho
+  mapa                        análise de cobertura
+rotas                         achar quem está sem coordenada
+confirmação em campo          sugestão futura de técnico
+```
+
+## Isolamento
+
+**Multi-tenant obrigatório, filtrado em SQL.** Vale sem exceção a regra do
+`CLAUDE.md` e a §7: a empresa A nunca consulta, lista, nem *infere* posição de
+cliente da empresa B.
+
+Um mapa é uma superfície de inferência particularmente perigosa: mesmo sem
+nome nem documento, um punhado de pontos numa rua revela onde estão os
+clientes de um concorrente. O escopo por empresa vale para o dado e também
+para qualquer agregado — contagem, densidade, região.
+
+---
+
+# 197. PRECEDÊNCIA DE LOCALIZAÇÃO
+
+> **Dado de menor confiança NÃO sobrescreve silenciosamente dado já
+> confirmado.**
+
+A §134 separou `source` de `verified` e a §143 fixou que importação entra
+sempre como `IMPORTED` + `verified = false`. Faltava dizer o que acontece
+quando as duas coisas se encontram — e é o caso comum: o cliente é
+reimportado do ERP depois de o técnico ter corrigido o ponto em campo.
+
+## A ordem
+
+```text
+verified = true                    ← ninguém sobrescreve automaticamente
+  ↑
+MANUAL      (não verificada)       ← alguém digitou; houve decisão humana
+  ↑
+IMPORTED    (do provedor)
+  ↑
+GEOCODED    (derivada do endereço) ← a mais fraca: ninguém olhou o lugar
+```
+
+**`verified` domina o eixo `source`.** Uma coordenada `GEOCODED` que um
+técnico confirmou no local vale mais que uma `IMPORTED` recém-chegada, porque
+alguém esteve lá. Foi para permitir exatamente essa combinação que a §134
+manteve os dois eixos separados.
+
+## O que isso proíbe
+
+- Importação **não** rebaixa `verified` para `false`.
+- Importação **não** substitui coordenada verificada.
+- Geocodificação **não** substitui nada que já exista.
+
+## O que isso permite
+
+- Preencher quem não tem coordenada nenhuma.
+- Substituir `GEOCODED` por `IMPORTED`.
+- O técnico corrigir qualquer uma, em campo, explicitamente (§134).
+- Um operador sobrescrever à mão — **decisão humana registrada**, nunca
+  efeito colateral de sincronização.
+
+## Divergência é informação
+
+Quando o provedor traz coordenada diferente de uma já verificada, o certo
+**não** é escolher em silêncio. A importação preserva a verificada e registra
+a divergência: pode ser o cliente que mudou de endereço, e é a operação que
+decide.
+
+Toda alteração é auditável — ator, momento, valor anterior, valor novo,
+precisão — no mesmo padrão da §134.
+
+---
+
+# 198. COBERTURA DE MAPEAMENTO
+
+Quantos clientes o mapa realmente alcança é indicador operacional, não
+curiosidade: ele é a diferença entre um mapa que serve para despachar e um
+que engana.
+
+```text
+Clientes            total da carteira
+Mapeados            têm coordenada, de qualquer origem
+Verificados         alguém confirmou em campo
+Não verificados     têm coordenada que ninguém conferiu
+Sem localização     nem coordenada nem endereço geocodificável
+```
+
+Os números são **derivados da base de cada empresa**. Nenhum valor de exemplo
+vira constante no código.
+
+Filtros correspondentes no mapa e na listagem: **todos · verificados · não
+verificados · sem localização**.
+
+"Sem localização" é o filtro que mais trabalha: é a fila de trabalho de quem
+vai completar o cadastro, e é o que impede a operação de descobrir o buraco
+com o técnico já na rua.
+
+---
+
+# 199. GEOCODIFICAÇÃO
+
+Capability futura, para cliente com endereço e sem coordenada:
+
+```text
+endereço → geocodificação → coordenada aproximada
+           source = GEOCODED · verified = false
+```
+
+> **Geocodificar não é confirmar.** A §134 já alertava: um ponto derivado de
+> "Estrada Municipal, s/n, Zona Rural" pode estar quilômetros da porta do
+> cliente, e o técnico que confia nele se perde.
+
+É por isso que `GEOCODED` é a origem mais fraca da §197: das quatro, é a única
+em que **ninguém olhou o lugar**.
+
+**O provider de geocodificação não é escolhido aqui.** Custo por requisição,
+licença do resultado (alguns proíbem armazenar), qualidade em endereço rural
+brasileiro e limite de taxa são a decisão, e ela pede comparação real. Vale a
+§81: nenhum provedor vira dependência de arquitetura.
+
+---
+
+# 200. ESCALABILIDADE DO MAPA
+
+> **Nenhuma resposta carrega a carteira inteira de uma empresa.**
+
+Não é otimização prematura: é a diferença entre um mapa que abre e um que
+trava. Uma empresa com 20 mil clientes produziria uma resposta de megabytes
+que o navegador não desenha, e o celular do despachante muito menos.
+
+```text
+mapa moveu → bounding box → o servidor devolve o que há NAQUELA região
+```
+
+Mecanismos previstos: **viewport/bounding box · clustering · carregamento sob
+demanda · teto por resposta · filtragem no servidor · paginação onde couber**.
+
+## Duas regras que não são de desempenho
+
+**O isolamento por empresa é sempre do servidor.** Filtrar por bounding box no
+cliente exigiria mandar tudo antes — o oposto do objetivo, e um vazamento de
+tenant esperando acontecer.
+
+**O teto por resposta é informado, não silencioso.** Um mapa que corta em 500
+pontos sem dizer nada faz o despachante concluir que aquela região tem 500
+clientes. Ele precisa saber que está vendo uma parte — e o agregado por
+cluster é o que dá a contagem certa sem devolver as linhas.
+
+---
+
+# 201. FILTROS E BUSCA NO MAPA
+
+Estende a §136, que já previa filtros. Aqui eles ganham eixos e a busca ganha
+regra.
+
+```text
+CAMADAS      clientes · ordens de serviço · técnicos
+
+LOCALIZAÇÃO  verificada · não verificada · sem localização (§198)
+
+OS           status · prioridade · tipo · atrasadas · abertas
+
+CLIENTES     online/offline quando o dado existir · bairro/região
+
+TÉCNICOS     disponibilidade · em atendimento · em deslocamento (§136)
+```
+
+Nem tudo entra no primeiro release. A lista fixa os EIXOS, para que o primeiro
+filtro não seja escrito de um jeito que impeça o segundo.
+
+## Busca
+
+Localizar por **cliente · telefone · documento (conforme permissão) · OS Nº ·
+técnico · região**.
+
+> **Reutilizar a busca que já existe, não criar um mecanismo paralelo.**
+
+Busca duplicada é autorização duplicada: a segunda implementação esquece uma
+checagem que a primeira faz, e o mapa vira o caminho mais curto para um dado
+que a listagem recusa. O documento continua atrás de permissão aqui como em
+qualquer lugar.
+
+---
+
+# 202. FRONTEIRA ALFAOS × FIBERMAP
+
+Dois mapas, dois domínios. A separação precisa estar escrita antes de o
+primeiro ser construído, porque depois cada um puxa para o lado do outro.
+
+| AlfaOS Operational Map | FiberMap |
+|---|---|
+| clientes | OLT |
+| técnicos | PON |
+| ordens de serviço | cabos e fibras |
+| agenda e despacho | splitters |
+| operação | CTO |
+| | topologia FTTH |
+
+> **O AlfaOS não duplica topologia de rede.**
+
+O AlfaOS responde *quem é o cliente, onde ele está, quem vai atender*. O
+FiberMap responde *por qual fibra ele passa*. Um cadastro de CTO dentro do
+AlfaOS divergiria do FiberMap na primeira manutenção de rede, e o técnico
+levaria a informação errada para o poste.
+
+A integração futura da §107 continua válida: o Field mostra o caminho
+`Cliente → CTO → Porta → Splitter → Cabo → Poste → PON → OLT` **consultando**
+o FiberMap, não copiando-o. Cada sistema mantém a sua responsabilidade.
+
+---
+
+# 203. CENTRAL DE DESPACHO — O QUADRO
+
+Capability futura do **AlfaOS Web / Dispatcher**. Quadro no estilo Kanban
+operacional:
+
+```text
+NÃO ATRIBUÍDAS      TÉCNICO A          TÉCNICO B
+  OS Nº 184           OS Nº 177          OS Nº 182
+  OS Nº 185           OS Nº 181
+```
+
+O despachante arrasta uma OS entre a fila e os técnicos.
+
+## O card
+
+Compacto — um quadro com dez colunas não comporta um cartão que conta a vida
+do cliente:
+
+```text
+OS Nº · tipo · cliente · bairro/região
+agendamento · prioridade · SLA · status
+distância (quando houver localização dos dois lados)
+```
+
+> **NUNCA no card:** CPF · PPPoE · senha · identificadores internos · payload
+> do ERP.
+
+O quadro fica aberto numa tela grande, num balcão, o dia inteiro. É a
+superfície menos controlada do painel Web — e a §145 já vale: dado que não
+ajuda a decidir não precisa estar na tela.
+
+## A coluna do técnico
+
+```text
+nome · status operacional (§136, derivado) · quantidade de OS
+pendentes · em atendimento · carga aproximada
+```
+
+Futuro: distância · habilidades · jornada · localização · estoque relevante.
+
+**Nenhum score arbitrário agora.** Um número de 0 a 100 sem fórmula acordada
+vira critério de decisão sem que ninguém saiba do que ele é feito — e a §174
+já registra a mesma regra para o Wi-Fi Score: guardar as métricas base, não
+só o número.
+
+---
+
+# 204. ARRASTAR NÃO ALTERA ESTADO
+
+> **Drag-and-drop é UI. O frontend nunca altera a `ServiceOrder`.**
+
+É a mesma regra da §130 e da §166, aplicada ao gesto que mais parece uma
+exceção: soltar um cartão numa coluna *parece* mover a OS, e é por isso que
+precisa estar escrito que não move.
+
+```text
+arrastar → soltar
+         → comando de atribuição (API)
+         → autenticação
+         → tenant
+         → elegibilidade do técnico
+         → validação de estado
+         → version / compare-and-set
+         → TRANSAÇÃO
+              ├── ServiceOrder
+              ├── ServiceOrderEvent
+              └── OutboxEvent
+         → Notification → push
+```
+
+Cada etapa já existe e já é obrigatória hoje na atribuição pela tela da OS. O
+quadro **não ganha um caminho próprio** — usa esse.
+
+## Por que o `version` importa mais aqui
+
+Um quadro fica aberto por horas e é olhado por mais de uma pessoa. A leitura
+que o navegador tem na tela envelhece o tempo todo: o cartão que o despachante
+arrasta pode ter sido reatribuído por um colega, ou concluído pelo técnico, há
+dez minutos.
+
+O `expectedVersion` é a leitura que **aquela tela** tinha (§23). Soltar sobre
+uma leitura obsoleta é recusado com 409 e a tela recarrega — em vez de
+sobrescrever a decisão de outra pessoa sem ninguém perceber.
+
+**Falhar precisa ser visível.** Um cartão que volta sozinho para a coluna
+anterior, sem explicação, é lido como travamento da interface; a recusa diz o
+que aconteceu.
+
+---
+
+# 205. REATRIBUIÇÃO E NOTIFICAÇÃO
+
+Arrastar do Técnico A para o Técnico B usa o **mesmo mecanismo oficial de
+reatribuição**, e gera os mesmos eventos:
+
+```text
+SERVICE_ORDER_REMOVED_FROM_TECHNICIAN     → A
+SERVICE_ORDER_REASSIGNED_TO_TECHNICIAN    → B
+```
+
+Atribuir a partir da fila gera `SERVICE_ORDER_ASSIGNED` — mesmo evento, mesma
+prévia, mesmo texto que a §153 já define. O quadro não inventa notificação
+própria.
+
+Sem PII na prévia — vale integralmente a §153 e a `SECURITY.md` §8.9: nada de
+CPF, endereço, telefone **nem localização** numa notificação que aparece sobre
+a tela bloqueada.
+
+> **Nenhum fluxo paralelo do Kanban.**
+
+Um segundo caminho de atribuição significaria uma segunda checagem de
+elegibilidade, um segundo lugar para esquecer o evento de timeline e um
+segundo lugar para o push não sair. O quadro é uma tela nova sobre um comando
+que já existe.
+
+---
+
+# 206. OBSERVABILIDADE DO DESPACHO
+
+Estende a §190. Sem isto, "o técnico diz que não recebeu a OS" é impossível de
+investigar num quadro que muda o dia inteiro.
+
+```text
+quem moveu · qual OS · técnico anterior · técnico novo
+timestamp · eventId · correlationId · desfecho da notificação
+```
+
+**Sem segredo e sem PII além do necessário.** Identificador de técnico
+correlaciona; nome, telefone e coordenada não acrescentam nada à investigação
+e transformam o log num cadastro paralelo.
+
+---
+
+# 207. QUADRO, MAPA E AGENDA
+
+A Central de Despacho tem três visualizações do **mesmo** trabalho:
+
+```text
+QUADRO   distribuição e carga     — quem está com o quê
+MAPA     proximidade e geografia  — onde as coisas estão (§136)
+AGENDA   ocupação temporal        — quando cabe
+```
+
+> **Três visões, um motor.** Elas leem `ServiceOrder`, `Technician`,
+> disponibilidade (§185), agendamento e localização — e nenhuma delas guarda
+> estado próprio.
+
+Três motores independentes divergiriam no primeiro dia: o quadro mostraria uma
+atribuição que o mapa ainda não sabe, e o despachante pararia de confiar nos
+três. Vale a §136 sem alteração: estado visual é **derivado**, nunca uma
+máquina de estados nova.
+
+## Agenda
+
+Poderá exibir: horários · OS agendadas · duração estimada · deslocamento ·
+conflitos · jornada.
+
+**Nenhum motor de scheduling nesta fase.** Duração estimada e janela de
+deslocamento são modelagem própria, com dado histórico que o AlfaOS ainda não
+tem — inventá-la agora produziria uma agenda confiante e errada.
+
+---
+
+# 208. SMART DISPATCH
+
+Capability **P2**, e evolução direta da §137 — que já fixou o princípio: **o
+sistema sugere, a pessoa decide.**
+
+Sinais que a recomendação pode considerar:
+
+```text
+distância · prioridade · SLA · habilidades (§185)
+disponibilidade · turno · carga · rota
+estoque/equipamento · tipo da OS
+```
+
+```text
+Técnico recomendado: Maurício
+  · mais próximo
+  · habilidade compatível
+  · menor carga
+  · SLA em risco
+```
+
+> **A recomendação mostra os MOTIVOS, não só o nome.**
+
+Um nome sozinho pede fé. Os motivos permitem discordar — e o despachante
+frequentemente sabe algo que o sistema não sabe: que aquele técnico está com o
+carro na oficina, ou que o cliente já reclamou dele.
+
+**Nada de IA agora.** Regra determinística primeiro, como a §84 já exige do
+recomendador de Wi-Fi: IA (§189) pode refinar depois, nunca ser a primeira
+implementação.
+
+## Habilidades e disponibilidade
+
+Sem `TechnicianSkill` (§185) o despacho só consegue sugerir por distância.
+
+> **A lista de disponibilidade é a da §185. Esta seção não cria outra.**
+
+Uma segunda lista aqui pareceria inofensiva e produziria dois vocabulários
+para a mesma coisa — um usado pelo cadastro do técnico, outro pelo despacho —,
+divergindo no dia em que alguém acrescentasse um valor a um só deles.
+
+O despacho **usa** os valores da §185; ele não os redefine. Um valor que o
+despacho venha a precisar e não exista lá é uma alteração na §185, feita lá.
+
+Disponibilidade continua sendo **eixo independente** do estado da OS: um
+técnico de folga pode ter OS `ASSIGNED` para amanhã. **Isto não vira máquina
+de estados da `ServiceOrder`** (§167).
+
+E não confundir com os estados VISUAIS do mapa (§136) — `DISPONÍVEL`,
+`EM DESLOCAMENTO`, `EM ATENDIMENTO`, `OFFLINE`. Aqueles são **derivados** de
+presença, movimento e OS ativa; estes são **declarados** no cadastro. As
+palavras se parecem e as fontes são opostas.
+
+---
+
+# 209. ROADMAP DO MAPEAMENTO E DO DESPACHO
+
+| Capability | Prioridade |
+|---|---|
+| Fundação de mapeamento da carteira (§196–§198) | **P1** |
+| Confirmação em campo (§134, §172) | **P1** — Field v1 |
+| Mapa operacional (§136, §200, §201) | **P1** |
+| Central de Despacho — quadro (§203–§206) | **P1** |
+| Quadro + mapa integrados (§207) | **P1** |
+| Geocodificação (§199) | **P1/P2** — depende de provider |
+| Agenda integrada (§207) | **P1/P2** — conforme complexidade |
+| Smart Dispatch (§208) | **P2** |
+
+## O primeiro APK do Field não depende de nada disto
+
+> **A Central de Despacho é capability do Web/Dispatcher, não do Field.**
+
+O P0 do Field (§194) permanece **exatamente como está**: login · Minhas OS ·
+detalhe · cliente e contato · Maps/Waze · PPPoE · diagnóstico · execução ·
+fotos · materiais · assinatura · push e offline conforme o roadmap.
+
+A única peça desta parte que toca o Field é a **confirmação de localização em
+campo**, e ela já era P1 lá (§172) — não foi antecipada aqui.
+
+Amarrar o primeiro aplicativo a um quadro de despacho que ainda não existe
+adiaria o APK por uma capability que o técnico em campo nunca abre.
 
