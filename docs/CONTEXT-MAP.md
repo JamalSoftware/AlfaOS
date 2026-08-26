@@ -57,6 +57,19 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 **Quando:** a tarefa envolve adapters de ERP, diagnóstico de conectividade do cliente, sincronização, ou a futura integração real com o ReceitaNet.
 **Quando NÃO:** tarefas que não tocam a camada de integração. **Antes de implementar qualquer chamada ReceitaNet**, ler a seção 1 de `docs/ERP-INTEGRATIONS.md` — ela separa o que está IMPLEMENTADO (CallCenter read-only v0.6 **e Chatbot v0.7.2**), o que está documentado e deliberadamente fora, e o que não existe em nenhuma API. Complementam: `docs/PRD.md` §140 (as duas capabilities e suas credenciais independentes), §141 (por que não existe descoberta global de OS), §142 (escopo da sincronização na v0.8) e §121–§131 (propriedade da OS e posição dos ERPs). O §129 descreve as APIs **como lidas em spec** e tem duas conclusões superadas — ler a nota no topo dele antes de citar. O §64 continua valendo — nenhuma chamada fora do que o OpenAPI descreve.
 
+## Sincronização de OS do ReceitaNet
+
+**Carregar:** `src/lib/receitanet-order-sync.ts` (o serviço), `src/lib/service-orders.ts` (`importServiceOrderForCustomer` e o núcleo `persistImportedServiceOrder`) e `docs/PRD.md` §142.
+**Quando:** a tarefa envolve importar, reimportar ou exibir OS vindas do provedor.
+**Quando NÃO:** OS interna, execução do técnico, ou qualquer coisa que não atravesse a fronteira do ERP.
+
+Quatro invariantes que já custaram caro e são fáceis de desfazer:
+
+* **Por cliente conhecido, nunca global.** Não existe listagem de OS da empresa (§141). Não varrer ids, não chamar `/v1/chamados` sem `idCliente`.
+* **O AlfaOS é a fonte de verdade da execução.** Re-sync atualiza só campos do provedor — a allowlist está em `persistImportedServiceOrder`, e `data: normalizedChamado` seria o defeito.
+* **Ausência não é fechamento.** Chamado que some não é cancelado nem concluído.
+* **`ServiceOrder.number` é do AlfaOS.** O número do provedor vive em `externalNumber`, e os dois nunca se sobrepõem.
+
 ## Homologação ReceitaNet
 
 **Carregar:** `docs/RECEITANET-HOMOLOGATION.md` — o levantamento read-only das quatro APIs oficiais (CallCenter, URA, Chatbot, Central do Assinante). Contém:

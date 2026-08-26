@@ -3609,7 +3609,24 @@ não se pode depender do ERP nem para saber que uma OS existe.
 
 # 142. SINCRONIZAÇÃO DE OS — ESCOPO DA v0.8
 
-**Não implementado.** Esta seção define o escopo; a §119 se aplica.
+> **IMPLEMENTADO na v0.8.** O escopo abaixo virou código, e três pontos
+> que ficavam em aberto foram FECHADOS pela implementação:
+>
+> - **`protocolo` NÃO é persistido.** Não é identidade (isso é
+>   `externalId`), não é exibido, e não há demanda registrada. Criar
+>   coluna porque o campo existe é dívida sem uso.
+> - **`tipo` não é traduzido.** O contrato declara inteiro e não publica o
+>   significado. A OS importada recebe o rótulo `Chamado ReceitaNet` e
+>   `typeId` nulo — o catálogo da empresa não é adivinhado, e nenhum tipo
+>   novo é criado automaticamente.
+> - **`data_previsao` NÃO vira `scheduledAt`.** Agendamento é compromisso
+>   combinado, e alimenta agenda e despacho; previsão do provider é outra
+>   coisa, chega como texto não homologado. Transformá-la faria o quadro
+>   exibir horários que ninguém marcou.
+>
+> Nenhuma migration foi necessária: `externalProvider`, `externalId`,
+> `externalNumber` e a unique `(companyId, externalProvider, externalId)`
+> já existiam.
 
 ```text
 cliente conhecido  →  CallCenter /v1/chamados  →  ServiceOrder EXTERNAL

@@ -667,7 +667,8 @@ pendentes ao suporte:
 | Chamados abertos | CallCenter | `CALLCENTER` | Implementado (leitura) |
 | Enriquecimento do cadastro | Chatbot | `CHATBOT` | **Implementado (v0.7.2)** |
 | Credencial PPPoE real | Chatbot | `CHATBOT` | **Implementado (v0.7.2)** |
-| Sincronização de OS | — | — | **NÃO implementado** |
+| Sincronização de OS por cliente | CallCenter | `CALLCENTER` | **Implementado (v0.8)** |
+| Descoberta global de OS | — | — | **NÃO EXISTE** — limitação do provider (§141) |
 
 Campos que o enriquecimento aplica: nome, endereço completo (com
 referência), telefones, e-mail, coordenadas, `idContrato` e a credencial
@@ -683,10 +684,29 @@ APIs.
 
 ---
 
-## Sincronização de OS — estratégia da v0.8
+## Sincronização de OS — v0.8, IMPLEMENTADA
 
-**Não implementado.** Escopo definido; o PRD §142 é a fonte, esta seção é o
-recorte de provider.
+Escopo do PRD §142. Esta seção é o recorte de provider.
+
+**Por cliente conhecido, e só.** A limitação continua exatamente onde
+estava: não existe API pública para listar as OS da empresa, o suporte
+confirmou, e a v0.8 **não** a contorna. Nada de varrer ids, chamar
+`/v1/chamados` sem `idCliente` ou explorar rota não homologada.
+
+**Direção única.** Leitura para dentro do AlfaOS. Nenhuma rota mutante do
+ReceitaNet é chamada — `abertura-chamado`, `chamado/gravacao`,
+`cliente/reiniciar`, `cobranca/enviar` e `notificacao-pagamento` seguem
+intocados. Devolver a execução ao provedor depende de homologação que
+ainda não existe.
+
+**Depois de importada, a execução é do AlfaOS.** O provedor é a origem do
+chamado, não a autoridade sobre o atendimento: uma nova sincronização
+atualiza apenas campos do provedor e nunca toca técnico, status,
+execução, evidências, materiais, assinatura ou timeline.
+
+**Ausência não é fechamento.** Um chamado que some da resposta seguinte
+não é cancelado, concluído nem apagado — `/v1/chamados` só devolve
+abertos, tem teto de 10 e pode omitir.
 
 ```text
 cliente conhecido  →  CallCenter POST /v1/chamados  →  ServiceOrder EXTERNAL

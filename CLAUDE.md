@@ -195,7 +195,18 @@ Também sem tag, **documentação apenas, sem código**:
 
 Também sem tag, **documentação apenas**: a Parte VII do PRD (§210–§223) — custódia de patrimônio do técnico: `Asset`, `AssetCustody`, termo de cautela, conferência periódica, ocorrências e devolução. Um ledger só, compartilhado com o inventário (§211, §215); sem QR para ferramenta (§222); e o AlfaOS documenta sem julgar nem descontar (§219). Nada existe em código.
 
-**Próxima etapa: `v0.8` — `/v1/chamados` → `ServiceOrder` EXTERNAL por cliente conhecido (PRD §142).** O tema (§149) saiu na v0.7.3 e a UX do técnico (§145–§148, §151) na v0.7.4.
+**Baseline publicada: `v0.7.5-audited-checkpoint`** — auditada, `APPROVED WITH RISKS`, no remoto.
+
+Depois dela, **concluído e sem tag** — a **v0.8, sincronização de OS do ReceitaNet**: `/v1/chamados` → `ServiceOrder` EXTERNAL, **por cliente conhecido** (PRD §142). Ação explícita de ADMIN/DISPATCHER na tela do cliente, sem cron. **Nenhuma migration** — a unique de identidade externa e os campos já existiam.
+
+Quatro invariantes da v0.8, todos cobertos por regressão:
+
+* importação idempotente e à prova de corrida, pela unique `(companyId, externalProvider, externalId)`;
+* **o AlfaOS é a fonte de verdade da execução** — re-sync não toca técnico, status, execução, evidências, materiais nem timeline;
+* **ausência não é fechamento** — chamado que some não é cancelado nem apagado;
+* `ServiceOrder.number` continua local; o número do provedor vive em `externalNumber`.
+
+Três decisões fechadas na implementação: `protocolo` não é persistido, `tipo` não é traduzido (rótulo `Chamado ReceitaNet`, `typeId` nulo) e `data_previsao` não vira `scheduledAt`.
 
 **Não existe descoberta global de OS.** Confirmado pelo suporte do ReceitaNet: nenhuma API pública lista as OS da empresa. É limitação do provider, não dívida do AlfaOS — não retomar a investigação, não fuzzar endpoint (PRD §141).
 
