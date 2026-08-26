@@ -1094,6 +1094,99 @@ rotas de conexão continuam exigindo ADMIN.
 
 ---
 
+## 8.12. Same-Origin sob host real, e o logout — v0.7.5
+
+### O defeito
+
+`assertSameOrigin` comparava o `Origin` com `new URL(request.url).host`. No
+Next 14 essa URL carrega o host que o servidor resolveu **ao subir** —
+`localhost` — e não o host que o navegador endereçou. Medido no servidor de
+desenvolvimento: com `Host: 192.168.1.50:3210` na requisição, `request.url`
+continuava sendo `http://localhost:3210/...`.
+
+Consequência: abrir o AlfaOS por IP de rede local, por nome de máquina ou
+até por `127.0.0.1` fazia **toda rota mutante** — as 30 que usam o helper —
+recusar com `Origem não permitida`, mesmo com `Origin` idêntico ao `Host`.
+O sintoma visível era o logout, porque é a única ação que navega para a API
+e mostra o corpo da resposta na tela.
+
+### A comparação agora
+
+Origem efetiva, da mais confiável para a menos:
+
+1. **`APP_ORIGINS`** — allowlist explícita. Configurada, a origem precisa
+   estar na lista e **nenhum cabeçalho da requisição participa da decisão**.
+   É a política estrita, recomendada em produção, e nela o esquema também
+   conta (`http` não entra numa lista `https`).
+2. **`X-Forwarded-Host`**, apenas com `TRUST_PROXY_HEADERS=true`.
+3. **`Host`** — que o navegador preenche a partir da URL que ele precisou
+   resolver para chegar até nós, e que o conteúdo de outra página não
+   consegue mudar.
+4. o host de `request.url`, como último recurso.
+
+**`X-Forwarded-Host` é ignorado por padrão.** Ele é escrito por qualquer
+cliente; confiar nele sem proxy que o sobrescreva seria Host Header
+Injection pela porta da frente.
+
+**O host resolvido serve SÓ para comparar.** Ele nunca monta URL de
+redirect, link ou e-mail — é o que separa esta comparação de uma injeção de
+host de verdade.
+
+### Redirect relativo
+
+O logout respondia `307` com `Location` absoluto derivado de `request.url`.
+Dois defeitos num só: o `307` preserva o método e o navegador refazia POST
+em `/login`, e o destino absoluto mandava quem abriu pelo IP da rede para o
+`localhost` do **próprio aparelho**.
+
+Agora é `303 See Other` com `Location: /login` — relativo. O navegador
+resolve contra a URL que ele mesmo pediu, e nenhum cabeçalho participa: não
+há superfície de open redirect.
+
+### Sessão
+
+A sessão é um **token assinado, sem estado no servidor**: não existe
+registro a invalidar, e remover o cookie É a invalidação. Por isso a rota
+limpa mesmo sem sessão válida na entrada — exigir sessão daria tela de erro
+a quem clicou em "Sair" com o token já expirado.
+
+O cookie sai com `Max-Age=0`, `Expires` no passado, `HttpOnly`, `Path=/`,
+`SameSite=Lax` e `Secure` em produção. **Origem recusada não limpa cookie**
+— um site de terceiro não derruba a sessão de quem foi atacado.
+
+### Risco residual documentado
+
+Sem `APP_ORIGINS`, quem fala **direto** com o servidor pode enviar `Host` e
+`Origin` casados e passar pela checagem. Isso não é capacidade nova: quem
+controla os próprios cabeçalhos já podia omitir o `Origin` e cair na
+política de ausência (abaixo). CSRF só existe quando um NAVEGADOR é o
+veículo, e ali o `Host` é do navegador.
+
+**Configurar `APP_ORIGINS` em produção fecha isso**, porque tira os
+cabeçalhos da decisão.
+
+### Ausência de `Origin` — política herdada, mantida
+
+Requisição sem `Origin` passa, apoiada em `SameSite=Lax` mais o cookie.
+Cabeçalho presente porém **vazio** conta como ausente, e agora isso é
+explícito no código em vez de depender de a string vazia ser *falsy*.
+
+Não foi apertada aqui: seria mudança de comportamento das 30 rotas, com
+risco próprio, e não é o defeito relatado. Fica registrada como candidata.
+
+### Verificação
+
+15 ataques executados contra o servidor de desenvolvimento real — origem de
+terceiro, sufixo e prefixo enganosos, porta diferente, `userinfo`,
+protocol-relative, `Origin: null`, CRLF, `X-Forwarded-Host` e `Forwarded`
+sem confiança. Nenhum passou.
+
+Ponto final no host, IP decimal e IP hexadecimal **passam, e é correto**:
+`192.168.1.50.`, `3232235826` e `0xC0A80132` canonicalizam para o mesmo
+IPv4, e o navegador aplica a mesma canonicalização ao decidir mesma origem.
+
+---
+
 ## 9. Configuração de produção
 
 1. Gere um `AUTH_SECRET` forte: `openssl rand -base64 48`.

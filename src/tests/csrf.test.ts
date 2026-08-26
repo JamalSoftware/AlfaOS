@@ -104,7 +104,9 @@ describe("Proteção CSRF (same-origin)", () => {
       ),
     );
 
-    expect(res.status).toBe(307);
+    // 303 e nao 307: o 307 preservava o metodo e o navegador refazia POST em
+    // /login. Detalhe em logout-same-origin.test.ts.
+    expect(res.status).toBe(303);
     expect(
       res.headers
         .getSetCookie()
