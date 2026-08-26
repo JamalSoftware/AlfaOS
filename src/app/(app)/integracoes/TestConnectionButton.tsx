@@ -52,7 +52,7 @@ export function TestConnectionButton({
     <div>
       <label
         htmlFor="provider"
-        className="mb-1 block text-sm font-medium text-slate-700"
+        className="mb-1 block text-sm font-medium text-fg-secondary"
       >
         Provedor
       </label>
@@ -60,13 +60,13 @@ export function TestConnectionButton({
         id="provider"
         value={provider}
         onChange={(e) => setProvider(e.target.value)}
-        className="mb-3 w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+        className="mb-3 w-full max-w-xs rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
       >
         <option value="MOCK">Mock ERP</option>
         <option value="RECEITANET">ReceitaNet</option>
       </select>
       {provider !== currentProvider && (
-        <p className="mb-3 text-xs text-amber-700">
+        <p className="mb-3 text-xs text-warning-fg">
           Trocar o provedor apaga a credencial configurada — ela é vinculada ao
           provedor e deixa de ser utilizável. Será necessário configurar o token
           novamente.
@@ -77,7 +77,7 @@ export function TestConnectionButton({
         type="button"
         onClick={handleTest}
         disabled={loading}
-        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+        className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-fg transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? "Testando..." : "Testar conexão"}
       </button>
@@ -86,8 +86,8 @@ export function TestConnectionButton({
         <div
           className={`mt-4 rounded-lg border px-3 py-2 text-sm ${
             result.ok
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-red-200 bg-red-50 text-red-700"
+              ? "border-success-border bg-success-bg text-success-fg"
+              : "border-danger-border bg-danger-bg text-danger-fg"
           }`}
         >
           <p className="font-medium">
@@ -101,7 +101,7 @@ export function TestConnectionButton({
       {invalidated && (
         <div
           role="alert"
-          className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+          className="mt-4 rounded-lg border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-fg"
         >
           A credencial anterior foi removida porque o provedor mudou. Configure
           um novo token para este provedor antes de usar a integração.
@@ -109,7 +109,7 @@ export function TestConnectionButton({
       )}
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="mt-4 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">
           {error}
         </div>
       )}

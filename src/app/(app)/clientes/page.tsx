@@ -42,14 +42,14 @@ export default async function CustomersPage({ searchParams }: PageProps) {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Clientes</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <h1 className="text-2xl font-bold text-fg">Clientes</h1>
+          <p className="mt-1 text-sm text-fg-muted">
             Gerencie os clientes da sua empresa.
           </p>
         </div>
         <Link
           href="/clientes/novo"
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-fg transition-colors hover:bg-primary-hover"
         >
           Novo cliente
         </Link>
@@ -57,19 +57,19 @@ export default async function CustomersPage({ searchParams }: PageProps) {
 
       <form
         method="get"
-        className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+        className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-surface p-4 shadow-sm"
       >
         <input
           type="search"
           name="search"
           defaultValue={search}
           placeholder="Buscar por nome, documento, e-mail ou telefone..."
-          className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          className="min-w-0 flex-1 rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
         />
         <select
           name="active"
           defaultValue={activeRaw}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          className="rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
         >
           <option value="">Todos os status</option>
           <option value="true">Ativos</option>
@@ -77,13 +77,13 @@ export default async function CustomersPage({ searchParams }: PageProps) {
         </select>
         <button
           type="submit"
-          className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+          className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-fg-secondary transition-colors hover:bg-surface-muted"
         >
           Filtrar
         </button>
       </form>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
         {result.customers.length === 0 ? (
           <EmptyState
             title="Nenhum cliente encontrado"
@@ -91,37 +91,37 @@ export default async function CustomersPage({ searchParams }: PageProps) {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50">
+            <table className="min-w-full divide-y divide-border text-sm">
+              <thead className="bg-surface-subtle">
                 <tr>
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Nome</th>
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Documento</th>
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Telefone</th>
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Cidade</th>
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Status</th>
-                  <th scope="col" className="px-5 py-3 text-right font-semibold text-slate-600">Ações</th>
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Nome</th>
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Documento</th>
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Telefone</th>
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Cidade</th>
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Status</th>
+                  <th scope="col" className="px-5 py-3 text-right font-semibold text-fg-secondary">Ações</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-border-subtle">
                 {result.customers.map((customer) => (
-                  <tr key={customer.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-3 font-medium text-slate-900">{customer.name}</td>
-                    <td className="px-5 py-3 text-slate-600">{customer.document ?? "—"}</td>
-                    <td className="px-5 py-3 text-slate-600">{customer.phone ?? "—"}</td>
-                    <td className="px-5 py-3 text-slate-600">
+                  <tr key={customer.id} className="hover:bg-surface-subtle">
+                    <td className="px-5 py-3 font-medium text-fg">{customer.name}</td>
+                    <td className="px-5 py-3 text-fg-secondary">{customer.document ?? "—"}</td>
+                    <td className="px-5 py-3 text-fg-secondary">{customer.phone ?? "—"}</td>
+                    <td className="px-5 py-3 text-fg-secondary">
                       {customer.city ? `${customer.city}${customer.state ? `/${customer.state}` : ""}` : "—"}
                     </td>
                     <td className="px-5 py-3">
                       {customer.active ? (
-                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">Ativo</span>
+                        <span className="inline-flex items-center rounded-full bg-success-bg px-2.5 py-0.5 text-xs font-semibold text-success-fg">Ativo</span>
                       ) : (
-                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">Inativo</span>
+                        <span className="inline-flex items-center rounded-full bg-surface-muted px-2.5 py-0.5 text-xs font-semibold text-fg-secondary">Inativo</span>
                       )}
                     </td>
                     <td className="px-5 py-3 text-right">
                       <Link
                         href={`/clientes/${customer.id}/editar`}
-                        className="inline-block rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+                        className="inline-block rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-fg-secondary transition-colors hover:bg-surface-muted"
                       >
                         Editar
                       </Link>

@@ -38,13 +38,13 @@ export function IntegrationToggle({ enabled }: { enabled: boolean }) {
         disabled={loading}
         className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
           enabled
-            ? "border-red-200 text-red-600 hover:bg-red-50"
-            : "border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+            ? "border-danger-border text-danger-fg hover:bg-danger-bg"
+            : "border-success-border text-success-fg hover:bg-success-bg"
         }`}
       >
         {loading ? "..." : enabled ? "Desabilitar" : "Habilitar"}
       </button>
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-xs text-danger-fg">{error}</p>}
     </div>
   );
 }

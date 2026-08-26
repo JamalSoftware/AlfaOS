@@ -111,21 +111,21 @@ export function PppoeAccessPanel({
   }
 
   const buttonClass =
-    "rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60";
+    "rounded-lg border border-input-border px-3 py-2 text-sm font-semibold text-fg-secondary transition-colors hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-60";
 
 
   return (
     <div data-testid="pppoe-panel" data-variant={variant}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <p className="text-xs font-semibold uppercase tracking-wide text-fg-muted">
         PPPoE
       </p>
 
       <div className="mt-3">
-        <p className="text-xs font-medium text-slate-500">Usuário</p>
+        <p className="text-xs font-medium text-fg-muted">Usuário</p>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <code
             data-testid="pppoe-username"
-            className="min-w-0 flex-1 break-all rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-900"
+            className="min-w-0 flex-1 break-all rounded-lg bg-surface-subtle px-3 py-2 text-sm text-fg"
           >
             {username}
           </code>
@@ -141,10 +141,10 @@ export function PppoeAccessPanel({
       </div>
 
       <div className="mt-4">
-        <p className="text-xs font-medium text-slate-500">Senha</p>
+        <p className="text-xs font-medium text-fg-muted">Senha</p>
 
         {!passwordConfigured ? (
-          <p className="mt-1 text-sm text-amber-700">
+          <p className="mt-1 text-sm text-warning-fg">
             Não configurada para este cliente.
           </p>
         ) : (
@@ -160,7 +160,7 @@ export function PppoeAccessPanel({
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <code
                 data-testid="pppoe-password"
-                className="min-w-0 flex-1 break-all rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                className="min-w-0 flex-1 break-all rounded-lg bg-surface-subtle px-3 py-2 text-sm text-fg"
               >
                 {password ?? PASSWORD_MASK}
               </code>
@@ -210,7 +210,7 @@ export function PppoeAccessPanel({
                 </button>
               </div>
             ) : (
-              <p className="mt-2 text-sm text-slate-500">
+              <p className="mt-2 text-sm text-fg-muted">
                 {revealBlockedReason ??
                   "Você não pode revelar a senha neste atendimento."}
               </p>
@@ -222,7 +222,7 @@ export function PppoeAccessPanel({
       {error && (
         <div
           role="alert"
-          className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="mt-3 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg"
         >
           {error}
         </div>

@@ -44,9 +44,9 @@ function Card({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+        <h2 className="text-base font-semibold text-fg">{title}</h2>
         {action}
       </div>
       {children}
@@ -114,8 +114,8 @@ function ExecutionReadOnly({
     <dl className="space-y-4">
       {blocks.map((block) => (
         <div key={block.label}>
-          <dt className="text-xs font-medium text-slate-500">{block.label}</dt>
-          <dd className="mt-0.5 whitespace-pre-wrap break-words text-sm text-slate-900">
+          <dt className="text-xs font-medium text-fg-muted">{block.label}</dt>
+          <dd className="mt-0.5 whitespace-pre-wrap break-words text-sm text-fg">
             {block.value ?? "—"}
           </dd>
         </div>
@@ -329,7 +329,7 @@ export default async function OrderDetailPage({
       <div className="mb-6">
         <Link
           href={isOwnerTechnician ? "/minhas-os" : "/ordens"}
-          className="text-sm font-medium text-blue-600 hover:text-blue-700"
+          className="text-sm font-medium text-primary-text hover:text-primary-text-hover"
         >
           ← Voltar
         </Link>
@@ -342,18 +342,18 @@ export default async function OrderDetailPage({
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <h1
             data-testid="order-number"
-            className="text-2xl font-bold text-slate-900"
+            className="text-2xl font-bold text-fg"
           >
             {formatServiceOrderNumber(order)}
           </h1>
           <StatusBadge status={order.status} />
           <PriorityBadge priority={order.priority} />
         </div>
-        <p className="mt-1 text-sm font-medium text-slate-700">
+        <p className="mt-1 text-sm font-medium text-fg-secondary">
           {order.type}
           {order.subtype ? ` · ${order.subtype}` : ""}
         </p>
-        <p className="mt-1 text-sm text-slate-500">{order.description}</p>
+        <p className="mt-1 text-sm text-fg-muted">{order.description}</p>
       </div>
 
       {/*
@@ -365,14 +365,14 @@ export default async function OrderDetailPage({
       {isOwnerTechnician && executionIssue && (
         <div
           role="alert"
-          className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4"
+          className="mb-6 rounded-2xl border border-warning-border bg-warning-bg p-4"
         >
-          <p className="text-sm text-amber-800">{executionIssue}</p>
+          <p className="text-sm text-warning-fg">{executionIssue}</p>
         </div>
       )}
 
       {canStart && !executionIssue && (
-        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-6 rounded-2xl border border-border bg-surface p-5 shadow-sm">
           <StartServiceOrderButton
             orderId={order.id}
             /*
@@ -386,11 +386,11 @@ export default async function OrderDetailPage({
       )}
 
       {isExecuting && (
-        <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4">
-          <p className="text-sm font-semibold text-blue-900">
+        <div className="mb-6 rounded-2xl border border-info-border bg-info-bg p-4">
+          <p className="text-sm font-semibold text-info-fg">
             Status: Em atendimento
           </p>
-          <p className="mt-0.5 text-sm text-blue-800">
+          <p className="mt-0.5 text-sm text-info-fg">
             Iniciado às {formatTime(order.startedAt)}
           </p>
         </div>
@@ -399,12 +399,12 @@ export default async function OrderDetailPage({
       {order.status === "COMPLETED" && (
         <div
           data-testid="completed-banner"
-          className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4"
+          className="mb-6 rounded-2xl border border-success-border bg-success-bg p-4"
         >
-          <p className="text-sm font-semibold text-emerald-900">
+          <p className="text-sm font-semibold text-success-fg">
             Atendimento concluído
           </p>
-          <p className="mt-0.5 text-sm text-emerald-800">
+          <p className="mt-0.5 text-sm text-success-fg">
             {formatTime(order.startedAt)} → {formatTime(order.completedAt)}
             {durationLabel ? ` · ${durationLabel}` : ""}
           </p>
@@ -422,13 +422,13 @@ export default async function OrderDetailPage({
           — são consulta, não fluxo.
         */}
         <div className="space-y-4 lg:col-span-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-1 text-base font-semibold text-slate-900">Cliente</h2>
-            <p className="text-sm text-slate-900">{order.customer.name}</p>
+          <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+            <h2 className="mb-1 text-base font-semibold text-fg">Cliente</h2>
+            <p className="text-sm text-fg">{order.customer.name}</p>
             <dl className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <dt className="text-xs font-medium text-slate-500">Documento</dt>
-                <dd className="mt-0.5 text-sm text-slate-900">{order.customer.document ?? "—"}</dd>
+                <dt className="text-xs font-medium text-fg-muted">Documento</dt>
+                <dd className="mt-0.5 text-sm text-fg">{order.customer.document ?? "—"}</dd>
               </div>
               {/*
                 Telefone é o que faz o técnico conseguir chegar. Um travessão
@@ -440,8 +440,8 @@ export default async function OrderDetailPage({
                 permanentemente vazia treina o olho a ignorar a região.
               */}
               <div>
-                <dt className="text-xs font-medium text-slate-500">Telefone</dt>
-                <dd className="mt-0.5 text-sm text-slate-900">
+                <dt className="text-xs font-medium text-fg-muted">Telefone</dt>
+                <dd className="mt-0.5 text-sm text-fg">
                   {order.customer.phone ? (
                     /*
                       `tel:` porque quem lê isto num celular, em campo, está a
@@ -451,13 +451,13 @@ export default async function OrderDetailPage({
                     <a
                       data-testid="customer-phone"
                       href={`tel:${order.customer.phone}`}
-                      className="text-blue-600 hover:text-blue-700"
+                      className="text-primary-text hover:text-primary-text-hover"
                     >
                       {formatBrazilianPhone(order.customer.phone) ??
                         order.customer.phone}
                     </a>
                   ) : (
-                    <span className="text-slate-500">Não informado</span>
+                    <span className="text-fg-muted">Não informado</span>
                   )}
                 </dd>
               </div>
@@ -468,14 +468,14 @@ export default async function OrderDetailPage({
               */}
               {order.customer.secondaryPhone && (
                 <div>
-                  <dt className="text-xs font-medium text-slate-500">
+                  <dt className="text-xs font-medium text-fg-muted">
                     Telefone alternativo
                   </dt>
-                  <dd className="mt-0.5 text-sm text-slate-900">
+                  <dd className="mt-0.5 text-sm text-fg">
                     <a
                       data-testid="customer-secondary-phone"
                       href={`tel:${order.customer.secondaryPhone}`}
-                      className="text-blue-600 hover:text-blue-700"
+                      className="text-primary-text hover:text-primary-text-hover"
                     >
                       {formatBrazilianPhone(order.customer.secondaryPhone) ??
                         order.customer.secondaryPhone}
@@ -484,8 +484,8 @@ export default async function OrderDetailPage({
                 </div>
               )}
               <div className="sm:col-span-2">
-                <dt className="text-xs font-medium text-slate-500">Cidade</dt>
-                <dd className="mt-0.5 text-sm text-slate-900">
+                <dt className="text-xs font-medium text-fg-muted">Cidade</dt>
+                <dd className="mt-0.5 text-sm text-fg">
                   {order.customer.city ? `${order.customer.city}${order.customer.state ? `/${order.customer.state}` : ""}` : "—"}
                 </dd>
               </div>
@@ -495,17 +495,17 @@ export default async function OrderDetailPage({
           <Card title="Técnico">
             {order.technician ? (
               <div>
-                <p className="text-sm font-medium text-slate-900">
+                <p className="text-sm font-medium text-fg">
                   {order.technician.name}
                 </p>
                 {!isStaff && (
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-fg-muted">
                     Esta OS está atribuída a você.
                   </p>
                 )}
               </div>
             ) : (
-              <p className="text-sm text-slate-500">Nenhum técnico atribuído.</p>
+              <p className="text-sm text-fg-muted">Nenhum técnico atribuído.</p>
             )}
           </Card>
 
@@ -523,7 +523,7 @@ export default async function OrderDetailPage({
                 canManageConnections ? (
                   <Link
                     href={`/clientes/${order.customer.id}/editar`}
-                    className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                    className="text-sm font-medium text-primary-text hover:text-primary-text-hover"
                   >
                     Gerenciar acesso
                   </Link>
@@ -533,7 +533,7 @@ export default async function OrderDetailPage({
               {pppoeConnections.length === 0 ? (
                 <p
                   data-testid="pppoe-not-configured"
-                  className="text-sm text-slate-500"
+                  className="text-sm text-fg-muted"
                 >
                   Acesso PPPoE não configurado.
                 </p>
@@ -578,8 +578,8 @@ export default async function OrderDetailPage({
           {canSeeErpContext && <ReceitanetContextPanel orderId={order.id} />}
 
           {isExecuting && order.execution && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-base font-semibold text-slate-900">
+            <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+              <h2 className="mb-4 text-base font-semibold text-fg">
                 Execução
               </h2>
               {executionIssue ? (
@@ -602,8 +602,8 @@ export default async function OrderDetailPage({
           )}
 
           {showExecutionReadOnly && order.execution && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-base font-semibold text-slate-900">
+            <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+              <h2 className="mb-4 text-base font-semibold text-fg">
                 Execução
               </h2>
               <ExecutionReadOnly execution={order.execution} />
@@ -642,8 +642,8 @@ export default async function OrderDetailPage({
             <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {infoRows.map((row) => (
                 <div key={row.label}>
-                  <dt className="text-xs font-medium text-slate-500">{row.label}</dt>
-                  <dd className="mt-0.5 text-sm text-slate-900">{row.value}</dd>
+                  <dt className="text-xs font-medium text-fg-muted">{row.label}</dt>
+                  <dd className="mt-0.5 text-sm text-fg">{row.value}</dd>
                 </div>
               ))}
             </dl>
@@ -653,29 +653,29 @@ export default async function OrderDetailPage({
               banco, não o que se diz ao telefone. A identificação operacional
               é "OS Nº X", no topo da página.
             */}
-            <div className="mt-4 border-t border-slate-100 pt-3">
-              <dt className="text-xs font-medium text-slate-500">
+            <div className="mt-4 border-t border-border-subtle pt-3">
+              <dt className="text-xs font-medium text-fg-muted">
                 ID técnico (diagnóstico)
               </dt>
-              <dd className="mt-0.5 break-all font-mono text-xs text-slate-500">
+              <dd className="mt-0.5 break-all font-mono text-xs text-fg-muted">
                 {order.id}
               </dd>
             </div>
           </Card>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-base font-semibold text-slate-900">Timeline</h2>
+          <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+            <h2 className="mb-4 text-base font-semibold text-fg">Timeline</h2>
             {order.events.length === 0 ? (
-              <p className="text-sm text-slate-500">Nenhum evento registrado.</p>
+              <p className="text-sm text-fg-muted">Nenhum evento registrado.</p>
             ) : (
-              <ol className="relative ml-3 space-y-6 border-l border-slate-200 pl-6">
+              <ol className="relative ml-3 space-y-6 border-l border-border pl-6">
                 {order.events.map((event) => (
                   <li key={event.id} className="relative">
-                    <span className="absolute -left-[31px] flex h-3 w-3 items-center justify-center rounded-full border-2 border-blue-500 bg-white" />
-                    <p className="text-sm font-medium text-slate-900">
+                    <span className="absolute -left-[31px] flex h-3 w-3 items-center justify-center rounded-full border-2 border-focus bg-surface" />
+                    <p className="text-sm font-medium text-fg">
                       {EVENT_LABELS[event.event] ?? event.event}
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-fg-muted">
                       {event.userName ?? "Sistema"} · {formatDate(event.createdAt)}
                     </p>
                   </li>
@@ -693,12 +693,12 @@ export default async function OrderDetailPage({
         */}
         <div className="space-y-4">
           {isStaff && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="mb-3 text-base font-semibold text-slate-900">
+            <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+              <h2 className="mb-3 text-base font-semibold text-fg">
                 {order.status === "PENDING" ? "Atribuir técnico" : "Trocar técnico"}
               </h2>
               {order.status !== "PENDING" && order.status !== "ASSIGNED" ? (
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-fg-muted">
                   Não é possível atribuir uma OS no estado {SERVICE_ORDER_STATUS_LABELS[order.status]}.
                 </p>
               ) : (
@@ -719,8 +719,8 @@ export default async function OrderDetailPage({
           )}
 
           {isExecuting && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-              <p className="text-sm text-amber-800">
+            <div className="rounded-2xl border border-warning-border bg-warning-bg p-4">
+              <p className="text-sm text-warning-fg">
                 O fechamento da OS (fotos, materiais e assinatura) será
                 habilitado na próxima versão do AlfaOS.
               </p>

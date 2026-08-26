@@ -24,30 +24,30 @@ export default async function DashboardPage() {
     {
       label: "OS Pendentes",
       value: stats.osPendentes,
-      accent: "bg-amber-50 text-amber-700",
+      accent: "bg-warning-bg text-warning-fg",
     },
     {
       label: "Em Atendimento",
       value: stats.osEmAtendimento,
-      accent: "bg-blue-50 text-blue-700",
+      accent: "bg-info-bg text-primary-text",
     },
     {
       label: "Concluídas Hoje",
       value: stats.osConcluidasHoje,
-      accent: "bg-emerald-50 text-emerald-700",
+      accent: "bg-success-bg text-success-fg",
     },
     {
       label: "Técnicos Ativos",
       value: stats.tecnicosAtivos,
-      accent: "bg-violet-50 text-violet-700",
+      accent: "bg-progress-bg text-progress-fg",
     },
   ];
 
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-2xl font-bold text-fg">Dashboard</h1>
+        <p className="mt-1 text-sm text-fg-muted">
           Bem-vindo(a), {session.name}.
         </p>
       </div>
@@ -56,11 +56,11 @@ export default async function DashboardPage() {
         {cards.map((card) => (
           <div
             key={card.label}
-            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+            className="rounded-2xl border border-border bg-surface p-5 shadow-sm"
           >
-            <p className="text-sm font-medium text-slate-500">{card.label}</p>
+            <p className="text-sm font-medium text-fg-muted">{card.label}</p>
             <div className="mt-3 flex items-end justify-between">
-              <span className="text-3xl font-bold text-slate-900">
+              <span className="text-3xl font-bold text-fg">
                 {card.value}
               </span>
               <span
@@ -73,33 +73,33 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="mb-4 text-base font-semibold text-slate-900">
+      <div className="mt-8 rounded-2xl border border-border bg-surface p-5 shadow-sm">
+        <h2 className="mb-4 text-base font-semibold text-fg">
           Atividade recente
         </h2>
         {stats.recentActivity.length === 0 ? (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-fg-muted">
             Nenhuma atividade registrada ainda.
           </p>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-border-subtle">
             {stats.recentActivity.map((item) => (
               <li
                 key={item.id}
                 className="flex items-center justify-between py-3"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-slate-800">
+                  <p className="truncate text-sm font-medium text-fg">
                     {item.action}
                   </p>
                   {item.entity && (
-                    <p className="truncate text-xs text-slate-500">
+                    <p className="truncate text-xs text-fg-muted">
                       {item.entity}
                       {item.userName ? ` · ${item.userName}` : ""}
                     </p>
                   )}
                 </div>
-                <span className="ml-4 shrink-0 text-xs text-slate-400">
+                <span className="ml-4 shrink-0 text-xs text-fg-muted">
                   {formatDate(item.createdAt)}
                 </span>
               </li>

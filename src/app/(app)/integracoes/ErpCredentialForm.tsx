@@ -200,14 +200,14 @@ export function ErpCredentialForm({
 
   return (
     <div
-      className="border-t border-slate-100 pt-5"
+      className="border-t border-border-subtle pt-5"
       data-testid={`erp-credential-${status.kind}`}
     >
-      <h3 className="text-sm font-semibold text-slate-900">
+      <h3 className="text-sm font-semibold text-fg">
         {KIND_LABEL[status.kind]}
       </h3>
-      <p className="mt-0.5 text-xs text-slate-500">{KIND_HINT[status.kind]}</p>
-      <p className="mt-0.5 text-xs text-slate-500">
+      <p className="mt-0.5 text-xs text-fg-muted">{KIND_HINT[status.kind]}</p>
+      <p className="mt-0.5 text-xs text-fg-muted">
         Credencial usada para autenticar no ERP desta empresa. Armazenada
         criptografada; não é possível exibi-la novamente depois de salva.
       </p>
@@ -216,7 +216,7 @@ export function ErpCredentialForm({
         <div
           role="alert"
           data-testid="credential-encryption-unavailable"
-          className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="mt-3 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg"
         >
           Criptografia de credenciais indisponível no servidor. Configure
           ERP_CREDENTIAL_ENCRYPTION_KEY para salvar credenciais.
@@ -227,7 +227,7 @@ export function ErpCredentialForm({
         <div
           role="alert"
           data-testid="credential-error"
-          className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="mt-3 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg"
         >
           {error}
         </div>
@@ -235,7 +235,7 @@ export function ErpCredentialForm({
       {notice && !error && (
         <div
           data-testid="credential-notice"
-          className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
+          className="mt-3 rounded-lg border border-success-border bg-success-bg px-3 py-2 text-sm text-success-fg"
         >
           {notice}
         </div>
@@ -243,14 +243,14 @@ export function ErpCredentialForm({
 
       <dl className="mt-4 space-y-2 text-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <dt className="text-slate-500">Status</dt>
+          <dt className="text-fg-muted">Status</dt>
           <dd data-testid="credential-status" className="font-medium">
             {status.configured ? (
-              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+              <span className="rounded-full bg-success-bg px-3 py-1 text-xs font-semibold text-success-fg">
                 Credencial configurada
               </span>
             ) : (
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+              <span className="rounded-full bg-surface-muted px-3 py-1 text-xs font-semibold text-fg-secondary">
                 Não configurada
               </span>
             )}
@@ -259,18 +259,18 @@ export function ErpCredentialForm({
         {status.configured && (
           <>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <dt className="text-slate-500">Token</dt>
+              <dt className="text-fg-muted">Token</dt>
               {/* The only fragment ever shown. */}
               <dd
                 data-testid="credential-masked"
-                className="font-mono text-slate-900"
+                className="font-mono text-fg"
               >
                 ••••••••••{status.last4 ?? ""}
               </dd>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <dt className="text-slate-500">Atualizada em</dt>
-              <dd data-testid="credential-updated-at" className="font-medium text-slate-900">
+              <dt className="text-fg-muted">Atualizada em</dt>
+              <dd data-testid="credential-updated-at" className="font-medium text-fg">
                 {formatDate(status.updatedAt)}
               </dd>
             </div>
@@ -284,7 +284,7 @@ export function ErpCredentialForm({
         em vez de repetir a ressalva genérica.
       */}
       {status.configured && !testResult && (
-        <p className="mt-3 text-xs text-slate-500">
+        <p className="mt-3 text-xs text-fg-muted">
           Credencial configurada não significa conexão validada. Use “Testar
           conexão” para validar esta credencial.
         </p>
@@ -295,8 +295,8 @@ export function ErpCredentialForm({
           data-testid="credential-test-result"
           className={`mt-3 rounded-lg border px-3 py-2 text-sm ${
             testResult.ok
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-amber-200 bg-amber-50 text-amber-800"
+              ? "border-success-border bg-success-bg text-success-fg"
+              : "border-warning-border bg-warning-bg text-warning-fg"
           }`}
         >
           <p className="font-semibold">
@@ -315,7 +315,7 @@ export function ErpCredentialForm({
           <div>
             <label
               htmlFor="erp-token"
-              className="mb-1 block text-sm font-medium text-slate-700"
+              className="mb-1 block text-sm font-medium text-fg-secondary"
             >
               {status.configured ? "Novo token" : "Token"}
             </label>
@@ -328,7 +328,7 @@ export function ErpCredentialForm({
               onChange={(e) => setToken(e.target.value)}
               disabled={busy !== null}
               data-testid="credential-input"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2.5 font-mono text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+              className="w-full rounded-lg border border-input-border px-3 py-2.5 font-mono text-sm text-fg focus:border-focus focus:outline-none"
             />
           </div>
           <div className="flex flex-wrap gap-3">
@@ -336,7 +336,7 @@ export function ErpCredentialForm({
               type="submit"
               disabled={busy !== null || !status.encryptionAvailable}
               data-testid="credential-save"
-              className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-fg disabled:cursor-not-allowed disabled:opacity-60"
             >
               {busy === "save" ? "Salvando..." : "Salvar"}
             </button>
@@ -349,7 +349,7 @@ export function ErpCredentialForm({
                   setError(null);
                 }}
                 disabled={busy !== null}
-                className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-60"
+                className="rounded-lg border border-input-border px-4 py-2.5 text-sm font-semibold text-fg-secondary disabled:opacity-60"
               >
                 Cancelar
               </button>
@@ -368,7 +368,7 @@ export function ErpCredentialForm({
             onClick={() => void testConnection()}
             disabled={busy !== null || !status.configured}
             data-testid="credential-test"
-            className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-lg border border-input-border px-4 py-2.5 text-sm font-semibold text-fg-secondary disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busy === "test" ? "Testando..." : "Testar conexão"}
           </button>
@@ -377,7 +377,7 @@ export function ErpCredentialForm({
             onClick={() => setEditing(true)}
             disabled={busy !== null}
             data-testid="credential-replace"
-            className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-60"
+            className="rounded-lg border border-input-border px-4 py-2.5 text-sm font-semibold text-fg-secondary disabled:opacity-60"
           >
             Substituir
           </button>
@@ -386,7 +386,7 @@ export function ErpCredentialForm({
             onClick={() => void remove()}
             disabled={busy !== null}
             data-testid="credential-remove"
-            className="rounded-lg border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-600 disabled:opacity-60"
+            className="rounded-lg border border-danger-border px-4 py-2.5 text-sm font-semibold text-danger-fg disabled:opacity-60"
           >
             {busy === "remove" ? "Removendo..." : "Remover"}
           </button>

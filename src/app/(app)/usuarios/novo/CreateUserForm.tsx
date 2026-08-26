@@ -51,7 +51,7 @@ export function CreateUserForm() {
       <div>
         <label
           htmlFor="name"
-          className="mb-1 block text-sm font-medium text-slate-700"
+          className="mb-1 block text-sm font-medium text-fg-secondary"
         >
           Nome
         </label>
@@ -63,7 +63,7 @@ export function CreateUserForm() {
           maxLength={120}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          className="w-full rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
           placeholder="Nome do usuário"
         />
       </div>
@@ -71,7 +71,7 @@ export function CreateUserForm() {
       <div>
         <label
           htmlFor="email"
-          className="mb-1 block text-sm font-medium text-slate-700"
+          className="mb-1 block text-sm font-medium text-fg-secondary"
         >
           E-mail
         </label>
@@ -82,7 +82,7 @@ export function CreateUserForm() {
           maxLength={255}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          className="w-full rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
           placeholder="usuario@empresa.com"
         />
       </div>
@@ -90,7 +90,7 @@ export function CreateUserForm() {
       <div>
         <label
           htmlFor="password"
-          className="mb-1 block text-sm font-medium text-slate-700"
+          className="mb-1 block text-sm font-medium text-fg-secondary"
         >
           Senha inicial
         </label>
@@ -102,7 +102,7 @@ export function CreateUserForm() {
           maxLength={128}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          className="w-full rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
           placeholder="Mínimo de 8 caracteres"
         />
       </div>
@@ -110,7 +110,7 @@ export function CreateUserForm() {
       <div>
         <label
           htmlFor="profile"
-          className="mb-1 block text-sm font-medium text-slate-700"
+          className="mb-1 block text-sm font-medium text-fg-secondary"
         >
           Perfil de acesso
         </label>
@@ -118,7 +118,7 @@ export function CreateUserForm() {
           id="profile"
           value={profile}
           onChange={(e) => setProfile(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          className="w-full rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
         >
           {PROFILES.map((p) => (
             <option key={p.value} value={p.value}>
@@ -131,7 +131,7 @@ export function CreateUserForm() {
       {error && (
         <div
           role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg"
         >
           {error}
         </div>
@@ -140,7 +140,7 @@ export function CreateUserForm() {
       <button
         type="submit"
         disabled={loading}
-        className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-fg transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? "Criando..." : "Criar usuário"}
       </button>

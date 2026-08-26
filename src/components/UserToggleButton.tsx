@@ -64,14 +64,14 @@ export function UserToggleButton({
         title={disabledReason}
         className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
           user.active
-            ? "border border-red-200 text-red-600 hover:bg-red-50"
-            : "border border-emerald-200 text-emerald-600 hover:bg-emerald-50"
+            ? "border border-danger-border text-danger-fg hover:bg-danger-bg"
+            : "border border-success-border text-success-fg hover:bg-success-bg"
         }`}
       >
         {loading ? "..." : user.active ? "Desativar" : "Reativar"}
       </button>
       {error && (
-        <p role="alert" className="max-w-[16rem] text-right text-xs text-red-600">
+        <p role="alert" className="max-w-[16rem] text-right text-xs text-danger-fg">
           {error}
         </p>
       )}

@@ -37,23 +37,23 @@ export default async function ProfilePage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Perfil</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-2xl font-bold text-fg">Perfil</h1>
+        <p className="mt-1 text-sm text-fg-muted">
           Suas informações de acesso.
         </p>
       </div>
 
-      <div className="max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="max-w-lg rounded-2xl border border-border bg-surface p-6 shadow-sm">
         <dl className="space-y-4">
           {fields.map((field) => (
             <div
               key={field.label}
-              className="flex items-start justify-between gap-4 border-b border-slate-100 pb-3 last:border-0"
+              className="flex items-start justify-between gap-4 border-b border-border-subtle pb-3 last:border-0"
             >
-              <dt className="text-sm font-medium text-slate-500">
+              <dt className="text-sm font-medium text-fg-muted">
                 {field.label}
               </dt>
-              <dd className="text-right text-sm font-medium text-slate-900">
+              <dd className="text-right text-sm font-medium text-fg">
                 {field.value}
               </dd>
             </div>

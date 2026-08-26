@@ -1,3 +1,279 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+  Design tokens do AlfaOS.
+
+  Cada token é um canal RGB separado por espaço — `15 23 42`, não `#0f172a`.
+  O formato existe para que o Tailwind possa aplicar opacidade sobre a
+  variável (`bg-primary/10`), o que `var(--x)` com hex não permite. O hex
+  equivalente vai no comentário de cada linha, porque ninguém ajusta um tema
+  escuro lendo tripla de inteiros.
+
+  A troca de tema acontece AQUI, trocando o valor das variáveis — não nos
+  componentes. É por isso que o codebase não tem `dark:` espalhado: um
+  componente escreve `bg-surface` uma vez e funciona nos dois temas.
+
+  Três blocos, nesta ordem:
+
+    :root                         tema claro, e o padrão de qualquer coisa
+    :root:not([data-theme])       escuro do sistema ANTES do script rodar
+    :root[data-theme="dark"]      escuro resolvido pelo script
+
+  O segundo existe para o caso sem JavaScript e para o instante anterior ao
+  script inline do `<head>`. Depois que ele roda, `data-theme` é sempre
+  concreto — `light` ou `dark`, nunca `system` — e o terceiro bloco manda.
+*/
+
+:root {
+  color-scheme: light;
+
+  /* Superfícies — do fundo da página para o elemento mais elevado. */
+  --background: 248 250 252; /* #f8fafc */
+  --surface: 255 255 255; /* #ffffff */
+  --surface-elevated: 255 255 255; /* #ffffff */
+  --surface-subtle: 248 250 252; /* #f8fafc */
+  --surface-muted: 241 245 249; /* #f1f5f9 */
+
+  /* Bordas. */
+  --border: 226 232 240; /* #e2e8f0 */
+  --border-subtle: 241 245 249; /* #f1f5f9 */
+  --border-strong: 203 213 225; /* #cbd5e1 */
+
+  /* Texto. */
+  --fg: 15 23 42; /* #0f172a */
+  --fg-secondary: 71 85 105; /* #475569 */
+  --fg-muted: 97 113 136; /* #617188 — slate-500 escurecido ate 4.5:1 sobre surface-muted */
+
+  /*
+    Azul AlfaOS. `primary` é fundo sólido; `primary-text` é o mesmo azul
+    usado como TEXTO sobre fundo do tema.
+
+    Os dois separados não é preciosismo: no escuro, o azul que funciona como
+    fundo de botão (com texto branco em cima) tem contraste de 3:1 quando
+    usado como texto sobre o fundo escuro — reprova em AA. São dois papéis
+    com dois requisitos opostos.
+  */
+  --primary: 37 99 235; /* #2563eb */
+  --primary-hover: 29 78 216; /* #1d4ed8 */
+  --primary-fg: 255 255 255; /* #ffffff */
+  --primary-text: 37 99 235; /* #2563eb */
+  --primary-text-hover: 29 78 216; /* #1d4ed8 */
+
+  /*
+    Verde de confirmação — o botão CONCLUIR ATENDIMENTO.
+
+    Era emerald-600 com texto branco: 3.0:1, reprova AA para texto normal.
+    emerald-700 leva a 4.5:1 sem mudar o que a cor comunica.
+  */
+  --confirm: 4 120 87; /* #047857 */
+  --confirm-hover: 6 95 70; /* #065f46 */
+
+  /* Foco. `focus-soft` é o halo; `focus` é a borda que ele acompanha. */
+  --focus: 59 130 246; /* #3b82f6 */
+  --focus-soft: 219 234 254; /* #dbeafe */
+
+  /* Estados operacionais. */
+  --success-bg: 236 253 245; /* #ecfdf5 */
+  --success-border: 167 243 208; /* #a7f3d0 */
+  --success-fg: 4 120 87; /* #047857 */
+
+  --warning-bg: 255 251 235; /* #fffbeb */
+  --warning-border: 253 230 138; /* #fde68a */
+  --warning-fg: 180 83 9; /* #b45309 */
+
+  --danger-bg: 254 242 242; /* #fef2f2 */
+  --danger-border: 254 202 202; /* #fecaca */
+  --danger-fg: 185 28 28; /* #b91c1c */
+
+  --info-bg: 239 246 255; /* #eff6ff */
+  --info-border: 191 219 254; /* #bfdbfe */
+  --info-fg: 29 78 216; /* #1d4ed8 */
+
+  --progress-bg: 245 243 255; /* #f5f3ff */
+  --progress-border: 221 214 254; /* #ddd6fe */
+  --progress-fg: 109 40 217; /* #6d28d9 */
+
+  --neutral-bg: 241 245 249; /* #f1f5f9 */
+  --neutral-border: 226 232 240; /* #e2e8f0 */
+  --neutral-fg: 71 85 105; /* #475569 */
+
+  /*
+    Campos de formulário.
+
+    `input-bg` é separado de `surface` por causa do tema escuro: um campo com
+    a mesma cor do card em que ele está não se lê como campo. No claro os dois
+    coincidem, e é assim que o tema atual já é.
+  */
+  --input-bg: 255 255 255; /* #ffffff */
+  --input-border: 136 150 169; /* #8896a9 — 3:1 sobre a superficie, WCAG 1.4.11 */
+
+  --overlay: 15 23 42; /* #0f172a */
+}
+
+/*
+  Escuro do sistema, antes de o script resolver — e para quem navega sem
+  JavaScript. Não pode casar quando o usuário escolheu `light`
+  explicitamente, daí o `:not([data-theme])`.
+*/
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+
+    --background: 15 23 42; /* #0f172a */
+    --surface: 30 41 59; /* #1e293b */
+    --surface-elevated: 51 65 85; /* #334155 */
+    --surface-subtle: 23 32 51; /* #172033 */
+    --surface-muted: 51 65 85; /* #334155 */
+
+    --border: 51 65 85; /* #334155 */
+    --border-subtle: 30 41 59; /* #1e293b */
+    --border-strong: 71 85 105; /* #475569 */
+
+    --fg: 241 245 249; /* #f1f5f9 */
+    --fg-secondary: 203 213 225; /* #cbd5e1 */
+    --fg-muted: 159 173 192; /* #9fadc0 */
+
+    --primary: 37 99 235; /* #2563eb */
+    --primary-hover: 59 130 246; /* #3b82f6 */
+    --primary-fg: 255 255 255; /* #ffffff */
+    --primary-text: 96 165 250; /* #60a5fa */
+    --primary-text-hover: 147 197 253; /* #93c5fd */
+
+    --confirm: 4 120 87; /* #047857 */
+    --confirm-hover: 5 150 105; /* #059669 */
+
+    --focus: 96 165 250; /* #60a5fa */
+    --focus-soft: 30 58 138; /* #1e3a8a */
+
+    --success-bg: 2 44 34; /* #022c22 */
+    --success-border: 6 95 70; /* #065f46 */
+    --success-fg: 110 231 183; /* #6ee7b7 */
+
+    --warning-bg: 69 26 3; /* #451a03 */
+    --warning-border: 120 53 15; /* #78350f */
+    --warning-fg: 252 211 77; /* #fcd34d */
+
+    --danger-bg: 69 10 10; /* #450a0a */
+    --danger-border: 127 29 29; /* #7f1d1d */
+    --danger-fg: 252 165 165; /* #fca5a5 */
+
+    --info-bg: 23 37 84; /* #172554 */
+    --info-border: 30 58 138; /* #1e3a8a */
+    --info-fg: 147 197 253; /* #93c5fd */
+
+    --progress-bg: 46 16 101; /* #2e1065 */
+    --progress-border: 76 29 149; /* #4c1d95 */
+    --progress-fg: 196 181 253; /* #c4b5fd */
+
+    --neutral-bg: 51 65 85; /* #334155 */
+    --neutral-border: 71 85 105; /* #475569 */
+    --neutral-fg: 203 213 225; /* #cbd5e1 */
+
+    --input-bg: 15 23 42; /* #0f172a */
+    --input-border: 102 116 137; /* #667489 */
+
+    --overlay: 2 6 23; /* #020617 */
+  }
+}
+
+/*
+  Escuro resolvido. Mesmos valores do bloco acima — duplicados de propósito:
+  um seletor não pode entrar dentro de `@media` e valer fora dele, e agrupar
+  os dois numa lista faria a regra inteira ser descartada por navegador que
+  não entenda um dos seletores.
+*/
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: 15 23 42; /* #0f172a */
+  --surface: 30 41 59; /* #1e293b */
+  --surface-elevated: 51 65 85; /* #334155 */
+  --surface-subtle: 23 32 51; /* #172033 */
+  --surface-muted: 51 65 85; /* #334155 */
+
+  --border: 51 65 85; /* #334155 */
+  --border-subtle: 30 41 59; /* #1e293b */
+  --border-strong: 71 85 105; /* #475569 */
+
+  --fg: 241 245 249; /* #f1f5f9 */
+  --fg-secondary: 203 213 225; /* #cbd5e1 */
+  --fg-muted: 159 173 192; /* #9fadc0 */
+
+  --primary: 37 99 235; /* #2563eb */
+  --primary-hover: 59 130 246; /* #3b82f6 */
+  --primary-fg: 255 255 255; /* #ffffff */
+  --primary-text: 96 165 250; /* #60a5fa */
+  --primary-text-hover: 147 197 253; /* #93c5fd */
+
+  --confirm: 4 120 87; /* #047857 */
+  --confirm-hover: 5 150 105; /* #059669 */
+
+  --focus: 96 165 250; /* #60a5fa */
+  --focus-soft: 30 58 138; /* #1e3a8a */
+
+  --success-bg: 2 44 34; /* #022c22 */
+  --success-border: 6 95 70; /* #065f46 */
+  --success-fg: 110 231 183; /* #6ee7b7 */
+
+  --warning-bg: 69 26 3; /* #451a03 */
+  --warning-border: 120 53 15; /* #78350f */
+  --warning-fg: 252 211 77; /* #fcd34d */
+
+  --danger-bg: 69 10 10; /* #450a0a */
+  --danger-border: 127 29 29; /* #7f1d1d */
+  --danger-fg: 252 165 165; /* #fca5a5 */
+
+  --info-bg: 23 37 84; /* #172554 */
+  --info-border: 30 58 138; /* #1e3a8a */
+  --info-fg: 147 197 253; /* #93c5fd */
+
+  --progress-bg: 46 16 101; /* #2e1065 */
+  --progress-border: 76 29 149; /* #4c1d95 */
+  --progress-fg: 196 181 253; /* #c4b5fd */
+
+  --neutral-bg: 51 65 85; /* #334155 */
+  --neutral-border: 71 85 105; /* #475569 */
+  --neutral-fg: 203 213 225; /* #cbd5e1 */
+
+  --input-bg: 15 23 42; /* #0f172a */
+  --input-border: 102 116 137; /* #667489 */
+
+  --overlay: 2 6 23; /* #020617 */
+}
+
+@layer base {
+  /*
+    Rede de segurança de foco.
+
+    O codebase tem ~30 `outline-none`, cada um acompanhado de um `ring`
+    próprio. Isto garante que um `outline-none` esquecido sem substituto
+    ainda deixe o elemento visível ao teclado, em vez de desaparecer.
+
+    `:focus-visible` e não `:focus`: o anel não aparece em clique de mouse.
+  */
+  :focus-visible {
+    outline: 2px solid rgb(var(--focus));
+    outline-offset: 2px;
+  }
+
+  /*
+    Autopreenchimento do navegador.
+
+    O Chrome pinta o campo autopreenchido com fundo próprio e ignora
+    `background-color`. No tema escuro isso resulta em fundo claro com o
+    texto claro do tema por cima — ilegível. O `inset box-shadow` é a única
+    forma que o Chrome respeita, e `-webkit-text-fill-color` recupera o texto.
+  */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: rgb(var(--fg));
+    -webkit-box-shadow: 0 0 0 1000px rgb(var(--input-bg)) inset;
+    caret-color: rgb(var(--fg));
+    transition: background-color 5000s ease-in-out 0s;
+  }
+}

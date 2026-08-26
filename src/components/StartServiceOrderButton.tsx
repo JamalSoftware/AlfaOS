@@ -58,7 +58,7 @@ export function StartServiceOrderButton({
       {error && (
         <div
           role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg"
         >
           {error}
         </div>
@@ -67,7 +67,7 @@ export function StartServiceOrderButton({
         type="button"
         onClick={handleStart}
         disabled={loading}
-        className="w-full rounded-xl bg-blue-600 px-4 py-4 text-base font-bold uppercase tracking-wide text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full rounded-xl bg-primary px-4 py-4 text-base font-bold uppercase tracking-wide text-primary-fg shadow-sm transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? "Iniciando..." : "Iniciar atendimento"}
       </button>

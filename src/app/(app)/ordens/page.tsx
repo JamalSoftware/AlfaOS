@@ -67,14 +67,14 @@ export default async function OrdersPage({ searchParams }: PageProps) {
   }
 
   const selectClass =
-    "rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100";
+    "rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft";
 
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Ordens de Serviço</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <h1 className="text-2xl font-bold text-fg">Ordens de Serviço</h1>
+          <p className="mt-1 text-sm text-fg-muted">
             Acompanhe, atribua e sincronize as OS da sua empresa.
           </p>
         </div>
@@ -82,7 +82,7 @@ export default async function OrdersPage({ searchParams }: PageProps) {
           {isAdmin && <SyncERPButton />}
           <Link
             href="/ordens/novo"
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-fg transition-colors hover:bg-primary-hover"
           >
             Nova OS
           </Link>
@@ -91,14 +91,14 @@ export default async function OrdersPage({ searchParams }: PageProps) {
 
       <form
         method="get"
-        className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+        className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-surface p-4 shadow-sm"
       >
         <input
           type="search"
           name="search"
           defaultValue={search}
           placeholder="Buscar por nº, cliente, tipo ou descrição..."
-          className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          className="min-w-0 flex-1 rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
         />
         <select name="status" defaultValue={status} className={selectClass}>
           <option value="">Todos os status</option>
@@ -120,13 +120,13 @@ export default async function OrdersPage({ searchParams }: PageProps) {
         </select>
         <button
           type="submit"
-          className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+          className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-fg-secondary transition-colors hover:bg-surface-muted"
         >
           Filtrar
         </button>
       </form>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
         {result.serviceOrders.length === 0 ? (
           <EmptyState
             title="Nenhuma OS encontrada"
@@ -134,43 +134,43 @@ export default async function OrdersPage({ searchParams }: PageProps) {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50">
+            <table className="min-w-full divide-y divide-border text-sm">
+              <thead className="bg-surface-subtle">
                 <tr>
                   {/*
                     Número OPERACIONAL. Antes esta coluna mostrava
                     `externalNumber ?? id.slice(0, 8)` — ou seja, um prefixo de
                     cuid para toda OS criada no AlfaOS.
                   */}
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Nº</th>
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Cliente</th>
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Tipo</th>
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Prioridade</th>
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Status</th>
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Técnico</th>
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-slate-600">Criada em</th>
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Nº</th>
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Cliente</th>
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Tipo</th>
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Prioridade</th>
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Status</th>
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Técnico</th>
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Criada em</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-border-subtle">
                 {result.serviceOrders.map((order) => (
-                  <tr key={order.id} className="hover:bg-slate-50">
+                  <tr key={order.id} className="hover:bg-surface-subtle">
                     <td className="px-5 py-3">
                       <Link
                         href={`/ordens/${order.id}`}
-                        className="font-semibold text-blue-600 hover:text-blue-700"
+                        className="font-semibold text-primary-text hover:text-primary-text-hover"
                       >
                         {`Nº ${order.number}`}
                       </Link>
                     </td>
-                    <td className="px-5 py-3 text-slate-900">{order.customer.name}</td>
-                    <td className="px-5 py-3 text-slate-600">
+                    <td className="px-5 py-3 text-fg">{order.customer.name}</td>
+                    <td className="px-5 py-3 text-fg-secondary">
                       {order.type}
                       {order.subtype ? ` · ${order.subtype}` : ""}
                     </td>
                     <td className="px-5 py-3"><PriorityBadge priority={order.priority} /></td>
                     <td className="px-5 py-3"><StatusBadge status={order.status} /></td>
-                    <td className="px-5 py-3 text-slate-600">{order.technician?.name ?? "—"}</td>
-                    <td className="px-5 py-3 text-slate-500">{formatDate(order.createdAt)}</td>
+                    <td className="px-5 py-3 text-fg-secondary">{order.technician?.name ?? "—"}</td>
+                    <td className="px-5 py-3 text-fg-muted">{formatDate(order.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>

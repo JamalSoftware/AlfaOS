@@ -74,7 +74,7 @@ export function EditUserForm({ user, isSelf = false }: EditUserFormProps) {
       <div>
         <label
           htmlFor="name"
-          className="mb-1 block text-sm font-medium text-slate-700"
+          className="mb-1 block text-sm font-medium text-fg-secondary"
         >
           Nome
         </label>
@@ -86,14 +86,14 @@ export function EditUserForm({ user, isSelf = false }: EditUserFormProps) {
           maxLength={120}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          className="w-full rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
         />
       </div>
 
       <div>
         <label
           htmlFor="email"
-          className="mb-1 block text-sm font-medium text-slate-700"
+          className="mb-1 block text-sm font-medium text-fg-secondary"
         >
           E-mail
         </label>
@@ -104,14 +104,14 @@ export function EditUserForm({ user, isSelf = false }: EditUserFormProps) {
           maxLength={255}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          className="w-full rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
         />
       </div>
 
       <div>
         <label
           htmlFor="profile"
-          className="mb-1 block text-sm font-medium text-slate-700"
+          className="mb-1 block text-sm font-medium text-fg-secondary"
         >
           Perfil de acesso
         </label>
@@ -120,7 +120,7 @@ export function EditUserForm({ user, isSelf = false }: EditUserFormProps) {
           value={profile}
           disabled={isSelf}
           onChange={(e) => setProfile(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
+          className="w-full rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-fg-muted"
         >
           {PROFILES.map((p) => (
             <option key={p.value} value={p.value}>
@@ -133,10 +133,10 @@ export function EditUserForm({ user, isSelf = false }: EditUserFormProps) {
       <div>
         <label
           htmlFor="password"
-          className="mb-1 block text-sm font-medium text-slate-700"
+          className="mb-1 block text-sm font-medium text-fg-secondary"
         >
           Nova senha{" "}
-          <span className="font-normal text-slate-400">(opcional)</span>
+          <span className="font-normal text-fg-muted">(opcional)</span>
         </label>
         <input
           id="password"
@@ -145,14 +145,14 @@ export function EditUserForm({ user, isSelf = false }: EditUserFormProps) {
           maxLength={128}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          className="w-full rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
           placeholder="Deixe em branco para manter a atual"
         />
       </div>
 
       <label
-        className={`flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2.5 ${
-          isSelf ? "cursor-not-allowed bg-slate-50" : "cursor-pointer"
+        className={`flex items-center gap-3 rounded-lg border border-border px-3 py-2.5 ${
+          isSelf ? "cursor-not-allowed bg-surface-subtle" : "cursor-pointer"
         }`}
       >
         <input
@@ -160,15 +160,15 @@ export function EditUserForm({ user, isSelf = false }: EditUserFormProps) {
           checked={active}
           disabled={isSelf}
           onChange={(e) => setActive(e.target.checked)}
-          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-100 disabled:cursor-not-allowed"
+          className="h-4 w-4 rounded border-input-border text-primary-text focus:ring-focus-soft disabled:cursor-not-allowed"
         />
-        <span className="text-sm font-medium text-slate-700">
+        <span className="text-sm font-medium text-fg-secondary">
           Usuário ativo
         </span>
       </label>
 
       {isSelf && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-fg-muted">
           Perfil de acesso e status não podem ser alterados na própria conta.
           Peça a outro administrador da empresa.
         </p>
@@ -177,7 +177,7 @@ export function EditUserForm({ user, isSelf = false }: EditUserFormProps) {
       {error && (
         <div
           role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg"
         >
           {error}
         </div>
@@ -186,7 +186,7 @@ export function EditUserForm({ user, isSelf = false }: EditUserFormProps) {
       <button
         type="submit"
         disabled={loading}
-        className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-fg transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? "Salvando..." : "Salvar alterações"}
       </button>

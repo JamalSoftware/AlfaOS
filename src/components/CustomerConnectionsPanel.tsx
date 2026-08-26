@@ -51,9 +51,9 @@ const PASSWORD_SOURCE_LABEL: Record<ConnectionRow["passwordSource"], string> = {
 };
 
 const inputClass =
-  "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100";
+  "w-full rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft";
 
-const labelClass = "mb-1 block text-sm font-medium text-slate-700";
+const labelClass = "mb-1 block text-sm font-medium text-fg-secondary";
 
 export function CustomerConnectionsPanel({
   customerId,
@@ -163,11 +163,11 @@ export function CustomerConnectionsPanel({
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-900">
+    <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+      <h2 className="text-base font-semibold text-fg">
         Conexões de acesso
       </h2>
-      <p className="mt-1 text-sm text-slate-500">
+      <p className="mt-1 text-sm text-fg-muted">
         Credenciais PPPoE do cliente. A senha é armazenada criptografada e nunca
         é reexibida — para trocá-la, digite uma nova.
       </p>
@@ -177,17 +177,17 @@ export function CustomerConnectionsPanel({
           {connections.map((connection) => (
             <li
               key={connection.id}
-              className="rounded-xl border border-slate-200 p-4"
+              className="rounded-xl border border-border p-4"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">
                     {connection.type}
                   </p>
-                  <p className="mt-0.5 truncate font-medium text-slate-900">
+                  <p className="mt-0.5 truncate font-medium text-fg">
                     {connection.username}
                   </p>
-                  <p className="mt-0.5 text-xs text-slate-500">
+                  <p className="mt-0.5 text-xs text-fg-muted">
                     Fonte do usuário:{" "}
                     {USERNAME_SOURCE_LABEL[connection.usernameSource]}
                   </p>
@@ -196,8 +196,8 @@ export function CustomerConnectionsPanel({
                     <span
                       className={
                         connection.passwordConfigured
-                          ? "font-semibold text-emerald-700"
-                          : "font-semibold text-amber-700"
+                          ? "font-semibold text-success-fg"
+                          : "font-semibold text-warning-fg"
                       }
                     >
                       {connection.passwordConfigured
@@ -206,7 +206,7 @@ export function CustomerConnectionsPanel({
                     </span>
                   </p>
                   {connection.passwordConfigured && (
-                    <p className="mt-0.5 text-xs text-slate-500">
+                    <p className="mt-0.5 text-xs text-fg-muted">
                       Origem da senha:{" "}
                       {PASSWORD_SOURCE_LABEL[connection.passwordSource]}
                     </p>
@@ -216,8 +216,8 @@ export function CustomerConnectionsPanel({
                   <span
                     className={
                       connection.active
-                        ? "rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700"
-                        : "rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500"
+                        ? "rounded-full bg-success-bg px-2 py-0.5 text-xs font-semibold text-success-fg"
+                        : "rounded-full bg-surface-muted px-2 py-0.5 text-xs font-semibold text-fg-muted"
                     }
                   >
                     {connection.active ? "Ativa" : "Inativa"}
@@ -229,7 +229,7 @@ export function CustomerConnectionsPanel({
                         replacingId === connection.id ? null : connection.id,
                       )
                     }
-                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-fg-secondary transition-colors hover:bg-surface-muted"
                   >
                     {connection.passwordConfigured
                       ? "Trocar senha"
@@ -239,7 +239,7 @@ export function CustomerConnectionsPanel({
                     type="button"
                     data-testid="copy-username"
                     onClick={() => copyUsername(connection)}
-                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-fg-secondary transition-colors hover:bg-surface-muted"
                   >
                     {copiedId === connection.id ? "Copiado" : "Copiar usuário"}
                   </button>
@@ -252,7 +252,7 @@ export function CustomerConnectionsPanel({
                         restoreDefaultPassword: true,
                       })
                     }
-                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-fg-secondary transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Restaurar padrão
                   </button>
@@ -264,7 +264,7 @@ export function CustomerConnectionsPanel({
                         active: !connection.active,
                       })
                     }
-                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-fg-secondary transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {connection.active ? "Desativar" : "Reativar"}
                   </button>
@@ -294,7 +294,7 @@ export function CustomerConnectionsPanel({
                     type="button"
                     disabled={pendingId === connection.id}
                     onClick={() => handleReplace(connection.id)}
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-fg transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Salvar senha
                   </button>
@@ -307,9 +307,9 @@ export function CustomerConnectionsPanel({
 
       <form
         onSubmit={handleCreate}
-        className="mt-5 border-t border-slate-100 pt-5"
+        className="mt-5 border-t border-border-subtle pt-5"
       >
-        <h3 className="mb-3 text-sm font-semibold text-slate-900">
+        <h3 className="mb-3 text-sm font-semibold text-fg">
           Nova conexão PPPoE
         </h3>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -347,19 +347,19 @@ export function CustomerConnectionsPanel({
         {error && (
           <div
             role="alert"
-            className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+            className="mt-3 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg"
           >
             {error}
           </div>
         )}
         {notice && (
-          <p className="mt-3 text-sm text-emerald-700">{notice}</p>
+          <p className="mt-3 text-sm text-success-fg">{notice}</p>
         )}
 
         <button
           type="submit"
           disabled={creating}
-          className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-fg transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
         >
           {creating ? "Salvando..." : "Cadastrar conexão"}
         </button>

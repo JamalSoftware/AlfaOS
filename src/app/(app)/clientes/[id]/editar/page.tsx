@@ -35,20 +35,20 @@ export default async function EditCustomerPage({
       <div className="mb-6">
         <Link
           href="/clientes"
-          className="text-sm font-medium text-blue-600 hover:text-blue-700"
+          className="text-sm font-medium text-primary-text hover:text-primary-text-hover"
         >
           ← Voltar para clientes
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-slate-900">
+        <h1 className="mt-2 text-2xl font-bold text-fg">
           Editar cliente
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-fg-muted">
           Atualize os dados do cliente {customer.name}.
         </p>
       </div>
 
       <div className="max-w-2xl space-y-6">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
           <CustomerForm mode="edit" customer={customer} backHref="/clientes" />
         </div>
 

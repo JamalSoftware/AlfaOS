@@ -48,9 +48,9 @@ function enrichmentWarning(outcome: string | undefined): string {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100";
+  "w-full rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft";
 
-const labelClass = "mb-1 block text-sm font-medium text-slate-700";
+const labelClass = "mb-1 block text-sm font-medium text-fg-secondary";
 
 export function ServiceOrderForm({
   customers,
@@ -237,12 +237,12 @@ export function ServiceOrderForm({
       {erpLookup?.enabled && (
         <div
           data-testid="erp-lookup"
-          className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+          className="rounded-xl border border-border bg-surface-subtle p-4"
         >
-          <h3 className="text-sm font-semibold text-slate-900">
+          <h3 className="text-sm font-semibold text-fg">
             Buscar cliente no {erpLookup.providerLabel}
           </h3>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-fg-muted">
             Consulta somente leitura. A OS criada continua sendo interna do
             AlfaOS.
           </p>
@@ -279,14 +279,14 @@ export function ServiceOrderForm({
               data-testid="erp-search"
               disabled={erpBusy}
               onClick={handleErpSearch}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg border border-input-border px-4 py-2 text-sm font-semibold text-fg-secondary transition-colors hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60"
             >
               {erpBusy ? "Buscando..." : "Buscar"}
             </button>
           </div>
 
           {erpHits !== null && erpHits.length === 0 && (
-            <p className="mt-3 text-sm text-slate-500">
+            <p className="mt-3 text-sm text-fg-muted">
               Nenhum cliente encontrado.
             </p>
           )}
@@ -296,13 +296,13 @@ export function ServiceOrderForm({
               {erpHits.map((hit) => (
                 <li
                   key={hit.externalId}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface px-3 py-2"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-900">
+                    <p className="truncate text-sm font-medium text-fg">
                       {hit.name}
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-fg-muted">
                       {hit.document ?? "sem documento"}
                       {hit.city ? ` · ${hit.city}` : ""}
                       {hit.state ? `/${hit.state}` : ""}
@@ -313,7 +313,7 @@ export function ServiceOrderForm({
                     type="button"
                     disabled={erpBusy}
                     onClick={() => handleErpSelect(hit)}
-                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-fg transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {hit.localCustomerId ? "Selecionar e atualizar" : "Importar e usar"}
                   </button>
@@ -323,14 +323,14 @@ export function ServiceOrderForm({
           )}
 
           {erpNotice && (
-            <p data-testid="erp-notice" className="mt-3 text-sm text-emerald-700">
+            <p data-testid="erp-notice" className="mt-3 text-sm text-success-fg">
               {erpNotice}
             </p>
           )}
           {erpError && (
             <div
               role="alert"
-              className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+              className="mt-3 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg"
             >
               {erpError}
             </div>
@@ -377,7 +377,7 @@ export function ServiceOrderForm({
             ))}
           </select>
           {types.length === 0 && (
-            <p className="mt-1 text-xs text-amber-700">
+            <p className="mt-1 text-xs text-warning-fg">
               Um ADMIN precisa cadastrar tipos de OS em Configurações › Tipos de
               OS antes de abrir uma ordem.
             </p>
@@ -440,7 +440,7 @@ export function ServiceOrderForm({
       </div>
 
       {error && (
-        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div role="alert" className="rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">
           {error}
         </div>
       )}
@@ -449,13 +449,13 @@ export function ServiceOrderForm({
         <button
           type="submit"
           disabled={loading}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-fg transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? "Criando..." : "Criar OS"}
         </button>
         <a
           href="/ordens"
-          className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+          className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-fg-secondary transition-colors hover:bg-surface-muted"
         >
           Cancelar
         </a>

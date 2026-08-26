@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { StatusPill, type StatusTone } from "./StatusPill";
 
 /**
  * Only domain fields. Labels are derived here rather than carried in the
@@ -24,10 +25,17 @@ export interface DiagnosticView {
   serverMaintenance?: boolean | null;
 }
 
-const STATUS_STYLES: Record<string, string> = {
-  ONLINE: "bg-emerald-100 text-emerald-800",
-  OFFLINE: "bg-red-100 text-red-800",
-  UNKNOWN: "bg-slate-100 text-slate-700",
+/**
+ * Tom por estado de conectividade.
+ *
+ * UNKNOWN tem tom PRÓPRIO e neutro, nunca o de OFFLINE: erro de integração
+ * não é cliente sem sinal. Confundir os dois manda o técnico investigar um
+ * problema de rede que não existe.
+ */
+const STATUS_TONES: Record<string, StatusTone> = {
+  ONLINE: "success",
+  OFFLINE: "danger",
+  UNKNOWN: "neutral",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -112,10 +120,10 @@ export function CustomerDiagnosticPanel({
 
   return (
     <div
-      className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+      className="rounded-2xl border border-border bg-surface p-5 shadow-sm"
       data-testid="diagnostic-panel"
     >
-      <h2 className="mb-3 text-base font-semibold text-slate-900">
+      <h2 className="mb-3 text-base font-semibold text-fg">
         Diagnóstico do cliente
       </h2>
 
@@ -123,7 +131,7 @@ export function CustomerDiagnosticPanel({
         <div
           role="alert"
           data-testid="diagnostic-failure"
-          className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+          className="mb-3 rounded-lg border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-fg"
         >
           {failure}
           {diagnostic && (
@@ -138,34 +146,33 @@ export function CustomerDiagnosticPanel({
       {diagnostic ? (
         <dl className="space-y-2 text-sm">
           <div className="flex items-center justify-between gap-3">
-            <dt className="text-slate-500">Conectividade</dt>
+            <dt className="text-fg-muted">Conectividade</dt>
             <dd>
-              <span
+              <StatusPill
                 data-testid="diagnostic-status"
-                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                  STATUS_STYLES[diagnostic.connectivityStatus] ??
-                  STATUS_STYLES.UNKNOWN
-                }`}
-              >
-                {statusLabel(diagnostic.connectivityStatus)}
-              </span>
+                tone={
+                  STATUS_TONES[diagnostic.connectivityStatus] ??
+                  STATUS_TONES.UNKNOWN
+                }
+                label={statusLabel(diagnostic.connectivityStatus)}
+              />
             </dd>
           </div>
           <div className="flex items-center justify-between gap-3">
-            <dt className="text-slate-500">Última atualização</dt>
+            <dt className="text-fg-muted">Última atualização</dt>
             <dd
               data-testid="diagnostic-observed-at"
-              className="font-medium text-slate-900"
+              className="font-medium text-fg"
             >
               {formatTime(diagnostic.observedAt)}
             </dd>
           </div>
           {diagnostic.technology != null && (
             <div className="flex items-center justify-between gap-3">
-              <dt className="text-slate-500">Tecnologia</dt>
+              <dt className="text-fg-muted">Tecnologia</dt>
               <dd
                 data-testid="diagnostic-technology"
-                className="font-medium text-slate-900"
+                className="font-medium text-fg"
               >
                 {/* Código do provider, sem tradução — ver DiagnosticView. */}
                 código {diagnostic.technology}
@@ -174,13 +181,13 @@ export function CustomerDiagnosticPanel({
           )}
           {diagnostic.serverMaintenance != null && (
             <div className="flex items-center justify-between gap-3">
-              <dt className="text-slate-500">Servidor</dt>
+              <dt className="text-fg-muted">Servidor</dt>
               <dd
                 data-testid="diagnostic-maintenance"
                 className={
                   diagnostic.serverMaintenance
-                    ? "font-semibold text-amber-700"
-                    : "font-medium text-slate-900"
+                    ? "font-semibold text-warning-fg"
+                    : "font-medium text-fg"
                 }
               >
                 {diagnostic.serverMaintenance
@@ -190,17 +197,17 @@ export function CustomerDiagnosticPanel({
             </div>
           )}
           <div className="flex items-center justify-between gap-3">
-            <dt className="text-slate-500">Fonte</dt>
+            <dt className="text-fg-muted">Fonte</dt>
             {/* The provider label is what the SERVER resolved, so mock data is
                 never presented as if it came from a real ERP. */}
-            <dd className="font-medium text-slate-900">
+            <dd className="font-medium text-fg">
               {providerLabel(diagnostic.provider)}
             </dd>
           </div>
         </dl>
       ) : (
         !failure && (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-fg-muted">
             Nenhum diagnóstico registrado para este cliente.
           </p>
         )
@@ -211,7 +218,7 @@ export function CustomerDiagnosticPanel({
         onClick={() => void refresh()}
         disabled={loading}
         data-testid="diagnostic-refresh"
-        className="mt-4 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+        className="mt-4 w-full rounded-lg border border-input-border px-3 py-2.5 text-sm font-semibold text-fg-secondary transition-colors hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? "Atualizando..." : "Atualizar diagnóstico"}
       </button>

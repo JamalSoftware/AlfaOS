@@ -44,31 +44,31 @@ function OrderCard({
   return (
     <Link
       href={`/ordens/${order.id}`}
-      className="block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50/30"
+      className="block rounded-2xl border border-border bg-surface p-5 shadow-sm transition-colors hover:border-primary hover:bg-info-bg/30"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p
             data-testid="order-number"
-            className="text-sm font-semibold text-blue-600"
+            className="text-sm font-semibold text-primary-text"
           >
             {formatServiceOrderNumber(order)}
           </p>
-          <p className="mt-1 truncate font-medium text-slate-900">{order.customer.name}</p>
+          <p className="mt-1 truncate font-medium text-fg">{order.customer.name}</p>
           {order.customer.city && (
-            <p className="mt-0.5 truncate text-sm text-slate-500">
+            <p className="mt-0.5 truncate text-sm text-fg-muted">
               {order.customer.city}
               {order.customer.state ? `/${order.customer.state}` : ""}
             </p>
           )}
-          <p className="mt-1 line-clamp-2 text-sm text-slate-500">{order.description}</p>
+          <p className="mt-1 line-clamp-2 text-sm text-fg-muted">{order.description}</p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <PriorityBadge priority={order.priority} />
           <StatusBadge status={order.status} />
         </div>
       </div>
-      <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-500">
+      <div className="mt-3 flex items-center justify-between border-t border-border-subtle pt-3 text-xs text-fg-muted">
         <span>
           {order.type}
           {order.subtype ? ` · ${order.subtype}` : ""}
@@ -91,9 +91,9 @@ export default async function MyOrdersPage() {
     return (
       <div>
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-slate-900">Minhas OS</h1>
+          <h1 className="text-2xl font-bold text-fg">Minhas OS</h1>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="rounded-2xl border border-border bg-surface shadow-sm">
           <EmptyState
             title="Você ainda não está cadastrado como técnico"
             description="Sua empresa precisa vincular seu usuário a um técnico para receber OS."
@@ -117,8 +117,8 @@ export default async function MyOrdersPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Minhas OS</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-2xl font-bold text-fg">Minhas OS</h1>
+        <p className="mt-1 text-sm text-fg-muted">
           Ordens atribuídas a você. Prioridade máxima {SERVICE_ORDER_PRIORITY_LABELS.URGENT}.
         </p>
       </div>
@@ -131,9 +131,9 @@ export default async function MyOrdersPage() {
       {technician.executionIssue && (
         <div
           role="alert"
-          className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4"
+          className="mb-6 rounded-2xl border border-warning-border bg-warning-bg p-4"
         >
-          <p className="text-sm text-amber-800">{technician.executionIssue}</p>
+          <p className="text-sm text-warning-fg">{technician.executionIssue}</p>
         </div>
       )}
 
@@ -143,7 +143,7 @@ export default async function MyOrdersPage() {
       */}
       {queue.inProgress.length > 0 && (
         <section className="mb-8">
-          <h2 className="mb-3 text-base font-semibold text-slate-900">
+          <h2 className="mb-3 text-base font-semibold text-fg">
             Em atendimento
           </h2>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -155,9 +155,9 @@ export default async function MyOrdersPage() {
       )}
 
       <section className="mb-8">
-        <h2 className="mb-3 text-base font-semibold text-slate-900">Hoje</h2>
+        <h2 className="mb-3 text-base font-semibold text-fg">Hoje</h2>
         {queue.today.length === 0 ? (
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="rounded-2xl border border-border bg-surface shadow-sm">
             <EmptyState
               title="Nenhuma OS agendada para hoje"
               description="As OS agendadas para hoje aparecerão aqui."
@@ -173,9 +173,9 @@ export default async function MyOrdersPage() {
       </section>
 
       <section className="mb-8">
-        <h2 className="mb-3 text-base font-semibold text-slate-900">Próximas</h2>
+        <h2 className="mb-3 text-base font-semibold text-fg">Próximas</h2>
         {queue.upcoming.length === 0 ? (
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="rounded-2xl border border-border bg-surface shadow-sm">
             <EmptyState
               title="Nenhuma OS próxima"
               description="Quando uma OS for atribuída a você, ela aparecerá aqui."
@@ -199,11 +199,11 @@ export default async function MyOrdersPage() {
         nunca mostra atendimento de outro técnico nem de outra empresa.
       */}
       <section>
-        <h2 className="mb-3 text-base font-semibold text-slate-900">
+        <h2 className="mb-3 text-base font-semibold text-fg">
           Concluídas recentes
         </h2>
         {completed.length === 0 ? (
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="rounded-2xl border border-border bg-surface shadow-sm">
             <EmptyState
               title="Nenhuma OS concluída nos últimos dias"
               description={`Seus atendimentos finalizados nos últimos ${TECHNICIAN_COMPLETED_WINDOW_DAYS} dias aparecerão aqui.`}
@@ -216,7 +216,7 @@ export default async function MyOrdersPage() {
                 <OrderCard key={order.id} order={order} />
               ))}
             </div>
-            <p className="mt-3 text-xs text-slate-500">
+            <p className="mt-3 text-xs text-fg-muted">
               Últimos {TECHNICIAN_COMPLETED_WINDOW_DAYS} dias. Para o histórico
               completo, fale com o despachante.
             </p>

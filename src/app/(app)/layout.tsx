@@ -14,7 +14,7 @@ export default async function AppLayout({
   });
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50 md:flex-row">
+    <div className="flex min-h-screen flex-col bg-background md:flex-row">
       <Sidebar
         profile={session.profile}
         userName={session.name}

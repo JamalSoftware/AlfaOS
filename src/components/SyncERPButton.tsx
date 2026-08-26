@@ -48,16 +48,16 @@ export function SyncERPButton() {
         type="button"
         onClick={handleSync}
         disabled={loading}
-        className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+        className="rounded-lg border border-border bg-surface px-4 py-2 text-sm font-semibold text-fg-secondary transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? "Sincronizando..." : "Sincronizar Mock ERP"}
       </button>
       {error && (
-        <p role="alert" className="text-xs font-medium text-red-600">
+        <p role="alert" className="text-xs font-medium text-danger-fg">
           {error}
         </p>
       )}
-      {message && <p className="text-xs font-medium text-emerald-600">{message}</p>}
+      {message && <p className="text-xs font-medium text-success-fg">{message}</p>}
     </div>
   );
 }

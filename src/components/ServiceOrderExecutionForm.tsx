@@ -14,7 +14,7 @@ interface ServiceOrderExecutionFormProps {
 }
 
 const FIELD_CLASS =
-  "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100";
+  "w-full rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft";
 
 export function ServiceOrderExecutionForm({
   orderId,
@@ -97,7 +97,7 @@ export function ServiceOrderExecutionForm({
       <div>
         <label
           htmlFor="diagnosis"
-          className="mb-1 block text-sm font-medium text-slate-700"
+          className="mb-1 block text-sm font-medium text-fg-secondary"
         >
           Diagnóstico
         </label>
@@ -115,7 +115,7 @@ export function ServiceOrderExecutionForm({
       <div>
         <label
           htmlFor="workPerformed"
-          className="mb-1 block text-sm font-medium text-slate-700"
+          className="mb-1 block text-sm font-medium text-fg-secondary"
         >
           Serviço realizado
         </label>
@@ -133,7 +133,7 @@ export function ServiceOrderExecutionForm({
       <div>
         <label
           htmlFor="notes"
-          className="mb-1 block text-sm font-medium text-slate-700"
+          className="mb-1 block text-sm font-medium text-fg-secondary"
         >
           Observações
         </label>
@@ -151,7 +151,7 @@ export function ServiceOrderExecutionForm({
       {error && (
         <div
           role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg"
         >
           {error}
         </div>
@@ -160,7 +160,7 @@ export function ServiceOrderExecutionForm({
       {saved && !error && (
         <div
           role="status"
-          className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
+          className="rounded-lg border border-success-border bg-success-bg px-3 py-2 text-sm text-success-fg"
         >
           Execução salva.
         </div>
@@ -169,7 +169,7 @@ export function ServiceOrderExecutionForm({
       <button
         type="submit"
         disabled={loading}
-        className="w-full rounded-xl bg-blue-600 px-4 py-3.5 text-base font-bold uppercase tracking-wide text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full rounded-xl bg-primary px-4 py-3.5 text-base font-bold uppercase tracking-wide text-primary-fg shadow-sm transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? "Salvando..." : "Salvar execução"}
       </button>

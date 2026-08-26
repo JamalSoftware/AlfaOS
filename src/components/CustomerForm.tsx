@@ -27,9 +27,9 @@ interface CustomerFormProps {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100";
+  "w-full rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft";
 
-const labelClass = "mb-1 block text-sm font-medium text-slate-700";
+const labelClass = "mb-1 block text-sm font-medium text-fg-secondary";
 
 function optional(value: string | null | undefined): string {
   return value ?? "";
@@ -151,7 +151,7 @@ export function CustomerForm({ mode, customer, backHref }: CustomerFormProps) {
           className={inputClass}
           placeholder="Opcional"
         />
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-fg-muted">
           Identificador do cliente no ERP da empresa. Necessário para consultar
           o diagnóstico de conectividade.
           {customer?.externalProvider
@@ -288,7 +288,7 @@ export function CustomerForm({ mode, customer, backHref }: CustomerFormProps) {
       )}
 
       {error && (
-        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div role="alert" className="rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg">
           {error}
         </div>
       )}
@@ -297,13 +297,13 @@ export function CustomerForm({ mode, customer, backHref }: CustomerFormProps) {
         <button
           type="submit"
           disabled={loading}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-fg transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? "Salvando..." : mode === "create" ? "Criar cliente" : "Salvar alterações"}
         </button>
         <a
           href={backHref}
-          className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+          className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-fg-secondary transition-colors hover:bg-surface-muted"
         >
           Cancelar
         </a>

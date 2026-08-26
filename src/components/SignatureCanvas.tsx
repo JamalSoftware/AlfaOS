@@ -36,8 +36,16 @@ export function SignatureCanvas({
     canvas.height = Math.max(1, Math.floor(rect.height));
     const ctx = canvas.getContext("2d");
     if (ctx) {
-      // Opaque white background: a transparent PNG signature is invisible on a
-      // white report.
+      /*
+       * Branco e tinta escura FIXOS, deliberadamente fora do sistema de temas.
+       *
+       * O que sai daqui é uma imagem enviada como evidência e renderizada
+       * fora do aplicativo — no PDF, na impressão, no anexo. Amarrar estas
+       * duas cores aos tokens produziria assinatura de traço claro sobre
+       * fundo escuro dentro de um relatório branco: invisível.
+       *
+       * Isto não é uma pendência de migração para tokens. É a decisão.
+       */
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.lineWidth = 2.5;
@@ -105,13 +113,13 @@ export function SignatureCanvas({
         onPointerLeave={end}
         aria-label="Área de assinatura"
         data-testid="signature-canvas"
-        className="h-40 w-full touch-none rounded-xl border-2 border-dashed border-slate-300 bg-white"
+        className="h-40 w-full touch-none rounded-xl border-2 border-dashed border-input-border bg-surface"
       />
       <button
         type="button"
         onClick={clear}
         disabled={disabled || !hasDrawing}
-        className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-lg border border-input-border px-3 py-2 text-sm font-medium text-fg-secondary disabled:cursor-not-allowed disabled:opacity-50"
       >
         Limpar
       </button>

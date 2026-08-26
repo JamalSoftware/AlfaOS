@@ -25,93 +25,93 @@ export default async function UsersPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Usuários</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <h1 className="text-2xl font-bold text-fg">Usuários</h1>
+          <p className="mt-1 text-sm text-fg-muted">
             Gerencie os usuários da sua empresa.
           </p>
         </div>
         <Link
           href="/usuarios/novo"
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-fg transition-colors hover:bg-primary-hover"
         >
           Novo usuário
         </Link>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50">
+          <table className="min-w-full divide-y divide-border text-sm">
+            <thead className="bg-surface-subtle">
               <tr>
                 <th
                   scope="col"
-                  className="px-5 py-3 text-left font-semibold text-slate-600"
+                  className="px-5 py-3 text-left font-semibold text-fg-secondary"
                 >
                   Nome
                 </th>
                 <th
                   scope="col"
-                  className="px-5 py-3 text-left font-semibold text-slate-600"
+                  className="px-5 py-3 text-left font-semibold text-fg-secondary"
                 >
                   E-mail
                 </th>
                 <th
                   scope="col"
-                  className="px-5 py-3 text-left font-semibold text-slate-600"
+                  className="px-5 py-3 text-left font-semibold text-fg-secondary"
                 >
                   Perfil
                 </th>
                 <th
                   scope="col"
-                  className="px-5 py-3 text-left font-semibold text-slate-600"
+                  className="px-5 py-3 text-left font-semibold text-fg-secondary"
                 >
                   Status
                 </th>
                 <th
                   scope="col"
-                  className="px-5 py-3 text-left font-semibold text-slate-600"
+                  className="px-5 py-3 text-left font-semibold text-fg-secondary"
                 >
                   Criado em
                 </th>
                 <th
                   scope="col"
-                  className="px-5 py-3 text-right font-semibold text-slate-600"
+                  className="px-5 py-3 text-right font-semibold text-fg-secondary"
                 >
                   Ações
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-border-subtle">
               {users.map((user) => (
-                <tr key={user.id} className="hover:bg-slate-50">
-                  <td className="px-5 py-3 font-medium text-slate-900">
+                <tr key={user.id} className="hover:bg-surface-subtle">
+                  <td className="px-5 py-3 font-medium text-fg">
                     {user.name}
                   </td>
-                  <td className="px-5 py-3 text-slate-600">{user.email}</td>
+                  <td className="px-5 py-3 text-fg-secondary">{user.email}</td>
                   <td className="px-5 py-3">
-                    <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
+                    <span className="inline-flex items-center rounded-full bg-info-bg px-2.5 py-0.5 text-xs font-semibold text-primary-text">
                       {PROFILE_LABELS[user.profile]}
                     </span>
                   </td>
                   <td className="px-5 py-3">
                     {user.active ? (
-                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                      <span className="inline-flex items-center rounded-full bg-success-bg px-2.5 py-0.5 text-xs font-semibold text-success-fg">
                         Ativo
                       </span>
                     ) : (
-                      <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+                      <span className="inline-flex items-center rounded-full bg-surface-muted px-2.5 py-0.5 text-xs font-semibold text-fg-secondary">
                         Inativo
                       </span>
                     )}
                   </td>
-                  <td className="px-5 py-3 text-slate-500">
+                  <td className="px-5 py-3 text-fg-muted">
                     {formatDate(user.createdAt)}
                   </td>
                   <td className="px-5 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <Link
                         href={`/usuarios/${user.id}/editar`}
-                        className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+                        className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-fg-secondary transition-colors hover:bg-surface-muted"
                       >
                         Editar
                       </Link>

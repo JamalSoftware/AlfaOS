@@ -20,15 +20,15 @@ export default async function ServiceOrderTypesPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Tipos de OS</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-2xl font-bold text-fg">Tipos de OS</h1>
+        <p className="mt-1 text-sm text-fg-muted">
           Catálogo da sua empresa. Desativar um tipo o remove das novas OS e não
           altera nenhuma ordem já registrada.
         </p>
       </div>
 
       {types.length === 0 && (
-        <div className="mb-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="mb-6 rounded-2xl border border-border bg-surface shadow-sm">
           <EmptyState
             title="Nenhum tipo cadastrado"
             description="Cadastre ao menos um tipo para conseguir abrir ordens de serviço."

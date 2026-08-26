@@ -18,17 +18,17 @@ export default async function NewTechnicianPage() {
       <div className="mb-6">
         <Link
           href="/tecnicos"
-          className="text-sm font-medium text-blue-600 hover:text-blue-700"
+          className="text-sm font-medium text-primary-text hover:text-primary-text-hover"
         >
           ← Voltar para técnicos
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-slate-900">Novo técnico</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="mt-2 text-2xl font-bold text-fg">Novo técnico</h1>
+        <p className="mt-1 text-sm text-fg-muted">
           Vincule um usuário com perfil Técnico da sua empresa.
         </p>
       </div>
 
-      <div className="max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="max-w-lg rounded-2xl border border-border bg-surface p-6 shadow-sm">
         <TechnicianCreateForm candidates={candidates} />
       </div>
     </div>

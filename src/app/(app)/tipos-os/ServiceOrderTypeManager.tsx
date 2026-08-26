@@ -12,9 +12,9 @@ interface TypeRow {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100";
+  "w-full rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft";
 
-const labelClass = "mb-1 block text-sm font-medium text-slate-700";
+const labelClass = "mb-1 block text-sm font-medium text-fg-secondary";
 
 export function ServiceOrderTypeManager({ types }: { types: TypeRow[] }) {
   const router = useRouter();
@@ -83,8 +83,8 @@ export function ServiceOrderTypeManager({ types }: { types: TypeRow[] }) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-base font-semibold text-slate-900">
+      <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+        <h2 className="mb-4 text-base font-semibold text-fg">
           Novo tipo
         </h2>
         <form onSubmit={handleCreate} className="space-y-4">
@@ -137,7 +137,7 @@ export function ServiceOrderTypeManager({ types }: { types: TypeRow[] }) {
           {error && (
             <div
               role="alert"
-              className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+              className="rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger-fg"
             >
               {error}
             </div>
@@ -146,17 +146,17 @@ export function ServiceOrderTypeManager({ types }: { types: TypeRow[] }) {
           <button
             type="submit"
             disabled={creating}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-fg transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
           >
             {creating ? "Criando..." : "Criar tipo"}
           </button>
         </form>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[520px] text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <thead className="border-b border-border bg-surface-subtle text-xs uppercase tracking-wide text-fg-muted">
               <tr>
                 <th className="px-4 py-3">Nome</th>
                 <th className="px-4 py-3">Descrição</th>
@@ -167,20 +167,20 @@ export function ServiceOrderTypeManager({ types }: { types: TypeRow[] }) {
             </thead>
             <tbody>
               {types.map((type) => (
-                <tr key={type.id} className="border-b border-slate-100">
-                  <td className="px-4 py-3 font-medium text-slate-900">
+                <tr key={type.id} className="border-b border-border-subtle">
+                  <td className="px-4 py-3 font-medium text-fg">
                     {type.name}
                   </td>
-                  <td className="px-4 py-3 text-slate-500">
+                  <td className="px-4 py-3 text-fg-muted">
                     {type.description ?? "—"}
                   </td>
-                  <td className="px-4 py-3 text-slate-500">{type.sortOrder}</td>
+                  <td className="px-4 py-3 text-fg-muted">{type.sortOrder}</td>
                   <td className="px-4 py-3">
                     <span
                       className={
                         type.active
-                          ? "rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700"
-                          : "rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500"
+                          ? "rounded-full bg-success-bg px-2 py-0.5 text-xs font-semibold text-success-fg"
+                          : "rounded-full bg-surface-muted px-2 py-0.5 text-xs font-semibold text-fg-muted"
                       }
                     >
                       {type.active ? "Ativo" : "Inativo"}
@@ -191,7 +191,7 @@ export function ServiceOrderTypeManager({ types }: { types: TypeRow[] }) {
                       type="button"
                       onClick={() => toggleActive(type)}
                       disabled={pendingId === type.id}
-                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-fg-secondary transition-colors hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {pendingId === type.id
                         ? "..."
