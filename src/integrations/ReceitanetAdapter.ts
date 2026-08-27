@@ -183,11 +183,40 @@ export class ReceitanetAdapter
   async listOpenTickets(externalId: string): Promise<ERPServiceTicketsResult> {
     const id = parseIdCliente(externalId, this.provider);
     const rows = await this.client.listarChamados(id);
+
+    /**
+     * Identidade de TODAS as linhas primeiro, e só depois o mapeamento.
+     *
+     * Uma linha sem `idSuporte` válido invalida o LOTE INTEIRO, e a recusa
+     * acontece aqui — antes de qualquer normalização, antes de o serviço de
+     * sincronização ver a lista, e muito antes de qualquer escrita. Não existe
+     * importação parcial: com `A` válido, `B` inválido e `C` válido, o
+     * resultado é zero criações, zero atualizações e zero eventos.
+     *
+     * É a escolha conservadora de propósito. Aproveitar as linhas boas deixaria
+     * o operador com uma sincronização "bem-sucedida" cujo conteúdo ninguém
+     * consegue descrever, e a lacuna só apareceria quando o chamado que faltou
+     * virasse reclamação. Um contrato violado torna o lote inteiro não
+     * confiável, não apenas a linha que o violou.
+     */
+    const identities = rows.map((row) => parseIdSuporte(row.idSuporte));
+    const semIdentidade = identities.filter((valor) => valor === null).length;
+    if (semIdentidade > 0) {
+      throw new IntegrationError(
+        "INVALID_RESPONSE",
+        this.provider,
+        // Contagem, nunca o valor recebido: o detalhe vai para o log do
+        // servidor, e o que chega à tela é a mensagem do catálogo fechado.
+        `${semIdentidade} de ${rows.length} chamados sem idSuporte válido`,
+      );
+    }
+
     return {
-      tickets: rows.map((row): ERPServiceTicket => {
+      tickets: rows.map((row, indice): ERPServiceTicket => {
         const description = text(row.descricao);
         return {
-          externalId: String(row.idSuporte),
+          // Não-nulo: o lote inteiro já foi recusado se alguma linha falhasse.
+          externalId: identities[indice] as string,
           externalNumber:
             typeof row.numero === "number" ? String(row.numero) : null,
           protocol: text(row.protocolo),
@@ -294,6 +323,48 @@ function text(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;
+}
+
+/**
+ * `idSuporte` — a identidade externa do chamado. Válida, ou nada.
+ *
+ * É o ÚNICO campo do chamado que não pode ser normalizado para `null`: os
+ * outros descrevem o chamado, este **é** o chamado. `externalId` entra na
+ * unique `(companyId, externalProvider, externalId)`, e uma identidade
+ * fabricada colide com outra identidade fabricada.
+ *
+ * Antes desta guarda o mapeamento fazia `String(row.idSuporte)` direto.
+ * `String(undefined)` devolve a string `"undefined"`, e a auditoria da v0.8
+ * reproduziu o desfecho (SYNC-01): dois chamados de **clientes diferentes**
+ * da mesma empresa, ambos sem `idSuporte`, colapsavam numa OS só — a segunda
+ * atualizava a primeira, e a tela passava a mostrar o cliente A com o
+ * problema de B. Um técnico sairia para o endereço errado.
+ *
+ * A regra segue o contrato e o precedente do próprio módulo: o schema
+ * `Chamado` declara `idSuporte` como inteiro obrigatório, `numero` e `tipo`
+ * já exigem `typeof === "number"`, e `parseIdCliente` já exige inteiro
+ * positivo. Nada de aceitar string numérica: não há evidência de que o
+ * provider a envie, e afrouxar justamente no campo de identidade é como o
+ * defeito nasceu.
+ */
+function parseIdSuporte(value: unknown): string | null {
+  /*
+    `isSafeInteger`, e não `isInteger`.
+
+    Acima de 2^53 o JSON perde precisão ANTES de o código ver o valor:
+    `99999999999999999999` e `...998` chegam os dois como
+    `100000000000000000000` e produzem a MESMA string. Seria a colisão de
+    identidade de SYNC-01 outra vez, por outro caminho. Um `idSuporte` fora da
+    faixa segura também deixaria de ser fielmente representável de volta.
+
+    A função recusa, de uma vez: `NaN`, `Infinity`, string, objeto, array,
+    booleano, `null`, `undefined`, zero, negativo, fracionário e inteiro fora
+    da faixa segura.
+  */
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    return null;
+  }
+  return String(value);
 }
 
 function toSummary(row: CallCenterClienteResumo): ERPCustomerSummary {
