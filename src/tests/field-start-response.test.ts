@@ -222,3 +222,123 @@ describe("START-01 · reatribuição logo após o commit", () => {
     expect(segundo).toEqual(primeiro);
   });
 });
+
+// ---------------------------------------------------------------------------
+// IDM-01 · tomada de reserva DEPOIS de a mutação ter commitado
+// ---------------------------------------------------------------------------
+
+describe("IDM-01 · retry após reserva abandonada não duplica a mutação", () => {
+  it("a tomada re-executa e o DOMÍNIO recusa — 409, sem evento duplicado", async () => {
+    const s = await scenario();
+    const { POST: startRoute } = await import(
+      "@/app/api/field/v1/service-orders/[id]/start/route"
+    );
+    const key = "start-reserva-orfa-01";
+
+    const chamada = () =>
+      startRoute(
+        fieldRequest(`/api/field/v1/service-orders/${s.order.id}/start`, {
+          method: "POST",
+          token: s.token,
+          idempotencyKey: key,
+          body: { expectedVersion: s.order.version },
+        }),
+        { params: { id: s.order.id } },
+      );
+
+    expect((await chamada()).status).toBe(200);
+
+    /*
+      O cenário exato do achado: a operação COMMITOU, mas o processo morreu
+      antes de gravar o desfecho na reserva. A linha volta a IN_FLIGHT com o
+      lease vencido — indistinguível, para quem chega depois, de uma reserva
+      que nunca executou.
+    */
+    await prisma.idempotencyRecord.updateMany({
+      where: { key },
+      data: {
+        status: 0,
+        response: {},
+        leaseExpiresAt: new Date(Date.now() - 1000),
+      },
+    });
+
+    const retry = await chamada();
+
+    /*
+      A tomada re-executa o handler, e quem impede a segunda mutação NÃO é a
+      camada de idempotência: é o domínio. `ALLOWED_STATUS_TRANSITIONS` não
+      lista IN_PROGRESS a partir de IN_PROGRESS, então a máquina de estados
+      recusa antes de qualquer escrita.
+
+      409 é o desfecho honesto: pior que devolver o 200 original, melhor que
+      iniciar a OS duas vezes.
+    */
+    expect(retry.status).toBe(409);
+
+    // O que importa de verdade: nada duplicou.
+    expect(
+      await prisma.serviceOrderExecution.count({
+        where: { serviceOrderId: s.order.id },
+      }),
+    ).toBe(1);
+    expect(
+      await prisma.serviceOrderEvent.count({
+        where: { serviceOrderId: s.order.id, event: "OS_STARTED" },
+      }),
+    ).toBe(1);
+
+    const os = await prisma.serviceOrder.findUniqueOrThrow({
+      where: { id: s.order.id },
+    });
+    expect(os.version).toBe(s.order.version + 1);
+  });
+
+  it("reserva órfã cuja operação NÃO commitou é retomada com sucesso", async () => {
+    const s = await scenario();
+    const { POST: startRoute } = await import(
+      "@/app/api/field/v1/service-orders/[id]/start/route"
+    );
+    const key = "start-orfa-sem-commit";
+
+    // Reserva de um processo que morreu ANTES de executar qualquer coisa.
+    await prisma.idempotencyRecord.create({
+      data: {
+        companyId: fixture.companyA.id,
+        userId: fixture.techA.id,
+        operation: "service-order.start",
+        key,
+        fingerprint: "impressao-que-sera-substituida",
+        status: 0,
+        response: {},
+        leaseExpiresAt: new Date(Date.now() - 1000),
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const response = await startRoute(
+      fieldRequest(`/api/field/v1/service-orders/${s.order.id}/start`, {
+        method: "POST",
+        token: s.token,
+        idempotencyKey: key,
+        body: { expectedVersion: s.order.version },
+      }),
+      { params: { id: s.order.id } },
+    );
+
+    /*
+      A impressão digital difere da reserva órfã, então isto é conflito de
+      chave — e está certo: a chave foi reservada para OUTRO conteúdo. O ponto
+      é que a resposta é determinística, e não um CONFLICT eterno.
+    */
+    expect(response.status).toBe(409);
+    const payload = (await response.json()) as { error: { code: string } };
+    expect(payload.error.code).toBe("IDEMPOTENCY_CONFLICT");
+
+    // A OS não foi iniciada por tabela.
+    const os = await prisma.serviceOrder.findUniqueOrThrow({
+      where: { id: s.order.id },
+    });
+    expect(os.status).toBe("ASSIGNED");
+  });
+});
