@@ -44,6 +44,7 @@ Regra geral: leia a seção "Sempre" em toda sessão nova, depois **só** as se�
 * `docs/FOUNDATION-AUDIT.md` — contexto histórico da v0.1, raramente necessário hoje.
 * `docs/V0.2-AUDIT.md` — achados e correções do ciclo v0.2/v0.2.1/v0.2.2/v0.2.3. Útil para entender decisões de concorrência (`version`/`expectedVersion`) e elegibilidade de técnico antes de mexer nessas áreas.
 * `docs/V0.7-AUDIT.md` — checkpoint da trilha v0.7: os três bloqueadores (PPPOE-01, RATE-01, GATE-01), as correções, a reauditoria focal e os riscos aceitos. **Leia antes de mexer em procedência de credencial PPPoE, rate limit de capability ou procedência do diagnóstico** — as três áreas já regrediram uma vez, e o documento registra por quê. Traz também os três INFO aceitos e a lacuna dos LOW históricos.
+* `docs/V0.9-AUDIT.md` — checkpoint da Field Backend Foundation: os sete achados (OBX-01, REV-01, REV-02, IDM-01, START-01, TEST-01, OPS-01), o endurecimento, a reauditoria focal e os cinco INFO aceitos. **Leia antes de mexer em lease/reclaim do outbox, revogação de aparelho, tomada de reserva de idempotência ou na resposta do `start`** — o documento registra o que cada mecanismo existe para impedir e o que a reversão provou. O contrato correspondente é `docs/FIELD-API.md`; a segurança, `docs/SECURITY.md` §8.13.
 * Auditoria da v0.3, quando existir (ex.: `docs/V0.3-AUDIT.md`) — carregar antes de iniciar `v0.4`, ou ao investigar algo relacionado à execução do técnico.
 
 **Quando:** a tarefa é uma nova rodada de auditoria, ou precisa entender o que já foi encontrado/corrigido antes de mexer numa área historicamente sensível.
@@ -97,7 +98,7 @@ O documento também traz o mapeamento de identidade da sincronização da v0.8, 
 
 **Implementado na v0.9:** login/logout, `/me`, registro de dispositivo, Minhas OS, detalhe, `start`, revelação de PPPoE, diagnóstico, central de notificações, outbox transacional com worker por comando (`npm run outbox:work`) e abstração de push (sem FCM real).
 
-**Endurecido depois da auditoria independente:** revogação de aparelho com tela em `/dispositivos` (`ADMIN`), aparelho revogado **não** volta por login (`DEVICE_REVOKED`), lease e reclaim no outbox e na reserva de idempotência, resposta do `start` vinda da mutação, e o worker compilado para rodar com `node` em produção. Se a tarefa toca revogação, fila ou idempotência, leia `docs/SECURITY.md` §8.13 antes.
+**Endurecido depois da auditoria independente:** revogação de aparelho com tela em `/dispositivos` (`ADMIN`), aparelho revogado **não** volta por login (`DEVICE_REVOKED`), lease e reclaim no outbox e na reserva de idempotência, resposta do `start` vinda da mutação, e o worker compilado para rodar com `node` em produção. Se a tarefa toca revogação, fila ou idempotência, leia `docs/SECURITY.md` §8.13 e `docs/V0.9-AUDIT.md` antes.
 
 **Continua só especificação:** Flutter, offline no cliente, conclusão pelo Field, evidências estruturadas, assinatura, materiais, checklist e todo o toolkit.
 

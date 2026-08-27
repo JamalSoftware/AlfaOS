@@ -220,7 +220,7 @@ Três decisões fechadas na implementação: `protocolo` não é persistido, `ti
 
 Geolocalização é capability oficial registrada e **não** entra na v0.7.x nem na v0.8 (PRD §131).
 
-Depois dela, **concluída e sem tag** — a **v0.9, fundação de backend do Field**: a superfície que o aplicativo Flutter vai consumir. **Nenhuma linha de Flutter foi escrita.**
+Depois dela, **publicada: `v0.9-field-backend-foundation`** — a **v0.9, fundação de backend do Field**: a superfície que o aplicativo Flutter vai consumir. **Nenhuma linha de Flutter foi escrita.**
 
 O princípio que a governa: **o Field é outro cliente do MESMO AlfaOS**. Máquina de estados, posse, tenancy, elegibilidade, CAS, timeline e auditoria são os serviços que a web já usa — a camada Field autentica, desduplica, projeta e chama. Nenhuma regra de negócio foi duplicada.
 
@@ -237,7 +237,7 @@ Uma migration **aditiva**: `MobileDevice`, `Notification`, `OutboxEvent`, `Idemp
 
 Documentação: `docs/FIELD-API.md` (contrato) e `docs/SECURITY.md` §8.13 (segurança). A §8.9 continua descrevendo o que **não** existe.
 
-**Endurecimento pós-auditoria independente (sem tag).** A auditoria apontou 2 MEDIUM e 5 LOW; todos foram reproduzidos antes de qualquer mudança e corrigidos:
+**Endurecimento pós-auditoria independente.** A auditoria apontou 2 MEDIUM e 5 LOW; todos foram reproduzidos antes de qualquer mudança e corrigidos:
 
 * **OBX-01** — `OutboxEvent` em `PROCESSING` ficava preso para sempre (nada procurava por esse estado, e o requeue só aceita `FAILED`). Agora a reivindicação tem **lease de 5 min**, prazo vencido volta à fila, e o teto de tentativas vale também no reclaim. Entrega é **at-least-once**, declarada.
 * **REV-01** — `revokeDevice` e `requeueFailedOutboxEvent` não tinham rota: o ADMIN não conseguia cortar o acesso de um celular perdido pela aplicação. Agora existe `/dispositivos` e as rotas `ADMIN` de revogação e requeue.
@@ -248,6 +248,12 @@ Documentação: `docs/FIELD-API.md` (contrato) e `docs/SECURITY.md` §8.13 (segu
 * **OPS-01** — o worker rodava com `tsx`, devDependency: quebrava após `npm prune --omit=dev`. Agora é compilado por `npm run build` e executado com `node`.
 
 Reversão verificada nos dois sentidos para OBX-01, TEST-01 e START-01.
+
+**Checkpoint da v0.9 — PUBLICADO.** A reauditoria independente focal, feita por uma sessão que não implementou nem endureceu, atacou os sete achados com testes próprios contra Postgres real e fechou em **`APPROVED WITH RISKS`** — 0 CRITICAL, 0 HIGH, 0 MEDIUM, 0 LOW, 5 INFO aceitos —, com quatro provas de reversão e todos os gates verdes (1095 Vitest, 89 Playwright, lint, tsc, build, Prisma, 17 migrations). Decisão: `GO`. Registro em `docs/V0.9-AUDIT.md`. Tag anotada **`v0.9-field-backend-foundation`**, no remoto.
+
+Os cinco INFO aceitos, todos não bloqueantes: o `now` do outbox não governa a escrita do lease (nenhum caller o passa hoje); não há expurgo de outbox `PROCESSED` nem de reserva vencida; `/dispositivos` não tem teste permanente próprio; `DEVICE_REVOKED` acontece antes de `recordLoginAttempt`; e `zod` em `devDependencies` é pré-existente e não afeta o worker.
+
+**Próxima fase: Flutter Android — primeiro APK Alpha.**
 
 **A trilha Flutter não começou.** Nenhum APK, nenhum FCM real, nenhum offline no cliente, nenhuma conclusão de OS pelo Field, nenhuma evidência estruturada, nenhum `ToolExecution`, nenhum item do toolbox — a §119 se aplica ao resto da Parte V: estar no PRD não autoriza implementar. Duas escalas de prioridade convivem e precisam ser conferidas juntas: §117 classifica o produto (MVP/IMPORTANTE/DIFERENCIAL/FUTURO), §194 classifica a trilha Field (P0/P1/P2).
 
