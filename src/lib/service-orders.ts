@@ -438,9 +438,62 @@ export interface ImportServiceOrderInput extends ImportedServiceOrderFields {
   customer: ERPOrderCustomerInput;
 }
 
+/** Campos que o PROVIDER é dono e uma releitura pode atualizar. */
+interface ProviderOwnedFields {
+  externalNumber: string | null;
+  type: string;
+  subtype: string | null;
+  description: string;
+  scheduledAt: Date | null;
+}
+
+/**
+ * A releitura traz algo diferente do que já está gravado?
+ *
+ * Compara SOMENTE a allowlist do provider. Nunca `status`, `technicianId`,
+ * `version`, `origin`, `customerId`, `number` nem qualquer coisa da execução —
+ * comparar a entidade inteira faria o trabalho local do AlfaOS decidir se a
+ * sincronização escreve, que é exatamente o acoplamento que a allowlist existe
+ * para impedir.
+ *
+ * Existe por causa de SYNC-03: o ramo de atualização rodava um `UPDATE`
+ * incondicional com `version: { increment: 1 }`, então cinco sincronizações
+ * idênticas levavam a versão de 0 a 5. O efeito visível era um **409 espúrio**
+ * — o despachante lia a tela, alguém sincronizava sem mudar nada, e a
+ * atribuição falhava no compare-and-set contra uma versão que avançou sozinha.
+ *
+ * O incremento continua onde ele protege: mudança real do provider ainda
+ * invalida leituras anteriores, e é isso que o CAS precisa enxergar.
+ */
+function providerFieldsChanged(
+  existing: ProviderOwnedFields,
+  next: ProviderOwnedFields,
+): boolean {
+  return (
+    existing.externalNumber !== next.externalNumber ||
+    existing.type !== next.type ||
+    existing.subtype !== next.subtype ||
+    existing.description !== next.description ||
+    // `Date` é objeto: comparar por referência daria "mudou" sempre. O valor
+    // comparado é o mesmo que iria para a persistência, já normalizado.
+    (existing.scheduledAt?.getTime() ?? null) !==
+      (next.scheduledAt?.getTime() ?? null)
+  );
+}
+
 export interface ImportServiceOrderResult {
   serviceOrder: PublicServiceOrder;
   created: boolean;
+  /**
+   * Houve escrita?
+   *
+   * `false` quando a OS já existia e o provider não trouxe nada diferente —
+   * nenhum `UPDATE`, `version` e `updatedAt` intactos. Distinto de `created`
+   * porque "criada", "atualizada" e "sem alteração" são três desfechos, e
+   * colapsar os dois últimos foi o que fez a tela relatar atualização onde
+   * nada aconteceu.
+   */
+  changed: boolean;
 }
 
 /**
@@ -558,12 +611,41 @@ async function persistImportedServiceOrder(
     scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
   };
 
-  // A re-import is a real modification of the row, so it bumps `version` too.
-  // Otherwise an assignment holding a read from before the sync would still
-  // pass its compare-and-set and write over fields it never saw.
+  // Uma re-importação que MUDA algo é modificação real da linha, e por isso
+  // move `version` também: sem o incremento, uma atribuição que carrega uma
+  // leitura anterior à sincronização passaria pelo compare-and-set e
+  // sobrescreveria campos que nunca viu.
   const externalUpdate = {
     ...externalData,
     version: { increment: 1 },
+  };
+
+  /**
+   * Atualiza a OS existente — ou não faz nada, quando não há o que atualizar.
+   *
+   * O `UPDATE` incondicional era o defeito SYNC-03. Aqui o `version` só anda
+   * quando o provider trouxe algo diferente, que é exatamente quando o CAS
+   * precisa invalidar as leituras anteriores.
+   */
+  const reconcile = async (
+    row: ProviderOwnedFields & { id: string },
+  ): Promise<ImportServiceOrderResult> => {
+    if (!providerFieldsChanged(row, externalData)) {
+      return {
+        serviceOrder: await withRelations(companyId, row.id),
+        created: false,
+        changed: false,
+      };
+    }
+    const updated = await prisma.serviceOrder.update({
+      where: { id: row.id },
+      data: externalUpdate,
+    });
+    return {
+      serviceOrder: await withRelations(companyId, updated.id),
+      created: false,
+      changed: true,
+    };
   };
 
   const existing = await prisma.serviceOrder.findUnique({
@@ -571,14 +653,7 @@ async function persistImportedServiceOrder(
   });
 
   if (existing) {
-    const updated = await prisma.serviceOrder.update({
-      where: { id: existing.id },
-      data: externalUpdate,
-    });
-    return {
-      serviceOrder: await withRelations(companyId, updated.id),
-      created: false,
-    };
+    return reconcile(existing);
   }
 
   /**
@@ -641,14 +716,19 @@ async function persistImportedServiceOrder(
     if (!isUniqueConstraintError(error)) {
       throw error;
     }
-    const updated = await prisma.serviceOrder.update({
-      where: uniqueKey,
-      data: externalUpdate,
-    });
-    return {
-      serviceOrder: await withRelations(companyId, updated.id),
-      created: false,
-    };
+    /*
+      Perdemos a corrida: outra transação acabou de criar a linha, quase sempre
+      com estes mesmos dados. Relê e passa pelo MESMO caminho do ramo normal —
+      inclusive a detecção de no-op, senão o vencedor da corrida sairia com
+      `version` incrementada por uma escrita que não mudou nada.
+    */
+    const vencedora = await prisma.serviceOrder.findUnique({ where: uniqueKey });
+    if (!vencedora) {
+      // A unique acusou colisão e a linha não está lá: estado que o banco não
+      // deveria produzir. Propaga em vez de inventar um desfecho.
+      throw error;
+    }
+    return reconcile(vencedora);
   }
 
   await logAudit({
@@ -663,6 +743,7 @@ async function persistImportedServiceOrder(
   return {
     serviceOrder: await withRelations(companyId, order.id),
     created: true,
+    changed: true,
   };
 }
 

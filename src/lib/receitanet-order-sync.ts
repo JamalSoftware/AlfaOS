@@ -39,6 +39,16 @@ export interface ReceitanetOrderSyncResult {
   created: number;
   updated: number;
   /**
+   * Já existiam e o provider não trouxe nada diferente.
+   *
+   * Separado de `updated` porque são desfechos distintos: "atualizada" diz que
+   * o chamado mudou do lado de lá, "sem alteração" diz que a consulta
+   * confirmou o que já estava gravado. Somar os dois fazia a tela relatar
+   * atualização em toda sincronização, inclusive quando nenhuma linha foi
+   * escrita (SYNC-03).
+   */
+  unchanged: number;
+  /**
    * O provider devolveu exatamente o teto declarado.
    *
    * `/v1/chamados` limita a 10 e **não pagina**. Com 10 na resposta não há
@@ -59,10 +69,15 @@ export interface ReceitanetOrderSyncResult {
  * que parece informada e mente — e é o técnico que sairia para o endereço
  * errado com a expectativa errada.
  *
- * O código cru vai para o metadata do evento de importação, onde serve a quem
- * for abrir chamado com o provedor. Um mapeamento de verdade depende de o
+ * **O código cru NÃO é persistido.** O normalizador o expõe como `typeCode`, e
+ * esta versão simplesmente não o usa: guardá-lo exigiria coluna ou metadata
+ * novos para um valor sem semântica homologada, e dado que ninguém sabe ler
+ * não fica melhor por estar salvo. Um mapeamento de verdade depende de o
  * ReceitaNet publicar a tabela, e a pergunta já está aberta com o suporte
  * (`docs/RECEITANET-HOMOLOGATION.md`).
+ *
+ * Uma versão anterior deste comentário afirmava que o código ia para o metadata
+ * do evento. Não ia — a auditoria da v0.8 registrou a divergência (SYNC-02).
  */
 const IMPORTED_TYPE_LABEL = "Chamado ReceitaNet";
 
@@ -136,6 +151,7 @@ export async function syncReceitaNetServiceOrdersForCustomer(
 
   let created = 0;
   let updated = 0;
+  let unchanged = 0;
 
   for (const ticket of result.tickets) {
     const outcome = await importServiceOrderForCustomer(
@@ -167,13 +183,18 @@ export async function syncReceitaNetServiceOrdersForCustomer(
           `scheduledAt` é compromisso combinado com o cliente, e alimenta
           agenda e despacho. Previsão do provider é outra coisa, chega como
           texto não homologado, e transformá-la em agendamento faria o quadro
-          exibir horários que ninguém marcou. Fica no metadata do evento.
+          exibir horários que ninguém marcou.
+
+          Como o `tipo`, ela também NÃO é persistida — o normalizador a expõe
+          em `forecast` e esta versão não a usa. O comentário anterior dizia que
+          ficava no metadata do evento, e não ficava (SYNC-02).
         */
         scheduledAt: null,
       },
     );
     if (outcome.created) created += 1;
-    else updated += 1;
+    else if (outcome.changed) updated += 1;
+    else unchanged += 1;
   }
 
   /*
@@ -187,13 +208,14 @@ export async function syncReceitaNetServiceOrdersForCustomer(
     action: "SERVICE_ORDER.RECEITANET_SYNC",
     entity: "Customer",
     entityId: customer.id,
-    details: `Sync ReceitaNet: ${result.tickets.length} recebidos, ${created} criadas, ${updated} atualizadas`,
+    details: `Sync ReceitaNet: ${result.tickets.length} recebidos, ${created} criadas, ${updated} atualizadas, ${unchanged} sem alteração`,
   });
 
   return {
     fetched: result.tickets.length,
     created,
     updated,
+    unchanged,
     possiblyTruncated:
       result.cap !== null && result.tickets.length >= result.cap,
   };

@@ -19,6 +19,8 @@ interface SyncResult {
   fetched: number;
   created: number;
   updated: number;
+  /** Já existiam e nada mudou do lado do provedor. */
+  unchanged: number;
   possiblyTruncated: boolean;
 }
 
@@ -34,6 +36,17 @@ function resumo(r: SyncResult): string {
   const partes: string[] = [];
   if (r.created > 0) partes.push(contar(r.created, "nova", "novas"));
   if (r.updated > 0) partes.push(contar(r.updated, "atualizada", "atualizadas"));
+  /*
+    "Sem alteração" é desfecho, não ausência de desfecho.
+
+    Antes ele só aparecia quando NADA mais tinha acontecido, e a frase falava de
+    chamados em vez de OS. Numa resposta mista — uma nova e três iguais — as
+    três sumiam do resumo, e o operador não tinha como distinguir "o provedor
+    confirmou o que já sabíamos" de "o AlfaOS não olhou para elas".
+  */
+  if (r.unchanged > 0) {
+    partes.push(`${r.unchanged} sem alteração`);
+  }
   if (partes.length === 0) {
     return `${contar(r.fetched, "chamado", "chamados")} sem alteração.`;
   }
