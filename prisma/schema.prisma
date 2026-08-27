@@ -170,9 +170,9 @@ enum MaterialUnit {
 }
 
 model Company {
-  id        String   @id @default(cuid())
-  name      String
-  document  String?  @unique
+  id       String  @id @default(cuid())
+  name     String
+  document String? @unique
 
   /// Política de senha PPPoE padrão desta empresa. Ver
   /// `PppoePasswordPolicy` — o default não deriva nada.
@@ -197,6 +197,10 @@ model Company {
   customerConnections    CustomerConnection[]
   serviceOrderCounter    ServiceOrderCounter?
   erpCredentials         ERPCredential[]
+  mobileDevices          MobileDevice[]
+  notifications          Notification[]
+  outboxEvents           OutboxEvent[]
+  idempotencyRecords     IdempotencyRecord[]
 
   @@map("companies")
 }
@@ -245,11 +249,11 @@ model ERPCredential {
   ///
   /// Toda gravação nova usa `v2`; `v1` só sobrevive até a empresa
   /// reconfigurar aquele token.
-  aadVersion           String   @default("v2")
+  aadVersion String @default("v2")
 
-  credentialUpdatedAt  DateTime @default(now())
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  credentialUpdatedAt DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@unique([companyId, provider, kind])
   @@index([companyId])
@@ -286,6 +290,9 @@ model User {
   uploadedEvidences  ServiceOrderEvidence[]      @relation("EvidenceUploader")
   createdMaterials   ServiceOrderMaterialUsage[] @relation("MaterialCreator")
   capturedSignatures ServiceOrderSignature[]     @relation("SignatureCapturer")
+  mobileDevices      MobileDevice[]
+  notifications      Notification[]
+  idempotencyRecords IdempotencyRecord[]
 
   @@index([companyId])
   @@index([email])
@@ -322,7 +329,7 @@ model Customer {
   /// verificado por ter vindo de um cadastro seria afirmar uma checagem que
   /// ninguém fez — e é justamente essa afirmação que faria um técnico
   /// confiar num ponto errado em vez de procurar o endereço.
-  locationVerified Boolean  @default(false)
+  locationVerified Boolean                 @default(false)
 
   /// `idContrato` do provedor, quando conhecido.
   ///
@@ -337,9 +344,9 @@ model Customer {
   /// para a busca, e só.
   externalContractId String?
 
-  active           Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   serviceOrders       ServiceOrder[]
   diagnosticSnapshots CustomerDiagnosticSnapshot[]
@@ -456,6 +463,8 @@ model Technician {
   updatedAt DateTime @updatedAt
 
   serviceOrders ServiceOrder[]
+  mobileDevices MobileDevice[]
+  notifications Notification[]
 
   @@unique([userId])
   @@index([companyId])
@@ -778,4 +787,228 @@ model ERPIntegration {
   updatedAt DateTime @updatedAt
 
   @@map("erp_integrations")
+}
+
+// ---------------------------------------------------------------------------
+// AlfaOS Field — fundacao de backend (v0.9)
+//
+// Tudo abaixo serve ao aplicativo do tecnico. Nenhuma regra de dominio nova
+// vive aqui: o Field e OUTRO CLIENTE do mesmo AlfaOS e reusa maquina de
+// estados, posse, tenancy e CAS que ja existem. Estas tabelas cobrem o que o
+// cliente movel acrescenta e o navegador nao precisava — identidade de
+// instalacao, revogacao imediata, deduplicacao de retentativa e entrega
+// assincrona de aviso.
+// ---------------------------------------------------------------------------
+
+enum MobilePlatform {
+  ANDROID
+  IOS
+}
+
+/// ACTIVE ou REVOKED, e nada mais.
+///
+/// Revogar nao apaga a linha: o historico de qual aparelho operou continua
+/// existindo depois que o celular e perdido, trocado ou desligado.
+enum MobileDeviceStatus {
+  ACTIVE
+  REVOKED
+}
+
+/// Instalacao do aplicativo num aparelho, e o portador do token do Field.
+///
+/// Existe por causa de um cenario concreto: CELULAR PERDIDO. Sem esta linha, a
+/// unica forma de cortar o acesso e trocar a senha do usuario — o que derruba
+/// os outros aparelhos dele e ainda deixa o push entregando ordem de servico
+/// ao aparelho perdido (PRD 155, docs/SECURITY.md 8.9).
+///
+/// O token do Field e OPACO e mora aqui como HASH. Diferente do cookie da web,
+/// que e um JWT sem estado e por isso irrevogavel ate expirar, este token e
+/// conferido contra o banco a cada requisicao — entao `revokedAt` tem efeito
+/// IMEDIATO, sem depender de o aparelho estar ligado ou cooperar.
+model MobileDevice {
+  id           String      @id @default(cuid())
+  companyId    String
+  company      Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Tecnico no momento do registro. Opcional porque a linha sobrevive a
+  /// desativacao do tecnico, e a autorizacao NUNCA sai daqui: ela e sempre
+  /// re-derivada de `userId -> Technician` a cada requisicao.
+  technicianId String?
+  technician   Technician? @relation(fields: [technicianId], references: [id], onDelete: SetNull)
+
+  platform MobilePlatform
+
+  /// Identificador de INSTALACAO gerado pelo proprio app.
+  ///
+  /// Deliberadamente nao e IMEI, nao e Android ID e nao e numero de telefone.
+  /// Numero de telefone e reciclado pela operadora e pertence a pessoa: quem
+  /// receber o numero depois passaria a receber notificacao operacional da
+  /// empresa (PRD 155). Identificador de hardware e vigilancia acidental.
+  ///
+  /// Nao e segredo e nao autentica nada — so correlaciona reinstalacao com a
+  /// mesma linha, dentro de um usuario que ja provou quem e.
+  installationId String
+
+  /// Minimo para suporte. Modelo e versao de sistema bastam.
+  deviceName String?
+  appVersion String?
+
+  /// Token do provider de push. Opcional: o aparelho pode registrar antes de o
+  /// usuario conceder a permissao de notificacao. Nunca vai para log.
+  pushToken String?
+
+  /// SHA-256 do bearer token, em hex. O texto claro existe uma unica vez, na
+  /// resposta do login, e nunca e persistido — um dump do banco nao devolve
+  /// acesso a ninguem.
+  tokenHash      String?   @unique
+  tokenIssuedAt  DateTime?
+  /// Expiracao do token atual. Curta de proposito: token longo transforma
+  /// aparelho roubado em acesso valido por semanas (docs/SECURITY.md 8.9).
+  tokenExpiresAt DateTime?
+
+  status       MobileDeviceStatus @default(ACTIVE)
+  lastSeenAt   DateTime?
+  registeredAt DateTime           @default(now())
+  revokedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Reinstalar o app na mesma conta reaproveita a linha em vez de acumular
+  /// uma por login. `companyId` entra na chave porque nada neste schema e
+  /// unico globalmente por acidente.
+  @@unique([companyId, userId, installationId])
+  @@index([companyId, userId, status])
+  @@index([companyId, technicianId, status])
+  @@map("mobile_devices")
+}
+
+/// Aviso interno para uma pessoa. E o REGISTRO; o push e so o aviso.
+///
+/// Gravada mesmo quando o push externo falha. Push depende de token valido,
+/// aparelho ligado, rede e um terceiro que pode descartar a mensagem sem
+/// avisar — tratar a entrega como o fato perderia a atribuicao inteira quando
+/// o provider decide que aquele token expirou (PRD 154).
+///
+/// `title` e `body` sao redigidos para caber na tela bloqueada: o numero
+/// operacional da OS identifica sem revelar. Nunca CPF, senha, endereco
+/// completo, telefone ou diagnostico (docs/SECURITY.md 8.9).
+model Notification {
+  id           String      @id @default(cuid())
+  companyId    String
+  company      Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  technicianId String?
+  technician   Technician? @relation(fields: [technicianId], references: [id], onDelete: SetNull)
+
+  type  String
+  title String
+  body  String
+
+  /// Referencia para o app abrir a tela certa. Deep link NAO e prova de
+  /// acesso: a autorizacao e verificada na abertura, e uma OS ja reatribuida
+  /// leva a uma negacao limpa.
+  resourceType String?
+  resourceId   String?
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([companyId, userId, createdAt])
+  @@index([companyId, userId, readAt])
+  @@map("notifications")
+}
+
+enum OutboxEventStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+/// Intencao de efeito colateral, gravada na MESMA transacao da mudanca.
+///
+/// Chamar o provider de push de dentro da transacao produz dois desfechos
+/// igualmente ruins: a transacao fica aberta esperando rede de terceiro, ou o
+/// push sai e a transacao sofre rollback — e o tecnico recebe notificacao de
+/// uma atribuicao que nao existe (PRD 156).
+///
+/// SEM SEGREDO NO PAYLOAD. Esta tabela sobrevive a transacao, e lida por
+/// worker, aparece em dump e em backup. Ela carrega REFERENCIA ao agregado; o
+/// worker rele o que precisa na hora de processar.
+model OutboxEvent {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  eventType     String
+  aggregateType String
+  aggregateId   String
+
+  /// Somente identificadores e contadores. Nunca token, senha, CPF, telefone,
+  /// endereco ou payload cru de provider.
+  payload Json?
+
+  status      OutboxEventStatus @default(PENDING)
+  attempts    Int               @default(0)
+  /// Quando a proxima tentativa pode acontecer. E o backoff: retry imediato em
+  /// laco contra um provider ja sobrecarregado e uma negacao de servico que o
+  /// AlfaOS aplica contra si mesmo (PRD 157).
+  availableAt DateTime          @default(now())
+  processedAt DateTime?
+  /// Motivo sanitizado da ultima falha. Falha definitiva precisa ser
+  /// observavel: job que esgotou tentativas e sumiu em silencio e pior que job
+  /// que nunca rodou.
+  lastError   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, availableAt])
+  @@index([companyId, createdAt])
+  @@map("outbox_events")
+}
+
+/// Desduplicacao de comando mutante vindo do Field.
+///
+/// O celular reenvia quando a internet volta, porque nao sabe se as duas
+/// primeiras chegaram. O resultado tem de ser UMA mutacao (PRD 160).
+///
+/// A chave vem DO CLIENTE e e entrada nao confiavel: ela evita duplicacao, ela
+/// NAO prova autorizacao. Por isso o escopo unico inclui empresa e usuario —
+/// reapresentar a chave de outra pessoa nao pode devolver o resultado dela,
+/// que seria um oraculo sobre operacao alheia (docs/SECURITY.md 8.9).
+///
+/// Posse e tenancy sao verificadas ANTES da desduplicacao, nunca no lugar dela.
+model IdempotencyRecord {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  key       String
+  operation String
+
+  /// SHA-256 do corpo canonico da requisicao. Serve para distinguir "mesma
+  /// operacao repetida" de "mesma chave reaproveitada para outra coisa" — o
+  /// segundo caso e conflito, nao repeticao. Nunca contem segredo: o que entra
+  /// no hash e o payload do comando, e comando do Field nao carrega credencial.
+  fingerprint String
+
+  resourceId String?
+  /// Status HTTP do desfecho guardado, reproduzido na repeticao.
+  status     Int
+  /// Corpo da resposta original. E o mesmo corpo que ja foi entregue ao dono
+  /// da chave uma vez.
+  response   Json
+
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@unique([companyId, userId, operation, key])
+  @@index([expiresAt])
+  @@map("idempotency_records")
 }

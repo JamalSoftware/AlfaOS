@@ -3,6 +3,7 @@ import type { AccessProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createSessionToken } from "@/lib/auth";
 import { allocateServiceOrderNumber } from "@/lib/service-order-number";
+import { issueFieldToken } from "@/lib/field/auth";
 import { assertTestDatabase } from "../../e2e/test-db-guard";
 
 export const TEST_PASSWORD = "TestPassword@123";
@@ -42,6 +43,13 @@ export async function resetDatabase(): Promise<void> {
   await prisma.serviceOrderExecution.deleteMany();
   await prisma.serviceOrderEvent.deleteMany();
   await prisma.serviceOrder.deleteMany();
+  // Fundação Field. Antes de technician/user/company: as FKs cascateiam, mas
+  // apagar explicitamente mantém o reset legível e independente da ordem das
+  // regras de exclusão.
+  await prisma.mobileDevice.deleteMany();
+  await prisma.notification.deleteMany();
+  await prisma.idempotencyRecord.deleteMany();
+  await prisma.outboxEvent.deleteMany();
   // Depois das OS: o vínculo é onDelete Restrict de propósito.
   await prisma.serviceOrderType.deleteMany();
   await prisma.technician.deleteMany();
@@ -198,4 +206,80 @@ export function apiRequest(
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+}
+
+/**
+ * Requisição do FIELD.
+ *
+ * Deliberadamente NÃO tem parâmetro de cookie. O Field só lê
+ * `Authorization: Bearer`, e um helper capaz de mandar cookie facilitaria
+ * escrever um teste que passa por um caminho que a produção não tem.
+ */
+export function fieldRequest(
+  url: string,
+  options: {
+    method?: string;
+    body?: unknown;
+    headers?: Record<string, string>;
+    /** Bearer token do Field. */
+    token?: string;
+    idempotencyKey?: string;
+  } = {},
+): Request {
+  const { method = "GET", body, headers = {}, token, idempotencyKey } = options;
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  if (idempotencyKey) {
+    headers["Idempotency-Key"] = idempotencyKey;
+  }
+  return new Request(`http://localhost${url}`, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+}
+
+/**
+ * Registra um dispositivo Field já autenticado, sem passar pelo login.
+ *
+ * Existe para os testes que querem exercitar OUTRA coisa (posse, conflito,
+ * idempotência) sem repetir o fluxo de credencial em cada arquivo. O token
+ * devolvido é real e passa pela mesma verificação da produção — o atalho é só
+ * na criação da linha, nunca na validação.
+ */
+export async function registerTestDevice(
+  userId: string,
+  options: { installationId?: string; pushToken?: string | null } = {},
+): Promise<{ token: string; deviceId: string }> {
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { companyId: true },
+  });
+  const technician = await prisma.technician.findFirst({
+    where: { userId, companyId: user.companyId },
+    select: { id: true },
+  });
+
+  const issued = issueFieldToken();
+  const device = await prisma.mobileDevice.create({
+    data: {
+      companyId: user.companyId,
+      userId,
+      technicianId: technician?.id ?? null,
+      platform: "ANDROID",
+      installationId: options.installationId ?? `inst-${userId.slice(-8)}`,
+      appVersion: "0.9.0",
+      pushToken: options.pushToken ?? null,
+      tokenHash: issued.tokenHash,
+      tokenIssuedAt: new Date(),
+      tokenExpiresAt: issued.expiresAt,
+    },
+    select: { id: true },
+  });
+
+  return { token: issued.token, deviceId: device.id };
 }
