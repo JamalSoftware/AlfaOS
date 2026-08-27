@@ -89,7 +89,7 @@ Quatro invariantes que já custaram caro e são fáceis de desfazer:
 
 **Conclusão central, agora confirmada pelo suporte do provider (2026-08-25):** não existe API pública para listar globalmente as OS da empresa. Toda leitura de OS exige `idCliente` conhecido. A investigação está **encerrada** — não retomar, não fuzzar endpoint global. É limitação do provider, não dívida do AlfaOS (`docs/PRD.md` §141).
 
-O documento também traz o mapeamento de identidade da sincronização planejada para a v0.8 (`idSuporte` → `externalId`, `numero` → `externalNumber`, `protocolo` → `externalProtocol`) e as duas armadilhas de `/v1/chamados` que viram requisito ao implementá-la.
+O documento também traz o mapeamento de identidade da sincronização da v0.8, agora implementada e homologada em piloto real (`idSuporte` → `externalId`, `numero` → `externalNumber`; `protocolo` **não é persistido**), as duas armadilhas de `/v1/chamados` que viraram requisito e o registro do piloto contra o provider.
 
 ## AlfaOS Field, toolkit do técnico e fundações de backend
 

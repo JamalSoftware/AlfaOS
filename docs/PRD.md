@@ -3639,7 +3639,11 @@ cliente conhecido  →  CallCenter /v1/chamados  →  ServiceOrder EXTERNAL
 | `externalProvider` | `RECEITANET` |
 | `externalId` | `idSuporte` |
 | `externalNumber` | `numero` |
-| `externalProtocol` | `protocolo` |
+
+`protocolo` foi previsto como `externalProtocol` e **não foi implementado**: a
+coluna nunca existiu, e a v0.8 descartou o campo junto com `tipo` e
+`data_previsao` (`docs/RECEITANET-HOMOLOGATION.md`, *Campos recebidos e NÃO
+usados*). Passar a guardá-lo é decisão nova, não dívida pendente.
 
 **`ServiceOrder.number` continua sendo o número local do AlfaOS.** O número do
 ReceitaNet **nunca** é chave primária nem número local — é dado do provider,

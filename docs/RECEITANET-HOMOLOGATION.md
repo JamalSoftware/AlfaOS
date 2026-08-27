@@ -684,7 +684,7 @@ APIs.
 
 ---
 
-## Sincronização de OS — v0.8, IMPLEMENTADA
+## Sincronização de OS — v0.8, HOMOLOGADA EM PILOTO REAL
 
 Escopo do PRD §142. Esta seção é o recorte de provider.
 
@@ -719,7 +719,10 @@ cliente conhecido  →  CallCenter POST /v1/chamados  →  ServiceOrder EXTERNAL
 | `externalProvider` | `RECEITANET` |
 | `externalId` | `idSuporte` |
 | `externalNumber` | `numero` |
-| `externalProtocol` | `protocolo` |
+
+`protocolo` **não tem destino**: a coluna `externalProtocol` chegou a ser
+prevista, nunca foi criada, e a v0.8 não a criou — ver *Campos recebidos e NÃO
+usados*.
 
 **`ServiceOrder.number` continua sendo o número local do AlfaOS.** O `numero`
 do ReceitaNet **nunca** vira chave primária nem número local — vai para
@@ -770,19 +773,21 @@ curiosidade:
 
 ### Campos recebidos e NÃO usados
 
-Dois campos do chamado chegam e são deliberadamente descartados. O
-normalizador os expõe (`typeCode`, `forecast`) e a v0.8 não os lê:
+Três campos do chamado chegam e são deliberadamente descartados. O
+normalizador os expõe (`typeCode`, `forecast`, `protocol`) e a v0.8 não os lê:
 
 | Campo | Por que não é usado | Onde fica |
 |---|---|---|
 | `tipo` | Inteiro sem tabela de significado publicada. Traduzir para “Instalação” inventaria semântica. A OS recebe o rótulo fixo `Chamado ReceitaNet` e `typeId` nulo. | **Em lugar nenhum** |
 | `data_previsao` | Previsão do provider não é compromisso combinado com o cliente. Virar `scheduledAt` faria a agenda exibir horários que ninguém marcou. `scheduledAt` fica nulo. | **Em lugar nenhum** |
+| `protocolo` | A coluna `externalProtocol` foi prevista no desenho e nunca criada. Identidade e rastreio já saem de `externalId` + `externalNumber`; uma coluna a mais sem consumidor seria estrutura para nada. | **Em lugar nenhum** |
 
-**Nenhum dos dois é persistido** — nem em coluna, nem no metadata do evento de
-importação. Comentários anteriores no código afirmavam que ficavam no metadata;
-não ficavam, e a auditoria da v0.8 registrou a divergência (SYNC-02). Guardá-los
-exigiria estrutura nova para valores sem semântica homologada, e dado que
-ninguém sabe ler não fica melhor por estar salvo.
+**Nenhum dos três é persistido** — nem em coluna, nem no metadata do evento de
+importação. Comentários anteriores no código afirmavam que `tipo` e
+`data_previsao` ficavam no metadata; não ficavam, e a auditoria da v0.8
+registrou a divergência (SYNC-02). Guardá-los exigiria estrutura nova para
+valores sem semântica homologada, e dado que ninguém sabe ler não fica melhor
+por estar salvo.
 
 Se o ReceitaNet publicar a tabela de `tipo`, isto vira decisão nova — não
 dívida escondida.
@@ -801,6 +806,38 @@ sincronização — falhar com **409** por uma sincronização que não mudou na
 Mudança real do provider continua incrementando `version`. É exatamente aí que
 o CAS precisa invalidar as leituras anteriores, e essa proteção não foi
 enfraquecida.
+
+### Piloto real contra o provider — 2026-08-27
+
+A v0.8 foi exercitada contra o ReceitaNet **de produção**, pela UI oficial, com
+um cliente real conhecido no AlfaOS que tinha chamado aberto. Único endpoint
+usado: `POST /v1/chamados`. Nenhuma rota mutante foi chamada.
+
+**Primeiro sync** — 1 chamado aberto recebido, 1 `ServiceOrder` EXTERNAL criada:
+
+| Verificado | Resultado |
+|---|---|
+| `idSuporte` | inteiro, safe integer, positivo — aceito |
+| `ServiceOrder.number` | número **local** do AlfaOS, seguindo a sequência da empresa |
+| `externalNumber` | `numero` recebido do ReceitaNet, distinto do número local |
+| `origin` · `externalProvider` | `EXTERNAL` · `RECEITANET` |
+| `status` · `technicianId` | `PENDING` · `null` |
+| `type` · `typeId` | `Chamado ReceitaNet` · `null` — nenhum `ServiceOrderType` criado |
+| `scheduledAt` | `null` |
+| `protocolo` | não persistido |
+| evento | exatamente **1** `SERVICE_ORDER_IMPORTED`, sem payload cru |
+| Customer | correto e **inalterado** — nome, telefones, e-mail, endereço, coordenadas e `updatedAt` idênticos antes e depois |
+
+**Segundo sync, mesmo chamado** — `created=0`, `updated=0`, `unchanged=1`.
+Contra o provider real: `version` inalterada, `updatedAt` inalterado, contagem
+de `ServiceOrderEvent` inalterada, nenhum evento adicional. **É o SYNC-03
+validado fora do laboratório** — a proteção de no-op depende do payload real do
+provedor ser byte-a-byte estável entre leituras, e ele foi.
+
+Três caminhos **não** ocorreram ao vivo e seguem cobertos apenas por regressão
+automatizada: `INVALID_RESPONSE` por identidade inválida, resposta com
+exatamente 10 chamados (`possiblyTruncated`) e mudança real de campo
+provider-owned entre dois syncs.
 
 ### O que a v0.8 NÃO faz
 

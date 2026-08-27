@@ -167,8 +167,10 @@ O projeto possui:
 * `v0.6-receitanet-callcenter`
 * `v0.6.1-receitanet-hardening`
 * `v0.6.2-erp-provider-binding`
+* `v0.7.5-audited-checkpoint`
+* `v0.8-receitanet-service-orders`
 
-**Baseline tagueada: `v0.6.2-erp-provider-binding`** — auditada e endurecida.
+**Baseline tagueada: `v0.8-receitanet-service-orders`** — auditada, reauditada e homologada em piloto real.
 
 A trilha v0.6 entregou a integração ReceitaNet **CallCenter read-only**: busca de cliente, detalhe, diagnóstico de conectividade e chamados abertos por cliente, com a credencial de ERP vinculada criptograficamente a `(companyId, provider)`.
 
@@ -195,9 +197,9 @@ Também sem tag, **documentação apenas, sem código**:
 
 Também sem tag, **documentação apenas**: a Parte VII do PRD (§210–§223) — custódia de patrimônio do técnico: `Asset`, `AssetCustody`, termo de cautela, conferência periódica, ocorrências e devolução. Um ledger só, compartilhado com o inventário (§211, §215); sem QR para ferramenta (§222); e o AlfaOS documenta sem julgar nem descontar (§219). Nada existe em código.
 
-**Baseline publicada: `v0.7.5-audited-checkpoint`** — auditada, `APPROVED WITH RISKS`, no remoto.
+Checkpoint anterior: **`v0.7.5-audited-checkpoint`** — auditado, `APPROVED WITH RISKS`, no remoto.
 
-Depois dela, **concluído e sem tag** — a **v0.8, sincronização de OS do ReceitaNet**: `/v1/chamados` → `ServiceOrder` EXTERNAL, **por cliente conhecido** (PRD §142). Ação explícita de ADMIN/DISPATCHER na tela do cliente, sem cron. **Nenhuma migration** — a unique de identidade externa e os campos já existiam.
+**Baseline publicada: `v0.8-receitanet-service-orders`** — a **v0.8, sincronização de OS do ReceitaNet**: `/v1/chamados` → `ServiceOrder` EXTERNAL, **por cliente conhecido** (PRD §142). Ação explícita de ADMIN/DISPATCHER na tela do cliente, sem cron. **Nenhuma migration** — a unique de identidade externa e os campos já existiam. Implementada, auditada, corrigida, reauditada e **homologada em piloto real contra o ReceitaNet de produção**.
 
 Seis invariantes da v0.8, todos cobertos por regressão:
 
@@ -210,7 +212,9 @@ Seis invariantes da v0.8, todos cobertos por regressão:
 
 Três decisões fechadas na implementação: `protocolo` não é persistido, `tipo` não é traduzido (rótulo `Chamado ReceitaNet`, `typeId` nulo) e `data_previsao` não vira `scheduledAt`. **Nenhum dos três é guardado em metadata** — o código chegou a afirmar que `tipo` e `data_previsao` ficavam lá, e não ficavam.
 
-**Auditoria focal da v0.8:** `APPROVED WITH RISKS` — 1 MEDIUM (SYNC-01) e 2 LOW (SYNC-02, SYNC-03), corrigidos em `8cb890d` e `36cee27`. Aguardando reauditoria independente antes de tag.
+**Auditoria focal da v0.8:** `APPROVED WITH RISKS` — 1 MEDIUM (SYNC-01) e 2 LOW (SYNC-02, SYNC-03), corrigidos em `8cb890d` e `36cee27`. A **reauditoria independente** fechou os três: 0 CRITICAL, 0 HIGH, 0 MEDIUM, 0 LOW, 2 INFO aceitos — `APPROVED WITH RISKS`, liberando o piloto real.
+
+**Piloto real — 2026-08-27, `PILOT PASS`.** Um cliente real com chamado aberto, pela UI oficial, contra o ReceitaNet de produção. `POST /v1/chamados` foi o único endpoint tocado; nenhuma rota mutante. Primeiro sync: 1 chamado → 1 OS EXTERNAL, `PENDING`, sem técnico, número local próprio, `externalNumber` do provedor, 1 evento `SERVICE_ORDER_IMPORTED`, Customer inalterado. Segundo sync do mesmo chamado: `unchanged=1`, com `version`, `updatedAt` e contagem de eventos **inalterados** — **SYNC-03 validado fora do laboratório**. Registro em `docs/RECEITANET-HOMOLOGATION.md`. Três caminhos não ocorreram ao vivo e seguem só com regressão: `INVALID_RESPONSE`, resposta com exatamente 10 chamados e mudança real de campo provider-owned entre syncs.
 
 **Não existe descoberta global de OS.** Confirmado pelo suporte do ReceitaNet: nenhuma API pública lista as OS da empresa. É limitação do provider, não dívida do AlfaOS — não retomar a investigação, não fuzzar endpoint (PRD §141).
 
