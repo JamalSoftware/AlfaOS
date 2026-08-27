@@ -56,6 +56,16 @@ export const ERP_CAPABILITIES = {
   ORDER_SYNC: "erp-order-sync",
   /** `GET /api/service-orders/:id/receitanet-context` — contexto operacional. */
   RECEITANET_CONTEXT: "receitanet-context",
+  /**
+   * `POST /api/field/v1/service-orders/:id/pppoe/reveal` — texto claro no
+   * celular.
+   *
+   * Não fala com provider, então não protege cota de ninguém: protege contra
+   * um aparelho comprometido raspando senha em série. O teto é baixo de
+   * propósito — revelar senha é gesto deliberado do técnico diante do cliente,
+   * não algo que aconteça dezenas de vezes por minuto.
+   */
+  FIELD_PPPOE_REVEAL: "field-pppoe-reveal",
 } as const;
 
 /**
@@ -77,6 +87,9 @@ const CAPABILITY_LIMITS: Record<string, number> = {
   // Sincronização é operação em lote e cara do outro lado; ninguém precisa
   // disparar mais que isso por minuto.
   [ERP_CAPABILITIES.ORDER_SYNC]: 5,
+  // Revelar senha na frente do cliente acontece uma vez, e no máximo repete
+  // porque a tela apagou. Cinco por minuto cobre o uso real com folga.
+  [ERP_CAPABILITIES.FIELD_PPPOE_REVEAL]: 5,
 };
 
 function limitFor(capability: string): number {
