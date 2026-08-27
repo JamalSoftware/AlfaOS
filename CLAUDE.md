@@ -237,6 +237,18 @@ Uma migration **aditiva**: `MobileDevice`, `Notification`, `OutboxEvent`, `Idemp
 
 Documentação: `docs/FIELD-API.md` (contrato) e `docs/SECURITY.md` §8.13 (segurança). A §8.9 continua descrevendo o que **não** existe.
 
+**Endurecimento pós-auditoria independente (sem tag).** A auditoria apontou 2 MEDIUM e 5 LOW; todos foram reproduzidos antes de qualquer mudança e corrigidos:
+
+* **OBX-01** — `OutboxEvent` em `PROCESSING` ficava preso para sempre (nada procurava por esse estado, e o requeue só aceita `FAILED`). Agora a reivindicação tem **lease de 5 min**, prazo vencido volta à fila, e o teto de tentativas vale também no reclaim. Entrega é **at-least-once**, declarada.
+* **REV-01** — `revokeDevice` e `requeueFailedOutboxEvent` não tinham rota: o ADMIN não conseguia cortar o acesso de um celular perdido pela aplicação. Agora existe `/dispositivos` e as rotas `ADMIN` de revogação e requeue.
+* **REV-02** — o login **reativava** aparelho revogado. Agora recusa com `DEVICE_REVOKED`; instalação nova continua registrando, então revogar não bloqueia a pessoa.
+* **IDM-01** — reserva `IN_FLIGHT` travava a chave por 24 h se o processo morresse. **Lease de 2 min** com tomada arbitrada pelo banco; a tomada re-executa, e quem impede a mutação dupla é o domínio (CAS + máquina de estados).
+* **START-01** — o `start` relia a OS depois do commit e devolvia 404 se ela fosse reatribuída no intervalo. A resposta agora vem da própria mutação.
+* **TEST-01** — a corrida de idempotência só era testada pela rota, onde o CAS mascarava regressão. Teste direto de `withIdempotency` com handler-contador; provado por reversão (10 execuções em vez de 1).
+* **OPS-01** — o worker rodava com `tsx`, devDependency: quebrava após `npm prune --omit=dev`. Agora é compilado por `npm run build` e executado com `node`.
+
+Reversão verificada nos dois sentidos para OBX-01, TEST-01 e START-01.
+
 **A trilha Flutter não começou.** Nenhum APK, nenhum FCM real, nenhum offline no cliente, nenhuma conclusão de OS pelo Field, nenhuma evidência estruturada, nenhum `ToolExecution`, nenhum item do toolbox — a §119 se aplica ao resto da Parte V: estar no PRD não autoriza implementar. Duas escalas de prioridade convivem e precisam ser conferidas juntas: §117 classifica o produto (MVP/IMPORTANTE/DIFERENCIAL/FUTURO), §194 classifica a trilha Field (P0/P1/P2).
 
 ## Princípios

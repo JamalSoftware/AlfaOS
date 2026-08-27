@@ -4,14 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build && npm run build:worker",
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
     "typecheck": "tsc --noEmit",
-    "outbox:work": "tsx scripts/outbox-worker.ts"
+    "outbox:work": "node dist/scripts/outbox-worker.js",
+    "build:worker": "tsc -p tsconfig.worker.json"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

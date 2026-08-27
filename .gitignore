@@ -41,3 +41,6 @@ coverage/
 
 # local file storage (evidence photos, signatures) — runtime data, never source
 .storage/
+
+# worker do outbox compilado (npm run build:worker)
+/dist/

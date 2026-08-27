@@ -1,0 +1,44 @@
+{
+  // Compilação do worker do outbox para JavaScript executável por `node`.
+  //
+  // Existe porque o comando operacional documentado precisa funcionar numa
+  // instalação de PRODUÇÃO. O script rodava com `tsx`, que é devDependency:
+  // depois de `npm prune --omit=dev` — passo normal de deploy — o cron
+  // simplesmente não iniciava, e a fila de notificações parava em silêncio.
+  //
+  // A alternativa era mover `tsx` para `dependencies`, o que embarcaria um
+  // compilador em produção para rodar um script de cinquenta linhas. Compilar
+  // junto do `npm run build` deixa o worker ser um artefato como o `.next`:
+  // produzido pelo mesmo comando, executado por `node` puro, sem runtime extra.
+  //
+  // O tsconfig base não serve: ele é `noEmit`, `module: esnext` e
+  // `moduleResolution: bundler` — feito para o compilador do Next, que nunca
+  // escreve arquivo. Aqui o objetivo é exatamente escrever.
+  "compilerOptions": {
+    "lib": ["esnext"],
+    "target": "es2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": false,
+    "incremental": false,
+    "outDir": "dist",
+    "rootDir": ".",
+    "sourceMap": false,
+    "declaration": false
+  },
+  // Só o worker e o que ele alcança. O `include` é a lista mínima de propósito:
+  // arrastar `src/**` para cá traria componentes React e rotas do Next para uma
+  // compilação que não sabe lidar com JSX nem com `next/server`.
+  "include": [
+    "scripts/outbox-worker.ts",
+    "src/lib/outbox.ts",
+    "src/lib/outbox-handlers.ts",
+    "src/lib/prisma.ts",
+    "src/lib/env.ts",
+    "src/lib/push/provider.ts"
+  ]
+}

@@ -107,9 +107,39 @@ Força bruta usa a máquina **da web**, sem segunda implementação:
 | revogação | `revokedAt` — efeito na **próxima requisição** |
 | logout | zera o token, **preserva** a linha do dispositivo |
 | relogin mesma instalação | reaproveita a linha e **rotaciona** o token |
+| relogin de instalação **revogada** | recusado com `DEVICE_REVOKED` |
 
 A expiração não substitui a revogação: ela é a rede embaixo dela, para o
 aparelho que sumiu sem ninguém perceber.
+
+### Revogado não volta por login
+
+Um aparelho revogado **não é reativado** por entrar de novo. A implementação
+inicial reativava, como "caminho de recuperação", e isso esvaziava a revogação:
+quem estivesse com o celular perdido **e** a senha — o caso de um aparelho
+desbloqueado ou de credencial anotada — voltava a ter acesso sozinho, sem o
+administrador saber.
+
+A contrapartida que torna a política viável: revogar um aparelho **não bloqueia
+a pessoa**. Quem perdeu o celular recebe outro, o aplicativo gera um
+`installationId` novo, e o técnico volta a trabalhar sem depender de um
+administrador disponível.
+
+### Quem revoga
+
+```text
+GET  /api/mobile-devices              lista os aparelhos da empresa
+POST /api/mobile-devices/:id/revoke   corta o acesso
+```
+
+Superfície **administrativa da web** (cookie + Same-Origin), não da Field API.
+Apenas `ADMIN`: revogar aparelho é administração de acesso, que no AlfaOS já é
+do ADMIN — como usuários e credenciais de ERP. Tela em `/dispositivos`.
+
+A listagem **não** devolve `tokenHash`, `pushToken` nem `installationId`:
+nenhum deles ajuda a decidir se um aparelho deve ser revogado, e os três são
+exatamente o que não deve passar por navegador, log de proxy e captura de tela
+de suporte.
 
 ---
 
@@ -128,6 +158,25 @@ aparelho que sumiu sem ninguém perceber.
 | POST | `/service-orders/:id/diagnostic` | releitura de conectividade |
 | GET | `/notifications` | central do técnico |
 | POST | `/notifications` | marcar como lida |
+
+### A resposta de um comando vem da mutação
+
+`start` devolve o **resultado da própria operação** — `id`, `number`, `status`,
+`priority`, `startedAt`, `updatedAt`, `version` — e não uma releitura da OS.
+
+A releitura filtrava por posse, e isso abria uma janela real: a transação
+commitava, o despachante reatribuía a OS, e a releitura devolvia **404** para
+uma operação que **tinha acontecido**. A fila local do aplicativo marcaria como
+falha algo que deu certo, e reenviaria.
+
+O erro conceitual por trás disso é reabrir a autorização depois do commit: quem
+já foi autorizado a executar não precisa ser autorizado de novo para saber o que
+executou. Negar a LEITURA de quem não é mais dono continua certo — negar o
+RELATO da escrita dele, não.
+
+O corpo é mínimo de propósito: o aplicativo já tem o detalhe, e projetar o
+`PublicServiceOrder` inteiro traria `customer.document` — o CPF — de volta ao
+cache do aparelho.
 
 ---
 
@@ -153,6 +202,7 @@ campo. O desfecho vem em `code`.
 |---|---|---|---|
 | `UNAUTHENTICATED` | 401 | não | não |
 | `FORBIDDEN` | 403 | não | não |
+| `DEVICE_REVOKED` | 403 | não | não |
 | `NOT_FOUND` | 404 | não | não |
 | `VALIDATION_ERROR` | 400 | não | não |
 | `CONFLICT` | 409 | não | **sim** |
@@ -164,6 +214,13 @@ campo. O desfecho vem em `code`.
 `retryable` e `conflict` são **derivados do código**, nunca escritos à mão na
 rota — são as duas decisões que o app toma, e deixá-las por endpoint garantiria
 que um dia divergissem.
+
+`DEVICE_REVOKED` tem código próprio, e não `UNAUTHENTICATED`, porque é a única
+recusa cuja saída **não** é "faça login de novo": repetir com aquela instalação
+nunca vai funcionar, e o aplicativo precisa mandar a pessoa falar com a empresa
+em vez de deixá-la digitando a senha. Só chega a quem já provou a credencial
+correta, então não conta nada a um desconhecido — quem erra a senha continua
+recebendo o `UNAUTHENTICATED` uniforme.
 
 ---
 
@@ -198,6 +255,28 @@ reenviar e nenhuma forma de destravá-la senão reinstalar o app.
 A reserva é gravada **antes** de executar, e o banco arbitra pela unique.
 Verificar-e-depois-inserir deixaria duas requisições simultâneas passarem pela
 verificação e executarem as duas.
+
+### Reserva abandonada
+
+Gravar a reserva antes de executar tem um preço: um processo que morre no meio
+deixa a linha `IN_FLIGHT`. Sem prazo, toda retentativa daquela chave recebia
+`CONFLICT` até a expiração de 24 h — uma queda de processo travava a operação
+do técnico por um dia.
+
+A reserva tem **lease de 2 minutos**. Vencido, outra requisição pode assumi-la —
+e a tomada é arbitrada pelo banco, então duas que enxerguem o mesmo lease
+vencido não assumem as duas.
+
+A tomada **re-executa o handler**, não finge sucesso. A operação pode ter
+commitado antes de o processo morrer, e quem garante que ela não aconteça duas
+vezes **não é esta camada**: é o domínio. A máquina de estados recusa
+`ASSIGNED → IN_PROGRESS` numa OS já em atendimento, e o compare-and-set recusa
+uma versão que já andou. O desfecho de uma tomada depois de um commit é um 409
+honesto — nunca uma segunda execução.
+
+A impressão digital é conferida **antes** do lease: chave reaproveitada para
+outro conteúdo continua sendo `IDEMPOTENCY_CONFLICT`, nunca uma tomada
+silenciosa.
 
 ---
 
@@ -310,12 +389,56 @@ npm run outbox:work
 ```
 
 Chamável por cron. Duas execuções sobrepostas são seguras — a reivindicação é um
-`updateMany` com predicado de status, então o banco arbitra e o perdedor não
-pega nada. Não exige Redis, supervisor nem orquestrador.
+`updateMany` cujo predicado é o mesmo da busca, então o banco arbitra e o
+perdedor não pega nada. Não exige Redis, supervisor nem orquestrador.
+
+**Roda com `node` puro.** O script é compilado por `npm run build` (junto do
+`next build`, via `tsconfig.worker.json`) e o comando executa
+`dist/scripts/outbox-worker.js`. Antes ele rodava com `tsx`, que é
+devDependency: depois de `npm prune --omit=dev` — passo normal de deploy — o
+cron simplesmente não iniciava, e a fila parava em silêncio. O único `require`
+externo do artefato compilado é `@prisma/client`, que é dependency.
+
+```bash
+# cron de produção, depois de npm run build
+* * * * * cd /app && npm run outbox:work
+```
+
+### Lease e recuperação
+
+A reivindicação tem **prazo de 5 minutos**. Um worker que morre entre
+reivindicar e concluir deixaria o evento em `PROCESSING` para sempre — nada mais
+procurava por esse estado, e `requeueFailedOutboxEvent` só aceita `FAILED`. Com
+o lease, prazo vencido volta a ser elegível.
+
+O teto de tentativas vale **também no reclaim**: um evento que derruba o
+processo nunca chega ao tratamento de erro, então sem essa guarda seria
+reivindicado para sempre. Ao estourar, vira `FAILED` sem sequer tentar entregar.
 
 Retry com backoff exponencial (30 s → 1 h), teto de 6 tentativas, depois
 `FAILED` **visível**, com motivo sanitizado e reprocessável. Job que esgotou as
 tentativas e sumiu em silêncio é pior que job que nunca rodou.
+
+```text
+GET  /api/outbox-events              eventos FAILED da empresa
+POST /api/outbox-events/:id/requeue  devolve um deles à fila
+```
+
+Apenas `ADMIN`. O requeue **não aceita corpo**: nada do evento é editável, senão
+seria um endpoint de injeção de evento com outro nome. Só sai de `FAILED` —
+`PENDING` já está na fila e `PROCESSING` pertence a um worker (ou ao lease que
+vai expirar).
+
+### Entrega: at-least-once
+
+Um worker pode morrer **depois** de o provider aceitar a mensagem e **antes** de
+marcar `PROCESSED`. Quando o lease vencer, o evento é reivindicado de novo e a
+notificação sai outra vez.
+
+É deliberado e não tem conserto barato: exactly-once exigiria transação
+distribuída com um provider de push que não a oferece. A escolha real é entre
+entregar duas vezes e **perder** — e perder um aviso de atribuição é pior. O
+aplicativo precisa tolerar duplicata, o que é natural para push.
 
 ### Push
 

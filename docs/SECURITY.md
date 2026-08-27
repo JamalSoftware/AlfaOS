@@ -1365,6 +1365,33 @@ Bearer  →  MobileDevice (ACTIVE, não revogado, não expirado)
 - `revokedAt` tem efeito na requisição seguinte, e apaga junto o `pushToken`:
   senão o celular perdido continuaria recebendo prévia de OS na tela bloqueada.
 
+### Revogar precisa ser alcançável, e precisa significar alguma coisa
+
+Duas correções pós-auditoria, e as duas são sobre a mesma capacidade:
+
+**Superfície operacional.** `revokeDevice` existia e nenhuma rota a chamava. Na
+prática, o ADMIN de uma empresa cujo técnico perdeu o celular só conseguia
+cortar o acesso abrindo o banco — e a alternativa realista era trocar a senha do
+usuário, que derruba os outros aparelhos dele **e** deixa o push entregando OS
+ao aparelho perdido. Capacidade de segurança que só existe em função exportada é
+capacidade que a operação não tem. Agora existe `/dispositivos` e
+`POST /api/mobile-devices/:id/revoke`, apenas para `ADMIN`, filtrados por
+`companyId` da sessão, com auditoria e Same-Origin.
+
+**Revogado não volta por login.** O `upsert` do login reativava a linha
+(`status: ACTIVE`, `revokedAt: null`). A intenção era recuperação; o efeito era
+esvaziar a revogação — quem estivesse com o aparelho perdido e a senha voltava a
+ter acesso sozinho, sem o administrador saber. Agora o login recusa com
+`DEVICE_REVOKED` e não toca em `status` nem `revokedAt`.
+
+A contrapartida que torna isso operacionalmente aceitável: revogar um aparelho
+**não bloqueia a pessoa**. Uma instalação nova registra normalmente, e o técnico
+volta a trabalhar sem depender de um administrador disponível.
+
+A listagem administrativa **não** devolve `tokenHash`, `pushToken` nem
+`installationId`. Nenhum ajuda a decidir uma revogação, e os três são o que não
+deve passar por navegador, log de proxy e captura de tela de suporte.
+
 ### O cookie da web não abre o Field, e vice-versa
 
 O token é lido **exclusivamente** de `Authorization: Bearer`. Nunca de cookie,
@@ -1425,6 +1452,13 @@ Escopo único `(companyId, userId, operation, key)`.
 - A reserva é gravada antes de executar e a corrida é arbitrada pela unique do
   banco — verificar-e-depois-inserir deixaria duas requisições simultâneas
   executarem as duas.
+- **Reserva abandonada tem prazo.** Gravar antes de executar deixa a linha
+  `IN_FLIGHT` quando o processo morre no meio; sem prazo, a chave respondia
+  `CONFLICT` por 24 h. O lease é de 2 minutos, e a tomada é arbitrada pelo banco.
+  A tomada **re-executa** o handler em vez de fingir sucesso: quem garante que a
+  mutação não aconteça duas vezes é o DOMÍNIO — máquina de estados e
+  compare-and-set —, não esta camada. A impressão digital é conferida antes do
+  lease, então chave reaproveitada para outro conteúdo continua sendo conflito.
 
 ### Minimização
 
@@ -1463,6 +1497,21 @@ processar. `companyId` viaja no evento para que o worker respeite o isolamento
 de tenant sem reconsultar o agregado.
 
 `lastError` é sanitizado e truncado. Token de push nunca vai para log.
+
+**Reivindicação tem lease de 5 minutos.** Sem ele, um worker morto entre
+reivindicar e concluir deixava o evento em `PROCESSING` para sempre: nada mais
+procurava por esse estado, e o requeue só aceita `FAILED`. O aviso sumia em
+silêncio — o desfecho que a fila existe para evitar. O teto de tentativas vale
+também no reclaim, senão um evento que derruba o processo seria reivindicado
+indefinidamente.
+
+A entrega é **at-least-once**, e isso é explícito: um worker pode morrer depois
+de o provider aceitar e antes de marcar `PROCESSED`, e o evento sai de novo.
+Exactly-once exigiria transação distribuída com um provider que não a oferece; a
+escolha real é entre duplicar e perder, e perder um aviso de atribuição é pior.
+
+Requeue de `FAILED` é `ADMIN`, filtrado por empresa, **sem corpo** — um endpoint
+de requeue que aceitasse payload seria injeção de evento com outro nome.
 
 ### Rate limit
 
