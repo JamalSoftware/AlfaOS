@@ -9,7 +9,6 @@ import {
   requireFieldPrincipal,
 } from "@/lib/field/route";
 import { parseIdempotencyKey, withIdempotency } from "@/lib/field/idempotency";
-import { getFieldServiceOrder } from "@/lib/field/service-orders";
 
 /**
  * `POST /api/field/v1/service-orders/:id/start`
@@ -73,25 +72,39 @@ export async function POST(
         );
 
         /*
-          Reprojeta para o DTO do Field.
+          A resposta sai do RESULTADO da mutação, não de uma releitura.
 
-          `startServiceOrder` devolve o `PublicServiceOrder` da web, que carrega
-          `customer.document` — o CPF. Devolvê-lo ao aplicativo colocaria CPF no
-          cache de um aparelho que anda pela rua, por uma tela que não usa o
-          campo. A releitura custa uma consulta e elimina a classe inteira de
-          vazamento por reaproveitamento de DTO.
+          Antes havia um `getFieldServiceOrder` aqui, e ele abria uma janela
+          real: a transação commitava, o despachante reatribuía a OS a outro
+          técnico, e a releitura — que filtra por posse — devolvia 404. O
+          aplicativo recebia "não encontrado" para uma operação que **tinha
+          acontecido**, e a fila local marcaria como falha algo que deu certo.
+
+          Reler também reabria a autorização depois do commit, o que é o erro
+          conceitual por trás disso: quem já foi autorizado a executar não
+          precisa ser autorizado de novo para saber o que executou.
+
+          O corpo é MÍNIMO de propósito (PRD §41 da tarefa de hardening): o que
+          mudou e o token do próximo compare-and-set. Nada de cliente, endereço
+          ou conexão — o aplicativo já tem o detalhe, e projetar o
+          `PublicServiceOrder` inteiro traria `customer.document`, o CPF, de
+          volta para o cache de um aparelho que anda pela rua.
         */
-        const serviceOrder = await getFieldServiceOrder(
-          principal.user.companyId,
-          principal.technician.id,
-          orderId,
-        );
+        const os = result.serviceOrder;
 
         return {
           status: 200,
           resourceId: orderId,
           body: {
-            serviceOrder,
+            serviceOrder: {
+              id: os.id,
+              number: os.number,
+              status: os.status,
+              priority: os.priority,
+              startedAt: os.startedAt?.toISOString() ?? null,
+              updatedAt: os.updatedAt.toISOString(),
+              version: os.version,
+            },
             execution: {
               id: result.execution.id,
               diagnosis: result.execution.diagnosis,
