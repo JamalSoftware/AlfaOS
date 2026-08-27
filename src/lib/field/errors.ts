@@ -26,6 +26,19 @@ export const FIELD_ERROR_CODES = [
   "VALIDATION_ERROR",
   "UPSTREAM_UNAVAILABLE",
   "IDEMPOTENCY_CONFLICT",
+  /**
+   * Este aparelho foi revogado por um administrador.
+   *
+   * Código PRÓPRIO, e não `UNAUTHENTICATED`, por uma razão prática: é a única
+   * recusa cuja saída não é "faça login de novo". Tentar de novo com a mesma
+   * instalação nunca vai funcionar, e o aplicativo precisa dizer isso à pessoa
+   * — que deve falar com a empresa — em vez de deixá-la digitando a senha.
+   *
+   * Devolvido apenas a quem já provou a credencial correta, então não conta
+   * nada a um desconhecido: quem erra a senha continua recebendo o
+   * `UNAUTHENTICATED` uniforme.
+   */
+  "DEVICE_REVOKED",
   "INTERNAL",
 ] as const;
 
@@ -61,6 +74,7 @@ const STATUS_BY_CODE: Record<FieldErrorCode, number> = {
   VALIDATION_ERROR: 400,
   UPSTREAM_UNAVAILABLE: 503,
   IDEMPOTENCY_CONFLICT: 409,
+  DEVICE_REVOKED: 403,
   INTERNAL: 500,
 };
 

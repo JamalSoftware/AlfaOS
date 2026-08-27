@@ -126,6 +126,45 @@ export async function loginField(
   });
   if (!company) return reject("Empresa inexistente.");
 
+  /*
+    Aparelho revogado NÃO volta por login.
+
+    Antes, o `upsert` reativava a linha (`status: ACTIVE`, `revokedAt: null`) e
+    emitia um token novo. A intenção era um caminho de recuperação, mas o efeito
+    era esvaziar a revogação: quem estivesse com o celular perdido — e a senha,
+    que é o caso de um aparelho desbloqueado ou de credencial anotada — voltava
+    a ter acesso sozinho, e o ADMIN não tinha como saber.
+
+    Revogar precisa significar alguma coisa. Quem trocou de aparelho registra
+    uma instalação NOVA e continua trabalhando; quem precisa mesmo daquela linha
+    de volta depende de uma ação explícita de administrador.
+  */
+  const existing = await prisma.mobileDevice.findUnique({
+    where: {
+      companyId_userId_installationId: {
+        companyId: user.companyId,
+        userId: user.id,
+        installationId: device.installationId,
+      },
+    },
+    select: { id: true, status: true, revokedAt: true },
+  });
+
+  if (existing && (existing.status === "REVOKED" || existing.revokedAt !== null)) {
+    await logAudit({
+      companyId: user.companyId,
+      userId: user.id,
+      action: "FIELD.LOGIN_BLOCKED",
+      entity: "MobileDevice",
+      entityId: existing.id,
+      details: "Tentativa de login em dispositivo revogado.",
+    });
+    throw new FieldError(
+      "DEVICE_REVOKED",
+      "Este aparelho foi revogado. Fale com o administrador da empresa.",
+    );
+  }
+
   const issued = issueFieldToken();
 
   const saved = await prisma.mobileDevice.upsert({
@@ -163,11 +202,8 @@ export async function loginField(
       tokenIssuedAt: new Date(),
       tokenExpiresAt: issued.expiresAt,
       lastSeenAt: new Date(),
-      // Entrar de novo com credencial válida reativa um aparelho revogado.
-      // É o caminho de recuperação: o técnico que perdeu o celular e recebeu
-      // outro reinstala e trabalha, sem precisar de um ADMIN disponível.
-      status: "ACTIVE",
-      revokedAt: null,
+      // `status` e `revokedAt` NÃO são tocados aqui: uma linha revogada já foi
+      // recusada acima, e um login normal não tem por que mexer neles.
     },
     select: { id: true },
   });

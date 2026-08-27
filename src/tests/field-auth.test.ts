@@ -251,19 +251,73 @@ describe("revogação de dispositivo", () => {
     expect(device.status).toBe("ACTIVE");
   });
 
-  it("login válido reativa um aparelho revogado", async () => {
+  /*
+    Este teste já afirmou o CONTRÁRIO — que um login válido reativava o
+    aparelho revogado. Era o comportamento implementado, e estava errado: com
+    ele, quem ficasse com o celular perdido e a senha voltava a ter acesso
+    sozinho, sem o administrador saber. A revogação não significava nada.
+
+    A política agora é a que a documentação sempre afirmou: revogação é
+    imediata e não se desfaz por login.
+  */
+  it("login NÃO ressuscita um aparelho revogado", async () => {
     const first = await fieldLogin(loginRequest("tech@alfa.test"));
-    const { device } = (await body(first)).data as { device: { id: string } };
+    const { device, token: tokenAntigo } = (await body(first)).data as {
+      device: { id: string };
+      token: string;
+    };
     await revokeDevice(fixture.companyA.id, fixture.adminA.id, device.id);
 
     const again = await fieldLogin(loginRequest("tech@alfa.test"));
-    expect(again.status).toBe(200);
+    expect(again.status).toBe(403);
+
+    const payload = await body(again);
+    // Código PRÓPRIO: a saída não é "tente entrar de novo", é falar com a
+    // empresa. Repetir o login com esta instalação nunca vai funcionar.
+    expect(payload.error?.code).toBe("DEVICE_REVOKED");
+    expect(payload.error?.retryable).toBe(false);
 
     const row = await prisma.mobileDevice.findUniqueOrThrow({
       where: { id: device.id },
     });
-    expect(row.status).toBe("ACTIVE");
-    expect(row.revokedAt).toBeNull();
+    expect(row.status).toBe("REVOKED");
+    expect(row.revokedAt).not.toBeNull();
+    // E nenhum token novo foi emitido para aquela linha.
+    expect(row.tokenHash).toBeNull();
+
+    const comAntigo = await fieldMe(
+      fieldRequest("/api/field/v1/me", { token: tokenAntigo }),
+    );
+    expect(comAntigo.status).toBe(401);
+  });
+
+  it("instalação NOVA continua podendo registrar — o técnico não fica preso", async () => {
+    const first = await fieldLogin(loginRequest("tech@alfa.test"));
+    const { device } = (await body(first)).data as { device: { id: string } };
+    await revokeDevice(fixture.companyA.id, fixture.adminA.id, device.id);
+
+    /*
+      Revogar um aparelho não pode bloquear a PESSOA.
+
+      Quem perdeu o celular recebe outro, o app gera outro `installationId`, e
+      ele volta a trabalhar sem depender de um administrador disponível. É a
+      contrapartida que torna a política acima aceitável na operação.
+    */
+    const novoAparelho = await fieldLogin(
+      loginRequest("tech@alfa.test", TEST_PASSWORD, {
+        ...DEVICE,
+        installationId: "install-aparelho-novo-01",
+      }),
+    );
+    expect(novoAparelho.status).toBe(200);
+
+    const devices = await prisma.mobileDevice.findMany({
+      where: { userId: fixture.techA.id },
+      orderBy: { registeredAt: "asc" },
+    });
+    expect(devices).toHaveLength(2);
+    expect(devices[0].status).toBe("REVOKED");
+    expect(devices[1].status).toBe("ACTIVE");
   });
 
   it("token expirado não autentica", async () => {
