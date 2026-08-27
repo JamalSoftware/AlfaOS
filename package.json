@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "outbox:work": "tsx scripts/outbox-worker.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

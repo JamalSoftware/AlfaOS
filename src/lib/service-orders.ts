@@ -12,6 +12,8 @@ import {
   isUniqueConstraintError,
   notFound,
 } from "./errors";
+import { NOTIFICATION_TYPES } from "./notifications";
+import { OUTBOX_EVENTS, enqueueOutboxEvent } from "./outbox";
 import { prisma } from "./prisma";
 import { allocateServiceOrderNumber } from "./service-order-number";
 import { resolveServiceOrderTypeForCreation } from "./service-order-types";
@@ -1022,6 +1024,50 @@ export async function assignTechnician(
           previousTechnicianId: previousTechnician?.id ?? null,
           previousTechnicianName: previousTechnician?.user.name ?? null,
         },
+      },
+    });
+
+    /*
+      Aviso ao técnico — na MESMA transação, e sem tocar em rede.
+
+      As três linhas (OS, evento, notificação) mais o outbox commitam juntas ou
+      não commitam. É o que impede os dois desfechos que a §156 do PRD descreve:
+      transação aberta esperando o FCM, ou push entregue de uma atribuição que
+      sofreu rollback.
+
+      Só o técnico NOVO é notificado. Quem perdeu a OS numa troca não recebe
+      "nova atribuição" — seria mentira. Avisar alguém de que uma OS SAIU dele é
+      outra mensagem, com outro texto, e entra quando for decidida (§37).
+
+      O texto cabe na tela bloqueada: número operacional e tipo. Nome do
+      cliente, endereço, telefone e diagnóstico ficam de fora por construção —
+      a prévia do push não passa por autenticação e fica dias na central do
+      sistema (docs/SECURITY.md §8.9).
+    */
+    const notification = await tx.notification.create({
+      data: {
+        companyId,
+        userId: technician.userId,
+        technicianId: technician.id,
+        type: NOTIFICATION_TYPES.SERVICE_ORDER_ASSIGNED,
+        title: "Nova OS atribuída",
+        body: `${formatServiceOrderNumber(os)} · ${os.type}`,
+        resourceType: "ServiceOrder",
+        resourceId: os.id,
+      },
+      select: { id: true },
+    });
+
+    await enqueueOutboxEvent(tx, {
+      companyId,
+      eventType: OUTBOX_EVENTS.SERVICE_ORDER_ASSIGNED,
+      aggregateType: "ServiceOrder",
+      aggregateId: os.id,
+      // Só referências. O worker relê título e corpo da notificação.
+      payload: {
+        notificationId: notification.id,
+        serviceOrderId: os.id,
+        technicianId: technician.id,
       },
     });
 
