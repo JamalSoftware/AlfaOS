@@ -3987,9 +3987,20 @@ As Partes I a IV permanecem válidas. A Parte V faz três coisas:
    dispositivo, outbox transacional, fila de jobs, sincronização offline e o
    modelo de execução de ferramentas.
 
-> **A §119 se aplica a toda a Parte V.** Nada aqui está implementado. Estar
-> especificado não autoriza escrever código, criar migration nem iniciar
-> Flutter. A trilha Field começa quando for formalmente autorizada.
+> **Atualizado em 2026-08-27 — a v0.9 implementou a FUNDAÇÃO DE BACKEND.**
+> Deixaram de ser só especificação: a Field API versionada (`/api/field/v1`),
+> autenticação e contexto do técnico, `MobileDevice` com revogação server-side
+> (§155), Minhas OS e detalhe, o comando de iniciar atendimento, revelação de
+> PPPoE, diagnóstico, `Notification` (§154), o **transactional outbox** (§156)
+> com worker e retry (§157), e a idempotência mobile (§160) casada com o
+> `version`/CAS que já existia (§161). Contrato em `docs/FIELD-API.md`;
+> segurança em `docs/SECURITY.md` §8.13.
+>
+> **A §119 continua valendo para todo o RESTO da Parte V.** Não existe uma linha
+> de Flutter, nenhum APK, nenhuma integração FCM real, nenhum offline no
+> cliente, nenhuma conclusão de OS pelo Field, nenhuma evidência estruturada,
+> nenhum `ToolExecution` e nenhum item do toolbox. Estar especificado não
+> autoriza escrever código.
 
 **P0 · P1 · P2 classificam a trilha Field**, não o produto inteiro. A
 classificação MVP/IMPORTANTE/DIFERENCIAL/FUTURO da §117 continua descrevendo o
@@ -4180,6 +4191,20 @@ revogar celular perdido · substituir aparelho
 cenário que justifica esta entidade existir: sem ela, a única forma de cortar o
 acesso é trocar a senha do usuário, o que derruba os outros aparelhos dele e
 não impede que o token de push continue entregando OS para o aparelho perdido.
+
+## Decisão concretizada na v0.9 — o token é OPACO, não JWT
+
+O AlfaOS já autentica a web com JWT em cookie. O Field **não** o reusa, e
+também não ganhou um JWT próprio: o token é opaco, guardado como SHA-256 na
+linha do `MobileDevice`, conferido contra o banco a cada requisição.
+
+A razão é esta seção. Um JWT é sem estado, logo **irrevogável** até expirar — e
+a revogação imediata é justamente o que o celular perdido exige. Um JWT com
+`deviceId` na claim não resolveria: ainda seria preciso consultar o banco para
+saber se o aparelho vale, e aí o JWT não paga por si mesmo, só acrescenta
+superfície (chave, algoritmo, expiração que não é revogação).
+
+`docs/FIELD-API.md` §2 e `docs/SECURITY.md` §8.13.
 
 ## Não atrelar ao número de telefone
 

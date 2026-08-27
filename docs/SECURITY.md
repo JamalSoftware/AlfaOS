@@ -888,12 +888,17 @@ credencial `CHATBOT` (§8.7).
 
 ---
 
-## 8.9. AlfaOS Field — superfície móvel (ESPECIFICAÇÃO, não implementado)
+## 8.9. AlfaOS Field — superfície móvel (contrato)
 
-> **Nada desta seção existe em código.** É o contrato de segurança que a trilha
-> Field precisa cumprir quando for autorizada — PRD Parte V, §150–§195. Está
-> aqui, e não só no PRD, porque cada item abaixo é uma decisão que fica cara de
-> reverter depois que o aplicativo estiver em campo.
+> **Parcialmente implementado desde a v0.9.** Esta seção continua sendo o
+> CONTRATO — PRD Parte V, §150–§195. O que a fundação de backend já cumpre está
+> na **§8.13**, com a evidência; o que segue sem código está marcado abaixo.
+>
+> Ainda **especificação, sem código**: cache offline do aplicativo, conclusão de
+> OS pelo Field, evidências estruturadas, assinatura, materiais, checklist,
+> resultado de ferramenta, coordenada enviada pelo aparelho e integração real de
+> push. Cada item abaixo é uma decisão que fica cara de reverter depois que o
+> aplicativo estiver em campo.
 
 ### O Field nunca fala com o ERP
 
@@ -1329,3 +1334,153 @@ Na interface, as mesmas regras aparecem antes do erro: o botão
 formulário de edição bloqueia perfil/status na própria conta, e recusas da API
 (como a do último administrador) passaram a ser exibidas — antes o clique
 falhava em silêncio.
+
+---
+
+## 8.13. Field API — fundação de backend (v0.9)
+
+O que a §8.9 exigia e esta versão entregou. Contrato completo da superfície em
+`docs/FIELD-API.md`.
+
+### Token opaco, revogável, preso a um dispositivo
+
+O cookie da web é um JWT **sem estado** e por isso irrevogável até expirar. A
+§8.9 exige revogação *server-side e imediata*, porque o cenário que justifica a
+camada é celular perdido — um aparelho que não coopera.
+
+```text
+Bearer  →  MobileDevice (ACTIVE, não revogado, não expirado)
+        →  User (ativo, TECHNICIAN, mesma empresa)
+        →  Technician (mesma empresa)
+```
+
+- 32 bytes de `randomBytes`, guardados como **SHA-256 em hex**. O texto claro
+  existe uma única vez, na resposta do login; um dump do banco não devolve
+  acesso a ninguém.
+- SHA-256 puro e não bcrypt: o valor já tem 256 bits de entropia, então não há o
+  que adivinhar por força bruta. Hash lento por requisição autenticada seria
+  custo sem defesa.
+- Validade de 36 h. A expiração **não substitui** a revogação — é a rede embaixo
+  dela, para o aparelho que sumiu sem ninguém perceber.
+- `revokedAt` tem efeito na requisição seguinte, e apaga junto o `pushToken`:
+  senão o celular perdido continuaria recebendo prévia de OS na tela bloqueada.
+
+### O cookie da web não abre o Field, e vice-versa
+
+O token é lido **exclusivamente** de `Authorization: Bearer`. Nunca de cookie,
+nunca de query string, nunca do corpo.
+
+- **Cookie** está fora porque é o que o navegador envia sozinho — aceitá-lo
+  reabriria CSRF numa superfície que hoje não tem essa classe de problema. É por
+  isso que a Field API **não** usa `assertSameOrigin`: não existe CSRF contra
+  uma API que só lê `Authorization`, e um cliente nativo não tem origem para
+  apresentar.
+- **Query string** está fora porque a URL entra em log de servidor, em histórico
+  e no `Referer`.
+- O login **não** emite `Set-Cookie`. O token viaja no corpo, uma vez, para que
+  o aplicativo o guarde no cofre da plataforma (Keystore/Keychain).
+
+### Recusa uniforme
+
+Toda falha de autenticação é o mesmo `UNAUTHENTICATED`. Distinguir "token
+inválido" de "aparelho revogado" de "usuário desativado" contaria a quem roubou
+o aparelho em que pé está a conta.
+
+O login recusa com a **mesma frase** para e-mail inexistente, senha errada,
+usuário inativo, perfil não-TECHNICIAN, ausência de cadastro de técnico e
+técnico inativo — qualquer diferença permitiria descobrir quem trabalha na
+empresa a partir de um app que qualquer pessoa baixa. ADMIN e DISPATCHER não
+entram no Field: dar-lhes token de aplicativo ampliaria o alcance de um aparelho
+roubado para muito além de uma carteira de OS.
+
+Força bruta reusa a máquina da web (`isLoginBlocked`, `recordLoginAttempt`,
+custo constante de bcrypt, `DUMMY_PASSWORD_HASH`) — uma segunda implementação
+seria uma segunda superfície de enumeração, e a que ninguém lembraria de
+endurecer junto.
+
+### Identidade de dispositivo
+
+`installationId` é gerado pelo próprio aplicativo. Deliberadamente **não** é
+IMEI, **não** é Android ID e **não** é número de telefone: número é reciclado
+pela operadora e pertence à pessoa, então quem o receber depois passaria a
+receber notificação operacional da empresa. Ele não é segredo e não autentica
+nada — só correlaciona reinstalação com a mesma linha, dentro de um usuário que
+já provou quem é.
+
+`MobileDevice.technicianId` **não autoriza**: é registro histórico de quem
+registrou o aparelho. A autorização é sempre re-derivada de `userId → Technician`.
+
+### Idempotência como entrada não confiável
+
+Escopo único `(companyId, userId, operation, key)`.
+
+- **empresa e usuário** na chave para que reapresentar a chave de outra pessoa
+  não devolva o resultado dela — seria um oráculo sobre operação alheia.
+- **operação** para que a mesma chave em dois comandos não colida.
+- Posse e tenancy são verificadas **antes** da desduplicação, nunca no lugar
+  dela.
+- **Só o sucesso é memorizado.** Guardar a falha transformaria uma recusa
+  temporária em recusa permanente para aquela chave, e o aparelho ficaria com
+  uma operação na fila local impossível de completar.
+- A reserva é gravada antes de executar e a corrida é arbitrada pela unique do
+  banco — verificar-e-depois-inserir deixaria duas requisições simultâneas
+  executarem as duas.
+
+### Minimização
+
+Os DTOs do Field são projeções próprias, não o `PublicServiceOrder` da web —
+que carrega `document` (CPF) para uma tela administrativa. Nunca no payload:
+CPF, senha PPPoE, token, ciphertext de credencial, payload cru de provider,
+dado financeiro, dados de outros técnicos.
+
+A **lista** devolve `hasLocation` booleano, não a coordenada: mandar latitude e
+longitude da carteira do dia distribuiria o endereço de cada cliente para um
+cache que não tem uso para eles. A coordenada só aparece no detalhe.
+
+`origin`, `externalProvider`, `externalId` e `externalNumber` ficam fora — e
+isso é duplamente deliberado: como o dado não desce, não existe `if (RECEITANET)`
+possível no aplicativo, e uma OS importada se comporta como qualquer outra.
+
+### Privacidade da notificação
+
+Título e corpo são redigidos para a tela bloqueada: número operacional e tipo.
+Nome do cliente, endereço, telefone, CPF e diagnóstico ficam de fora **por
+construção**, e há regressão que falha se algum deles aparecer.
+
+`resourceId` é ponteiro, não permissão: a autorização é verificada na abertura,
+e uma OS já reatribuída leva a uma negação limpa.
+
+### Outbox
+
+`Notification` e `OutboxEvent` são gravados na **mesma transação** da
+atribuição. Chamar o provider de push lá dentro produziria transação aberta
+esperando rede de terceiro, ou push entregue de uma atribuição que sofreu
+rollback.
+
+O payload carrega só identificadores. A tabela sobrevive à transação, é lida por
+worker e aparece em dump e em backup; o worker relê o conteúdo na hora de
+processar. `companyId` viaja no evento para que o worker respeite o isolamento
+de tenant sem reconsultar o agregado.
+
+`lastError` é sanitizado e truncado. Token de push nunca vai para log.
+
+### Rate limit
+
+Sempre **depois** da autorização. Consumido antes, uma sondagem anônima ou de
+outra empresa gastaria a cota de quem tem direito a ela — e a sondagem viraria
+negação de serviço contra o técnico legítimo. Há regressão que prova isso: 20
+chamadas sem token e 10 contra OS alheia não fazem a primeira chamada legítima
+virar 429.
+
+Vale a limitação herdada da §8.7: o estado é em memória do processo.
+
+### Risco residual aceito
+
+**Cursor hostil.** A paginação por cursor aceita qualquer id bem formado. O
+filtro de posse e tenancy continua no `where` em SQL, então um cursor alheio
+**não** traz linha de outro técnico nem de outra empresa — verificado por
+ataque. O que ele pode fazer é deslocar a janela da própria lista de quem
+chamou, ou seja, o técnico veria menos OS suas. É defeito de apresentação
+autoinfligido, não travessia de autorização, e não justifica manter uma tabela
+de cursores assinados.
+

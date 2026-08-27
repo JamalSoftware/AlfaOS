@@ -220,7 +220,24 @@ Três decisões fechadas na implementação: `protocolo` não é persistido, `ti
 
 Geolocalização é capability oficial registrada e **não** entra na v0.7.x nem na v0.8 (PRD §131).
 
-**A trilha Field não começou e não começa sozinha.** Nenhuma linha de Flutter, nenhum FCM, nenhum outbox, nenhum `ToolExecution` — a Parte V é especificação, e a §119 se aplica: estar no PRD não autoriza implementar. Duas escalas de prioridade convivem e precisam ser conferidas juntas: §117 classifica o produto (MVP/IMPORTANTE/DIFERENCIAL/FUTURO), §194 classifica a trilha Field (P0/P1/P2).
+Depois dela, **concluída e sem tag** — a **v0.9, fundação de backend do Field**: a superfície que o aplicativo Flutter vai consumir. **Nenhuma linha de Flutter foi escrita.**
+
+O princípio que a governa: **o Field é outro cliente do MESMO AlfaOS**. Máquina de estados, posse, tenancy, elegibilidade, CAS, timeline e auditoria são os serviços que a web já usa — a camada Field autentica, desduplica, projeta e chama. Nenhuma regra de negócio foi duplicada.
+
+* namespace `/api/field/v1` (versão no caminho: APKs antigos convivem em campo);
+* **token opaco preso a `MobileDevice`**, guardado como SHA-256, com revogação server-side imediata. **Não é o cookie da web** (JWT sem estado é irrevogável) e **não é um JWT novo** (não pagaria por si mesmo, já que a consulta ao banco acontece de qualquer forma);
+* só `Authorization: Bearer` — nunca cookie, nunca query string. É o que elimina CSRF nesta superfície e por que ela não usa `assertSameOrigin`;
+* contrato de erro com `code` estável + `retryable`/`conflict` derivados, para o Flutter nunca interpretar mensagem humana;
+* `Idempotency-Key` escopada por `(empresa, usuário, operação, chave)`; **só o sucesso é memorizado**;
+* `expectedVersion`/CAS para conflito — as duas proteções respondem perguntas diferentes e não se substituem;
+* `Notification` + `OutboxEvent` na **mesma transação** da atribuição; worker por comando (`npm run outbox:work`), sem Redis; push é abstração inerte, sem FCM real;
+* DTOs próprios: sem CPF, sem senha, sem `externalProvider` — a ausência do dado de provider é o que impede um `if (RECEITANET)` no aplicativo.
+
+Uma migration **aditiva**: `MobileDevice`, `Notification`, `OutboxEvent`, `IdempotencyRecord`. Nenhum dado da v0.8 foi tocado.
+
+Documentação: `docs/FIELD-API.md` (contrato) e `docs/SECURITY.md` §8.13 (segurança). A §8.9 continua descrevendo o que **não** existe.
+
+**A trilha Flutter não começou.** Nenhum APK, nenhum FCM real, nenhum offline no cliente, nenhuma conclusão de OS pelo Field, nenhuma evidência estruturada, nenhum `ToolExecution`, nenhum item do toolbox — a §119 se aplica ao resto da Parte V: estar no PRD não autoriza implementar. Duas escalas de prioridade convivem e precisam ser conferidas juntas: §117 classifica o produto (MVP/IMPORTANTE/DIFERENCIAL/FUTURO), §194 classifica a trilha Field (P0/P1/P2).
 
 ## Princípios
 

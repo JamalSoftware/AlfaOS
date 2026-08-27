@@ -93,6 +93,12 @@ O documento também traz o mapeamento de identidade da sincronização da v0.8, 
 
 ## AlfaOS Field, toolkit do técnico e fundações de backend
 
+**Se a tarefa toca a Field API que EXISTE, carregue primeiro `docs/FIELD-API.md`** — namespace `/api/field/v1`, autenticação por token opaco e `MobileDevice`, contrato de erro com código estável, `Idempotency-Key`, `expectedVersion`, minimização de DTO, outbox e worker. O contrato de segurança correspondente é `docs/SECURITY.md` §8.13; a §8.9 continua sendo a especificação do que ainda não existe.
+
+**Implementado na v0.9:** login/logout, `/me`, registro e revogação de dispositivo, Minhas OS, detalhe, `start`, revelação de PPPoE, diagnóstico, central de notificações, outbox transacional com worker por comando (`npm run outbox:work`) e abstração de push (sem FCM real).
+
+**Continua só especificação:** Flutter, offline no cliente, conclusão pelo Field, evidências estruturadas, assinatura, materiais, checklist e todo o toolkit.
+
 **Carregar:** `docs/PRD.md` **Parte V (§150–§195)** — a especificação completa do Field. Carregue apenas o bloco relevante à tarefa, não a Parte inteira:
 
 | Assunto | Seções |
