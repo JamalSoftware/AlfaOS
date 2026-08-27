@@ -38,6 +38,20 @@ import type { FieldPrincipal } from "./auth";
 /** Uma janela larga o bastante para cobrir um dia de campo sem rede. */
 export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Quanto tempo uma reserva `IN_FLIGHT` segura a chave.
+ *
+ * A reserva é gravada ANTES de executar, para que a unique arbitre a corrida.
+ * O preço disso é que um processo morto no meio deixa a linha `IN_FLIGHT` — e,
+ * sem prazo, toda retentativa daquela chave recebia CONFLICT até a expiração
+ * de 24 h. Uma queda de processo travava a operação do técnico por um dia.
+ *
+ * Dois minutos: bem acima de qualquer comando do Field (todos são uma
+ * transação curta no mesmo banco) e curto o bastante para o aplicativo se
+ * recuperar dentro da mesma visita.
+ */
+export const IDEMPOTENCY_LEASE_MS = 2 * 60 * 1000;
+
 /** Marca de "em execução": nenhum desfecho HTTP real usa 0. */
 const IN_FLIGHT = 0;
 
@@ -111,36 +125,83 @@ export interface IdempotentOutcome<T> {
 }
 
 interface StoredRecord {
+  id: string;
   fingerprint: string;
   status: number;
   response: unknown;
+  leaseExpiresAt: Date | null;
+  createdAt: Date;
 }
+
+/** A reserva ainda está viva, ou o processo que a criou sumiu? */
+function leaseIsLive(record: StoredRecord, now: Date): boolean {
+  const deadline =
+    record.leaseExpiresAt ??
+    // Linha criada antes desta coluna existir: a idade sai de `createdAt`, que
+    // é o instante da reserva. Sem backfill, e sem reserva antiga eterna.
+    new Date(record.createdAt.getTime() + IDEMPOTENCY_LEASE_MS);
+  return deadline > now;
+}
+
+const inProgress = () =>
+  new FieldError(
+    "CONFLICT",
+    "Esta operação já está em andamento. Recarregue e verifique.",
+  );
+
+/**
+ * O que fazer diante de um registro existente.
+ *
+ * `replay` devolve o desfecho guardado. `takeover` significa que a reserva foi
+ * abandonada e esta requisição pode assumi-la — sujeito a ganhar a corrida da
+ * própria tomada.
+ */
+type Decision<T> =
+  | { kind: "replay"; outcome: IdempotentOutcome<T> }
+  | { kind: "takeover"; recordId: string };
 
 function decide<T>(
   record: StoredRecord,
   fingerprint: string,
-): IdempotentOutcome<T> {
+  now: Date,
+): Decision<T> {
   if (record.fingerprint !== fingerprint) {
     throw new FieldError(
       "IDEMPOTENCY_CONFLICT",
       "Esta chave de idempotência já foi usada com outro conteúdo.",
     );
   }
-  if (record.status === IN_FLIGHT) {
-    /*
-      A primeira requisição ainda não terminou.
-
-      É CONFLICT, e não um erro transitório, porque a orientação certa para o
-      aplicativo é a mesma dos dois casos: recarregar o estado e olhar. Quando
-      a vencedora commitar, o estado já refletirá a mutação — reenviar às cegas
-      não acrescentaria nada.
-    */
-    throw new FieldError(
-      "CONFLICT",
-      "Esta operação já está em andamento. Recarregue e verifique.",
-    );
+  if (record.status !== IN_FLIGHT) {
+    return {
+      kind: "replay",
+      outcome: { status: record.status, body: record.response as T },
+    };
   }
-  return { status: record.status, body: record.response as T };
+  if (leaseIsLive(record, now)) {
+    /*
+      A primeira requisição ainda está rodando.
+
+      É CONFLICT, e não erro transitório, porque a orientação certa para o
+      aplicativo é recarregar e olhar: quando a vencedora commitar, o estado já
+      refletirá a mutação, e reenviar às cegas não acrescentaria nada.
+    */
+    throw inProgress();
+  }
+  /*
+    Reserva abandonada.
+
+    Quem a criou morreu sem gravar o desfecho. A operação PODE ter commitado
+    mesmo assim — a reserva é gravada antes de executar, então há uma janela
+    entre o commit do domínio e a gravação do resultado aqui.
+
+    Por isso a tomada RE-EXECUTA o handler em vez de fingir sucesso. Quem
+    garante que a mutação não aconteça duas vezes não é esta camada: é o
+    domínio. A máquina de estados recusa `ASSIGNED → IN_PROGRESS` numa OS que
+    já está em atendimento, e o compare-and-set recusa uma versão que já andou.
+    O desfecho de uma tomada depois de um commit é um 409 honesto, não uma
+    segunda execução.
+  */
+  return { kind: "takeover", recordId: record.id };
 }
 
 /**
@@ -167,46 +228,79 @@ export async function withIdempotency<T>(
     key,
   };
 
+  /**
+   * Assume uma reserva abandonada — se ganharmos a corrida da tomada.
+   *
+   * O predicado repete a condição de abandono, então duas requisições que
+   * enxergam o mesmo lease vencido não assumem as duas: o banco serializa e a
+   * perdedora casa zero linhas.
+   */
+  const tryTakeover = async (recordId: string): Promise<boolean> => {
+    const legacyCutoff = new Date(now.getTime() - IDEMPOTENCY_LEASE_MS);
+    const taken = await prisma.idempotencyRecord.updateMany({
+      where: {
+        id: recordId,
+        status: IN_FLIGHT,
+        OR: [
+          { leaseExpiresAt: { lte: now } },
+          { leaseExpiresAt: null, createdAt: { lte: legacyCutoff } },
+        ],
+      },
+      data: { leaseExpiresAt: new Date(now.getTime() + IDEMPOTENCY_LEASE_MS) },
+    });
+    return taken.count === 1;
+  };
+
   const existing = await prisma.idempotencyRecord.findUnique({
     where: { companyId_userId_operation_key: scope },
   });
+
+  let reservationId: string | null = null;
+
   if (existing) {
     if (existing.expiresAt > now) {
-      return decide<T>(existing, fingerprint);
+      const decision = decide<T>(existing, fingerprint, now);
+      if (decision.kind === "replay") return decision.outcome;
+      if (!(await tryTakeover(decision.recordId))) {
+        // Outra requisição assumiu primeiro. Ela é a dona agora.
+        throw inProgress();
+      }
+      reservationId = decision.recordId;
+    } else {
+      // Expirada: a janela passou e a chave volta a ser reutilizável. Apagar em
+      // vez de reaproveitar a linha mantém a corrida arbitrada por um único
+      // mecanismo — o INSERT abaixo.
+      await prisma.idempotencyRecord
+        .delete({ where: { id: existing.id } })
+        .catch(() => undefined);
     }
-    // Expirada: a janela passou e a chave volta a ser reutilizável. Apagar em
-    // vez de reaproveitar a linha mantém a corrida arbitrada por um único
-    // mecanismo — o INSERT abaixo.
-    await prisma.idempotencyRecord
-      .delete({ where: { id: existing.id } })
-      .catch(() => undefined);
   }
 
-  let reservationId: string;
-  try {
-    const reservation = await prisma.idempotencyRecord.create({
-      data: {
-        ...scope,
-        fingerprint,
-        status: IN_FLIGHT,
-        response: {},
-        expiresAt: new Date(now.getTime() + IDEMPOTENCY_TTL_MS),
-      },
-    });
-    reservationId = reservation.id;
-  } catch (error) {
-    if (!isUniqueConstraintError(error)) throw error;
-    // Perdemos a corrida. Quem ganhou é a autoridade sobre o desfecho.
-    const winner = await prisma.idempotencyRecord.findUnique({
-      where: { companyId_userId_operation_key: scope },
-    });
-    if (!winner) {
-      throw new FieldError(
-        "CONFLICT",
-        "Esta operação já está em andamento. Recarregue e verifique.",
-      );
+  if (reservationId === null) {
+    try {
+      const reservation = await prisma.idempotencyRecord.create({
+        data: {
+          ...scope,
+          fingerprint,
+          status: IN_FLIGHT,
+          response: {},
+          leaseExpiresAt: new Date(now.getTime() + IDEMPOTENCY_LEASE_MS),
+          expiresAt: new Date(now.getTime() + IDEMPOTENCY_TTL_MS),
+        },
+      });
+      reservationId = reservation.id;
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      // Perdemos a corrida. Quem ganhou é a autoridade sobre o desfecho.
+      const winner = await prisma.idempotencyRecord.findUnique({
+        where: { companyId_userId_operation_key: scope },
+      });
+      if (!winner) throw inProgress();
+      const decision = decide<T>(winner, fingerprint, now);
+      if (decision.kind === "replay") return decision.outcome;
+      if (!(await tryTakeover(decision.recordId))) throw inProgress();
+      reservationId = decision.recordId;
     }
-    return decide<T>(winner, fingerprint);
   }
 
   try {
@@ -217,6 +311,8 @@ export async function withIdempotency<T>(
         status: outcome.status,
         response: outcome.body as never,
         resourceId: outcome.resourceId ?? null,
+        // Concluída: não há mais reserva a expirar.
+        leaseExpiresAt: null,
       },
     });
     return outcome;

@@ -951,12 +951,25 @@ model OutboxEvent {
   /// endereco ou payload cru de provider.
   payload Json?
 
-  status      OutboxEventStatus @default(PENDING)
-  attempts    Int               @default(0)
+  status   OutboxEventStatus @default(PENDING)
+  attempts Int               @default(0)
+
+  /// Ate quando a reivindicacao atual vale.
+  ///
+  /// Sem isto, um worker que morre entre reivindicar e concluir deixa o evento
+  /// em PROCESSING para sempre: `processOutboxBatch` so procura PENDING e
+  /// `requeueFailedOutboxEvent` so aceita FAILED, entao ninguem mais olha para
+  /// ele. O aviso some em silencio, que e exatamente o desfecho que a fila
+  /// existe para evitar.
+  ///
+  /// Nulo em linha antiga (a coluna e aditiva). Nesse caso a idade e medida por
+  /// `updatedAt`, que foi escrito na reivindicacao — nao ha backfill a fazer.
+  leaseExpiresAt DateTime?
+
   /// Quando a proxima tentativa pode acontecer. E o backoff: retry imediato em
   /// laco contra um provider ja sobrecarregado e uma negacao de servico que o
   /// AlfaOS aplica contra si mesmo (PRD 157).
-  availableAt DateTime          @default(now())
+  availableAt DateTime  @default(now())
   processedAt DateTime?
   /// Motivo sanitizado da ultima falha. Falha definitiva precisa ser
   /// observavel: job que esgotou tentativas e sumiu em silencio e pior que job
@@ -1001,9 +1014,25 @@ model IdempotencyRecord {
   resourceId String?
   /// Status HTTP do desfecho guardado, reproduzido na repeticao.
   status     Int
+
+  /// Ate quando a reserva IN_FLIGHT vale.
+  ///
+  /// A reserva e gravada ANTES de executar, para que a unique arbitre a
+  /// corrida. Se o processo morrer entre a reserva e a gravacao do desfecho, a
+  /// linha fica IN_FLIGHT e toda retentativa daquela chave recebe CONFLICT ate
+  /// `expiresAt` — 24 horas de operacao travada por uma queda de processo.
+  ///
+  /// Com o lease, a reserva abandonada pode ser assumida por outra requisicao.
+  /// O que garante que a MUTACAO nao aconteca duas vezes nesse caso nao e esta
+  /// camada e sim o dominio: maquina de estados e compare-and-set. Ver
+  /// `docs/FIELD-API.md`.
+  ///
+  /// Nulo em linha antiga; a idade cai para `createdAt`, que e o instante da
+  /// reserva.
+  leaseExpiresAt DateTime?
   /// Corpo da resposta original. E o mesmo corpo que ja foi entregue ao dono
   /// da chave uma vez.
-  response   Json
+  response       Json
 
   createdAt DateTime @default(now())
   expiresAt DateTime

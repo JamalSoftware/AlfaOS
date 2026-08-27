@@ -96,6 +96,20 @@ export async function enqueueOutboxEvent(
  */
 export const OUTBOX_MAX_ATTEMPTS = 6;
 
+/**
+ * Quanto tempo uma reivindicação vale.
+ *
+ * Cinco minutos: uma ordem de grandeza acima do envio normal — que é uma
+ * chamada HTTP a um provider de push, medida em segundos — e curto o bastante
+ * para que um worker morto não segure o evento por um turno inteiro.
+ *
+ * Curto demais e dois workers processam o mesmo evento porque o primeiro ainda
+ * estava trabalhando. Longo demais e o crash de meio-dia só é recuperado à
+ * noite. Não é configurável de propósito: uma constante que alguém lê no código
+ * vale mais que um `.env` que ninguém sabe que existe.
+ */
+export const OUTBOX_LEASE_MS = 5 * 60 * 1000;
+
 /** Primeiro adiamento; dobra a cada tentativa. */
 const BACKOFF_BASE_MS = 30_000;
 const BACKOFF_CAP_MS = 60 * 60 * 1000;
@@ -133,13 +147,53 @@ export interface OutboxRunResult {
 }
 
 /**
+ * Predicado do que pode ser reivindicado AGORA.
+ *
+ * Duas situações, e a segunda é a que faltava:
+ *
+ * 1. `PENDING` cuja hora chegou — o caso normal.
+ * 2. `PROCESSING` cujo **lease venceu** — o worker que o pegou morreu. Sem
+ *    isto o evento ficava preso para sempre: nada mais procurava por
+ *    `PROCESSING`, e `requeueFailedOutboxEvent` só aceita `FAILED`.
+ *
+ * A terceira cláusula é compatibilidade: linha reivindicada antes desta coluna
+ * existir tem `leaseExpiresAt` nulo. A idade dela sai de `updatedAt`, que foi
+ * escrito no momento da reivindicação — nenhum backfill é necessário, e uma
+ * linha antiga presa deixa de ser eterna.
+ */
+function claimableWhere(now: Date) {
+  const legacyCutoff = new Date(now.getTime() - OUTBOX_LEASE_MS);
+  return {
+    OR: [
+      { status: "PENDING" as const, availableAt: { lte: now } },
+      { status: "PROCESSING" as const, leaseExpiresAt: { lte: now } },
+      {
+        status: "PROCESSING" as const,
+        leaseExpiresAt: null,
+        updatedAt: { lte: legacyCutoff },
+      },
+    ],
+  };
+}
+
+/**
  * Processa um lote. Devolve contagens — nunca conteúdo.
  *
- * A reivindicação é feita por `updateMany` com predicado de status: o banco
- * serializa, exatamente um processo troca `PENDING` por `PROCESSING`, e os
- * demais casam zero linhas e seguem em frente. É o que permite rodar dois
- * workers (ou um cron que se sobrepôs ao anterior) sem entregar o mesmo push
- * duas vezes.
+ * A reivindicação é um `updateMany` cujo predicado é o MESMO da busca: o banco
+ * serializa, exatamente um processo consegue trocar o estado, e os demais casam
+ * zero linhas e seguem em frente. É o que permite rodar dois workers — ou um
+ * cron que se sobrepôs ao anterior — sem entregar o mesmo push duas vezes.
+ *
+ * ## Semântica de entrega: at-least-once
+ *
+ * Um worker pode morrer DEPOIS de o provider aceitar a mensagem e ANTES de
+ * marcar `PROCESSED`. Quando o lease vencer, o evento é reivindicado de novo e
+ * a notificação sai outra vez.
+ *
+ * Isso é deliberado e não tem conserto barato: garantir exactly-once exigiria
+ * transação distribuída com um provider de push que não a oferece. A escolha é
+ * entre entregar duas vezes e perder — e perder um aviso de atribuição é pior.
+ * O aplicativo precisa tolerar duplicata, o que é natural para push.
  */
 export async function processOutboxBatch(
   handler: OutboxHandler,
@@ -147,7 +201,7 @@ export async function processOutboxBatch(
   now: Date = new Date(),
 ): Promise<OutboxRunResult> {
   const candidates = await prisma.outboxEvent.findMany({
-    where: { status: "PENDING", availableAt: { lte: now } },
+    where: claimableWhere(now),
     orderBy: { availableAt: "asc" },
     take: limit,
     select: { id: true },
@@ -162,11 +216,15 @@ export async function processOutboxBatch(
 
   for (const candidate of candidates) {
     const claim = await prisma.outboxEvent.updateMany({
-      where: { id: candidate.id, status: "PENDING" },
-      data: { status: "PROCESSING", attempts: { increment: 1 } },
+      where: { id: candidate.id, ...claimableWhere(now) },
+      data: {
+        status: "PROCESSING",
+        leaseExpiresAt: new Date(Date.now() + OUTBOX_LEASE_MS),
+        attempts: { increment: 1 },
+      },
     });
     if (claim.count !== 1) {
-      // Outro worker levou. Não é erro.
+      // Outro worker levou, ou o lease dele ainda vale. Não é erro.
       continue;
     }
     result.claimed += 1;
@@ -175,6 +233,27 @@ export async function processOutboxBatch(
       where: { id: candidate.id },
     });
     if (!event) continue;
+
+    /*
+      Teto também no caminho de RECLAIM.
+
+      Uma falha normal já vira FAILED ao esgotar as tentativas, dentro do
+      `catch`. Mas um worker que morre antes de chegar lá nunca executa esse
+      trecho — sem esta guarda, um evento que derruba o processo seria
+      reivindicado para sempre, a cada lease vencido, sem nunca parar.
+    */
+    if (event.attempts > OUTBOX_MAX_ATTEMPTS) {
+      await prisma.outboxEvent.update({
+        where: { id: event.id },
+        data: {
+          status: "FAILED",
+          leaseExpiresAt: null,
+          lastError: `Reivindicado ${event.attempts} vezes sem concluir.`,
+        },
+      });
+      result.exhausted += 1;
+      continue;
+    }
 
     try {
       await handler({
@@ -189,6 +268,7 @@ export async function processOutboxBatch(
         data: {
           status: "PROCESSED",
           processedAt: new Date(),
+          leaseExpiresAt: null,
           lastError: null,
         },
       });
@@ -199,6 +279,9 @@ export async function processOutboxBatch(
         where: { id: event.id },
         data: {
           status: exhausted ? "FAILED" : "PENDING",
+          // O lease morre junto com a reivindicação: um evento que voltou para
+          // PENDING é escolhido pela hora do backoff, não por lease vencido.
+          leaseExpiresAt: null,
           availableAt: exhausted
             ? event.availableAt
             : new Date(Date.now() + outboxBackoffMs(event.attempts)),
@@ -233,6 +316,7 @@ export async function requeueFailedOutboxEvent(
       status: "PENDING",
       attempts: 0,
       availableAt: new Date(),
+      leaseExpiresAt: null,
       lastError: null,
     },
   });
