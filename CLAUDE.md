@@ -199,14 +199,18 @@ Também sem tag, **documentação apenas**: a Parte VII do PRD (§210–§223) �
 
 Depois dela, **concluído e sem tag** — a **v0.8, sincronização de OS do ReceitaNet**: `/v1/chamados` → `ServiceOrder` EXTERNAL, **por cliente conhecido** (PRD §142). Ação explícita de ADMIN/DISPATCHER na tela do cliente, sem cron. **Nenhuma migration** — a unique de identidade externa e os campos já existiam.
 
-Quatro invariantes da v0.8, todos cobertos por regressão:
+Seis invariantes da v0.8, todos cobertos por regressão:
 
 * importação idempotente e à prova de corrida, pela unique `(companyId, externalProvider, externalId)`;
 * **o AlfaOS é a fonte de verdade da execução** — re-sync não toca técnico, status, execução, evidências, materiais nem timeline;
 * **ausência não é fechamento** — chamado que some não é cancelado nem apagado;
-* `ServiceOrder.number` continua local; o número do provedor vive em `externalNumber`.
+* `ServiceOrder.number` continua local; o número do provedor vive em `externalNumber`;
+* **`idSuporte` inválido recusa o lote inteiro** — inteiro positivo ou `INVALID_RESPONSE`, sem importação parcial e sem identidade adivinhada;
+* **no-op não escreve** — releitura idêntica não gera `UPDATE` nem move `version`; mudança real do provider ainda incrementa.
 
-Três decisões fechadas na implementação: `protocolo` não é persistido, `tipo` não é traduzido (rótulo `Chamado ReceitaNet`, `typeId` nulo) e `data_previsao` não vira `scheduledAt`.
+Três decisões fechadas na implementação: `protocolo` não é persistido, `tipo` não é traduzido (rótulo `Chamado ReceitaNet`, `typeId` nulo) e `data_previsao` não vira `scheduledAt`. **Nenhum dos três é guardado em metadata** — o código chegou a afirmar que `tipo` e `data_previsao` ficavam lá, e não ficavam.
+
+**Auditoria focal da v0.8:** `APPROVED WITH RISKS` — 1 MEDIUM (SYNC-01) e 2 LOW (SYNC-02, SYNC-03), corrigidos em `8cb890d` e `36cee27`. Aguardando reauditoria independente antes de tag.
 
 **Não existe descoberta global de OS.** Confirmado pelo suporte do ReceitaNet: nenhuma API pública lista as OS da empresa. É limitação do provider, não dívida do AlfaOS — não retomar a investigação, não fuzzar endpoint (PRD §141).
 

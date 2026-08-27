@@ -727,6 +727,28 @@ do ReceitaNet **nunca** vira chave primária nem número local — vai para
 identidade local é impossível de garantir único e colide no dia em que um
 segundo provedor for integrado.
 
+**`idSuporte` é obrigatório, e um lote sem ele é recusado inteiro.** O schema
+`Chamado` o declara como inteiro, e o AlfaOS aceita exatamente isso: inteiro
+positivo. String numérica, `null`, vazio, objeto, booleano, zero, negativo e
+fracionário são recusados — não há normalização nem fallback, e nem `numero`,
+nem `protocolo`, nem a posição no array substituem a identidade.
+
+Uma linha inválida invalida a **resposta inteira**: `INVALID_RESPONSE`, zero
+OS criadas, zero atualizadas, zero eventos. Não existe importação parcial.
+Aproveitar as linhas boas deixaria o operador com uma sincronização
+“bem-sucedida” cujo conteúdo ninguém consegue descrever.
+
+O motivo é concreto, e a auditoria da v0.8 o reproduziu (SYNC-01). Antes da
+guarda, `String(row.idSuporte)` transformava `undefined` na string
+`"undefined"`. Como `customerId` **não** faz parte da unique, dois chamados de
+**clientes diferentes** da mesma empresa colidiam nessa chave: o segundo
+atualizava a OS do primeiro, e a tela mostrava o cliente A com o problema de
+B. Um técnico sairia para o endereço errado.
+
+*Risco assumido:* se o provider passar a enviar `idSuporte` como string, a
+sincronização falha inteira em vez de degradar. É deliberado — falha barulhenta
+e de conserto trivial vale mais que identidade adivinhada.
+
 ### Idempotência
 
 ```text
@@ -745,6 +767,40 @@ curiosidade:
   cliente com mais de 10 chamados abertos importa incompleto **em silêncio**.
   A pergunta 3 ao suporte segue aberta; até lá, o comportamento precisa ser
   tratado como limite conhecido e visível ao operador.
+
+### Campos recebidos e NÃO usados
+
+Dois campos do chamado chegam e são deliberadamente descartados. O
+normalizador os expõe (`typeCode`, `forecast`) e a v0.8 não os lê:
+
+| Campo | Por que não é usado | Onde fica |
+|---|---|---|
+| `tipo` | Inteiro sem tabela de significado publicada. Traduzir para “Instalação” inventaria semântica. A OS recebe o rótulo fixo `Chamado ReceitaNet` e `typeId` nulo. | **Em lugar nenhum** |
+| `data_previsao` | Previsão do provider não é compromisso combinado com o cliente. Virar `scheduledAt` faria a agenda exibir horários que ninguém marcou. `scheduledAt` fica nulo. | **Em lugar nenhum** |
+
+**Nenhum dos dois é persistido** — nem em coluna, nem no metadata do evento de
+importação. Comentários anteriores no código afirmavam que ficavam no metadata;
+não ficavam, e a auditoria da v0.8 registrou a divergência (SYNC-02). Guardá-los
+exigiria estrutura nova para valores sem semântica homologada, e dado que
+ninguém sabe ler não fica melhor por estar salvo.
+
+Se o ReceitaNet publicar a tabela de `tipo`, isto vira decisão nova — não
+dívida escondida.
+
+### Re-sincronização: no-op não escreve
+
+Uma releitura que traz exatamente os mesmos campos do provider **não gera
+`UPDATE`**. `version` e `updatedAt` ficam onde estavam, e o desfecho é
+`unchanged`, distinto de `updated`.
+
+Não é economia de escrita: `version` é o token do compare-and-set. Movê-lo sem
+mudança real fazia a atribuição de um despachante — que leu a tela antes da
+sincronização — falhar com **409** por uma sincronização que não mudou nada
+(SYNC-03).
+
+Mudança real do provider continua incrementando `version`. É exatamente aí que
+o CAS precisa invalidar as leituras anteriores, e essa proteção não foi
+enfraquecida.
 
 ### O que a v0.8 NÃO faz
 
