@@ -100,7 +100,17 @@ O documento também traz o mapeamento de identidade da sincronização da v0.8, 
 
 **Endurecido depois da auditoria independente:** revogação de aparelho com tela em `/dispositivos` (`ADMIN`), aparelho revogado **não** volta por login (`DEVICE_REVOKED`), lease e reclaim no outbox e na reserva de idempotência, resposta do `start` vinda da mutação, e o worker compilado para rodar com `node` em produção. Se a tarefa toca revogação, fila ou idempotência, leia `docs/SECURITY.md` §8.13 e `docs/V0.9-AUDIT.md` antes.
 
-**Continua só especificação:** Flutter, offline no cliente, conclusão pelo Field, evidências estruturadas, assinatura, materiais, checklist e todo o toolkit.
+**Implementado na v0.10 (backend, Etapa A):** execução e fechamento em campo — `CustomerLocation` com precedência, confirmação e correção com histórico imutável, check-in, evidências categorizadas com upload, checklist dinâmico com snapshot por OS, ledger mínimo de inventário, equipamento instalado, tentativa de contato, impedimento, assinatura vinculada ao conteúdo e conclusão validada por tipo de OS. Dezesseis rotas novas; contrato em `docs/FIELD-API.md` §3, segurança em `docs/SECURITY.md` §8.14.
+
+**Se a tarefa toca execução em campo, os arquivos são:** `src/lib/customer-locations.ts` (precedência — leia antes de mexer em qualquer escrita de coordenada), `src/lib/inventory.ts` (ledger e a corrida), `src/lib/checklists.ts` (snapshot), `src/lib/service-order-completion.ts` (validação e hash do fechamento), `src/lib/service-order-child-mutation.ts` (o preâmbulo de posse e o CAS, compartilhado por sete comandos) e `src/lib/field/command.ts` (a sequência de todo comando mutante).
+
+Três invariantes da v0.10 que são fáceis de desfazer sem perceber:
+
+* **Check-in NÃO confirma localização.** São entidades diferentes de propósito. Derivar `verified` de um GPS de chegada produziria uma base inteira de coordenadas "verificadas" que ninguém verificou.
+* **Escrita automática de coordenada passa OBRIGATORIAMENTE por `applyImportedCustomerLocation`.** A auditoria da v0.10 encontrou essa função sem chamador de produção, com o enriquecimento gravando direto e rebaixando `verified` — ver `docs/SECURITY.md` §8.14. Se você está escrevendo `latitude` em `Customer`, está no caminho errado.
+* **O checklist da OS é snapshot, não referência.** Editar o template não pode alcançar OS já iniciada.
+
+**Continua só especificação:** Flutter (Etapa B da v0.10), offline no cliente, FCM real, todo o toolkit, `ToolExecution`, custódia de patrimônio, PDF de fechamento e reabertura de OS.
 
 **Carregar:** `docs/PRD.md` **Parte V (§150–§195)** — a especificação completa do Field. Carregue apenas o bloco relevante à tarefa, não a Parte inteira:
 

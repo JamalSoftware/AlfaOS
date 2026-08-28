@@ -1533,3 +1533,168 @@ chamou, ou seja, o técnico veria menos OS suas. É defeito de apresentação
 autoinfligido, não travessia de autorização, e não justifica manter uma tabela
 de cursores assinados.
 
+
+---
+
+## 8.14. Execução e fechamento em campo (v0.10)
+
+A v0.10 acrescenta onze comandos mutantes e três leituras ao `/api/field/v1`, e
+uma superfície administrativa para configurar checklist, política de conclusão e
+catálogo de estoque. Nenhuma regra de negócio nova vive nas rotas: elas
+autenticam, desduplicam e chamam os MESMOS serviços que a web chama.
+
+### A sequência de todo comando, e por que a ordem é segurança
+
+```text
+autenticar → elegibilidade → Idempotency-Key → corpo → dedup → domínio
+```
+
+- **Elegibilidade antes da desduplicação.** Invertido, um técnico inelegível
+  gravaria uma reserva `IN_FLIGHT` que depois bloquearia a chave legítima do
+  próprio aparelho por até dois minutos.
+- **Chave antes do corpo**, para recusar sem trabalho.
+- **Domínio por último**, e é ele quem valida posse, estado e compare-and-set.
+
+A sequência mora em `fieldOrderCommand` (`src/lib/field/command.ts`), uma vez.
+A v0.9 a escrevia à mão em quatro rotas, o que estava certo com quatro; são
+dezesseis agora, e a décima sexta é a que erraria a ordem.
+
+### Posse é derivada da OS, nunca do corpo
+
+`customerId`, `technicianId` e `companyId` **nunca** são lidos do corpo. O
+cliente é alcançado através de uma OS que o técnico possui — é o que impede o
+ataque de usar uma OS própria para corrigir o cadastro do cliente de outra.
+Todo schema é `.strict()`: campo desconhecido é **recusado**, não descartado em
+silêncio, porque um aplicativo que envia `companyId` precisa ouvir um "não" em
+vez de achar que funcionou.
+
+Recurso de OS alheia responde **404**, nunca 403 — 403 confirmaria que o id
+existe, que é o fato que um técnico sondando ids não pode aprender.
+
+### Check-in NÃO confirma localização
+
+A fronteira mais fácil de apagar sem perceber. O check-in diz onde o APARELHO
+estava quando o técnico declarou que chegou; `CustomerLocation.verified` diz que
+uma pessoa conferiu que aquele é o ponto de instalação. Derivar o segundo do
+primeiro produziria uma base inteira de coordenadas "verificadas" que ninguém
+verificou — e faria isso em silêncio, em toda OS (PRD §172).
+
+`verified` só é escrito por confirmação ou correção explícita, os dois caminhos
+com ação humana deliberada. Há regressão que prova que um check-in com GPS
+**não** marca a localização como verificada.
+
+A distância até o cliente é calculada **no servidor** e registrada como
+informação. Não bloqueia: GPS de celular erra dezenas de metros em área urbana
+densa e falha dentro de prédio — exatamente onde o atendimento acontece.
+
+### Precedência de localização — e o defeito que a auditoria encontrou
+
+> Dado de menor confiança NÃO sobrescreve silenciosamente dado já confirmado
+> (PRD §197).
+
+`verified` domina o eixo `source`, com um degrau inteiro (+100) acima de
+qualquer origem. Escrita automática — importação, geocodificação — passa
+obrigatoriamente por `applyImportedCustomerLocation`, que não rebaixa
+`verified`, não substitui ponto verificado e registra a divergência em vez de
+escolher em silêncio.
+
+**A auditoria da v0.10 encontrou essa regra implementada e sem chamador de
+produção.** O caminho real (`enrichCustomerFromChatbot`) gravava coordenada e
+`locationVerified: false` direto no `Customer`, então qualquer enriquecimento
+rebaixava a confirmação de campo. Corrigido: a escrita passa pelo único caminho
+automático, dentro da mesma transação do resto do cadastro. A regressão que o
+prova entra pelo caminho REAL, não pelo helper — era exatamente essa a diferença
+entre um teste que pega e um que não pega.
+
+### Upload
+
+Tipo real decidido pelo **número mágico dos bytes**, nunca pela extensão nem
+pelo `Content-Type` — ambos escolhidos pelo cliente. SVG não é aceito em formato
+nenhum: carrega script e rodaria na origem da aplicação. A chave de storage é
+gerada no servidor a partir de ids que controlamos, então o nome enviado nunca
+alcança o caminho — `../../../etc/passwd.png` vira nome de exibição e nada mais.
+Só `file`, `expectedOrderVersion`, `category`, `caption` e `capturedAt` são
+LIDOS do formulário; partes extras são ignoradas, que é a mesma garantia do
+`.strict()` obtida por não ler.
+
+`capturedAt` é informativo. O relógio do celular é ajustável pelo próprio
+usuário e o EXIF é editável: o fato que vale para integridade é `createdAt`,
+gravado pelo servidor quando o arquivo chegou (PRD §162).
+
+`contentHash` é gravado como metadado e **não é único**. Transformá-lo em unique
+criaria um caminho de sucesso-sem-escrita que enfraqueceria a garantia de
+corrida do teto de evidências — cujo teste prova que de N envios concorrentes
+exatamente um vence. A retentativa do Field já é coberta pela `Idempotency-Key`.
+
+### Inventário — saldo é do técnico, e a corrida é real
+
+O saldo é SOMA sobre movimentos imutáveis, nunca uma coluna. Isso cria um
+problema que `SUM` sozinho não resolve: sob READ COMMITTED, duas baixas
+simultâneas do último metro de cabo leem o mesmo total, as duas se acham
+autorizadas e as duas gravam — e nenhuma transação fez nada errado isoladamente.
+Não há linha de saldo a travar, porque o saldo é derivado.
+
+A serialização é um **lock consultivo de transação** por `(empresa, item,
+técnico)`, adquirido sempre DEPOIS do compare-and-set da OS. Como todo consumo
+passa por `consumeInventoryForOrder`, a ordem é a mesma em todos os caminhos e
+não há ciclo de espera. Colisão de `hashtext` custa paralelismo, nunca correção.
+
+Quantidade é sempre positiva e o sinal vem do tipo: aceitar `-5` seria aceitar
+uma ENTRADA disfarçada de baixa, que é como se cria saldo do nada num ledger que
+confia no sinal do cliente. **O Field só emite `TECHNICIAN_TO_CUSTOMER`** — se
+pudesse emitir entrada, o técnico criaria o próprio saldo antes de baixá-lo.
+
+### Assinatura vinculada ao conteúdo
+
+`signedContentHash` é o resumo determinístico do fechamento no instante da
+assinatura. Sem ele a assinatura prova que alguém desenhou num vidro, não o que
+a pessoa aceitou: o técnico colheria a assinatura e só depois acrescentaria
+material ou trocaria o serviço realizado.
+
+A verificação de obsolescência vale **mesmo sem política de conclusão**: se
+existe assinatura, ela tem de corresponder ao que está sendo fechado. Assinatura
+da v0.4 tem hash nulo e é ignorada — exigir recoleta retroativa impediria fechar
+OS legítimas por uma regra que não existia quando foram assinadas.
+
+### Conclusão
+
+Duas verificações otimistas, e são mesmo duas: a da OS arbitra
+`concluir × concluir` e `concluir × mutação-filha`; a da EXECUÇÃO impede que um
+técnico numa segunda tela salve texto novo um milissegundo antes do fechamento e
+a OS seja selada em torno de conteúdo que o autor do fechamento nunca revisou.
+
+A validação roda DENTRO da transação, sobre os mesmos dados que serão selados, e
+devolve a lista COMPLETA de pendências com códigos estáveis — um técnico que
+descobre o que falta uma por uma faz uma ida ao servidor por item e, em rede de
+borda, desiste no meio (PRD §166). A ausência de `ServiceOrderCompletionPolicy`
+significa "sem exigência extra", e é o que mantém toda OS anterior à v0.10
+concluindo exatamente como antes.
+
+**Impedimento não muda status.** A OS continua `IN_PROGRESS`; fechá-la seria a
+conclusão falsa que o impedimento existe para tornar desnecessária (§169).
+
+### Minimização
+
+O pacote de execução não carrega CPF, `externalProvider`, `externalId` nem
+interno de auditoria — verificado por ataque, com controle positivo provando que
+o cliente da fixture TEM documento gravado. A ausência do dado de provider é o
+que impede um `if (RECEITANET)` no aplicativo.
+
+Tentativa de contato registra **que** houve uma ligação, nunca o que foi dito:
+conteúdo de conversa é outra categoria de dado, com outras obrigações de LGPD
+(PRD §113).
+
+### Riscos residuais aceitos
+
+- **Correção de localização não incrementa `ServiceOrder.version`.** A
+  localização é do CLIENTE e tem lock próprio; usar o da OS produziria conflitos
+  espúrios entre um despachante e o técnico. Existe uma janela em que a OS fecha
+  entre a leitura e a escrita da localização, e ela é benigna: a localização não
+  entra no `closingContentHash` nem no snapshot de fechamento, então nada selado
+  é alterado.
+- **`storage.put` roda dentro da transação** (herdado da v0.4): o lock de linha
+  da OS é mantido durante uma escrita de disco. Irrelevante para o adaptador
+  local; é custo real a reconsiderar quando existir adaptador de rede (S3/R2).
+- **Sem expurgo** de `CustomerLocationHistory`. A trilha é imutável e cresce; a
+  deduplicação de divergência impede o crescimento por sincronização repetida,
+  mas não há política de retenção.

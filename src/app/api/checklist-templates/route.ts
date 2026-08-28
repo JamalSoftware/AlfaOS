@@ -16,6 +16,9 @@ import { prisma } from "@/lib/prisma";
  * `companyId` vem da SESSÃO e os schemas são `.strict()` sem o campo — não há
  * caminho pelo qual o cliente escolha a empresa do template.
  */
+/** Rota de sessão: nunca estática. Ver `field/v1/notifications/route.ts`. */
+export const dynamic = "force-dynamic";
+
 const VIEW_PROFILES = [AccessProfile.ADMIN, AccessProfile.DISPATCHER];
 const MANAGE_PROFILES = [AccessProfile.ADMIN];
 

@@ -2,6 +2,9 @@ import { getFieldExecutionBundle } from "@/lib/field/execution";
 import { fieldOk, runFieldApi } from "@/lib/field/response";
 import { requireFieldPrincipal } from "@/lib/field/route";
 
+/** Rota autenticada por Bearer: nunca estática. Ver `notifications/route.ts`. */
+export const dynamic = "force-dynamic";
+
 /**
  * `GET /api/field/v1/service-orders/:id/execution`
  *

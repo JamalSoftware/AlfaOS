@@ -3,6 +3,16 @@ import { fieldOk, runFieldApi } from "@/lib/field/response";
 import { requireFieldPrincipal } from "@/lib/field/route";
 
 /**
+ * Rota autenticada por Bearer: nunca estática.
+ *
+ * O Next já a marcaria como dinâmica ao ver a leitura de `headers`, mas por
+ * exceção — que o envelope de erro do Field captura e registra como falha no
+ * build. Declarar a intenção evita o ruído e, mais importante, não deixa o
+ * comportamento de uma rota que carrega dado de cliente depender de inferência.
+ */
+export const dynamic = "force-dynamic";
+
+/**
  * `GET /api/field/v1/inventory`
  *
  * O que ESTE técnico tem em mãos.

@@ -159,6 +159,44 @@ de suporte.
 | GET | `/notifications` | central do técnico |
 | POST | `/notifications` | marcar como lida |
 
+**Execução e fechamento em campo (v0.10):**
+
+| Método | Caminho | O que faz |
+|---|---|---|
+| GET | `/service-orders/:id/execution` | pacote da tela de execução, numa leitura |
+| POST | `/service-orders/:id/check-in` | chegada ao local |
+| POST | `/service-orders/:id/location/confirm` | confirma o ponto cadastrado |
+| POST | `/service-orders/:id/location/correct` | corrige endereço e/ou coordenada |
+| POST | `/service-orders/:id/checklist/:itemId` | responde um item do checklist |
+| POST | `/service-orders/:id/evidence` | anexa foto categorizada (multipart) |
+| POST | `/service-orders/:id/evidence/:evidenceId` | remove foto antes de concluir |
+| POST | `/service-orders/:id/materials` | baixa material do estoque do técnico |
+| POST | `/service-orders/:id/equipment` | registra equipamento instalado |
+| POST | `/service-orders/:id/equipment/:equipmentId` | remove equipamento |
+| POST | `/service-orders/:id/contact-attempts` | tentativa de contato |
+| POST | `/service-orders/:id/impediments` | "não consegui executar" |
+| PUT | `/service-orders/:id/signature` | assinatura do cliente (multipart) |
+| POST | `/service-orders/:id/complete` | IN_PROGRESS → COMPLETED |
+| GET | `/inventory` | estoque do próprio técnico |
+
+Todo comando mutante exige `Idempotency-Key` e `expectedVersion`, e executa a
+mesma sequência — autenticar → elegibilidade → chave → corpo → dedup → domínio.
+A ordem é propriedade de segurança: elegibilidade antes da desduplicação impede
+que um técnico inelegível reserve uma chave que depois bloquearia a legítima.
+
+Duas remoções usam `POST` e não `DELETE`: o comando precisa de `expectedVersion`
+no corpo, e corpo em `DELETE` é mal suportado por proxies.
+
+**Não existe rota de ENTRADA de estoque no Field.** Se existisse, o técnico
+criaria o próprio saldo antes de baixá-lo, e a validação de saldo não valeria
+nada. Entrada é ato de quem entrega, e vive na API administrativa.
+
+`expectedVersion` de `location/confirm` e `location/correct` é o da
+**localização**, não o da OS: são objetos diferentes com locks próprios, e um
+despachante mexendo na OS não pode invalidar a confirmação que o técnico está
+enviando. Em `correct` ele aceita `null`, que significa "eu vi que este cliente
+não tem localização" — o compare-and-set da criação.
+
 ### A resposta de um comando vem da mutação
 
 `start` devolve o **resultado da própria operação** — `id`, `number`, `status`,
@@ -471,15 +509,28 @@ Limitação conhecida, herdada: o estado é **em memória do processo**
 
 ## 11. O que esta fundação NÃO faz
 
-- Nenhuma linha de Flutter, nenhum APK.
-- Nenhuma integração FCM real.
-- Nenhum endpoint de conclusão de OS pelo Field — a validação de fechamento
-  continua sendo do Core (`docs/SERVICE-ORDER-CLOSING.md`), e o endpoint entra
-  usando **aquele** serviço, não um novo.
-- Nenhum upload de evidência pelo Field. As categorias estruturadas do PRD §162
-  seguem especificação; `EvidenceKind` continua com um único valor.
-- Nenhuma assinatura, material ou checklist pelo Field.
+> **Revisado na v0.10.** Cinco itens desta lista deixaram de valer — conclusão,
+> upload de evidência, assinatura, material e checklist pelo Field foram
+> implementados, e o inventário ganhou o ledger mínimo. O que segue é o que
+> continua fora.
+
+- Nenhuma linha de Flutter, nenhum APK. **A trilha Flutter da v0.10 é a Etapa B
+  e não faz parte deste backend.**
+- Nenhuma integração FCM real; push continua abstração inerte.
+- Nenhum motor offline no cliente. O contrato é compatível com a fila local da
+  v0.11 (`Idempotency-Key` + `clientMutationId` + `expectedVersion`), mas o
+  aplicativo ainda não a tem.
 - Nenhum toolkit: Wi-Fi analyzer, speed test, OLT, ONU, RADIUS, ACS, TR-069.
-- Nenhum `ToolExecution`, nenhum inventário como ledger.
+- Nenhum `ToolExecution`.
+- Nenhuma custódia de patrimônio: transferência técnico→técnico, conferência
+  periódica, extravio, descarte e manutenção (PRD §210–§223) ficam fora, e
+  entrarão como valores NOVOS do mesmo `InventoryMovementType` — nunca como um
+  segundo motor (§181, §215).
+- Nenhum PDF de fechamento. A conclusão grava um `ServiceOrderCompletion`
+  estruturado; o PDF, quando existir, será uma renderização dele, e a conclusão
+  nunca fica bloqueada esperando pipeline de documento.
+- Nenhuma reabertura de OS concluída (§170).
+- Nenhuma política de geofence bloqueante: a distância do check-in é registrada
+  como informação, nunca como impedimento (§167).
 
 Estar no PRD não autoriza implementar (§119).

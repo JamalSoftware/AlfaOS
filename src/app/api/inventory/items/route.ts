@@ -12,6 +12,9 @@ import { createInventoryItem, listInventoryItems } from "@/lib/inventory";
  * movimentos (`InventoryMovement`), e uma coluna de quantidade aqui viraria, na
  * primeira divergência, a resposta que ninguém consegue explicar (PRD §181).
  */
+/** Rota de sessão: nunca estática. Ver `field/v1/notifications/route.ts`. */
+export const dynamic = "force-dynamic";
+
 const VIEW_PROFILES = [AccessProfile.ADMIN, AccessProfile.DISPATCHER];
 const MANAGE_PROFILES = [AccessProfile.ADMIN];
 
