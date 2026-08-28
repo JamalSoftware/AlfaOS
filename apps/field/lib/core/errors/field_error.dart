@@ -1,0 +1,107 @@
+/// Catálogo fechado de erros da Field API.
+///
+/// Espelha `FIELD_ERROR_CODES` do backend (`src/lib/field/errors.ts`). O
+/// aplicativo **nunca** lê a mensagem humana para decidir o que fazer: a frase
+/// muda quando alguém corrige uma vírgula, e quebraria num APK que já está em
+/// campo, meses depois, sem como corrigir.
+///
+/// `Unknown` existe para o dia em que o backend acrescentar um código: a versão
+/// antiga do app cai num desfecho previsível em vez de estourar.
+enum FieldErrorCode {
+  unauthenticated,
+  forbidden,
+  notFound,
+  conflict,
+  rateLimited,
+  validationError,
+  upstreamUnavailable,
+  idempotencyConflict,
+  deviceRevoked,
+  internal,
+
+  /// Código que este APK não conhece, ou falha antes de haver resposta.
+  unknown,
+
+  /// Não houve resposta: DNS, timeout, socket. Distinto de `internal`, que é
+  /// o servidor dizendo que falhou.
+  network,
+}
+
+FieldErrorCode fieldErrorCodeFrom(String? raw) {
+  switch (raw) {
+    case 'UNAUTHENTICATED':
+      return FieldErrorCode.unauthenticated;
+    case 'FORBIDDEN':
+      return FieldErrorCode.forbidden;
+    case 'NOT_FOUND':
+      return FieldErrorCode.notFound;
+    case 'CONFLICT':
+      return FieldErrorCode.conflict;
+    case 'RATE_LIMITED':
+      return FieldErrorCode.rateLimited;
+    case 'VALIDATION_ERROR':
+      return FieldErrorCode.validationError;
+    case 'UPSTREAM_UNAVAILABLE':
+      return FieldErrorCode.upstreamUnavailable;
+    case 'IDEMPOTENCY_CONFLICT':
+      return FieldErrorCode.idempotencyConflict;
+    case 'DEVICE_REVOKED':
+      return FieldErrorCode.deviceRevoked;
+    case 'INTERNAL':
+      return FieldErrorCode.internal;
+    default:
+      return FieldErrorCode.unknown;
+  }
+}
+
+/// Falha vinda da Field API, ou da tentativa de alcançá-la.
+///
+/// ## Estratégia: exceção, não `Either`
+///
+/// Uma só, e vale para todos os repositórios. Riverpod já modela
+/// carregando/erro/dado com `AsyncValue`, e ele captura exceção — então
+/// exceção é o que se encaixa sem adaptador. Misturar `Either` num repositório
+/// e exceção em outro obrigaria cada tela a saber qual dos dois estilos aquele
+/// caso usa, que é exatamente o tipo de detalhe que a UI não deveria carregar.
+class FieldException implements Exception {
+  const FieldException({
+    required this.code,
+    required this.message,
+    this.retryable = false,
+    this.conflict = false,
+    this.retryAfterSeconds,
+    this.status,
+  });
+
+  final FieldErrorCode code;
+
+  /// Texto do servidor. Serve para EXIBIR, nunca para decidir.
+  final String message;
+
+  /// A mesma requisição, mais tarde, pode dar certo?
+  final bool retryable;
+
+  /// O estado no servidor divergiu do que o aparelho tinha.
+  final bool conflict;
+
+  final int? retryAfterSeconds;
+  final int? status;
+
+  /// A sessão acabou — token expirado, revogado, ou usuário desativado.
+  ///
+  /// `deviceRevoked` fica de FORA de propósito: ele também encerra a sessão,
+  /// mas exige uma tela diferente. "Entre de novo" é conselho inútil para quem
+  /// teve o aparelho bloqueado.
+  bool get endsSession => code == FieldErrorCode.unauthenticated;
+
+  const FieldException.network()
+    : code = FieldErrorCode.network,
+      message = 'Sem conexão com o AlfaOS.',
+      retryable = true,
+      conflict = false,
+      retryAfterSeconds = null,
+      status = null;
+
+  @override
+  String toString() => 'FieldException(${code.name}, status: $status)';
+}

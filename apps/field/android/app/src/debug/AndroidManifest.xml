@@ -1,0 +1,21 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+        INTERNET tambem aqui: o `flutter run` precisa dela para hot reload e
+        breakpoints, independentemente do manifesto principal.
+    -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!--
+        HTTP em claro, SOMENTE em debug.
+
+        Em desenvolvimento a API do AlfaOS roda em `http://<IP-LAN>:<porta>` na
+        maquina do desenvolvedor, sem TLS. O Android bloqueia cleartext por
+        padrao desde o API 28, entao sem isto o aplicativo nao conversa com o
+        backend local.
+
+        Este arquivo NAO entra no APK de release: o merge de manifesto do Gradle
+        so o aplica ao build type `debug`. Producao continua obrigada a HTTPS,
+        e essa obrigacao nao depende de ninguem lembrar de reverter uma flag.
+    -->
+    <application android:usesCleartextTraffic="true" />
+</manifest>

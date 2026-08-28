@@ -1,0 +1,27 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    # Desligada por incompatibilidade real com o padrão de injeção do app, não
+    # por conveniência.
+    #
+    # A regra pede trocar `X({required Repo repo}) : _repo = repo` por
+    # `X({required this._repo})`. Em Dart isso é IMPOSSÍVEL para parâmetro
+    # nomeado: nome de parâmetro nomeado não pode começar com underscore, e o
+    # código nem compila.
+    #
+    # Como todo repositório e controlador daqui recebe suas dependências por
+    # parâmetro nomeado — que é o que torna a substituição em teste legível —,
+    # a regra dispara em ~10 arquivos sem que exista correção possível. Ruído
+    # constante que ninguém consegue zerar ensina a ignorar o analisador.
+    prefer_initializing_formals: false
+
+analyzer:
+  errors:
+    # Uso de API depreciada é tratado como AVISO, não info: numa base que
+    # acompanha o canal estável do Flutter, é assim que a migração acontece
+    # antes de a API sumir.
+    deprecated_member_use: warning
+  exclude:
+    - build/**
+    - android/**
