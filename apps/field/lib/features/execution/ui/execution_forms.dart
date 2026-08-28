@@ -9,6 +9,8 @@
 /// obrigatoriedade por tipo e conclusão são decididos no backend.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -35,6 +37,89 @@ Future<T?> _sheet<T>(BuildContext context, Widget child) {
   );
 }
 
+/// Dona dos `TextEditingController` do formulário — pelo tempo de vida da ROTA.
+///
+/// ## O defeito que isto corrige
+///
+/// `showModalBottomSheet` completa o `Future` no instante do **pop**, não no
+/// fim do fechamento. A folha ainda toca a animação de saída por ~200 ms, e
+/// durante ela a subárvore continua montada e **reconstruindo a cada frame** —
+/// com os `TextField` ainda apontando para os controladores.
+///
+/// O código antigo criava os controladores na função, dava `await` na folha e
+/// chamava `dispose()` logo depois. Ou seja: destruía os controladores enquanto
+/// campos vivos ainda os usavam.
+///
+/// Pelo botão de confirmar quase nunca aparecia, porque o `await` da chamada de
+/// rede dava tempo de a animação terminar. Pelo **VOLTAR do Android** o
+/// `dispose()` rodava no mesmo microtask do pop — e o fechamento do teclado
+/// forçava reconstruções extras da folha, que batiam no controlador morto na
+/// hora. Daí a tela vermelha:
+///
+/// > A TextEditingController was used after being disposed.
+///
+/// A correção é de POSSE, não de `try/catch`: quem cria é um `State` dentro da
+/// rota, e quem destrói é o Flutter — depois da animação, quando o elemento sai
+/// mesmo da árvore.
+class _SheetFields extends StatefulWidget {
+  const _SheetFields({
+    required this.initial,
+    required this.builder,
+    this.onClosed,
+    this.alsoDispose,
+  });
+
+  /// Nome do campo → texto inicial. Um controlador por chave.
+  final Map<String, String> initial;
+
+  final Widget Function(
+    BuildContext context,
+    Map<String, TextEditingController> fields,
+  )
+  builder;
+
+  /// Texto final de cada campo, entregue **antes** de os controladores morrerem.
+  ///
+  /// Existe para o relatório, que salva ao fechar por qualquer via — inclusive
+  /// VOLTAR e toque fora. Ler `.text` depois do `await` seria exatamente o
+  /// use-after-dispose que esta classe elimina.
+  final void Function(Map<String, String> values)? onClosed;
+
+  /// Outro objeto com o mesmo ciclo de vida do formulário (a prancheta de
+  /// assinatura). Morre junto, pelo mesmo motivo.
+  final ChangeNotifier? alsoDispose;
+
+  @override
+  State<_SheetFields> createState() => _SheetFieldsState();
+}
+
+class _SheetFieldsState extends State<_SheetFields> {
+  late final Map<String, TextEditingController> _fields = {
+    for (final entry in widget.initial.entries)
+      entry.key: TextEditingController(text: entry.value),
+  };
+
+  @override
+  void dispose() {
+    // Lê ENQUANTO ainda vivem, e só então destrói.
+    widget.onClosed?.call({
+      for (final entry in _fields.entries) entry.key: entry.value.text,
+    });
+    for (final controller in _fields.values) {
+      controller.dispose();
+    }
+    widget.alsoDispose?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _fields);
+}
+
+/// Texto de um campo, já sem espaço nas pontas.
+String _t(Map<String, TextEditingController> fields, String name) =>
+    fields[name]!.text.trim();
+
 class _SheetTitle extends StatelessWidget {
   const _SheetTitle(this.text);
   final String text;
@@ -59,67 +144,81 @@ Future<void> showReportSheet(
   ExecutionController notifier,
   ExecutionReport report,
 ) async {
-  final diagnosis = TextEditingController(text: report.diagnosis ?? '');
-  final work = TextEditingController(text: report.workPerformed ?? '');
-  final notes = TextEditingController(text: report.notes ?? '');
+  /*
+    O relatório salva ao fechar por QUALQUER via — botão, VOLTAR ou toque fora.
+    Por isso ele precisa do texto final mesmo sem confirmação, e é o único que
+    usa `onClosed`.
+
+    O `Completer` existe por uma questão de ordem: `_sheet` volta no pop, e o
+    `dispose` do formulário só acontece depois da animação. Esperar por ele é o
+    que garante que o texto lido é o texto final — e que ninguém toca num
+    controlador já destruído.
+  */
+  final digitado = Completer<Map<String, String>>();
 
   await _sheet<void>(
     context,
-    SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const _SheetTitle('Relatório do atendimento'),
-          TextField(
-            controller: diagnosis,
-            maxLines: 4,
-            decoration: const InputDecoration(
-              labelText: 'Diagnóstico',
-              helperText: 'Obrigatório para concluir',
-              border: OutlineInputBorder(),
+    _SheetFields(
+      initial: {
+        'diagnosis': report.diagnosis ?? '',
+        'work': report.workPerformed ?? '',
+        'notes': report.notes ?? '',
+      },
+      onClosed: digitado.complete,
+      builder: (context, fields) => SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const _SheetTitle('Relatório do atendimento'),
+            TextField(
+              controller: fields['diagnosis'],
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: 'Diagnóstico',
+                helperText: 'Obrigatório para concluir',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: AlfaSpacing.md),
-          TextField(
-            controller: work,
-            maxLines: 4,
-            decoration: const InputDecoration(
-              labelText: 'Serviço realizado',
-              helperText: 'Obrigatório para concluir',
-              border: OutlineInputBorder(),
+            const SizedBox(height: AlfaSpacing.md),
+            TextField(
+              controller: fields['work'],
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: 'Serviço realizado',
+                helperText: 'Obrigatório para concluir',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: AlfaSpacing.md),
-          TextField(
-            controller: notes,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Observações',
-              border: OutlineInputBorder(),
+            const SizedBox(height: AlfaSpacing.md),
+            TextField(
+              controller: fields['notes'],
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Observações',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: AlfaSpacing.lg),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Salvar'),
-          ),
-        ],
+            const SizedBox(height: AlfaSpacing.lg),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Salvar'),
+            ),
+          ],
+        ),
       ),
     ),
-  ).then((_) async {
-    // Salva sempre que a folha fecha com conteúdo: perder o texto digitado por
-    // causa de um toque fora seria o pior desfecho possível para o campo mais
-    // trabalhoso da tela.
-    await notifier.saveReport(
-      diagnosis: diagnosis.text,
-      workPerformed: work.text,
-      notes: notes.text,
-    );
-    diagnosis.dispose();
-    work.dispose();
-    notes.dispose();
-  });
+  );
+
+  // Salva sempre que a folha fecha com conteúdo: perder o texto digitado por
+  // causa de um toque fora seria o pior desfecho possível para o campo mais
+  // trabalhoso da tela.
+  final valores = await digitado.future;
+  await notifier.saveReport(
+    diagnosis: valores['diagnosis'] ?? '',
+    workPerformed: valores['work'] ?? '',
+    notes: valores['notes'] ?? '',
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -140,127 +239,142 @@ Future<void> showCorrectLocationSheet(
 ) async {
   var reason = 'INCORRECT_LOCATION';
   var useGps = true;
-  final note = TextEditingController();
-  final address = TextEditingController();
-  final number = TextEditingController();
-  final district = TextEditingController();
-  final city = TextEditingController();
+  Map<String, String>? preenchido;
 
+  // `_SheetFields` por fora, `StatefulBuilder` por dentro: os controladores
+  // pertencem à rota; o motivo e o interruptor de GPS são estado local da
+  // folha.
   final confirmed = await _sheet<bool>(
     context,
-    StatefulBuilder(
-      builder: (context, setState) => SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const _SheetTitle('Corrigir endereço e localização'),
-            DropdownButtonFormField<String>(
-              initialValue: reason,
-              decoration: const InputDecoration(
-                labelText: 'Motivo',
-                border: OutlineInputBorder(),
-              ),
-              items: [
-                for (final entry in _correctionReasons.entries)
-                  DropdownMenuItem(value: entry.key, child: Text(entry.value)),
-              ],
-              onChanged: (value) => setState(() => reason = value ?? reason),
-            ),
-            if (reason == 'OTHER') ...[
-              const SizedBox(height: AlfaSpacing.md),
-              TextField(
-                controller: note,
+    _SheetFields(
+      initial: const {
+        'note': '',
+        'address': '',
+        'number': '',
+        'district': '',
+        'city': '',
+      },
+      builder: (context, fields) => StatefulBuilder(
+        builder: (context, setState) => SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _SheetTitle('Corrigir endereço e localização'),
+              DropdownButtonFormField<String>(
+                initialValue: reason,
                 decoration: const InputDecoration(
-                  labelText: 'Descreva o motivo',
-                  // O servidor EXIGE isto quando o motivo é "outro": um motivo
-                  // genérico sem explicação não informa nada.
-                  helperText: 'Obrigatório para "Outro motivo"',
+                  labelText: 'Motivo',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final entry in _correctionReasons.entries)
+                    DropdownMenuItem(
+                      value: entry.key,
+                      child: Text(entry.value),
+                    ),
+                ],
+                onChanged: (value) => setState(() => reason = value ?? reason),
+              ),
+              if (reason == 'OTHER') ...[
+                const SizedBox(height: AlfaSpacing.md),
+                TextField(
+                  controller: fields['note'],
+                  decoration: const InputDecoration(
+                    labelText: 'Descreva o motivo',
+                    // O servidor EXIGE isto quando o motivo é "outro": um motivo
+                    // genérico sem explicação não informa nada.
+                    helperText: 'Obrigatório para "Outro motivo"',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+              const SizedBox(height: AlfaSpacing.md),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                value: useGps,
+                onChanged: (value) => setState(() => useGps = value),
+                title: const Text('Usar minha localização atual'),
+                subtitle: const Text(
+                  'Marca o ponto onde você está como a localização do cliente',
+                ),
+              ),
+              const Divider(),
+              const SizedBox(height: AlfaSpacing.sm),
+              const Text(
+                'Endereço (deixe em branco o que não mudou)',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: AlfaSpacing.sm),
+              TextField(
+                controller: fields['address'],
+                decoration: const InputDecoration(
+                  labelText: 'Logradouro',
                   border: OutlineInputBorder(),
                 ),
               ),
+              const SizedBox(height: AlfaSpacing.sm),
+              TextField(
+                controller: fields['number'],
+                decoration: const InputDecoration(
+                  labelText: 'Número',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: AlfaSpacing.sm),
+              TextField(
+                controller: fields['district'],
+                decoration: const InputDecoration(
+                  labelText: 'Bairro',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: AlfaSpacing.sm),
+              TextField(
+                controller: fields['city'],
+                decoration: const InputDecoration(
+                  labelText: 'Cidade',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: AlfaSpacing.lg),
+              FilledButton(
+                // Lê os campos AQUI, com eles ainda vivos, e leva o resultado
+                // no pop. Depois do `await` não há mais controlador a tocar.
+                onPressed: () {
+                  preenchido = {
+                    'note': _t(fields, 'note'),
+                    'address': _t(fields, 'address'),
+                    'number': _t(fields, 'number'),
+                    'district': _t(fields, 'district'),
+                    'city': _t(fields, 'city'),
+                  };
+                  Navigator.of(context).pop(true);
+                },
+                child: const Text('Salvar correção'),
+              ),
             ],
-            const SizedBox(height: AlfaSpacing.md),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              value: useGps,
-              onChanged: (value) => setState(() => useGps = value),
-              title: const Text('Usar minha localização atual'),
-              subtitle: const Text(
-                'Marca o ponto onde você está como a localização do cliente',
-              ),
-            ),
-            const Divider(),
-            const SizedBox(height: AlfaSpacing.sm),
-            const Text(
-              'Endereço (deixe em branco o que não mudou)',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: AlfaSpacing.sm),
-            TextField(
-              controller: address,
-              decoration: const InputDecoration(
-                labelText: 'Logradouro',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: AlfaSpacing.sm),
-            TextField(
-              controller: number,
-              decoration: const InputDecoration(
-                labelText: 'Número',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: AlfaSpacing.sm),
-            TextField(
-              controller: district,
-              decoration: const InputDecoration(
-                labelText: 'Bairro',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: AlfaSpacing.sm),
-            TextField(
-              controller: city,
-              decoration: const InputDecoration(
-                labelText: 'Cidade',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: AlfaSpacing.lg),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Salvar correção'),
-            ),
-          ],
+          ),
         ),
       ),
     ),
   );
 
-  if (confirmed ?? false) {
+  final valores = preenchido;
+  if ((confirmed ?? false) && valores != null) {
     // Só os campos PREENCHIDOS viajam: um corpo com strings vazias apagaria o
     // resto do endereço, e o servidor trata ausência como "não mude".
     final patch = <String, String?>{
-      if (address.text.trim().isNotEmpty) 'address': address.text.trim(),
-      if (number.text.trim().isNotEmpty) 'number': number.text.trim(),
-      if (district.text.trim().isNotEmpty) 'district': district.text.trim(),
-      if (city.text.trim().isNotEmpty) 'city': city.text.trim(),
+      for (final campo in ['address', 'number', 'district', 'city'])
+        if ((valores[campo] ?? '').isNotEmpty) campo: valores[campo],
     };
     await notifier.correctLocation(
       reason: reason,
-      note: note.text.trim().isEmpty ? null : note.text.trim(),
+      note: (valores['note'] ?? '').isEmpty ? null : valores['note'],
       useCurrentPosition: useGps,
       address: patch.isEmpty ? null : patch,
     );
   }
-
-  note.dispose();
-  address.dispose();
-  number.dispose();
-  district.dispose();
-  city.dispose();
 }
 
 // ---------------------------------------------------------------------------
@@ -272,103 +386,109 @@ Future<void> showChecklistSheet(
   ExecutionController notifier,
   ChecklistItem item,
 ) async {
-  final text = TextEditingController(text: item.valueText ?? '');
-  final number = TextEditingController(text: item.valueNumber ?? '');
   var boolean = item.valueBoolean ?? false;
   var selected = item.valueText;
+  Map<String, String>? preenchido;
 
   final confirmed = await _sheet<bool>(
     context,
-    StatefulBuilder(
-      builder: (context, setState) => SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _SheetTitle(item.label),
-            if (item.description != null) ...[
-              Text(item.description!),
-              const SizedBox(height: AlfaSpacing.md),
+    _SheetFields(
+      initial: {'text': item.valueText ?? '', 'number': item.valueNumber ?? ''},
+      builder: (context, fields) => StatefulBuilder(
+        builder: (context, setState) => SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _SheetTitle(item.label),
+              if (item.description != null) ...[
+                Text(item.description!),
+                const SizedBox(height: AlfaSpacing.md),
+              ],
+              switch (item.type) {
+                ChecklistItemType.boolean => SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: boolean,
+                  onChanged: (value) => setState(() => boolean = value),
+                  title: Text(boolean ? 'Sim' : 'Não'),
+                ),
+                ChecklistItemType.number => TextField(
+                  controller: fields['number'],
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                    signed: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Valor',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                // `RadioGroup` em vez de `groupValue`/`onChanged` por rádio: a
+                // API antiga foi depreciada no Flutter 3.32, e repetir o estado
+                // em cada item é o que ela tornava fácil errar.
+                ChecklistItemType.select => RadioGroup<String>(
+                  groupValue: selected,
+                  onChanged: (value) => setState(() => selected = value),
+                  child: Column(
+                    children: [
+                      for (final option in item.options)
+                        RadioListTile<String>(
+                          contentPadding: EdgeInsets.zero,
+                          value: option,
+                          title: Text(option),
+                        ),
+                    ],
+                  ),
+                ),
+                ChecklistItemType.text => TextField(
+                  controller: fields['text'],
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Resposta',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                // Item de foto não chega aqui: ele é satisfeito anexando a
+                // evidência na categoria correspondente.
+                ChecklistItemType.photo => const Text(
+                  'Este item é satisfeito anexando a foto na categoria indicada.',
+                ),
+              },
+              const SizedBox(height: AlfaSpacing.lg),
+              FilledButton(
+                onPressed: item.type == ChecklistItemType.photo
+                    ? null
+                    : () {
+                        preenchido = {
+                          'text': _t(fields, 'text'),
+                          'number': _t(fields, 'number'),
+                        };
+                        Navigator.of(context).pop(true);
+                      },
+                child: const Text('Salvar resposta'),
+              ),
             ],
-            switch (item.type) {
-              ChecklistItemType.boolean => SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                value: boolean,
-                onChanged: (value) => setState(() => boolean = value),
-                title: Text(boolean ? 'Sim' : 'Não'),
-              ),
-              ChecklistItemType.number => TextField(
-                controller: number,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                  signed: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Valor',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              // `RadioGroup` em vez de `groupValue`/`onChanged` por rádio: a
-              // API antiga foi depreciada no Flutter 3.32, e repetir o estado
-              // em cada item é o que ela tornava fácil errar.
-              ChecklistItemType.select => RadioGroup<String>(
-                groupValue: selected,
-                onChanged: (value) => setState(() => selected = value),
-                child: Column(
-                  children: [
-                    for (final option in item.options)
-                      RadioListTile<String>(
-                        contentPadding: EdgeInsets.zero,
-                        value: option,
-                        title: Text(option),
-                      ),
-                  ],
-                ),
-              ),
-              ChecklistItemType.text => TextField(
-                controller: text,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Resposta',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              // Item de foto não chega aqui: ele é satisfeito anexando a
-              // evidência na categoria correspondente.
-              ChecklistItemType.photo => const Text(
-                'Este item é satisfeito anexando a foto na categoria indicada.',
-              ),
-            },
-            const SizedBox(height: AlfaSpacing.lg),
-            FilledButton(
-              onPressed: item.type == ChecklistItemType.photo
-                  ? null
-                  : () => Navigator.of(context).pop(true),
-              child: const Text('Salvar resposta'),
-            ),
-          ],
+          ),
         ),
       ),
     ),
   );
 
-  if (confirmed ?? false) {
+  final valores = preenchido;
+  if ((confirmed ?? false) && valores != null) {
     await notifier.answerChecklist(
       item,
       valueBoolean: item.type == ChecklistItemType.boolean ? boolean : null,
       valueText: switch (item.type) {
-        ChecklistItemType.text => text.text.trim(),
+        ChecklistItemType.text => valores['text'],
         ChecklistItemType.select => selected,
         _ => null,
       },
       valueNumber: item.type == ChecklistItemType.number
-          ? num.tryParse(number.text.replaceAll(',', '.'))
+          ? num.tryParse((valores['number'] ?? '').replaceAll(',', '.'))
           : null,
     );
   }
-
-  text.dispose();
-  number.dispose();
 }
 
 // ---------------------------------------------------------------------------
@@ -428,69 +548,74 @@ Future<void> showMaterialSheet(
   List<StockLine> stock,
 ) async {
   StockLine? selected = stock.isNotEmpty ? stock.first : null;
-  final quantity = TextEditingController();
+  String? quantidade;
 
   final confirmed = await _sheet<bool>(
     context,
-    StatefulBuilder(
-      builder: (context, setState) => SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const _SheetTitle('Registrar material'),
-            DropdownButtonFormField<StockLine>(
-              initialValue: selected,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Item do seu estoque',
-                border: OutlineInputBorder(),
-              ),
-              items: [
-                for (final line in stock)
-                  DropdownMenuItem(
-                    value: line,
-                    child: Text(
-                      '${line.name} · ${line.balance} ${line.unit}',
-                      overflow: TextOverflow.ellipsis,
+    _SheetFields(
+      initial: const {'quantity': ''},
+      builder: (context, fields) => StatefulBuilder(
+        builder: (context, setState) => SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _SheetTitle('Registrar material'),
+              DropdownButtonFormField<StockLine>(
+                initialValue: selected,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Item do seu estoque',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final line in stock)
+                    DropdownMenuItem(
+                      value: line,
+                      child: Text(
+                        '${line.name} · ${line.balance} ${line.unit}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-              ],
-              onChanged: (value) => setState(() => selected = value),
-            ),
-            const SizedBox(height: AlfaSpacing.md),
-            TextField(
-              controller: quantity,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
+                ],
+                onChanged: (value) => setState(() => selected = value),
               ),
-              decoration: InputDecoration(
-                labelText: 'Quantidade',
-                // O saldo é ORIENTAÇÃO. Quem valida é o servidor, sob lock —
-                // este número pode estar velho quando o comando chegar.
-                helperText: selected == null
-                    ? null
-                    : 'Disponível: ${selected!.balance} ${selected!.unit}',
-                border: const OutlineInputBorder(),
+              const SizedBox(height: AlfaSpacing.md),
+              TextField(
+                controller: fields['quantity'],
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: InputDecoration(
+                  labelText: 'Quantidade',
+                  // O saldo é ORIENTAÇÃO. Quem valida é o servidor, sob lock —
+                  // este número pode estar velho quando o comando chegar.
+                  helperText: selected == null
+                      ? null
+                      : 'Disponível: ${selected!.balance} ${selected!.unit}',
+                  border: const OutlineInputBorder(),
+                ),
               ),
-            ),
-            const SizedBox(height: AlfaSpacing.lg),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Registrar'),
-            ),
-          ],
+              const SizedBox(height: AlfaSpacing.lg),
+              FilledButton(
+                onPressed: () {
+                  quantidade = _t(fields, 'quantity');
+                  Navigator.of(context).pop(true);
+                },
+                child: const Text('Registrar'),
+              ),
+            ],
+          ),
         ),
       ),
     ),
   );
 
   final item = selected;
-  final parsed = num.tryParse(quantity.text.replaceAll(',', '.'));
+  final parsed = num.tryParse((quantidade ?? '').replaceAll(',', '.'));
   if ((confirmed ?? false) && item != null && parsed != null) {
     await notifier.useMaterial(itemId: item.itemId, quantity: parsed);
   }
-  quantity.dispose();
 }
 
 // ---------------------------------------------------------------------------
@@ -501,92 +626,106 @@ Future<void> showEquipmentSheet(
   BuildContext context,
   ExecutionController notifier,
 ) async {
-  final type = TextEditingController(text: 'ONU');
-  final manufacturer = TextEditingController();
-  final model = TextEditingController();
-  final serial = TextEditingController();
-  final mac = TextEditingController();
+  /*
+    A folha devolve os VALORES, não um booleano.
 
-  final confirmed = await _sheet<bool>(
+    O botão lê os campos enquanto eles ainda vivem e passa o resultado no pop.
+    Assim o código depois do `await` não toca em controlador nenhum — e o
+    VOLTAR do Android simplesmente devolve `null`, sem nada a ler e sem nada a
+    destruir na mão.
+  */
+  final dados = await _sheet<Map<String, String>>(
     context,
-    SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const _SheetTitle('Equipamento instalado'),
-          TextField(
-            controller: type,
-            decoration: const InputDecoration(
-              labelText: 'Tipo (ONU, roteador, câmera...)',
-              border: OutlineInputBorder(),
+    _SheetFields(
+      initial: const {
+        'type': 'ONU',
+        'manufacturer': '',
+        'model': '',
+        'serial': '',
+        'mac': '',
+      },
+      builder: (context, fields) => SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const _SheetTitle('Equipamento instalado'),
+            TextField(
+              controller: fields['type'],
+              decoration: const InputDecoration(
+                labelText: 'Tipo (ONU, roteador, câmera...)',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: AlfaSpacing.md),
-          TextField(
-            controller: manufacturer,
-            decoration: const InputDecoration(
-              labelText: 'Fabricante',
-              border: OutlineInputBorder(),
+            const SizedBox(height: AlfaSpacing.md),
+            TextField(
+              controller: fields['manufacturer'],
+              decoration: const InputDecoration(
+                labelText: 'Fabricante',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: AlfaSpacing.md),
-          TextField(
-            controller: model,
-            decoration: const InputDecoration(
-              labelText: 'Modelo',
-              border: OutlineInputBorder(),
+            const SizedBox(height: AlfaSpacing.md),
+            TextField(
+              controller: fields['model'],
+              decoration: const InputDecoration(
+                labelText: 'Modelo',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: AlfaSpacing.md),
-          TextField(
-            controller: serial,
-            textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(
-              labelText: 'Número de série',
-              helperText: 'Série ou MAC é obrigatório',
-              border: OutlineInputBorder(),
+            const SizedBox(height: AlfaSpacing.md),
+            TextField(
+              controller: fields['serial'],
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Número de série',
+                helperText: 'Série ou MAC é obrigatório',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: AlfaSpacing.md),
-          TextField(
-            controller: mac,
-            textCapitalization: TextCapitalization.characters,
-            inputFormatters: [
-              // Só o que pode existir num MAC. O servidor normaliza e valida de
-              // novo — isto só evita a viagem.
-              FilteringTextInputFormatter.allow(RegExp(r'[0-9A-Fa-f:\-\.]')),
-            ],
-            decoration: const InputDecoration(
-              labelText: 'Endereço MAC',
-              border: OutlineInputBorder(),
+            const SizedBox(height: AlfaSpacing.md),
+            TextField(
+              controller: fields['mac'],
+              textCapitalization: TextCapitalization.characters,
+              inputFormatters: [
+                // Só o que pode existir num MAC. O servidor normaliza e valida
+                // de novo — isto só evita a viagem.
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9A-Fa-f:\-\.]')),
+              ],
+              decoration: const InputDecoration(
+                labelText: 'Endereço MAC',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: AlfaSpacing.lg),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Registrar'),
-          ),
-        ],
+            const SizedBox(height: AlfaSpacing.lg),
+            FilledButton(
+              key: const Key('equipment-submit'),
+              onPressed: () => Navigator.of(context).pop({
+                'type': _t(fields, 'type'),
+                'manufacturer': _t(fields, 'manufacturer'),
+                'model': _t(fields, 'model'),
+                'serial': _t(fields, 'serial'),
+                'mac': _t(fields, 'mac'),
+              }),
+              child: const Text('Registrar'),
+            ),
+          ],
+        ),
       ),
     ),
   );
 
-  if (confirmed ?? false) {
-    await notifier.addEquipment(
-      equipmentType: type.text.trim(),
-      manufacturer: manufacturer.text.trim(),
-      model: model.text.trim(),
-      serial: serial.text.trim(),
-      macAddress: mac.text.trim(),
-    );
-  }
+  // VOLTAR devolve null: a folha só fecha. Nada persiste, nenhum Equipment,
+  // nenhum evento, nenhuma auditoria.
+  if (dados == null) return;
 
-  type.dispose();
-  manufacturer.dispose();
-  model.dispose();
-  serial.dispose();
-  mac.dispose();
+  await notifier.addEquipment(
+    equipmentType: dados['type']!,
+    manufacturer: dados['manufacturer']!,
+    model: dados['model']!,
+    serial: dados['serial']!,
+    macAddress: dados['mac']!,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -666,56 +805,65 @@ Future<void> showImpedimentSheet(
   ExecutionController notifier,
 ) async {
   var reason = 'CUSTOMER_ABSENT';
-  final notes = TextEditingController();
+  String? detalhes;
 
   final confirmed = await _sheet<bool>(
     context,
-    StatefulBuilder(
-      builder: (context, setState) => SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const _SheetTitle('Não consegui executar'),
-            // A OS NÃO fecha aqui. Registrar o impedimento é a terceira saída,
-            // entre concluir o que não foi feito e deixar a OS aberta sem
-            // explicação (PRD §169).
-            const Text(
-              'A OS continua em andamento. Isto registra o motivo para o '
-              'despachante.',
-            ),
-            const SizedBox(height: AlfaSpacing.md),
-            DropdownButtonFormField<String>(
-              initialValue: reason,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Motivo',
-                border: OutlineInputBorder(),
+    _SheetFields(
+      initial: const {'notes': ''},
+      builder: (context, fields) => StatefulBuilder(
+        builder: (context, setState) => SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _SheetTitle('Não consegui executar'),
+              // A OS NÃO fecha aqui. Registrar o impedimento é a terceira saída,
+              // entre concluir o que não foi feito e deixar a OS aberta sem
+              // explicação (PRD §169).
+              const Text(
+                'A OS continua em andamento. Isto registra o motivo para o '
+                'despachante.',
               ),
-              items: [
-                for (final entry in ExecutionImpediment.reasonLabels.entries)
-                  DropdownMenuItem(value: entry.key, child: Text(entry.value)),
-              ],
-              onChanged: (value) => setState(() => reason = value ?? reason),
-            ),
-            const SizedBox(height: AlfaSpacing.md),
-            TextField(
-              controller: notes,
-              maxLines: 3,
-              decoration: InputDecoration(
-                labelText: 'Detalhes',
-                helperText: reason == 'OTHER'
-                    ? 'Obrigatório para "Outro"'
-                    : null,
-                border: const OutlineInputBorder(),
+              const SizedBox(height: AlfaSpacing.md),
+              DropdownButtonFormField<String>(
+                initialValue: reason,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Motivo',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final entry in ExecutionImpediment.reasonLabels.entries)
+                    DropdownMenuItem(
+                      value: entry.key,
+                      child: Text(entry.value),
+                    ),
+                ],
+                onChanged: (value) => setState(() => reason = value ?? reason),
               ),
-            ),
-            const SizedBox(height: AlfaSpacing.lg),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Registrar impedimento'),
-            ),
-          ],
+              const SizedBox(height: AlfaSpacing.md),
+              TextField(
+                controller: fields['notes'],
+                maxLines: 3,
+                decoration: InputDecoration(
+                  labelText: 'Detalhes',
+                  helperText: reason == 'OTHER'
+                      ? 'Obrigatório para "Outro"'
+                      : null,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: AlfaSpacing.lg),
+              FilledButton(
+                onPressed: () {
+                  detalhes = _t(fields, 'notes');
+                  Navigator.of(context).pop(true);
+                },
+                child: const Text('Registrar impedimento'),
+              ),
+            ],
+          ),
         ),
       ),
     ),
@@ -724,10 +872,9 @@ Future<void> showImpedimentSheet(
   if (confirmed ?? false) {
     await notifier.recordImpediment(
       reason: reason,
-      notes: notes.text.trim().isEmpty ? null : notes.text.trim(),
+      notes: (detalhes ?? '').isEmpty ? null : detalhes,
     );
   }
-  notes.dispose();
 }
 
 // ---------------------------------------------------------------------------
@@ -738,70 +885,78 @@ Future<void> showSignatureSheet(
   BuildContext context,
   ExecutionController notifier,
 ) async {
+  // A prancheta tem o mesmo ciclo de vida dos campos e morre junto, pelo mesmo
+  // motivo: `AnimatedBuilder` e `SignaturePad` continuam desenhando durante a
+  // animação de fechamento.
   final controller = SignaturePadController();
-  final name = TextEditingController();
 
   final result = await _sheet<({String name, List<int> bytes})>(
     context,
-    StatefulBuilder(
-      builder: (context, setState) => SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const _SheetTitle('Assinatura do cliente'),
-            TextField(
-              controller: name,
-              textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(
-                labelText: 'Nome de quem assina',
-                border: OutlineInputBorder(),
+    _SheetFields(
+      initial: const {'name': ''},
+      alsoDispose: controller,
+      builder: (context, fields) => StatefulBuilder(
+        builder: (context, setState) => SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _SheetTitle('Assinatura do cliente'),
+              TextField(
+                controller: fields['name'],
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  labelText: 'Nome de quem assina',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) => setState(() {}),
               ),
-              onChanged: (_) => setState(() {}),
-            ),
-            const SizedBox(height: AlfaSpacing.md),
-            SignaturePad(controller: controller),
-            const SizedBox(height: AlfaSpacing.sm),
-            AnimatedBuilder(
-              animation: controller,
-              builder: (context, _) => Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: controller.clear,
-                      icon: const Icon(Icons.cleaning_services_outlined),
-                      label: const Text('LIMPAR'),
+              const SizedBox(height: AlfaSpacing.md),
+              SignaturePad(controller: controller),
+              const SizedBox(height: AlfaSpacing.sm),
+              AnimatedBuilder(
+                animation: controller,
+                builder: (context, _) => Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: controller.clear,
+                        icon: const Icon(Icons.cleaning_services_outlined),
+                        label: const Text('LIMPAR'),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: AlfaSpacing.sm),
-                  Expanded(
-                    child: FilledButton.icon(
-                      // Assinatura vazia não é assinatura, e um PNG de um
-                      // pixel é uma imagem válida que o servidor aceitaria: a
-                      // conferência de "houve traço" é do aplicativo, que é
-                      // quem sabe.
-                      onPressed:
-                          controller.hasSignature && name.text.trim().isNotEmpty
-                          ? () async {
-                              final bytes = await controller.toPngBytes();
-                              if (bytes == null || !context.mounted) return;
-                              Navigator.of(context)
-                                  .pop((name: name.text.trim(), bytes: bytes));
-                            }
-                          : null,
-                      icon: const Icon(Icons.check),
-                      label: const Text('CONFIRMAR'),
+                    const SizedBox(width: AlfaSpacing.sm),
+                    Expanded(
+                      child: FilledButton.icon(
+                        // Assinatura vazia não é assinatura, e um PNG de um
+                        // pixel é uma imagem válida que o servidor aceitaria: a
+                        // conferência de "houve traço" é do aplicativo, que é
+                        // quem sabe.
+                        onPressed:
+                            controller.hasSignature &&
+                                _t(fields, 'name').isNotEmpty
+                            ? () async {
+                                final bytes = await controller.toPngBytes();
+                                if (bytes == null || !context.mounted) return;
+                                Navigator.of(
+                                  context,
+                                ).pop((name: _t(fields, 'name'), bytes: bytes));
+                              }
+                            : null,
+                        icon: const Icon(Icons.check),
+                        label: const Text('CONFIRMAR'),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: AlfaSpacing.sm),
-            const Text(
-              'A assinatura confirma o recebimento e a execução do serviço.',
-              style: TextStyle(fontSize: 12),
-            ),
-          ],
+              const SizedBox(height: AlfaSpacing.sm),
+              const Text(
+                'A assinatura confirma o recebimento e a execução do serviço.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
         ),
       ),
     ),
@@ -810,7 +965,4 @@ Future<void> showSignatureSheet(
   if (result != null) {
     await notifier.signOff(signerName: result.name, pngBytes: result.bytes);
   }
-
-  controller.dispose();
-  name.dispose();
 }

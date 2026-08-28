@@ -440,6 +440,24 @@ class _CheckInSection extends StatelessWidget {
                         'Check-in realizado às ${_hhmm(checkIn.checkedInAt)}',
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
+                      /*
+                        Esta linha é HISTÓRICA, e a seção de localização acima
+                        é ATUAL. As duas podem parecer se contradizer sem que
+                        nenhuma esteja errada.
+
+                        `distanceMeters` é congelado no instante do check-in
+                        (`service-order-work-events.ts`): se ainda não havia
+                        `CustomerLocation`, não havia contra o que medir, e
+                        nada medirá depois. Quando o técnico cria o ponto em
+                        seguida — por "Corrigir" —, a seção de localização
+                        passa a dizer CONFIRMADA enquanto esta continua
+                        dizendo que não havia ponto. Foi exatamente o que o
+                        smoke test da v0.10 observou: check-in às 10:49:28,
+                        ponto criado às 10:50:32.
+
+                        Recalcular aqui seria mentir sobre o que o técnico
+                        encontrou ao chegar.
+                      */
                       Text(
                         checkIn.distanceMeters != null
                             ? 'A ${checkIn.distanceMeters} m do ponto cadastrado'
