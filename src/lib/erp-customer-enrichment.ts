@@ -1,10 +1,10 @@
-import type { CustomerLocationSource } from "@prisma/client";
 import {
   normalizeChatbotCustomer,
   type ChatbotCustomerEnrichment,
 } from "@/integrations/chatbot-enrichment";
 import { isIntegrationError } from "@/integrations/errors";
 import { logAudit } from "./audit";
+import { applyImportedCustomerLocation } from "./customer-locations";
 import { resolveChatbotClient } from "./erp-adapter";
 import {
   provisionPppoeFromErp,
@@ -345,24 +345,48 @@ async function applyEnrichment(
     if (!local.email && email) data.email = email;
   }
 
-  if (coords) {
-    data.latitude = coords.latitude;
-    data.longitude = coords.longitude;
-    data.locationSource = "IMPORTED" satisfies CustomerLocationSource;
-    /**
-     * Importada NUNCA é verificada. Coordenada de cadastro ajuda a chegar
-     * perto; dizer que foi confirmada faria o técnico confiar nela em vez de
-     * procurar o endereço quando ela estiver errada.
-     */
-    data.locationVerified = false;
-  }
-
   if (remote.contractId) data.externalContractId = remote.contractId;
 
-  await prisma.customer.updateMany({
-    // Escopo de tenant viaja com a escrita, não só com a leitura anterior.
-    where: { id: local.id, companyId },
-    data,
+  /*
+    A COORDENADA NÃO É ESCRITA AQUI.
+
+    Até a v0.10 estas linhas gravavam `latitude`, `longitude`,
+    `locationSource: IMPORTED` e — o pior — `locationVerified: false`
+    diretamente, a cada enriquecimento. O efeito era o defeito exato que a
+    §197 existe para impedir: um técnico confirmava o ponto em campo e a
+    releitura seguinte do provedor rebaixava a confirmação e sobrescrevia a
+    coordenada, em silêncio, sem ninguém decidir nada.
+
+    A precedência foi implementada e testada na v0.10, mas
+    `applyImportedCustomerLocation` ficou SEM CHAMADOR DE PRODUÇÃO — a regra
+    existia num caminho que a operação não usava. A auditoria de segurança
+    encontrou isso; a regressão que o prova entra pelo caminho REAL, em
+    `customer-enrichment.test.ts`.
+
+    Agora a escrita passa pelo único caminho automático de coordenada, que
+    conhece a precedência: não rebaixa `verified`, não substitui ponto
+    verificado, e registra a divergência quando o provedor discorda de algo
+    mais confiável. Ela também mantém `CustomerLocation` (a autoridade) e as
+    colunas de `Customer` (a projeção) em sincronia — antes desta correção as
+    duas podiam divergir.
+
+    Na MESMA transação que o resto do cadastro: um enriquecimento que grava
+    telefone e falha na coordenada não pode deixar metade aplicada.
+  */
+  await prisma.$transaction(async (tx) => {
+    await tx.customer.updateMany({
+      // Escopo de tenant viaja com a escrita, não só com a leitura anterior.
+      where: { id: local.id, companyId },
+      data,
+    });
+
+    if (coords) {
+      await applyImportedCustomerLocation(tx, companyId, local.id, {
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        source: "IMPORTED",
+      });
+    }
   });
 
   const pppoe = await provisionPppoeFromErp(companyId, actorUserId, {

@@ -353,6 +353,87 @@ describe("Enriquecimento aplica os campos homologados", () => {
 // Contato digitado por gente
 // ---------------------------------------------------------------------------
 
+describe("Localização confirmada em campo × reimportação (§197)", () => {
+  /**
+   * Regressão de um defeito REAL, encontrado na auditoria de segurança da
+   * v0.10 e corrigido em seguida.
+   *
+   * A precedência de localização estava implementada e testada — mas
+   * `applyImportedCustomerLocation` NÃO tinha chamador de produção. Este
+   * caminho, o único que a operação usa de verdade, gravava `latitude`,
+   * `longitude` e `locationVerified: false` direto no `Customer`, a cada
+   * enriquecimento. O técnico confirmava o ponto em campo e a releitura
+   * seguinte do provedor rebaixava a confirmação, em silêncio.
+   *
+   * A suíte da v0.10 passava porque chamava a função desviada diretamente. Por
+   * isso este teste entra pelo caminho REAL: só ele teria pego.
+   */
+  it("o enriquecimento NÃO rebaixa nem move um ponto confirmado", async () => {
+    const customer = await customerWith();
+
+    // O técnico confirmou o ponto em campo, num lugar diferente do cadastro.
+    await prisma.customerLocation.create({
+      data: {
+        companyId: fixture.companyA.id,
+        customerId: customer.id,
+        latitude: -23.9999,
+        longitude: -46.9999,
+        source: "TECHNICIAN_GPS",
+        verified: true,
+        verifiedAt: new Date(),
+      },
+    });
+    await prisma.customer.update({
+      where: { id: customer.id },
+      data: {
+        latitude: -23.9999,
+        longitude: -46.9999,
+        locationSource: "TECHNICIAN_GPS",
+        locationVerified: true,
+      },
+    });
+
+    // O provedor devolve a coordenada VELHA do cadastro dele.
+    await enrich(customer.id, { success: true, contratos: contrato() });
+
+    const location = await prisma.customerLocation.findUniqueOrThrow({
+      where: { customerId: customer.id },
+    });
+    expect(location.verified).toBe(true);
+    expect(location.source).toBe("TECHNICIAN_GPS");
+    expect(Number(location.latitude)).toBeCloseTo(-23.9999, 4);
+
+    // E a projeção não pode divergir da autoridade.
+    const reloaded = await reload(customer.id);
+    expect(reloaded.locationVerified).toBe(true);
+    expect(Number(reloaded.latitude)).toBeCloseTo(-23.9999, 4);
+
+    // A divergência vira informação para a operação decidir, não silêncio.
+    const divergence = await prisma.customerLocationHistory.findFirst({
+      where: { customerId: customer.id },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(divergence?.note).toContain("Divergência preservada");
+  });
+
+  it("CONTROLE POSITIVO: cliente sem ponto recebe a coordenada do provedor", async () => {
+    const customer = await customerWith();
+    await enrich(customer.id, { success: true, contratos: contrato() });
+
+    const location = await prisma.customerLocation.findUniqueOrThrow({
+      where: { customerId: customer.id },
+    });
+    // Entra, mas como IMPORTED e NÃO verificada.
+    expect(location.source).toBe("IMPORTED");
+    expect(location.verified).toBe(false);
+    expect(Number(location.latitude)).toBeCloseTo(-22.1234, 4);
+
+    const reloaded = await reload(customer.id);
+    expect(Number(reloaded.latitude)).toBeCloseTo(-22.1234, 4);
+    expect(reloaded.locationVerified).toBe(false);
+  });
+});
+
 describe("Contato manual não é sobrescrito", () => {
   /**
    * Telefone e e-mail são os campos que o despachante corrige à mão depois de
