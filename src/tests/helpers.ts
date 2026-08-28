@@ -38,8 +38,29 @@ export async function resetDatabase(): Promise<void> {
 
   await prisma.customerDiagnosticSnapshot.deleteMany();
   await prisma.serviceOrderEvidence.deleteMany();
+  /*
+    Execução em campo (v0.10). A ORDEM aqui não é estética: vários destes
+    vínculos são `onDelete: Restrict` de propósito — apagar um técnico não pode
+    apagar em silêncio o movimento de estoque que ele fez. O reset precisa
+    desmontar de baixo para cima, e um `deleteMany` fora de ordem falha com
+    violação de FK em vez de mascarar o problema.
+
+    `ServiceOrderMaterialUsage` sai antes de `InventoryMovement` porque aponta
+    para ele; `InventoryMovement` antes de `InventoryItem`, `Technician` e
+    `ServiceOrder` pelo mesmo motivo.
+  */
   await prisma.serviceOrderMaterialUsage.deleteMany();
+  await prisma.inventoryMovement.deleteMany();
+  await prisma.inventoryItem.deleteMany();
   await prisma.serviceOrderSignature.deleteMany();
+  await prisma.serviceOrderCompletion.deleteMany();
+  await prisma.serviceOrderCheckIn.deleteMany();
+  await prisma.serviceOrderContactAttempt.deleteMany();
+  await prisma.serviceOrderImpediment.deleteMany();
+  await prisma.serviceOrderChecklistItem.deleteMany();
+  await prisma.serviceOrderEquipment.deleteMany();
+  await prisma.customerLocationHistory.deleteMany();
+  await prisma.customerLocation.deleteMany();
   await prisma.serviceOrderExecution.deleteMany();
   await prisma.serviceOrderEvent.deleteMany();
   await prisma.serviceOrder.deleteMany();
@@ -51,6 +72,9 @@ export async function resetDatabase(): Promise<void> {
   await prisma.idempotencyRecord.deleteMany();
   await prisma.outboxEvent.deleteMany();
   // Depois das OS: o vínculo é onDelete Restrict de propósito.
+  await prisma.checklistTemplateItem.deleteMany();
+  await prisma.checklistTemplate.deleteMany();
+  await prisma.serviceOrderCompletionPolicy.deleteMany();
   await prisma.serviceOrderType.deleteMany();
   await prisma.technician.deleteMany();
   await prisma.customerConnection.deleteMany();
