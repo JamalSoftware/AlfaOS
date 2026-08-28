@@ -201,7 +201,20 @@ class ExecutionController extends StateNotifier<ExecutionState> {
 
   Future<void> loadStock() async {
     try {
-      state = state.copyWith(stock: await _repository.stock());
+      /*
+        O `await` vem ANTES da leitura de `state`, e isso não é estilo.
+
+        Em Dart, `state.copyWith(stock: await ...)` avalia o RECEPTOR primeiro:
+        `state` é lido antes da ida à rede, e o `copyWith` acaba aplicado sobre
+        um estado velho. Como esta chamada corre em paralelo com `load()`, o
+        resultado era apagar o pacote que o `load` tinha acabado de gravar — a
+        tela ficava presa em "carregando" com os dados já na mão.
+
+        Foi assim que o defeito apareceu: vinte testes de widget estourando o
+        `pumpAndSettle` por um `await` no lugar errado.
+      */
+      final lines = await _repository.stock();
+      state = state.copyWith(stock: lines);
     } on FieldException {
       // Catálogo é conveniência da tela: falhar aqui não pode derrubar a
       // execução inteira. O técnico continua com as outras seções.
@@ -348,6 +361,37 @@ class ExecutionController extends StateNotifier<ExecutionState> {
   }
 
   // -------------------------------------------------------------------------
+  // Relatório
+  // -------------------------------------------------------------------------
+
+  /// Salva diagnóstico, serviço realizado e observações.
+  ///
+  /// É o que destrava a conclusão: os dois primeiros são exigidos em toda OS,
+  /// com ou sem política. Usa a versão da EXECUÇÃO — não a da OS.
+  Future<bool> saveReport({
+    String? diagnosis,
+    String? workPerformed,
+    String? notes,
+  }) async {
+    final bundle = state.bundle;
+    final executionVersion = bundle?.executionVersion;
+    if (bundle == null || executionVersion == null || state.busy) return false;
+
+    return _run(
+      'report',
+      (_) => _repository.saveReport(
+        orderId: orderId,
+        expectedExecutionVersion: executionVersion,
+        idempotencyKey: _intentKey('report'),
+        diagnosis: diagnosis,
+        workPerformed: workPerformed,
+        notes: notes,
+      ),
+      successMessage: 'Relatório salvo.',
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // Checklist
   // -------------------------------------------------------------------------
 
@@ -426,7 +470,10 @@ class ExecutionController extends StateNotifier<ExecutionState> {
     final bundle = state.bundle;
     if (bundle == null) return;
 
-    _updatePending(photo.localId, (p) => p.copyWith(status: SyncStatus.syncing));
+    _updatePending(
+      photo.localId,
+      (p) => p.copyWith(status: SyncStatus.syncing),
+    );
 
     try {
       await _repository.addEvidence(
@@ -611,9 +658,7 @@ class ExecutionController extends StateNotifier<ExecutionState> {
 
     final executionVersion = bundle.executionVersion;
     if (executionVersion == null) {
-      state = state.copyWith(
-        error: 'Este atendimento ainda não foi iniciado.',
-      );
+      state = state.copyWith(error: 'Este atendimento ainda não foi iniciado.');
       return false;
     }
 
@@ -642,14 +687,24 @@ class ExecutionController extends StateNotifier<ExecutionState> {
       state = state.copyWith(busy: false);
 
       if (error.pendencies.isNotEmpty) {
-        // A intenção continua válida — o técnico vai resolver e tentar de novo
-        // com a mesma chave, e o servidor tratará como a mesma intenção.
+        /*
+          RECARREGA PRIMEIRO, guarda as pendências DEPOIS.
+
+          A ordem inversa perdia a lista inteira: `load()` zera
+          `completionPendencies` — de propósito, para que a leitura nova não
+          conviva com o resultado de uma tentativa velha —, então gravá-las
+          antes fazia o `load` seguinte apagá-las no mesmo instante, e a tela
+          mostrava "não é possível concluir" sem dizer o que faltava.
+
+          A intenção continua válida: o técnico vai resolver e tentar de novo
+          com a MESMA chave, e o servidor tratará como a mesma intenção.
+        */
+        await load();
         state = state.copyWith(
           completionPendencies: error.pendencies
               .map(CompletionPendency.fromJson)
               .toList(growable: false),
         );
-        await load();
         return false;
       }
 

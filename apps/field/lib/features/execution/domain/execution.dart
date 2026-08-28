@@ -455,6 +455,30 @@ class CompletionRequirements {
   }
 }
 
+/// O relatório do atendimento.
+///
+/// `diagnosis` e `workPerformed` são os DOIS únicos requisitos de conclusão que
+/// valem para qualquer OS, com ou sem política do tipo. Sem eles nada fecha.
+class ExecutionReport {
+  const ExecutionReport({this.diagnosis, this.workPerformed, this.notes});
+
+  final String? diagnosis;
+  final String? workPerformed;
+  final String? notes;
+
+  bool get complete =>
+      (diagnosis?.trim().isNotEmpty ?? false) &&
+      (workPerformed?.trim().isNotEmpty ?? false);
+
+  factory ExecutionReport.fromJson(Map<String, dynamic> json) {
+    return ExecutionReport(
+      diagnosis: json['diagnosis'] as String?,
+      workPerformed: json['workPerformed'] as String?,
+      notes: json['notes'] as String?,
+    );
+  }
+}
+
 /// Item do catálogo de estoque do técnico.
 class StockLine {
   const StockLine({
@@ -494,6 +518,7 @@ class ExecutionBundle {
     required this.version,
     required this.location,
     required this.requirements,
+    this.report = const ExecutionReport(),
     this.executionVersion,
     this.checkIn,
     this.checklist = const [],
@@ -510,7 +535,11 @@ class ExecutionBundle {
 
   /// `expectedVersion` do próximo comando sobre a OS.
   final int version;
+
+  /// Lock PRÓPRIO da execução — é o que o salvamento do relatório envia.
   final int? executionVersion;
+
+  final ExecutionReport report;
 
   final ExecutionLocation location;
   final ExecutionCheckIn? checkIn;
@@ -572,10 +601,7 @@ class ExecutionBundle {
     );
     step(requirements.requireMaterials, materials.isNotEmpty);
     step(requirements.requireEquipment, equipments.isNotEmpty);
-    step(
-      requirements.requireSignature,
-      signature != null && !signature!.stale,
-    );
+    step(requirements.requireSignature, signature != null && !signature!.stale);
 
     return (done: done, total: total);
   }
@@ -594,6 +620,9 @@ class ExecutionBundle {
       orderId: json['orderId'] as String? ?? '',
       version: (json['version'] as num?)?.toInt() ?? 0,
       executionVersion: (json['executionVersion'] as num?)?.toInt(),
+      report: ExecutionReport.fromJson(
+        Map<String, dynamic>.from(json['report'] as Map? ?? const {}),
+      ),
       location: ExecutionLocation.fromJson(
         Map<String, dynamic>.from(json['location'] as Map? ?? const {}),
       ),

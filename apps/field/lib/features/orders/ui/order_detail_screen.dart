@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../app/theme/tokens.dart';
 import '../../../core/launchers/external_links.dart';
@@ -163,9 +164,13 @@ class _Header extends StatelessWidget {
 
 /// A ação principal, logo abaixo do cabeçalho.
 ///
-/// **Não existe botão de concluir nesta Alpha.** A conclusão depende de
-/// checklist, fotos, materiais e assinatura, e a validação é do servidor —
-/// oferecer um "concluir" incompleto produziria OS fechadas sem evidência.
+/// Antes da v0.10 a OS em andamento só exibia um aviso: não havia como concluir,
+/// porque checklist, fotos, materiais e assinatura não existiam, e oferecer um
+/// "concluir" incompleto produziria OS fechadas sem evidência.
+///
+/// Agora ela abre a EXECUÇÃO. A conclusão continua não morando aqui — ela é a
+/// última seção daquela tela, e quem decide se ela é possível continua sendo o
+/// servidor.
 class _MainAction extends ConsumerWidget {
   const _MainAction({required this.orderId, required this.state});
 
@@ -178,29 +183,54 @@ class _MainAction extends ConsumerWidget {
     final colors = context.statusColors;
 
     if (order.isInProgress) {
-      return Container(
+      return Column(
         key: const Key('order-in-progress'),
-        padding: const EdgeInsets.all(AlfaSpacing.lg),
-        decoration: BoxDecoration(
-          color: colors.infoContainer,
-          borderRadius: BorderRadius.circular(AlfaRadius.md),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.play_circle_outline, color: colors.info),
-            const SizedBox(width: AlfaSpacing.md),
-            Expanded(
-              child: Text(
-                'ATENDIMENTO EM ANDAMENTO',
-                style: TextStyle(
-                  color: colors.info,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
-                ),
-              ),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(AlfaSpacing.lg),
+            decoration: BoxDecoration(
+              color: colors.infoContainer,
+              borderRadius: BorderRadius.circular(AlfaRadius.md),
             ),
-          ],
-        ),
+            child: Row(
+              children: [
+                Icon(Icons.play_circle_outline, color: colors.info),
+                const SizedBox(width: AlfaSpacing.md),
+                Expanded(
+                  child: Text(
+                    'ATENDIMENTO EM ANDAMENTO',
+                    style: TextStyle(
+                      color: colors.info,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AlfaSpacing.md),
+          SizedBox(
+            height: AlfaSizing.primaryActionHeight,
+            child: FilledButton.icon(
+              key: const Key('order-open-execution'),
+              onPressed: () async {
+                await context.push<bool>('/orders/$orderId/execucao');
+                // Ao voltar, o estado da OS pode ter mudado — inclusive para
+                // concluída. Recarregar evita mostrar "em andamento" para uma
+                // OS que acabou de fechar.
+                if (context.mounted) {
+                  await ref
+                      .read(orderDetailControllerProvider(orderId).notifier)
+                      .load();
+                }
+              },
+              icon: const Icon(Icons.checklist_rtl),
+              label: const Text('ABRIR EXECUÇÃO'),
+            ),
+          ),
+        ],
       );
     }
 

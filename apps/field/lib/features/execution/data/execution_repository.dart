@@ -39,6 +39,32 @@ class ExecutionRepository {
         .toList(growable: false);
   }
 
+  /// Salva o relatório do atendimento.
+  ///
+  /// `expectedVersion` é o da EXECUÇÃO, não o da OS: as duas linhas mudam por
+  /// motivos diferentes e não podem compartilhar lock. Nenhum dos três campos é
+  /// obrigatório aqui — só no fechamento —, então o técnico salva o que tem até
+  /// agora, quantas vezes precisar.
+  Future<void> saveReport({
+    required String orderId,
+    required int expectedExecutionVersion,
+    required String idempotencyKey,
+    String? diagnosis,
+    String? workPerformed,
+    String? notes,
+  }) async {
+    await _api.post(
+      '/service-orders/$orderId/execution',
+      idempotencyKey: idempotencyKey,
+      body: {
+        'expectedVersion': expectedExecutionVersion,
+        'diagnosis': diagnosis,
+        'workPerformed': workPerformed,
+        'notes': notes,
+      },
+    );
+  }
+
   Future<void> checkIn({
     required String orderId,
     required int expectedVersion,
@@ -54,9 +80,9 @@ class ExecutionRepository {
         'expectedVersion': expectedVersion,
         // Coordenada é opcional: sem GPS o check-in vale igual, porque a
         // chegada é o fato operacional e a coordenada é o detalhe.
-        if (latitude != null) 'latitude': latitude,
-        if (longitude != null) 'longitude': longitude,
-        if (accuracyMeters != null) 'accuracyMeters': accuracyMeters,
+        'latitude': ?latitude,
+        'longitude': ?longitude,
+        'accuracyMeters': ?accuracyMeters,
       },
     );
   }
@@ -79,10 +105,9 @@ class ExecutionRepository {
       idempotencyKey: idempotencyKey,
       body: {
         'expectedVersion': expectedVersion,
-        if (observedLatitude != null) 'observedLatitude': observedLatitude,
-        if (observedLongitude != null) 'observedLongitude': observedLongitude,
-        if (observedAccuracyMeters != null)
-          'observedAccuracyMeters': observedAccuracyMeters,
+        'observedLatitude': ?observedLatitude,
+        'observedLongitude': ?observedLongitude,
+        'observedAccuracyMeters': ?observedAccuracyMeters,
       },
     );
   }
@@ -113,10 +138,10 @@ class ExecutionRepository {
         'expectedVersion': expectedVersion,
         'reason': reason,
         if (note != null && note.isNotEmpty) 'note': note,
-        if (latitude != null) 'latitude': latitude,
-        if (longitude != null) 'longitude': longitude,
-        if (accuracyMeters != null) 'accuracyMeters': accuracyMeters,
-        if (source != null) 'source': source,
+        'latitude': ?latitude,
+        'longitude': ?longitude,
+        'accuracyMeters': ?accuracyMeters,
+        'source': ?source,
         if (address != null && address.isNotEmpty) 'address': address,
       },
     );
@@ -136,9 +161,9 @@ class ExecutionRepository {
       idempotencyKey: idempotencyKey,
       body: {
         'expectedVersion': expectedVersion,
-        if (valueBoolean != null) 'valueBoolean': valueBoolean,
-        if (valueText != null) 'valueText': valueText,
-        if (valueNumber != null) 'valueNumber': valueNumber,
+        'valueBoolean': ?valueBoolean,
+        'valueText': ?valueText,
+        'valueNumber': ?valueNumber,
       },
     );
   }
@@ -162,7 +187,8 @@ class ExecutionRepository {
       'expectedOrderVersion': expectedVersion,
       'category': category,
       if (caption != null && caption.isNotEmpty) 'caption': caption,
-      if (capturedAt != null) 'capturedAt': capturedAt.toUtc().toIso8601String(),
+      if (capturedAt != null)
+        'capturedAt': capturedAt.toUtc().toIso8601String(),
     });
 
     await _api.upload(

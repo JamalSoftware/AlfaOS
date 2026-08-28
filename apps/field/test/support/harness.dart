@@ -46,14 +46,19 @@ class Harness {
   }
 
   /// Pump de uma tela isolada, com tema real.
+  ///
+  /// `extraOverrides` existe para os provedores de SENSOR — GPS e câmera. Um
+  /// teste de widget não tem nenhum dos dois, e sem esta porta a tela de
+  /// execução, que é a mais importante do aplicativo, seria a única intestável.
   Future<void> pump(
     WidgetTester tester,
     Widget screen, {
     ThemeMode themeMode = ThemeMode.light,
+    List<Override> extraOverrides = const [],
   }) async {
     await tester.pumpWidget(
       ProviderScope(
-        overrides: overrides,
+        overrides: [...overrides, ...extraOverrides],
         child: MaterialApp(
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,

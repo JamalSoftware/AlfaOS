@@ -403,14 +403,24 @@ void main() {
       expect(find.text('ATENDIMENTO EM ANDAMENTO'), findsOneWidget);
     });
 
-    testWidgets('nenhuma tela oferece CONCLUIR nesta Alpha', (tester) async {
+    testWidgets('o detalhe não conclui — ele abre a execução', (tester) async {
       await abrir(tester, payload: detail(status: 'IN_PROGRESS'));
 
-      // Conclusão depende de checklist, fotos, materiais e assinatura, e a
-      // validação é do servidor. Um "concluir" incompleto produziria OS
-      // fechadas sem evidência.
+      /*
+        Até a v0.9 a asserção era "nenhuma tela oferece CONCLUIR", porque
+        checklist, fotos, materiais e assinatura não existiam e um "concluir"
+        incompleto produziria OS fechadas sem evidência.
+
+        A v0.10 acrescentou a conclusão — mas ela NÃO mora aqui. O detalhe
+        continua sem esse botão de propósito: concluir exige ver o que falta, e
+        oferecer o atalho a partir de uma tela que não mostra pendência
+        convidaria a fechar às cegas. O caminho é a tela de execução, onde o
+        botão só habilita quando o SERVIDOR diz que não há pendência.
+      */
       expect(find.textContaining('CONCLUIR'), findsNothing);
       expect(find.textContaining('Concluir'), findsNothing);
+      expect(find.byKey(const Key('order-open-execution')), findsOneWidget);
+      expect(find.text('ABRIR EXECUÇÃO'), findsOneWidget);
     });
 
     testWidgets('iniciar manda expectedVersion e Idempotency-Key', (

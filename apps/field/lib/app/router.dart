@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/auth/state/session_controller.dart';
 import '../features/auth/ui/login_screen.dart';
+import '../features/execution/ui/execution_screen.dart';
 import '../features/notifications/ui/notifications_screen.dart';
 import '../features/orders/ui/order_detail_screen.dart';
 import '../features/orders/ui/orders_screen.dart';
@@ -60,6 +61,17 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/orders/:id',
         builder: (_, state) =>
             OrderDetailScreen(orderId: state.pathParameters['id']!),
+        routes: [
+          GoRoute(
+            // Execução também fora do shell, e pelo mesmo motivo: ela é uma
+            // sequência longa de seções, e a barra de abas embaixo roubaria a
+            // linha onde fica o botão de concluir.
+            parentNavigatorKey: _rootKey,
+            path: 'execucao',
+            builder: (_, state) =>
+                ExecutionScreen(orderId: state.pathParameters['id']!),
+          ),
+        ],
       ),
       StatefulShellRoute.indexedStack(
         builder: (_, _, shell) => HomeShell(navigationShell: shell),

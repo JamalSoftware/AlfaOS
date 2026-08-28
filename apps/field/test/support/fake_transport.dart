@@ -84,6 +84,18 @@ class FakeTransport implements HttpClientAdapter {
   ) async {
     requests.add(options);
 
+    /*
+      Drena o corpo quando ele é um STREAM.
+
+      Multipart (foto de evidência, assinatura) chega como `requestStream`. Um
+      adaptador que o ignora deixa o Dio esperando o envio terminar para
+      sempre: o teste não falha com erro, ele PENDURA — foi assim que o teste de
+      reenvio de foto estourou o `pumpAndSettle` sem dizer por quê.
+    */
+    if (requestStream != null) {
+      await requestStream.drain<void>();
+    }
+
     if (offline) {
       throw DioException.connectionError(
         requestOptions: options,

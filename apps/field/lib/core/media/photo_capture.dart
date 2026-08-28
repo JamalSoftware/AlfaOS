@@ -1,9 +1,3 @@
-import 'dart:io';
-
-import 'package:image_picker/image_picker.dart';
-
-import '../logging/log.dart';
-
 /// Captura de foto para evidência.
 ///
 /// Abstraído pelo mesmo motivo do GPS: um widget test não tem câmera, e sem
@@ -21,6 +15,12 @@ import '../logging/log.dart';
 /// 1600 px no maior lado e qualidade 80 preservam serial de ONU legível e
 /// acabamento de instalação, que é o que a foto precisa provar.
 library;
+
+import 'dart:io';
+
+import 'package:image_picker/image_picker.dart';
+
+import '../logging/log.dart';
 
 abstract class PhotoCapture {
   /// Abre a câmera. `null` quando o técnico desiste.

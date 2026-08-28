@@ -1,7 +1,3 @@
-import 'package:geolocator/geolocator.dart';
-
-import '../logging/log.dart';
-
 /// Acesso ao GPS do aparelho — **só enquanto o app está em uso**.
 ///
 /// ## Por que existe uma abstração
@@ -25,6 +21,10 @@ import '../logging/log.dart';
 /// nem confirmação de nada. Quem decide se ela vira `verified` é o servidor,
 /// depois de uma ação humana explícita (PRD §130, §172).
 library;
+
+import 'package:geolocator/geolocator.dart';
+
+import '../logging/log.dart';
 
 /// Desfecho de uma leitura. Todos são caminhos normais, inclusive as recusas.
 enum LocationOutcome {
@@ -63,7 +63,8 @@ class LocationReading {
   const LocationReading.ok(DeviceLocation position)
     : this(outcome: LocationOutcome.ok, position: position);
 
-  const LocationReading.failed(LocationOutcome outcome) : this(outcome: outcome);
+  const LocationReading.failed(LocationOutcome outcome)
+    : this(outcome: outcome);
 
   final LocationOutcome outcome;
   final DeviceLocation? position;
@@ -84,8 +85,7 @@ class LocationReading {
           'aparelho para confirmar endereços.',
     LocationOutcome.serviceDisabled =>
       'O GPS do aparelho está desligado. Ligue-o para registrar a localização.',
-    LocationOutcome.unavailable =>
-      'Não foi possível obter a localização agora. Você pode continuar sem ela.',
+    LocationOutcome.unavailable => 'Não foi possível obter a localização agora. Você pode continuar sem ela.',
   };
 }
 
