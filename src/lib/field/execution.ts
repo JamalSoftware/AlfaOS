@@ -89,6 +89,8 @@ export interface FieldExecutionBundle {
     model: string | null;
     serial: string | null;
     macAddress: string | null;
+    /** Foto da etiqueta que identifica este equipamento (v0.10.1). */
+    labelEvidenceId: string | null;
   }[];
   signature: {
     id: string;
@@ -251,6 +253,7 @@ export async function getFieldExecutionBundle(
       model: e.model,
       serial: e.serial,
       macAddress: e.macAddress,
+      labelEvidenceId: e.labelEvidenceId,
     })),
     signature: signature
       ? {

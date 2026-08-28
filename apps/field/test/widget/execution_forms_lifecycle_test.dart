@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:alfaos_field/app/providers.dart';
 import 'package:alfaos_field/core/location/location_service.dart';
+import 'package:alfaos_field/core/media/photo_capture.dart';
 import 'package:alfaos_field/features/execution/ui/execution_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -38,6 +41,25 @@ class _FakeGps implements LocationService {
   Future<LocationReading> current() async => const LocationReading.ok(
     DeviceLocation(latitude: -23.55, longitude: -46.63, accuracyMeters: 9),
   );
+}
+
+/// Câmera falsa com arquivo REAL: o repositório lê os bytes para o multipart.
+class _FakeCamera implements PhotoCapture {
+  _FakeCamera(this.file);
+  final File? file;
+
+  @override
+  Future<File?> takePhoto() async => file;
+
+  @override
+  Future<File?> pickFromGallery() async => file;
+}
+
+File _arquivoDeFoto() {
+  final dir = Directory.systemTemp.createTempSync('alfaos-etiqueta-ciclo-');
+  addTearDown(() => dir.deleteSync(recursive: true));
+  final caminho = '${dir.path}/etiqueta.png';
+  return File(caminho)..writeAsBytesSync(<int>[0x89, 0x50, 0x4e, 0x47]);
 }
 
 Map<String, dynamic> _bundle({
@@ -147,11 +169,31 @@ Future<Harness> _abrirTela(
     data: payload ?? _bundle(),
   );
   harness.transport.onJson('GET', '/inventory', data: {'items': stock});
+  // A etiqueta é obrigatória desde a v0.10.1; registrar equipamento passa por
+  // uma captura antes do comando.
+  harness.transport.onJson(
+    'POST',
+    '/service-orders/os-1/evidence',
+    status: 201,
+    data: const {
+      'evidence': {
+        'id': 'etiqueta-1',
+        'category': 'EQUIPMENT_LABEL',
+        'caption': null,
+        'mimeType': 'image/png',
+        'sizeBytes': 4,
+        'createdAt': '2026-08-28T12:00:00.000Z',
+      },
+    },
+  );
 
   await harness.pump(
     tester,
     const ExecutionScreen(orderId: 'os-1'),
-    extraOverrides: [locationServiceProvider.overrideWithValue(_FakeGps())],
+    extraOverrides: [
+      locationServiceProvider.overrideWithValue(_FakeGps()),
+      photoCaptureProvider.overrideWithValue(_FakeCamera(_arquivoDeFoto())),
+    ],
   );
   await _settle(tester);
   return harness;
@@ -163,6 +205,20 @@ Future<Harness> _abrirTela(
 /// e o teste continua verde digitando no lugar errado.
 Finder _campo(String label) =>
     find.ancestor(of: find.text(label), matching: find.byType(TextField));
+
+/// Captura a etiqueta — dentro de `runAsync`, e isso não é estilo.
+///
+/// O envio monta um multipart a partir de um arquivo REAL, e I/O de verdade
+/// não avança sob o relógio falso do `flutter_test`: `pump` não roda o event
+/// loop do `dart:io`. Sem `runAsync` a captura fica pendurada para sempre e o
+/// `pumpAndSettle` estoura no indicador de progresso — sem dizer por quê.
+Future<void> _fotografarEtiqueta(WidgetTester tester) async {
+  await tester.runAsync(() async {
+    await tester.tap(find.text('FOTOGRAFAR ETIQUETA'));
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+  });
+  await _settle(tester);
+}
 
 void main() {
   group('equipamento — o caso que o smoke test encontrou', () {
@@ -177,7 +233,7 @@ void main() {
 
       // Metade preenchida: é como o técnico estava quando a tela caiu.
       await tester.enterText(_campo('Fabricante'), 'Huawei');
-      await tester.enterText(_campo('Número de série'), 'ABC123456');
+      await tester.enterText(_campo('Número de série (opcional)'), 'ABC123456');
       await _settle(tester);
 
       await _voltar(tester);
@@ -228,7 +284,7 @@ void main() {
       await tester.tap(find.text('Registrar equipamento'));
       await _settle(tester);
       await tester.enterText(_campo('Modelo'), 'EG8145V5');
-      await tester.enterText(_campo('Número de série'), 'ABC123456');
+      await tester.enterText(_campo('Número de série (opcional)'), 'ABC123456');
       await _settle(tester);
 
       await _voltar(tester);
@@ -282,8 +338,10 @@ void main() {
       await _settle(tester);
       await tester.enterText(_campo('Fabricante'), 'Huawei');
       await tester.enterText(_campo('Modelo'), 'EG8145V5');
-      await tester.enterText(_campo('Número de série'), 'ABC123456');
+      await tester.enterText(_campo('Número de série (opcional)'), 'ABC123456');
       await _settle(tester);
+      // Identificação obrigatória desde a v0.10.1.
+      await _fotografarEtiqueta(tester);
 
       // A releitura pós-registro traz o equipamento — como no servidor real.
       harness.transport.onJson(
@@ -343,8 +401,9 @@ void main() {
 
       await tester.tap(find.text('Registrar equipamento'));
       await _settle(tester);
-      await tester.enterText(_campo('Número de série'), 'ABC123456');
+      await tester.enterText(_campo('Número de série (opcional)'), 'ABC123456');
       await _settle(tester);
+      await _fotografarEtiqueta(tester);
 
       await tester.tap(find.byKey(const Key('equipment-submit')));
       // UM frame apenas: a folha já deu pop, mas a animação de saída está no

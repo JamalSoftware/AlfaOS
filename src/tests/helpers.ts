@@ -37,6 +37,9 @@ export async function resetDatabase(): Promise<void> {
   }
 
   await prisma.customerDiagnosticSnapshot.deleteMany();
+  // Equipamento antes de evidência: desde a v0.10.1 ele aponta para a foto da
+  // etiqueta com `Restrict`, e apagar a foto primeiro viola a FK.
+  await prisma.serviceOrderEquipment.deleteMany();
   await prisma.serviceOrderEvidence.deleteMany();
   /*
     Execução em campo (v0.10). A ORDEM aqui não é estética: vários destes
@@ -58,7 +61,6 @@ export async function resetDatabase(): Promise<void> {
   await prisma.serviceOrderContactAttempt.deleteMany();
   await prisma.serviceOrderImpediment.deleteMany();
   await prisma.serviceOrderChecklistItem.deleteMany();
-  await prisma.serviceOrderEquipment.deleteMany();
   await prisma.customerLocationHistory.deleteMany();
   await prisma.customerLocation.deleteMany();
   await prisma.serviceOrderExecution.deleteMany();

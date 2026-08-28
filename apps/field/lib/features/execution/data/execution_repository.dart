@@ -173,7 +173,9 @@ class ExecutionRepository {
   /// O `capturedAt` do aparelho vai junto, mas é informativo: o relógio do
   /// celular é ajustável pelo próprio usuário, e a integridade vem do carimbo
   /// que o servidor grava quando o arquivo chega.
-  Future<void> addEvidence({
+  /// Devolve o id da evidência criada — o equipamento precisa dele para
+  /// apontar a foto da etiqueta (v0.10.1).
+  Future<String?> addEvidence({
     required String orderId,
     required int expectedVersion,
     required String category,
@@ -191,11 +193,16 @@ class ExecutionRepository {
         'capturedAt': capturedAt.toUtc().toIso8601String(),
     });
 
-    await _api.upload(
+    final data = await _api.upload(
       '/service-orders/$orderId/evidence',
       form: form,
       idempotencyKey: idempotencyKey,
     );
+
+    // O id volta porque o registro de equipamento precisa apontar para a foto
+    // da etiqueta (v0.10.1). As outras evidências simplesmente o ignoram.
+    final evidence = data['evidence'];
+    return evidence is Map ? evidence['id'] as String? : null;
   }
 
   Future<void> removeEvidence({
@@ -241,6 +248,7 @@ class ExecutionRepository {
     required int expectedVersion,
     required String equipmentType,
     required String idempotencyKey,
+    required String labelEvidenceId,
     String? manufacturer,
     String? model,
     String? serial,
@@ -253,6 +261,7 @@ class ExecutionRepository {
       body: {
         'expectedVersion': expectedVersion,
         'equipmentType': equipmentType,
+        'labelEvidenceId': labelEvidenceId,
         if (manufacturer != null && manufacturer.isNotEmpty)
           'manufacturer': manufacturer,
         if (model != null && model.isNotEmpty) 'model': model,

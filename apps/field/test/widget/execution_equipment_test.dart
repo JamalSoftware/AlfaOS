@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:alfaos_field/app/providers.dart';
+import 'package:alfaos_field/core/media/photo_capture.dart';
 import 'package:alfaos_field/core/location/location_service.dart';
 import 'package:alfaos_field/features/execution/ui/execution_screen.dart';
 import 'package:flutter/material.dart';
@@ -41,6 +44,51 @@ class _FakeGps implements LocationService {
     DeviceLocation(latitude: -23.55, longitude: -46.63, accuracyMeters: 9),
   );
 }
+
+/// Câmera falsa que devolve um arquivo REAL.
+///
+/// Precisa ser real: o repositório lê os bytes para montar o multipart, e um
+/// caminho inexistente pendura o envio em vez de falhar com mensagem.
+class _FakeCamera implements PhotoCapture {
+  _FakeCamera(this.file);
+
+  File? file;
+  int chamadas = 0;
+
+  @override
+  Future<File?> takePhoto() async {
+    chamadas += 1;
+    return file;
+  }
+
+  @override
+  Future<File?> pickFromGallery() async {
+    chamadas += 1;
+    return file;
+  }
+}
+
+File _arquivoDeFoto() {
+  final dir = Directory.systemTemp.createTempSync('alfaos-etiqueta-');
+  addTearDown(() => dir.deleteSync(recursive: true));
+  final file = File('${dir.path}/etiqueta.png')
+    ..writeAsBytesSync(<int>[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  return file;
+}
+
+const _rotaEvidencia = '/service-orders/os-1/evidence';
+
+/// Como o servidor responde ao upload da etiqueta.
+Map<String, dynamic> _evidenciaCriada(String id) => {
+  'evidence': {
+    'id': id,
+    'category': 'EQUIPMENT_LABEL',
+    'caption': null,
+    'mimeType': 'image/png',
+    'sizeBytes': 8,
+    'createdAt': '2026-08-28T12:00:00.000Z',
+  },
+};
 
 const _equipamentoDoServidor = {
   'id': 'eq-1',
@@ -117,10 +165,22 @@ Future<Harness> _abrirTela(WidgetTester tester) async {
   );
   harness.transport.onJson('GET', '/inventory', data: {'items': <dynamic>[]});
 
+  // A etiqueta é obrigatória desde a v0.10.1: toda folha de equipamento passa
+  // por uma captura antes de o botão Registrar existir.
+  harness.transport.onJson(
+    'POST',
+    _rotaEvidencia,
+    status: 201,
+    data: _evidenciaCriada('etiqueta-1'),
+  );
+
   await harness.pump(
     tester,
     const ExecutionScreen(orderId: 'os-1'),
-    extraOverrides: [locationServiceProvider.overrideWithValue(_FakeGps())],
+    extraOverrides: [
+      locationServiceProvider.overrideWithValue(_FakeGps()),
+      photoCaptureProvider.overrideWithValue(_FakeCamera(_arquivoDeFoto())),
+    ],
   );
   await _settle(tester);
   return harness;
@@ -133,6 +193,9 @@ const _submit = Key('equipment-submit');
 const _rota = '/service-orders/os-1/equipment';
 
 /// Abre a folha e preenche o mínimo que o servidor aceita.
+///
+/// O mínimo mudou na v0.10.1: é a FOTO DA ETIQUETA, não o texto. Série e MAC
+/// continuam aceitos porque digitar às vezes é mais rápido que enquadrar.
 Future<void> _preencher(
   WidgetTester tester, {
   String serial = 'FICT001',
@@ -142,8 +205,23 @@ Future<void> _preencher(
   await tester.enterText(_campo('Fabricante'), 'Fabricante Ficticio');
   await tester.enterText(_campo('Modelo'), 'MODELO-X');
   if (serial.isNotEmpty) {
-    await tester.enterText(_campo('Número de série'), serial);
+    await tester.enterText(_campo('Número de série (opcional)'), serial);
   }
+  await _settle(tester);
+  await _fotografarEtiqueta(tester);
+}
+
+/// Captura a etiqueta — dentro de `runAsync`, e isso não é estilo.
+///
+/// O envio monta um multipart a partir de um arquivo REAL, e I/O de verdade
+/// não avança sob o relógio falso do `flutter_test`: `pump` não roda o event
+/// loop do `dart:io`. Sem `runAsync` a captura fica pendurada para sempre e o
+/// `pumpAndSettle` estoura no indicador de progresso — sem dizer por quê.
+Future<void> _fotografarEtiqueta(WidgetTester tester) async {
+  await tester.runAsync(() async {
+    await tester.tap(find.text('FOTOGRAFAR ETIQUETA'));
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+  });
   await _settle(tester);
 }
 
@@ -266,36 +344,87 @@ void main() {
       expect(find.textContaining('SERIAL-DO-SERVIDOR'), findsOneWidget);
     });
 
-    testWidgets('sem série e sem MAC o botão nem habilita', (tester) async {
+    testWidgets('SEM a foto da etiqueta o botão nem habilita', (tester) async {
       final harness = await _abrirTela(tester);
       harness.transport.onJson('POST', _rota);
 
       await tester.tap(find.text('Registrar equipamento'));
       await _settle(tester);
       await tester.enterText(_campo('Fabricante'), 'Fabricante Ficticio');
+      await tester.enterText(_campo('Número de série (opcional)'), 'FICT009');
       await _settle(tester);
 
       /*
-        Esta é a viagem que o smoke test fez e o servidor recusou.
+        Série digitada NÃO libera mais o botão (v0.10.1).
 
-        Espelhar a regra aqui não move a autoridade: o servidor revalida sob
-        transação. O que muda é o técnico não gastar um comando — e uma folha
-        fechada — para descobrir uma regra que já dava para saber.
+        A identificação passou a ser a foto: um equipamento sem etiqueta não
+        tem como ser conferido depois, mesmo com série no campo — foi
+        justamente a transcrição manual que a mudança veio remover.
       */
-      final botao = tester.widget<FilledButton>(find.byKey(_submit));
-      expect(botao.onPressed, isNull);
-
+      expect(
+        tester.widget<FilledButton>(find.byKey(_submit)).onPressed,
+        isNull,
+      );
       await tester.tap(find.byKey(_submit));
       await _settle(tester);
       expect(harness.transport.countOf('POST', _rota), 0);
 
-      // Basta um dos dois para liberar.
-      await tester.enterText(_campo('Endereço MAC'), 'AA:BB:CC:DD:EE:01');
-      await _settle(tester);
+      await _fotografarEtiqueta(tester);
+
+      expect(harness.transport.countOf('POST', _rotaEvidencia), 1);
+      expect(find.text('Etiqueta anexada'), findsOneWidget);
       expect(
         tester.widget<FilledButton>(find.byKey(_submit)).onPressed,
         isNotNull,
       );
+    });
+
+    testWidgets('SÓ a foto, sem digitar série nem MAC, já registra', (
+      tester,
+    ) async {
+      final harness = await _abrirTela(tester);
+      harness.transport.onJson('POST', _rota);
+
+      await tester.tap(find.text('Registrar equipamento'));
+      await _settle(tester);
+      await _fotografarEtiqueta(tester);
+
+      await tester.tap(find.byKey(_submit));
+      await _settle(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(harness.transport.countOf('POST', _rota), 1);
+
+      /*
+        O objetivo de produto, medido no corpo da requisição.
+
+        O técnico não digitou identificador nenhum: o comando sai com série e
+        MAC vazios e com o id da etiqueta. É isso que troca doze caracteres
+        transcritos agachado dentro de um armário por uma foto.
+      */
+      final body =
+          harness.transport.requestFor('POST', _rota).data
+              as Map<String, dynamic>;
+      // AUSENTES, não vazios: o repositório omite o campo que ninguém
+      // preencheu, para o servidor distinguir "não informou" de "informou
+      // vazio". A identificação vai no lugar deles.
+      expect(body.containsKey('serial'), isFalse);
+      expect(body.containsKey('macAddress'), isFalse);
+      expect(body['labelEvidenceId'], 'etiqueta-1');
+    });
+
+    testWidgets('MAC vazio não vira "MAC inválido"', (tester) async {
+      final harness = await _abrirTela(tester);
+      harness.transport.onJson('POST', _rota);
+
+      await _preencher(tester, serial: '');
+      await tester.tap(find.byKey(_submit));
+      await _settle(tester);
+
+      // Campo vazio é ausência, não formato errado: o comando sai, e nenhuma
+      // validação local o barra.
+      expect(harness.transport.countOf('POST', _rota), 1);
+      expect(find.text('Endereço MAC inválido'), findsNothing);
     });
 
     testWidgets('409 mantém a folha aberta para tentar com a versão nova', (

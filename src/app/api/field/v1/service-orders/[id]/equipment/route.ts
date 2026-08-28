@@ -26,6 +26,14 @@ const schema = z
     serial: z.string().max(120).optional().nullable(),
     macAddress: z.string().max(120).optional().nullable(),
     notes: z.string().max(500).optional().nullable(),
+    /**
+     * Foto da etiqueta. **Obrigatória** desde a v0.10.1.
+     *
+     * Um APK anterior não manda este campo e recebe VALIDATION_ERROR — que é o
+     * desfecho correto: ele registraria equipamento sem identificação nenhuma,
+     * já que série e MAC deixaram de ser exigidos junto com esta mudança.
+     */
+    labelEvidenceId: z.string().min(1).max(60),
     clientMutationId,
   })
   .strict();
@@ -46,6 +54,7 @@ export const POST = fieldOrderCommand(
         serial: body.serial ?? null,
         macAddress: body.macAddress ?? null,
         notes: body.notes ?? null,
+        labelEvidenceId: body.labelEvidenceId,
       },
     );
 
@@ -61,6 +70,7 @@ export const POST = fieldOrderCommand(
           serial: equipment.serial,
           macAddress: equipment.macAddress,
           notes: equipment.notes,
+          labelEvidenceId: equipment.labelEvidenceId,
         },
       },
     };

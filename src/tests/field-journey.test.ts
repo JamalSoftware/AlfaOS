@@ -331,6 +331,7 @@ describe("Jornada completa do atendimento", () => {
     );
     bundle = await bundleOf();
     expect((bundle.evidences as unknown[]).length).toBe(1);
+    // (a etiqueta do equipamento entra logo abaixo e vira a segunda)
 
     // --- 7. material -------------------------------------------------------
     await expectOk(
@@ -352,7 +353,36 @@ describe("Jornada completa do atendimento", () => {
     bundle = await bundleOf();
     expect((bundle.materials as unknown[]).length).toBe(1);
 
-    // --- 8. equipamento ----------------------------------------------------
+    // --- 8. equipamento -----------------------------------------------------
+    // A etiqueta identifica o aparelho desde a v0.10.1; serie e MAC viraram
+    // opcionais e viajam junto so porque o tecnico digitou.
+    const etiqueta = new FormData();
+    etiqueta.set(
+      "file",
+      new File([new Uint8Array(PNG)], "etiqueta.png", { type: "image/png" }),
+    );
+    etiqueta.set("expectedOrderVersion", String(version()));
+    etiqueta.set("category", "EQUIPMENT_LABEL");
+
+    const etiquetaCriada = await expectOk(
+      await addEvidence(
+        new Request(
+          `http://localhost/api/field/v1/service-orders/${order.id}/evidence`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Idempotency-Key": key("etiqueta"),
+            },
+            body: etiqueta,
+          },
+        ),
+        { params: { id: order.id } },
+      ),
+      "anexar etiqueta",
+    );
+    bundle = await bundleOf();
+
     await expectOk(
       await addEquipment(
         fieldRequest(`/api/field/v1/service-orders/${order.id}/equipment`, {
@@ -366,6 +396,7 @@ describe("Jornada completa do atendimento", () => {
             model: "MODELO-X",
             serial: "FICTSERIAL001",
             macAddress: "aa:bb:cc:dd:ee:01",
+            labelEvidenceId: (etiquetaCriada.data?.evidence as { id: string }).id,
           },
         }),
         { params: { id: order.id } },
@@ -464,7 +495,9 @@ describe("Jornada completa do atendimento", () => {
       where: { serviceOrderId: order.id },
     });
     const snapshot = completion.snapshot as Record<string, unknown>;
-    expect((snapshot.evidences as unknown[]).length).toBe(1);
+    // Duas: a foto da ONU exigida pela política e a etiqueta que identifica o
+    // equipamento (v0.10.1).
+    expect((snapshot.evidences as unknown[]).length).toBe(2);
     expect((snapshot.materials as unknown[]).length).toBe(1);
     expect((snapshot.equipments as unknown[]).length).toBe(1);
     expect(snapshot.signature).not.toBeNull();
@@ -510,7 +543,7 @@ describe("Jornada completa do atendimento", () => {
     });
     expect(
       (completedEvent.metadata as Record<string, unknown>).evidenceCount,
-    ).toBe(1);
+    ).toBe(2);
   });
 
   it("sem o relatório, a conclusão é recusada com o código estável", async () => {

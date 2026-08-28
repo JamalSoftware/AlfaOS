@@ -769,13 +769,16 @@ Future<void> showEquipmentSheet(
     A folha ENVIA e só fecha se o servidor aceitar.
 
     Antes ela devolvia os valores no pop e o comando saía depois — o que
-    perdia tudo quando a resposta era 400. Agora quem fecha é o `_SubmitButton`,
-    depois da confirmação; o VOLTAR do Android continua devolvendo `null`, sem
-    escrever nada.
+    perdia tudo quando a resposta era 400. Agora quem fecha é o
+    `_SubmitButton`, depois da confirmação; o VOLTAR do Android continua
+    devolvendo `null`, sem escrever nada.
 
-    Os campos continuam pertencendo à rota (`_SheetFields`), então nada aqui
-    toca controlador destruído.
+    A IDENTIFICAÇÃO é a foto da etiqueta (v0.10.1). Série e MAC continuam aqui
+    porque digitar é às vezes mais rápido que enquadrar — mas nenhum dos dois é
+    exigido, e o que o escritório usa para conferir depois é a imagem.
   */
+  String? etiqueta;
+
   await _sheet<bool>(
     context,
     _SheetFields(
@@ -786,79 +789,90 @@ Future<void> showEquipmentSheet(
         'serial': '',
         'mac': '',
       },
-      builder: (context, fields) => SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const _SheetTitle('Equipamento instalado'),
-            TextField(
-              controller: fields['type'],
-              decoration: const InputDecoration(
-                labelText: 'Tipo (ONU, roteador, câmera...)',
-                border: OutlineInputBorder(),
+      builder: (context, fields) => StatefulBuilder(
+        builder: (context, setState) => SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _SheetTitle('Equipamento instalado'),
+              TextField(
+                controller: fields['type'],
+                decoration: const InputDecoration(
+                  labelText: 'Tipo (ONU, roteador, câmera...)',
+                  border: OutlineInputBorder(),
+                ),
               ),
-            ),
-            const SizedBox(height: AlfaSpacing.md),
-            TextField(
-              controller: fields['manufacturer'],
-              decoration: const InputDecoration(
-                labelText: 'Fabricante',
-                border: OutlineInputBorder(),
+              const SizedBox(height: AlfaSpacing.md),
+              TextField(
+                controller: fields['manufacturer'],
+                decoration: const InputDecoration(
+                  labelText: 'Fabricante',
+                  border: OutlineInputBorder(),
+                ),
               ),
-            ),
-            const SizedBox(height: AlfaSpacing.md),
-            TextField(
-              controller: fields['model'],
-              decoration: const InputDecoration(
-                labelText: 'Modelo',
-                border: OutlineInputBorder(),
+              const SizedBox(height: AlfaSpacing.md),
+              TextField(
+                controller: fields['model'],
+                decoration: const InputDecoration(
+                  labelText: 'Modelo',
+                  border: OutlineInputBorder(),
+                ),
               ),
-            ),
-            const SizedBox(height: AlfaSpacing.md),
-            TextField(
-              controller: fields['serial'],
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
-                labelText: 'Número de série',
-                helperText: 'Série ou MAC é obrigatório',
-                border: OutlineInputBorder(),
+              const SizedBox(height: AlfaSpacing.md),
+              TextField(
+                controller: fields['serial'],
+                textCapitalization: TextCapitalization.characters,
+                decoration: const InputDecoration(
+                  labelText: 'Número de série (opcional)',
+                  border: OutlineInputBorder(),
+                ),
               ),
-            ),
-            const SizedBox(height: AlfaSpacing.md),
-            TextField(
-              controller: fields['mac'],
-              textCapitalization: TextCapitalization.characters,
-              inputFormatters: [
-                // Só o que pode existir num MAC. O servidor normaliza e valida
-                // de novo — isto só evita a viagem.
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9A-Fa-f:\-\.]')),
-              ],
-              decoration: const InputDecoration(
-                labelText: 'Endereço MAC',
-                border: OutlineInputBorder(),
+              const SizedBox(height: AlfaSpacing.md),
+              TextField(
+                controller: fields['mac'],
+                textCapitalization: TextCapitalization.characters,
+                inputFormatters: [
+                  // Só o que pode existir num MAC. O servidor normaliza e
+                  // valida de novo — isto só evita a viagem.
+                  FilteringTextInputFormatter.allow(
+                    RegExp(r'[0-9A-Fa-f:\-\.]'),
+                  ),
+                ],
+                decoration: const InputDecoration(
+                  labelText: 'Endereço MAC (opcional)',
+                  border: OutlineInputBorder(),
+                ),
               ),
-            ),
-            const SizedBox(height: AlfaSpacing.lg),
-            /*
-              O botão acompanha os DOIS identificadores.
+              const SizedBox(height: AlfaSpacing.lg),
+              /*
+                A foto da etiqueta é a evidência de identificação.
 
-              O servidor exige série ou MAC, e recusar isso só depois da
-              viagem foi exatamente o 400 do smoke test. Espelhar a regra aqui
-              é conveniência — quem decide continua sendo o servidor, que
-              revalida sob transação.
-            */
-            AnimatedBuilder(
-              animation: Listenable.merge([fields['serial'], fields['mac']]),
-              builder: (context, _) => _SubmitButton(
+                Ela sobe SOZINHA, antes do registro, porque o equipamento
+                precisa apontar para o id dela. Se o registro falhar depois, a
+                foto fica na OS como qualquer outra evidência — é uma foto
+                verdadeira do atendimento, e apagá-la seria descartar trabalho
+                já feito em campo.
+              */
+              _LabelPhotoField(
+                key: const Key('equipment-label-photo'),
+                anexada: etiqueta != null,
+                onCapture: () async {
+                  final id = await notifier.captureLabelPhoto();
+                  if (id != null) setState(() => etiqueta = id);
+                },
+              ),
+              const SizedBox(height: AlfaSpacing.lg),
+              _SubmitButton(
                 buttonKey: const Key('equipment-submit'),
                 label: 'Registrar',
-                enabled:
-                    _t(fields, 'serial').isNotEmpty ||
-                    _t(fields, 'mac').isNotEmpty,
+                // Sem etiqueta não há identificação nenhuma — série e MAC
+                // deixaram de ser exigidos junto com esta mudança.
+                enabled: etiqueta != null,
                 onSubmit: () async {
                   final ok = await notifier.addEquipment(
                     equipmentType: _t(fields, 'type'),
+                    labelEvidenceId: etiqueta!,
                     manufacturer: _t(fields, 'manufacturer'),
                     model: _t(fields, 'model'),
                     serial: _t(fields, 'serial'),
@@ -866,18 +880,6 @@ Future<void> showEquipmentSheet(
                   );
                   if (ok) return null;
 
-                  /*
-                    A folha CONSOME o erro enquanto estiver aberta.
-
-                    Sem isto a mesma frase aparece duas vezes: aqui e no
-                    banner do topo da página, que continuaria pendurado atrás
-                    da folha depois de o técnico já ter lido e corrigido.
-
-                    Sem mensagem é CONFLITO — `_run` recarrega o pacote e
-                    avisa por outro caminho. A folha fica aberta de propósito:
-                    o comando não aconteceu, e agora ele tem a versão nova, é
-                    só tocar de novo.
-                  */
                   final motivo = notifier.lastError;
                   notifier.consumeError();
                   return motivo ??
@@ -885,12 +887,88 @@ Future<void> showEquipmentSheet(
                           'Toque em Registrar de novo.';
                 },
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     ),
   );
+}
+
+/// Captura da etiqueta, com o estado dela à vista.
+///
+/// Um botão que só muda de rótulo não bastaria: o técnico precisa saber, sem
+/// rolar nem adivinhar, se a foto que identifica o aparelho já subiu.
+class _LabelPhotoField extends StatefulWidget {
+  const _LabelPhotoField({
+    super.key,
+    required this.anexada,
+    required this.onCapture,
+  });
+
+  final bool anexada;
+  final Future<void> Function() onCapture;
+
+  @override
+  State<_LabelPhotoField> createState() => _LabelPhotoFieldState();
+}
+
+class _LabelPhotoFieldState extends State<_LabelPhotoField> {
+  bool _enviando = false;
+
+  Future<void> _capturar() async {
+    setState(() => _enviando = true);
+    await widget.onCapture();
+    if (mounted) setState(() => _enviando = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = context.statusColors;
+    final anexada = widget.anexada;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Icon(
+              anexada ? Icons.check_circle : Icons.photo_camera_outlined,
+              size: 20,
+              color: anexada ? status.success : status.warning,
+            ),
+            const SizedBox(width: AlfaSpacing.sm),
+            Expanded(
+              child: Text(
+                anexada ? 'Etiqueta anexada' : 'Foto da etiqueta — obrigatória',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AlfaSpacing.sm),
+        Text(
+          anexada
+              ? 'É ela que identifica este aparelho. Refaça se ficou ilegível.'
+              : 'Fotografe a etiqueta ou a traseira, com série e MAC legíveis. '
+                    'Assim você não precisa digitá-los.',
+          style: const TextStyle(fontSize: 12),
+        ),
+        const SizedBox(height: AlfaSpacing.sm),
+        OutlinedButton.icon(
+          onPressed: _enviando ? null : _capturar,
+          icon: _enviando
+              ? const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.photo_camera_outlined),
+          label: Text(anexada ? 'REFAZER FOTO' : 'FOTOGRAFAR ETIQUETA'),
+        ),
+      ],
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -553,15 +553,49 @@ describe("B5 · IDOR nos recursos-filhos", () => {
     const a = await actor(fixture.techA.id);
     const b = await actor(fixture.techB.id);
 
+    /*
+      A etiqueta é a identificação do equipamento desde a v0.10.1, e sem ela o
+      registro é recusado. Ela entra aqui só para o ataque ter o que atacar: o
+      que este teste prova continua sendo o IDOR.
+    */
+    const labelForm = new FormData();
+    labelForm.set(
+      "file",
+      new File([new Uint8Array(PNG)], "etiqueta.png", { type: "image/png" }),
+    );
+    labelForm.set("expectedOrderVersion", String(b.orderVersion));
+    labelForm.set("category", "EQUIPMENT_LABEL");
+    const labelResponse = await evidenceRoute(
+      formRequest(
+        `/api/field/v1/service-orders/${b.orderId}/evidence`,
+        labelForm,
+        b.token,
+        `sec-etiqueta-${Date.now()}`,
+      ),
+      { params: { id: b.orderId } },
+    );
+    const labelBody = (await labelResponse.json()) as {
+      data?: { evidence?: { id: string } };
+    };
+    const labelEvidenceId = labelBody.data!.evidence!.id;
+
+    const versionAfterLabel = await prisma.serviceOrder
+      .findUniqueOrThrow({
+        where: { id: b.orderId },
+        select: { version: true },
+      })
+      .then((row) => row.version);
+
     await equipmentRoute(
       fieldRequest(`/api/field/v1/service-orders/${b.orderId}/equipment`, {
         method: "POST",
         token: b.token,
         idempotencyKey: `sec-eqb-${Date.now()}`,
         body: {
-          expectedVersion: b.orderVersion,
+          expectedVersion: versionAfterLabel,
           equipmentType: "ONU",
           serial: "ALHEIO123456",
+          labelEvidenceId,
         },
       }),
       { params: { id: b.orderId } },

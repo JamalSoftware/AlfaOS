@@ -322,6 +322,27 @@ export async function removeEvidence(
       expectedOrderVersion,
     );
 
+    /*
+      Uma etiqueta em uso não pode ser apagada.
+
+      A FK é `Restrict`, então o banco já recusaria — mas com um erro cru de
+      constraint, que viraria 500. A conferência explícita existe para o
+      técnico receber a frase que diz o que fazer.
+
+      A ordem importa: remover a foto deixaria para trás um equipamento sem
+      série, sem MAC e sem etiqueta — um registro que não responde mais a
+      pergunta que ele existe para responder.
+    */
+    const identifica = await tx.serviceOrderEquipment.count({
+      where: { labelEvidenceId: evidence.id, companyId },
+    });
+    if (identifica > 0) {
+      throw conflict(
+        "Esta foto identifica um equipamento registrado. " +
+          "Remova o equipamento antes de apagar a etiqueta.",
+      );
+    }
+
     await tx.serviceOrderEvidence.delete({ where: { id: evidence.id } });
     return evidence;
   });

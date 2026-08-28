@@ -51,6 +51,15 @@ export interface EquipmentInput {
   serial?: string | null;
   macAddress?: string | null;
   notes?: string | null;
+
+  /**
+   * Evidência da etiqueta do equipamento. **Obrigatória.**
+   *
+   * Substituiu a exigência de série ou MAC digitados (v0.10.1). A foto tem de
+   * ser da MESMA OS e da categoria `EQUIPMENT_LABEL`; um id de outra ordem, de
+   * outra empresa, ou de uma foto de categoria qualquer, é recusado.
+   */
+  labelEvidenceId: string;
 }
 
 export interface PublicEquipment {
@@ -62,6 +71,8 @@ export interface PublicEquipment {
   macAddress: string | null;
   notes: string | null;
   createdAt: Date;
+  /** Foto da etiqueta que identifica este equipamento. */
+  labelEvidenceId: string | null;
 }
 
 function toPublicEquipment(row: {
@@ -73,6 +84,7 @@ function toPublicEquipment(row: {
   macAddress: string | null;
   notes: string | null;
   createdAt: Date;
+  labelEvidenceId: string | null;
 }): PublicEquipment {
   return {
     id: row.id,
@@ -83,6 +95,7 @@ function toPublicEquipment(row: {
     macAddress: row.macAddress,
     notes: row.notes,
     createdAt: row.createdAt,
+    labelEvidenceId: row.labelEvidenceId,
   };
 }
 
@@ -105,6 +118,17 @@ function trimTo(value: string | null | undefined, max: number): string | null {
  * Digitar o serial de uma ONU agachado dentro de um armário é a origem mais
  * comum de equipamento vinculado ao cliente errado (§180) — e o sintoma disso é
  * exatamente o mesmo serial aparecendo em dois clientes.
+ *
+ * ## A identificação passou a ser a FOTO (v0.10.1)
+ *
+ * Por causa exatamente desse erro, série e MAC deixaram de ser obrigatórios e a
+ * foto da etiqueta passou a ser exigida no lugar. A câmera lê o adesivo sem
+ * transcrever errado; quem precisar do texto o extrai depois, no escritório,
+ * com a imagem na tela.
+ *
+ * As uniques por empresa continuam valendo para o que FOR preenchido — no
+ * Postgres, várias linhas com `NULL` convivem numa unique —, e o técnico segue
+ * livre para digitar quando for mais rápido.
  */
 export async function addServiceOrderEquipment(
   companyId: string,
@@ -120,13 +144,21 @@ export async function addServiceOrderEquipment(
   const serial = normalizeHardwareId(input.serial);
   const macAddress = normalizeHardwareId(input.macAddress);
 
+  /*
+    Série e MAC são OPCIONAIS. A identificação vive na foto da etiqueta.
+
+    A regra antiga — "informe ao menos um dos dois" — mandava o técnico
+    transcrever à mão, agachado dentro de um armário, o mesmo adesivo que a
+    câmera lê sem errar. Trocar digitação por foto reduz o erro na origem; a
+    transcrição, quando alguém precisar dela, é feita no escritório com a
+    imagem na tela.
+
+    O MAC só é validado quando VEM ALGUMA COISA: campo vazio é ausência, não
+    valor inválido, e recusar "" com "Endereço MAC inválido" seria mentir sobre
+    o que aconteceu.
+  */
   if (macAddress && !MAC_PATTERN.test(macAddress)) {
     throw badRequest("Endereço MAC inválido.");
-  }
-  if (!serial && !macAddress) {
-    // Um equipamento sem nenhum identificador não responde a pergunta que o
-    // registro existe para responder, e não pode ser conferido depois.
-    throw badRequest("Informe ao menos o número de série ou o endereço MAC.");
   }
 
   const created = await prisma.$transaction(async (tx) => {
@@ -143,6 +175,32 @@ export async function addServiceOrderEquipment(
       orderId,
       input.expectedOrderVersion,
     );
+
+    /*
+      A foto é conferida DENTRO da transação, contra a OS que está sendo
+      escrita.
+
+      Ler o id sem amarrá-lo à ordem e à empresa transformaria o campo num
+      ponteiro para qualquer linha da tabela: bastaria mandar o id da etiqueta
+      de outro cliente para produzir um equipamento "identificado" por uma foto
+      que não é dele. `serviceOrderId` e `companyId` no `where` são o que
+      fecham isso — e a categoria é o que impede apontar para a foto do teste
+      de velocidade e chamar de etiqueta.
+    */
+    const label = await tx.serviceOrderEvidence.findFirst({
+      where: {
+        id: input.labelEvidenceId,
+        serviceOrderId: order.id,
+        companyId,
+        category: "EQUIPMENT_LABEL",
+      },
+      select: { id: true },
+    });
+    if (!label) {
+      throw badRequest(
+        "Anexe a foto da etiqueta do equipamento antes de registrá-lo.",
+      );
+    }
 
     const existing = await tx.serviceOrderEquipment.count({
       where: { serviceOrderId: order.id, companyId },
@@ -167,6 +225,7 @@ export async function addServiceOrderEquipment(
           macAddress,
           notes: trimTo(input.notes, EQUIPMENT_NOTES_MAX),
           installedByUserId: actorUserId,
+          labelEvidenceId: label.id,
         },
       });
     } catch (error) {

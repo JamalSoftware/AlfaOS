@@ -813,6 +813,12 @@ model ServiceOrderEvidence {
   sizeBytes    Int
   createdAt    DateTime @default(now())
 
+  /// Equipamentos que usam esta foto como etiqueta de identificacao.
+  ///
+  /// Lista, e nao um-para-um: nada impede duas ONUs iguais aparecerem na mesma
+  /// foto, e proibir isso no schema nao tornaria o registro mais verdadeiro.
+  identifies ServiceOrderEquipment[] @relation("EquipmentLabel")
+
   @@index([serviceOrderId, createdAt])
   @@index([serviceOrderId, category])
   @@index([serviceOrderId, contentHash])
@@ -1302,6 +1308,13 @@ enum EvidenceCategory {
   ONU_ONT
   ROUTER
   EQUIPMENT
+
+  /// Etiqueta/traseira do equipamento: serie e MAC impressos de fabrica.
+  ///
+  /// Separada de EQUIPMENT porque as duas provam coisas diferentes. EQUIPMENT
+  /// mostra QUE um aparelho foi instalado; esta mostra QUAL — e e a evidencia
+  /// de identificacao quando o tecnico nao digita serie nem MAC.
+  EQUIPMENT_LABEL
   OPTICAL_READING
   WIFI_TEST
   SPEED_TEST
@@ -1838,9 +1851,32 @@ model ServiceOrderEquipment {
   equipmentType String
   manufacturer  String?
   model         String?
-  serial        String?
-  macAddress    String?
-  notes         String?
+
+  /// Serie e MAC sao OPCIONAIS desde a v0.10.1.
+  ///
+  /// A identificacao passou a viver na foto da etiqueta: o tecnico agachado
+  /// dentro de um armario digitando doze caracteres de um adesivo e a origem
+  /// mais comum de equipamento vinculado ao cliente errado, e a camera le o
+  /// mesmo adesivo sem errar. Quem transcreve depois e o escritorio, com a
+  /// foto na tela.
+  ///
+  /// As uniques por empresa continuam valendo para os valores PREENCHIDOS —
+  /// no Postgres, varias linhas com NULL convivem numa unique.
+  serial     String?
+  macAddress String?
+  notes      String?
+
+  /// Foto da etiqueta: a evidencia de identificacao DESTE equipamento.
+  ///
+  /// Obrigatoria na criacao pela regra de dominio, e nula na coluna por causa
+  /// das linhas anteriores a v0.10.1 — inventar um vinculo para elas afirmaria
+  /// uma prova que ninguem produziu.
+  ///
+  /// `Restrict` de proposito: apagar a foto deixaria para tras um equipamento
+  /// sem serie, sem MAC e sem etiqueta, ou seja, um registro que nao responde
+  /// a pergunta que ele existe para responder.
+  labelEvidenceId String?
+  labelEvidence   ServiceOrderEvidence? @relation("EquipmentLabel", fields: [labelEvidenceId], references: [id], onDelete: Restrict)
 
   installedByUserId String?
   installedBy       User?   @relation("EquipmentInstaller", fields: [installedByUserId], references: [id], onDelete: SetNull)

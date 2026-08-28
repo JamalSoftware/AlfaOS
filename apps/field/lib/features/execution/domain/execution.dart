@@ -193,6 +193,7 @@ class EvidenceCategories {
     'ONU_ONT': 'ONU / ONT',
     'ROUTER': 'Roteador',
     'EQUIPMENT': 'Equipamento',
+    'EQUIPMENT_LABEL': 'Etiqueta do equipamento',
     'OPTICAL_READING': 'Leitura óptica',
     'WIFI_TEST': 'Teste de Wi-Fi',
     'SPEED_TEST': 'Teste de velocidade',
@@ -266,6 +267,7 @@ class ExecutionEquipment {
     this.model,
     this.serial,
     this.macAddress,
+    this.labelEvidenceId,
   });
 
   final String id;
@@ -275,6 +277,9 @@ class ExecutionEquipment {
   final String? serial;
   final String? macAddress;
 
+  /// Foto da etiqueta que identifica este equipamento (v0.10.1).
+  final String? labelEvidenceId;
+
   factory ExecutionEquipment.fromJson(Map<String, dynamic> json) {
     return ExecutionEquipment(
       id: json['id'] as String,
@@ -283,6 +288,7 @@ class ExecutionEquipment {
       model: json['model'] as String?,
       serial: json['serial'] as String?,
       macAddress: json['macAddress'] as String?,
+      labelEvidenceId: json['labelEvidenceId'] as String?,
     );
   }
 }

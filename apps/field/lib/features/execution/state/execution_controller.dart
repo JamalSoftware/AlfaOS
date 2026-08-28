@@ -467,6 +467,48 @@ class ExecutionController extends StateNotifier<ExecutionState> {
   /// Reenvia uma foto que falhou. Mesma chave, mesma intenção.
   Future<void> retryPhoto(PendingPhoto photo) => _uploadPhoto(photo);
 
+  /// Captura a foto da ETIQUETA e devolve o id da evidência criada.
+  ///
+  /// Caminho separado de [addPhoto] de propósito. As outras fotos entram na
+  /// fila de pendentes e o técnico segue trabalhando enquanto elas sobem — a
+  /// foto não pode se perder porque a rede caiu (§58). Esta não pode seguir
+  /// esse caminho: desde a v0.10.1 ela é a IDENTIFICAÇÃO do equipamento, e o
+  /// registro precisa do id dela no mesmo instante. Uma etiqueta ainda na fila
+  /// não tem id para apontar.
+  ///
+  /// Devolve `null` quando o técnico desiste da câmera ou quando o envio
+  /// falha — os dois são caminhos normais, e o formulário continua aberto.
+  Future<String?> captureLabelPhoto({bool fromGallery = false}) async {
+    final bundle = state.bundle;
+    if (bundle == null) return null;
+
+    final file = fromGallery
+        ? await _photos.pickFromGallery()
+        : await _photos.takePhoto();
+    if (file == null) return null;
+
+    state = state.copyWith(busy: true, clearError: true);
+    try {
+      final id = await _repository.addEvidence(
+        orderId: orderId,
+        expectedVersion: bundle.version,
+        category: 'EQUIPMENT_LABEL',
+        file: file,
+        idempotencyKey: IdempotencyKey.forOperation('evidence'),
+        capturedAt: DateTime.now(),
+      );
+      // A etiqueta passa a existir na OS como qualquer outra evidência: se o
+      // registro do equipamento falhar depois, ela fica — é uma foto
+      // verdadeira do atendimento, tirada em campo.
+      await load();
+      state = state.copyWith(busy: false);
+      return id;
+    } on FieldException catch (error) {
+      state = state.copyWith(busy: false, error: error.message);
+      return null;
+    }
+  }
+
   /// Descarta uma foto que nunca chegou ao servidor.
   ///
   /// Só remove da lista LOCAL: uma foto já enviada é removida pelo comando do
@@ -565,19 +607,30 @@ class ExecutionController extends StateNotifier<ExecutionState> {
 
   Future<bool> addEquipment({
     required String equipmentType,
+    required String labelEvidenceId,
     String? manufacturer,
     String? model,
     String? serial,
     String? macAddress,
     String? notes,
   }) {
-    final operation = 'equipment-${serial ?? macAddress ?? equipmentType}';
+    /*
+      A intenção é identificada pela ETIQUETA.
+
+      Antes a chave era montada com série ou MAC. Desde a v0.10.1 os dois podem
+      estar vazios, e a chave cairia em `equipment-ONU` para todo aparelho sem
+      identificador digitado — colapsando dois equipamentos diferentes na mesma
+      intenção, e fazendo o segundo registro ser servido pela resposta
+      memorizada do primeiro. A foto é única por captura, então serve.
+    */
+    final operation = 'equipment-$labelEvidenceId';
     return _run(
       operation,
       (bundle) => _repository.addEquipment(
         orderId: orderId,
         expectedVersion: bundle.version,
         equipmentType: equipmentType,
+        labelEvidenceId: labelEvidenceId,
         idempotencyKey: _intentKey(operation),
         manufacturer: manufacturer,
         model: model,

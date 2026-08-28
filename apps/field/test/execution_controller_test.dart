@@ -40,7 +40,7 @@ class StubRepository extends ExecutionRepository {
   Future<List<StockLine>> stock() async => const [];
 
   @override
-  Future<void> addEvidence({
+  Future<String?> addEvidence({
     required String orderId,
     required int expectedVersion,
     required String category,
@@ -53,6 +53,8 @@ class StubRepository extends ExecutionRepository {
     evidenceKeys.add(idempotencyKey);
     final error = evidenceError;
     if (error != null) throw error;
+    // Id da evidência criada: o registro de equipamento aponta para ele.
+    return 'evidencia-$evidenceCalls';
   }
 }
 

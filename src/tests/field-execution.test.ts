@@ -31,6 +31,7 @@ import {
   addEvidence,
   completeServiceOrder,
   putSignature,
+  removeEvidence,
 } from "@/lib/service-order-closing";
 import {
   CompletionBlockedError,
@@ -1142,20 +1143,46 @@ describe("Ledger de inventário", () => {
 // Equipamento
 // ---------------------------------------------------------------------------
 
+/**
+ * Anexa a foto da etiqueta e devolve o que o registro do equipamento precisa.
+ *
+ * Desde a v0.10.1 a identificação do equipamento é a FOTO, não o texto
+ * digitado: série e MAC viraram opcionais. Toda chamada de registro passa por
+ * aqui — e a versão devolvida já é a de DEPOIS do anexo, porque anexar a
+ * evidência move a versão da OS.
+ */
+async function comEtiqueta(
+  orderId: string,
+  userId: string = fixture.techA.id,
+): Promise<{ labelEvidenceId: string; expectedOrderVersion: number }> {
+  const evidence = await addEvidence(fixture.companyA.id, userId, orderId, {
+    data: PNG,
+    declaredMimeType: "image/png",
+    originalName: "etiqueta.png",
+    expectedOrderVersion: await orderVersionOf(orderId),
+    category: "EQUIPMENT_LABEL",
+  });
+  return {
+    labelEvidenceId: evidence.id,
+    expectedOrderVersion: await orderVersionOf(orderId),
+  };
+}
+
 describe("Equipamento instalado", () => {
   it("registra e recusa serial duplicado na mesma empresa", async () => {
     const a = await scenario();
     await addServiceOrderEquipment(fixture.companyA.id, fixture.techA.id, a.orderId, {
-      expectedOrderVersion: a.orderVersion,
+      ...(await comEtiqueta(a.orderId)),
       equipmentType: "ONU",
       serial: "FICT12345678",
     });
 
     const b = await scenario();
+    const etiquetaB = await comEtiqueta(b.orderId);
     await expectDomainError(
       () =>
         addServiceOrderEquipment(fixture.companyA.id, fixture.techA.id, b.orderId, {
-          expectedOrderVersion: b.orderVersion,
+          ...etiquetaB,
           equipmentType: "ONU",
           serial: "FICT12345678",
         }),
@@ -1163,20 +1190,158 @@ describe("Equipamento instalado", () => {
     );
   });
 
+  it("sem série e sem MAC é VÁLIDO quando há foto da etiqueta", async () => {
+    const s = await scenario();
+
+    /*
+      A mudança de produto da v0.10.1, no ponto exato onde ela vive.
+
+      Antes isto era 400 ("informe ao menos o número de série ou o endereço
+      MAC"). O técnico agachado dentro de um armário transcrevia doze
+      caracteres de um adesivo — a origem mais comum de equipamento vinculado
+      ao cliente errado. Agora a câmera lê o mesmo adesivo, e quem precisar do
+      texto o extrai depois, no escritório.
+    */
+    const equipamento = await addServiceOrderEquipment(
+      fixture.companyA.id,
+      fixture.techA.id,
+      s.orderId,
+      { ...(await comEtiqueta(s.orderId)), equipmentType: "ONU" },
+    );
+
+    expect(equipamento.serial).toBeNull();
+    expect(equipamento.macAddress).toBeNull();
+    expect(equipamento.labelEvidenceId).toBeTruthy();
+  });
+
+  it("MAC vazio não é MAC inválido", async () => {
+    const s = await scenario();
+
+    // String vazia é AUSÊNCIA. Recusá-la com "Endereço MAC inválido" diria ao
+    // técnico que ele errou o formato de um campo que ele nem preencheu.
+    const equipamento = await addServiceOrderEquipment(
+      fixture.companyA.id,
+      fixture.techA.id,
+      s.orderId,
+      {
+        ...(await comEtiqueta(s.orderId)),
+        equipmentType: "ONU",
+        serial: "",
+        macAddress: "",
+      },
+    );
+
+    expect(equipamento.macAddress).toBeNull();
+  });
+
+  it("sem foto da etiqueta é recusado", async () => {
+    const s = await scenario();
+    await expectDomainError(
+      () =>
+        addServiceOrderEquipment(fixture.companyA.id, fixture.techA.id, s.orderId, {
+          expectedOrderVersion: s.orderVersion,
+          equipmentType: "ONU",
+          serial: "FICTSEMFOTO1",
+          labelEvidenceId: "evidencia-que-nao-existe",
+        }),
+      400,
+    );
+
+    expect(
+      await prisma.serviceOrderEquipment.count({ where: { serviceOrderId: s.orderId } }),
+    ).toBe(0);
+  });
+
+  it("foto de OUTRA categoria não serve de etiqueta", async () => {
+    const s = await scenario();
+    const outra = await addEvidence(fixture.companyA.id, fixture.techA.id, s.orderId, {
+      data: PNG,
+      declaredMimeType: "image/png",
+      originalName: "velocidade.png",
+      expectedOrderVersion: await orderVersionOf(s.orderId),
+      category: "SPEED_TEST",
+    });
+
+    // Sem a conferência de categoria, o campo viraria um ponteiro para
+    // qualquer foto da OS — e "identificado pela etiqueta" seria falso.
+    const versao = await orderVersionOf(s.orderId);
+    await expectDomainError(
+      () =>
+        addServiceOrderEquipment(fixture.companyA.id, fixture.techA.id, s.orderId, {
+          expectedOrderVersion: versao,
+          equipmentType: "ONU",
+          labelEvidenceId: outra.id,
+        }),
+      400,
+    );
+  });
+
+  it("etiqueta de OUTRA OS não serve", async () => {
+    const alheia = await scenario();
+    const etiquetaAlheia = await comEtiqueta(alheia.orderId);
+
+    const s = await scenario();
+    const versao = await orderVersionOf(s.orderId);
+    await expectDomainError(
+      () =>
+        addServiceOrderEquipment(fixture.companyA.id, fixture.techA.id, s.orderId, {
+          expectedOrderVersion: versao,
+          equipmentType: "ONU",
+          labelEvidenceId: etiquetaAlheia.labelEvidenceId,
+        }),
+      400,
+    );
+  });
+
+  it("a etiqueta em uso não pode ser apagada", async () => {
+    const s = await scenario();
+    const etiqueta = await comEtiqueta(s.orderId);
+    await addServiceOrderEquipment(fixture.companyA.id, fixture.techA.id, s.orderId, {
+      ...etiqueta,
+      equipmentType: "ONU",
+    });
+
+    /*
+      Apagar a foto deixaria para trás um equipamento sem série, sem MAC e sem
+      etiqueta — um registro que não responde mais a pergunta que ele existe
+      para responder. A FK `Restrict` já recusaria; a conferência explícita
+      existe para o técnico receber uma frase que diz o que fazer.
+    */
+    const depois = await orderVersionOf(s.orderId);
+    await expectDomainError(
+      () =>
+        removeEvidence(
+          fixture.companyA.id,
+          fixture.techA.id,
+          s.orderId,
+          etiqueta.labelEvidenceId,
+          depois,
+        ),
+      409,
+    );
+
+    expect(
+      await prisma.serviceOrderEvidence.count({
+        where: { id: etiqueta.labelEvidenceId },
+      }),
+    ).toBe(1);
+  });
+
   it("normaliza o MAC antes de comparar duplicidade", async () => {
     const a = await scenario();
     await addServiceOrderEquipment(fixture.companyA.id, fixture.techA.id, a.orderId, {
-      expectedOrderVersion: a.orderVersion,
+      ...(await comEtiqueta(a.orderId)),
       equipmentType: "ONU",
       macAddress: "a1:b2:c3:d4:e5:f6",
     });
 
     const b = await scenario();
+    const etiquetaB = await comEtiqueta(b.orderId);
     // Mesmo endereço, outro separador. Sem normalização, passaria.
     await expectDomainError(
       () =>
         addServiceOrderEquipment(fixture.companyA.id, fixture.techA.id, b.orderId, {
-          expectedOrderVersion: b.orderVersion,
+          ...etiquetaB,
           equipmentType: "ONU",
           macAddress: "A1-B2-C3-D4-E5-F6",
         }),
@@ -1184,26 +1349,15 @@ describe("Equipamento instalado", () => {
     );
   });
 
-  it("recusa MAC malformado", async () => {
+  it("recusa MAC malformado quando ele VEM preenchido", async () => {
     const s = await scenario();
+    const etiqueta = await comEtiqueta(s.orderId);
     await expectDomainError(
       () =>
         addServiceOrderEquipment(fixture.companyA.id, fixture.techA.id, s.orderId, {
-          expectedOrderVersion: s.orderVersion,
+          ...etiqueta,
           equipmentType: "ONU",
           macAddress: "nao-e-um-mac",
-        }),
-      400,
-    );
-  });
-
-  it("exige ao menos serial ou MAC", async () => {
-    const s = await scenario();
-    await expectDomainError(
-      () =>
-        addServiceOrderEquipment(fixture.companyA.id, fixture.techA.id, s.orderId, {
-          expectedOrderVersion: s.orderVersion,
-          equipmentType: "ONU",
         }),
       400,
     );
@@ -1212,7 +1366,7 @@ describe("Equipamento instalado", () => {
   it("serial igual em empresas diferentes é permitido", async () => {
     const s = await scenario();
     await addServiceOrderEquipment(fixture.companyA.id, fixture.techA.id, s.orderId, {
-      expectedOrderVersion: s.orderVersion,
+      ...(await comEtiqueta(s.orderId)),
       equipmentType: "ONU",
       serial: "COMPARTILHADO1",
     });
@@ -1268,7 +1422,7 @@ describe("Assinatura vinculada ao fechamento", () => {
 
     // Conteúdo muda DEPOIS da assinatura.
     await addServiceOrderEquipment(fixture.companyA.id, fixture.techA.id, s.orderId, {
-      expectedOrderVersion: await orderVersionOf(s.orderId),
+      ...(await comEtiqueta(s.orderId)),
       equipmentType: "ONU",
       serial: "APOSASSINATURA1",
     });
@@ -1291,7 +1445,7 @@ describe("Assinatura vinculada ao fechamento", () => {
   it("recolher a assinatura de novo libera a conclusão", async () => {
     const s = await scenario();
     await addServiceOrderEquipment(fixture.companyA.id, fixture.techA.id, s.orderId, {
-      expectedOrderVersion: s.orderVersion,
+      ...(await comEtiqueta(s.orderId)),
       equipmentType: "ONU",
       serial: "ANTESASSINATURA",
     });
@@ -1544,7 +1698,7 @@ describe("Conclusão — transação, CAS e snapshot", () => {
       expectedOrderVersion: s.orderVersion,
     });
     await addServiceOrderEquipment(fixture.companyA.id, fixture.techA.id, s.orderId, {
-      expectedOrderVersion: await orderVersionOf(s.orderId),
+      ...(await comEtiqueta(s.orderId)),
       equipmentType: "ONU",
       serial: "SNAPSHOT0001",
     });
