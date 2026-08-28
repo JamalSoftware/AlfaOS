@@ -1,12 +1,27 @@
-import type { EvidenceKind, MaterialUnit } from "@prisma/client";
+import { createHash } from "node:crypto";
+import type { EvidenceCategory, EvidenceKind, MaterialUnit, Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { logAudit } from "./audit";
-import { badRequest, conflict, notFound } from "./errors";
+import {
+  badRequest,
+  conflict,
+  isUniqueConstraintError,
+  notFound,
+} from "./errors";
+import {
+  buildCompletionSnapshot,
+  closingContentHash,
+  CompletionBlockedError,
+  validateServiceOrderCompletion,
+} from "./service-order-completion";
 import {
   loadOwnedServiceOrder,
   resolveActingTechnician,
-  type ExecutionTx,
 } from "./service-orders";
+import {
+  claimOrderForChildMutation,
+  loadInProgressOwnedOrder,
+} from "./service-order-child-mutation";
 import {
   buildStorageKey,
   getFileStorage,
@@ -94,6 +109,8 @@ export function sniffImageMime(data: Buffer): string | null {
 export interface PublicEvidence {
   id: string;
   kind: EvidenceKind;
+  category: EvidenceCategory;
+  caption: string | null;
   originalName: string;
   mimeType: string;
   sizeBytes: number;
@@ -124,78 +141,6 @@ export interface ServiceOrderClosingBundle {
 
 
 // ---------------------------------------------------------------------------
-// The claim: how a child mutation and the closing arbitrate
-// ---------------------------------------------------------------------------
-
-/**
- * Claims the order for a mutation of one of its children.
- *
- * Every write that hangs off an order (evidence, material, signature) goes
- * through this FIRST, inside the same transaction as the child write. It
- * compare-and-sets the order on `status = IN_PROGRESS AND version =
- * expectedOrderVersion` and bumps the version.
- *
- * That single UPDATE is what makes `child mutation × complete` deterministic.
- * Both contend for the same row lock: whoever commits first bumps the version,
- * and the loser's predicate no longer matches, so it gets a 409 instead of
- * attaching a photo to an order that has just been closed. Checking
- * `status === "IN_PROGRESS"` in application code before inserting would NOT do
- * this — between the check and the insert the order can close.
- *
- * Returns nothing: the caller already holds the order it loaded for ownership.
- */
-async function claimOrderForChildMutation(
-  tx: ExecutionTx,
-  companyId: string,
-  orderId: string,
-  expectedOrderVersion: number,
-): Promise<void> {
-  const claimed = await tx.serviceOrder.updateMany({
-    where: {
-      id: orderId,
-      companyId,
-      status: "IN_PROGRESS",
-      version: expectedOrderVersion,
-    },
-    data: { version: { increment: 1 } },
-  });
-  if (claimed.count !== 1) {
-    throw conflict(
-      "A OS foi modificada ou finalizada por outra requisição. Recarregue e tente novamente.",
-    );
-  }
-}
-
-/**
- * Shared preamble for every technician-driven child mutation: prove who is
- * acting, prove they own the order, and refuse anything that is not in
- * progress with a message that distinguishes "already closed" from "never
- * started".
- */
-async function loadInProgressOwnedOrder(
-  tx: ExecutionTx,
-  companyId: string,
-  actorUserId: string,
-  orderId: string,
-) {
-  const technician = await resolveActingTechnician(tx, companyId, actorUserId);
-  const order = await loadOwnedServiceOrder(
-    tx,
-    companyId,
-    technician.id,
-    orderId,
-  );
-  if (order.status !== "IN_PROGRESS") {
-    throw conflict(
-      order.status === "COMPLETED"
-        ? "Esta OS já foi concluída e não pode mais ser alterada."
-        : "Só é possível alterar o atendimento de uma OS em andamento.",
-    );
-  }
-  return { technician, order };
-}
-
-// ---------------------------------------------------------------------------
 // Evidence
 // ---------------------------------------------------------------------------
 
@@ -204,7 +149,17 @@ export interface AddEvidenceInput {
   declaredMimeType: string;
   originalName: string;
   expectedOrderVersion: number;
+  /**
+   * O que a foto prova. `OTHER` quando o chamador não classifica — é o caso da
+   * web, que anexa sem categoria desde a v0.4.
+   */
+  category?: EvidenceCategory;
+  caption?: string | null;
+  /** Carimbo do APARELHO. Informativo; a integridade vem de `createdAt`. */
+  capturedAt?: Date | null;
 }
+
+export const EVIDENCE_CAPTION_MAX = 300;
 
 /**
  * Attaches a photo to an in-progress order.
@@ -257,6 +212,17 @@ export async function addEvidence(
   const storageKey = buildStorageKey(companyId, orderId, sniffed);
   let wrote = false;
 
+  /*
+    Impressão digital dos BYTES — metadado, não regra de escrita.
+
+    Serve para conferir integridade depois e para uma futura ferramenta de
+    limpeza. **Não deduplica.** A retentativa do Field é resolvida pela
+    `Idempotency-Key`, e transformar este hash numa unique criaria um caminho
+    de sucesso-sem-escrita que enfraqueceria a garantia de corrida do teto
+    logo abaixo — ver o comentário do campo em `schema.prisma`.
+  */
+  const contentHash = createHash("sha256").update(input.data).digest("hex");
+
   try {
     const created = await prisma.$transaction(async (tx) => {
       await loadInProgressOwnedOrder(tx, companyId, actorUserId, orderId);
@@ -305,6 +271,10 @@ export async function addEvidence(
           serviceOrderId: orderId,
           uploadedByUserId: actorUserId,
           kind: "PHOTO",
+          category: input.category ?? "OTHER",
+          caption: input.caption?.trim().slice(0, EVIDENCE_CAPTION_MAX) || null,
+          capturedAt: input.capturedAt ?? null,
+          contentHash,
           storageKey,
           // Stored for display only; truncated so a pathological name cannot
           // bloat the row. It never touches the filesystem path.
@@ -321,7 +291,7 @@ export async function addEvidence(
       action: "SERVICE_ORDER.EVIDENCE_ADDED",
       entity: "ServiceOrderEvidence",
       entityId: created.id,
-      details: `Evidência anexada à OS (${created.mimeType}, ${created.sizeBytes} bytes)`,
+      details: `Evidência ${created.category} anexada à OS (${created.mimeType}, ${created.sizeBytes} bytes)`,
     });
 
     return toPublicEvidence(created);
@@ -417,6 +387,8 @@ export async function loadEvidenceForDownload(
 function toPublicEvidence(e: {
   id: string;
   kind: EvidenceKind;
+  category: EvidenceCategory;
+  caption: string | null;
   originalName: string;
   mimeType: string;
   sizeBytes: number;
@@ -425,6 +397,8 @@ function toPublicEvidence(e: {
   return {
     id: e.id,
     kind: e.kind,
+    category: e.category,
+    caption: e.caption,
     originalName: e.originalName,
     mimeType: e.mimeType,
     sizeBytes: e.sizeBytes,
@@ -647,7 +621,12 @@ export async function putSignature(
 
   try {
     const saved = await prisma.$transaction(async (tx) => {
-      await loadInProgressOwnedOrder(tx, companyId, actorUserId, orderId);
+      const { order } = await loadInProgressOwnedOrder(
+        tx,
+        companyId,
+        actorUserId,
+        orderId,
+      );
 
       const existing = await tx.serviceOrderSignature.findFirst({
         where: { serviceOrderId: orderId, companyId },
@@ -660,6 +639,21 @@ export async function putSignature(
         orderId,
         input.expectedOrderVersion,
       );
+
+      /*
+        O QUE está sendo assinado, capturado no mesmo instante da assinatura.
+
+        Sem este vínculo a assinatura prova apenas que alguém desenhou num
+        vidro — não o que a pessoa estava aceitando. Com ele, qualquer mudança
+        posterior no atendimento torna a assinatura OBSOLETA, e a conclusão
+        recusa até ela ser recolhida de novo (§37).
+
+        Calculado DEPOIS do claim: o claim não altera conteúdo nenhum, e ficar
+        depois dele garante que ninguém escreveu um filho entre o hash e a
+        gravação — o lock de linha da OS já é nosso.
+      */
+      const signedContentHash = await closingContentHash(tx, companyId, orderId);
+      const signedOrderVersion = order.version + 1;
 
       await storage.put(storageKey, input.data, sniffed);
       wrote = true;
@@ -674,6 +668,8 @@ export async function putSignature(
             sizeBytes: input.data.byteLength,
             signedAt: new Date(),
             capturedByUserId: actorUserId,
+            signedContentHash,
+            signedOrderVersion,
           },
         });
       }
@@ -686,6 +682,8 @@ export async function putSignature(
           mimeType: sniffed,
           sizeBytes: input.data.byteLength,
           capturedByUserId: actorUserId,
+          signedContentHash,
+          signedOrderVersion,
         },
       });
     });
@@ -859,15 +857,23 @@ export async function completeServiceOrder(
       throw conflict("Execução não encontrada para esta OS.");
     }
 
-    if (!execution.diagnosis?.trim()) {
-      throw badRequest(
-        "Preencha o diagnóstico antes de concluir o atendimento.",
-      );
-    }
-    if (!execution.workPerformed?.trim()) {
-      throw badRequest(
-        "Preencha o serviço realizado antes de concluir o atendimento.",
-      );
+    /*
+      A validação roda DENTRO da transação, sobre os mesmos dados que serão
+      selados. Fora dela existiria uma janela entre "está tudo certo" e
+      "fechou", e é justamente nessa janela que uma mutação-filha concorrente
+      acontece.
+
+      Devolve a lista COMPLETA de pendências, não a primeira: um técnico que
+      descobre o que falta uma por uma faz uma ida ao servidor por item, e em
+      rede de borda desiste no meio (PRD §166).
+    */
+    const pendencies = await validateServiceOrderCompletion(tx, {
+      companyId,
+      orderId: order.id,
+      serviceOrderTypeId: order.typeId,
+    });
+    if (pendencies.length > 0) {
+      throw new CompletionBlockedError(pendencies);
     }
 
     const executionClaim = await tx.serviceOrderExecution.updateMany({
@@ -912,6 +918,33 @@ export async function completeServiceOrder(
         select: { id: true },
       }),
     ]);
+
+    /*
+      O fechamento congelado, na MESMA transação que leva a OS a COMPLETED.
+
+      É o que permite responder "o que foi fechado" sem reconstituir o passado
+      a partir das tabelas vivas — cuja resposta mudaria a cada correção
+      posterior autorizada. `contentHash` é o mesmo algoritmo que a assinatura
+      usa, e é a comparação entre os dois que prova que o cliente assinou ISTO.
+
+      Não é o PDF: o PDF, quando existir, é uma renderização disto. A conclusão
+      nunca fica bloqueada esperando pipeline de documento.
+    */
+    await tx.serviceOrderCompletion.create({
+      data: {
+        companyId,
+        serviceOrderId: order.id,
+        technicianId: technician.id,
+        completedAt,
+        orderVersionAtCompletion: order.version + 1,
+        contentHash: await closingContentHash(tx, companyId, order.id),
+        snapshot: (await buildCompletionSnapshot(
+          tx,
+          companyId,
+          order.id,
+        )) as unknown as Prisma.InputJsonValue,
+      },
+    });
 
     await tx.serviceOrderEvent.create({
       data: {

@@ -15,6 +15,7 @@ import {
 import { NOTIFICATION_TYPES } from "./notifications";
 import { OUTBOX_EVENTS, enqueueOutboxEvent } from "./outbox";
 import { prisma } from "./prisma";
+import { snapshotChecklistForOrder } from "./checklists";
 import { allocateServiceOrderNumber } from "./service-order-number";
 import { resolveServiceOrderTypeForCreation } from "./service-order-types";
 import {
@@ -1437,10 +1438,32 @@ export async function startServiceOrder(
       );
     }
 
+    /*
+      O checklist da OS é congelado AQUI, no início do atendimento.
+
+      Copiar as perguntas — em vez de apontar para o template — é o que impede
+      que editar o catálogo mude retroativamente o checklist de uma OS já
+      iniciada, inclusive de uma já concluída. Sem o snapshot, uma OS fechada em
+      março passaria a exibir uma pergunta criada em agosto, sem resposta, e o
+      relatório de conformidade do passado mudaria sozinho (PRD §165).
+
+      Sem template aplicável a OS simplesmente não tem checklist, e a conclusão
+      dela não exige nenhum — é o que mantém toda OS anterior à v0.10
+      concluindo como antes.
+    */
+    const snapshot = await snapshotChecklistForOrder(
+      tx,
+      companyId,
+      os.id,
+      os.typeId,
+    );
+
     const execution = await tx.serviceOrderExecution.create({
       data: {
         companyId,
         serviceOrderId: os.id,
+        checklistTemplateId: snapshot?.templateId ?? null,
+        checklistTemplateVersion: snapshot?.version ?? null,
       },
     });
 
