@@ -120,6 +120,124 @@ class _SheetFieldsState extends State<_SheetFields> {
 String _t(Map<String, TextEditingController> fields, String name) =>
     fields[name]!.text.trim();
 
+/// Botão que só fecha a folha depois de o SERVIDOR confirmar.
+///
+/// ## O defeito que isto corrige
+///
+/// O smoke test da v0.10 registrou no servidor:
+///
+/// ```text
+/// POST .../equipment 400
+/// POST .../equipment 200
+/// ```
+///
+/// O formulário fechava no toque, e SÓ ENTÃO o comando era enviado. Quando o
+/// servidor recusava — no caso real, um equipamento sem número de série e sem
+/// MAC —, o técnico já estava de volta na tela de execução, com a folha
+/// fechada e tudo que digitou perdido. Do lado dele, "registrei e sumiu".
+///
+/// A explicação existia, mas em lugar nenhum útil: `state.error` vira um
+/// banner no TOPO de uma `ListView` longa, enquanto a seção de equipamentos
+/// fica no fim dela. A mensagem aparecia fora da tela.
+///
+/// Aqui a ordem é a inversa: envia, espera, e só fecha se deu certo. Recusa
+/// mantém a folha aberta, com os dados no lugar e o motivo à vista.
+class _SubmitButton extends StatefulWidget {
+  const _SubmitButton({
+    required this.label,
+    required this.onSubmit,
+    this.enabled = true,
+    this.buttonKey,
+  });
+
+  final String label;
+
+  /// `null` em caso de sucesso; a mensagem a exibir em caso de recusa.
+  final Future<String?> Function() onSubmit;
+
+  final bool enabled;
+  final Key? buttonKey;
+
+  @override
+  State<_SubmitButton> createState() => _SubmitButtonState();
+}
+
+class _SubmitButtonState extends State<_SubmitButton> {
+  bool _enviando = false;
+  String? _erro;
+
+  Future<void> _enviar() async {
+    setState(() {
+      _enviando = true;
+      _erro = null;
+    });
+
+    final erro = await widget.onSubmit();
+    if (!mounted) return;
+
+    if (erro == null) {
+      Navigator.of(context).pop(true);
+      return;
+    }
+    setState(() {
+      _enviando = false;
+      _erro = erro;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_erro != null) ...[
+          Container(
+            padding: const EdgeInsets.all(AlfaSpacing.md),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(AlfaRadius.md),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                  size: 20,
+                ),
+                const SizedBox(width: AlfaSpacing.sm),
+                Expanded(
+                  child: Text(
+                    _erro!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AlfaSpacing.md),
+        ],
+        FilledButton(
+          key: widget.buttonKey,
+          // Travado durante o envio: um toque, um comando. A idempotência do
+          // servidor continua sendo a proteção de verdade — isto é só para o
+          // técnico não achar que nada aconteceu e tocar de novo.
+          onPressed: widget.enabled && !_enviando ? _enviar : null,
+          child: _enviando
+              ? const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(widget.label),
+        ),
+      ],
+    );
+  }
+}
+
 class _SheetTitle extends StatelessWidget {
   const _SheetTitle(this.text);
   final String text;
@@ -548,9 +666,8 @@ Future<void> showMaterialSheet(
   List<StockLine> stock,
 ) async {
   StockLine? selected = stock.isNotEmpty ? stock.first : null;
-  String? quantidade;
 
-  final confirmed = await _sheet<bool>(
+  await _sheet<bool>(
     context,
     _SheetFields(
       initial: const {'quantity': ''},
@@ -597,12 +714,40 @@ Future<void> showMaterialSheet(
                 ),
               ),
               const SizedBox(height: AlfaSpacing.lg),
-              FilledButton(
-                onPressed: () {
-                  quantidade = _t(fields, 'quantity');
-                  Navigator.of(context).pop(true);
+              /*
+                Mesmo tratamento do equipamento, e pelo mesmo motivo.
+
+                Aqui a recusa do servidor é ainda mais provável: o saldo é
+                conferido sob lock, e o número que a folha mostra pode já estar
+                velho. Fechar antes da resposta significaria o técnico
+                descobrir que não deu — sem a folha, sem o número digitado e
+                sem o motivo à vista.
+              */
+              AnimatedBuilder(
+                animation: fields['quantity']!,
+                builder: (context, _) {
+                  final parsed = num.tryParse(
+                    _t(fields, 'quantity').replaceAll(',', '.'),
+                  );
+                  final item = selected;
+                  return _SubmitButton(
+                    buttonKey: const Key('material-submit'),
+                    label: 'Registrar',
+                    enabled: item != null && parsed != null && parsed > 0,
+                    onSubmit: () async {
+                      final ok = await notifier.useMaterial(
+                        itemId: item!.itemId,
+                        quantity: parsed!,
+                      );
+                      if (ok) return null;
+                      final motivo = notifier.lastError;
+                      notifier.consumeError();
+                      return motivo ??
+                          'O atendimento mudou enquanto você preenchia. '
+                              'Toque em Registrar de novo.';
+                    },
+                  );
                 },
-                child: const Text('Registrar'),
               ),
             ],
           ),
@@ -610,12 +755,6 @@ Future<void> showMaterialSheet(
       ),
     ),
   );
-
-  final item = selected;
-  final parsed = num.tryParse((quantidade ?? '').replaceAll(',', '.'));
-  if ((confirmed ?? false) && item != null && parsed != null) {
-    await notifier.useMaterial(itemId: item.itemId, quantity: parsed);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -627,14 +766,17 @@ Future<void> showEquipmentSheet(
   ExecutionController notifier,
 ) async {
   /*
-    A folha devolve os VALORES, não um booleano.
+    A folha ENVIA e só fecha se o servidor aceitar.
 
-    O botão lê os campos enquanto eles ainda vivem e passa o resultado no pop.
-    Assim o código depois do `await` não toca em controlador nenhum — e o
-    VOLTAR do Android simplesmente devolve `null`, sem nada a ler e sem nada a
-    destruir na mão.
+    Antes ela devolvia os valores no pop e o comando saía depois — o que
+    perdia tudo quando a resposta era 400. Agora quem fecha é o `_SubmitButton`,
+    depois da confirmação; o VOLTAR do Android continua devolvendo `null`, sem
+    escrever nada.
+
+    Os campos continuam pertencendo à rota (`_SheetFields`), então nada aqui
+    toca controlador destruído.
   */
-  final dados = await _sheet<Map<String, String>>(
+  await _sheet<bool>(
     context,
     _SheetFields(
       initial: const {
@@ -698,33 +840,56 @@ Future<void> showEquipmentSheet(
               ),
             ),
             const SizedBox(height: AlfaSpacing.lg),
-            FilledButton(
-              key: const Key('equipment-submit'),
-              onPressed: () => Navigator.of(context).pop({
-                'type': _t(fields, 'type'),
-                'manufacturer': _t(fields, 'manufacturer'),
-                'model': _t(fields, 'model'),
-                'serial': _t(fields, 'serial'),
-                'mac': _t(fields, 'mac'),
-              }),
-              child: const Text('Registrar'),
+            /*
+              O botão acompanha os DOIS identificadores.
+
+              O servidor exige série ou MAC, e recusar isso só depois da
+              viagem foi exatamente o 400 do smoke test. Espelhar a regra aqui
+              é conveniência — quem decide continua sendo o servidor, que
+              revalida sob transação.
+            */
+            AnimatedBuilder(
+              animation: Listenable.merge([fields['serial'], fields['mac']]),
+              builder: (context, _) => _SubmitButton(
+                buttonKey: const Key('equipment-submit'),
+                label: 'Registrar',
+                enabled:
+                    _t(fields, 'serial').isNotEmpty ||
+                    _t(fields, 'mac').isNotEmpty,
+                onSubmit: () async {
+                  final ok = await notifier.addEquipment(
+                    equipmentType: _t(fields, 'type'),
+                    manufacturer: _t(fields, 'manufacturer'),
+                    model: _t(fields, 'model'),
+                    serial: _t(fields, 'serial'),
+                    macAddress: _t(fields, 'mac'),
+                  );
+                  if (ok) return null;
+
+                  /*
+                    A folha CONSOME o erro enquanto estiver aberta.
+
+                    Sem isto a mesma frase aparece duas vezes: aqui e no
+                    banner do topo da página, que continuaria pendurado atrás
+                    da folha depois de o técnico já ter lido e corrigido.
+
+                    Sem mensagem é CONFLITO — `_run` recarrega o pacote e
+                    avisa por outro caminho. A folha fica aberta de propósito:
+                    o comando não aconteceu, e agora ele tem a versão nova, é
+                    só tocar de novo.
+                  */
+                  final motivo = notifier.lastError;
+                  notifier.consumeError();
+                  return motivo ??
+                      'O atendimento mudou enquanto você preenchia. '
+                          'Toque em Registrar de novo.';
+                },
+              ),
             ),
           ],
         ),
       ),
     ),
-  );
-
-  // VOLTAR devolve null: a folha só fecha. Nada persiste, nenhum Equipment,
-  // nenhum evento, nenhuma auditoria.
-  if (dados == null) return;
-
-  await notifier.addEquipment(
-    equipmentType: dados['type']!,
-    manufacturer: dados['manufacturer']!,
-    model: dados['model']!,
-    serial: dados['serial']!,
-    macAddress: dados['mac']!,
   );
 }
 

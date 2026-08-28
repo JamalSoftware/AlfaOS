@@ -33,11 +33,12 @@ class FakeTransport implements HttpClientAdapter {
     String path, {
     int status = 200,
     Map<String, dynamic> data = const {},
+    Duration delay = Duration.zero,
   }) {
     on(
       method,
       path,
-      FakeReply(status: status, body: {'ok': true, 'data': data}),
+      FakeReply(status: status, body: {'ok': true, 'data': data}, delay: delay),
     );
   }
 
@@ -117,6 +118,10 @@ class FakeTransport implements HttpClientAdapter {
       );
     }
 
+    if (reply.delay > Duration.zero) {
+      await Future<void>.delayed(reply.delay);
+    }
+
     return ResponseBody.fromString(
       jsonEncode(reply.body),
       reply.status,
@@ -131,10 +136,22 @@ class FakeTransport implements HttpClientAdapter {
 }
 
 class FakeReply {
-  const FakeReply({required this.status, required this.body});
+  const FakeReply({
+    required this.status,
+    required this.body,
+    this.delay = Duration.zero,
+  });
 
   final int status;
   final Map<String, dynamic> body;
+
+  /// Atraso antes de responder.
+  ///
+  /// Existe para testar ORDEM: duplo toque enquanto o comando está em voo, e
+  /// a corrida entre `load()` e `loadStock()`. Com todas as respostas
+  /// instantâneas não há janela nenhuma, e um teste de concorrência que não
+  /// tem janela não testa concorrência.
+  final Duration delay;
 }
 
 /// Armazenamento em memória, com o MESMO contrato do real.

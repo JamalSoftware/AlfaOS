@@ -178,6 +178,19 @@ class ExecutionController extends StateNotifier<ExecutionState> {
 
   void _clearIntent(String operation) => _intentKeys.remove(operation);
 
+  /// Mensagem do último comando RECUSADO, ou `null`.
+  ///
+  /// Existe para um formulário poder continuar aberto e explicar por que o
+  /// servidor não aceitou, em vez de fechar como se tivesse dado certo. O
+  /// banner do topo da página não serve para isso: quando o técnico registra
+  /// um equipamento, ele está olhando a seção de equipamentos, no fim de uma
+  /// página longa — a mensagem aparece fora da tela e ninguém a vê.
+  ///
+  /// `null` depois de um comando falho significa CONFLITO: `_run` recarrega o
+  /// pacote e avisa por mensagem, sem erro. Nesse caso o formulário deve
+  /// fechar, porque o mundo que ele descrevia não existe mais.
+  String? get lastError => state.error;
+
   Future<void> load() async {
     state = state.copyWith(loading: true, clearError: true, notFound: false);
     try {

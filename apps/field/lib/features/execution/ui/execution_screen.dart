@@ -442,8 +442,8 @@ class _CheckInSection extends StatelessWidget {
                       ),
                       /*
                         Esta linha é HISTÓRICA, e a seção de localização acima
-                        é ATUAL. As duas podem parecer se contradizer sem que
-                        nenhuma esteja errada.
+                        é ATUAL. O texto diz "no momento do check-in" porque
+                        sem isso as duas se leem como contradição.
 
                         `distanceMeters` é congelado no instante do check-in
                         (`service-order-work-events.ts`): se ainda não havia
@@ -462,7 +462,7 @@ class _CheckInSection extends StatelessWidget {
                         checkIn.distanceMeters != null
                             ? 'A ${checkIn.distanceMeters} m do ponto cadastrado'
                             : checkIn.hasCoordinate
-                            ? 'Sem ponto cadastrado para comparar'
+                            ? 'Sem localização cadastrada no momento do check-in'
                             : 'Sem coordenada — registrado assim mesmo',
                       ),
                     ],
