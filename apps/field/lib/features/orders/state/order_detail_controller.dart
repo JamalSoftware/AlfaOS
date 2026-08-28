@@ -223,12 +223,21 @@ class OrderDetailController extends StateNotifier<OrderDetailState> {
   void consumeMessage() => state = state.copyWith(clearMessage: true);
 }
 
-final orderDetailControllerProvider =
-    StateNotifierProvider.family<
-      OrderDetailController,
-      OrderDetailState,
-      String
-    >((ref, orderId) {
+/// Controlador do detalhe, **descartado quando a tela sai**.
+///
+/// `autoDispose` aqui não é higiene de memória: é segurança. Sem ele, o
+/// `StateNotifier` de uma OS sobreviveria à navegação, e com ele o
+/// `revealedPassword` — a senha PPPoE em texto claro ficaria viva na memória do
+/// aplicativo até o processo morrer, mesmo depois de o técnico ter saído da OS
+/// e guardado o celular.
+///
+/// "Ocultar" já descarta, mas depende de o técnico tocar no botão. Isto cobre o
+/// caso normal: ele revela, usa, e simplesmente volta.
+///
+/// O efeito colateral é desejável: reabrir a OS recarrega do servidor em vez de
+/// mostrar um estado guardado que pode ter envelhecido.
+final orderDetailControllerProvider = StateNotifierProvider.autoDispose
+    .family<OrderDetailController, OrderDetailState, String>((ref, orderId) {
       return OrderDetailController(
         repository: ref.watch(ordersRepositoryProvider),
         orderId: orderId,

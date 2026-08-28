@@ -438,7 +438,33 @@ class _ConnectionSection extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _Field(label: 'Usuário', value: connection.username),
+          /*
+            O usuário tem cópia própria, e a senha tem a dela.
+
+            Antes, copiar só existia depois de revelar a senha — e o técnico que
+            precisava apenas do login para conferir no roteador era obrigado a
+            expor o segredo na tela para chegar ao botão. Duas ações separadas
+            eliminam essa revelação desnecessária.
+
+            O usuário PPPoE não é segredo: ele já vem no detalhe da OS, sem
+            revelação, sem auditoria e sem teto de frequência. Copiá-lo não
+            precisa de nenhuma dessas proteções.
+          */
+          _Field(
+            label: 'Usuário',
+            value: connection.username,
+            trailing: IconButton(
+              key: const Key('pppoe-copy-username'),
+              tooltip: 'Copiar usuário',
+              onPressed: () async {
+                await Clipboard.setData(
+                  ClipboardData(text: connection.username),
+                );
+                onToast('Usuário copiado.');
+              },
+              icon: const Icon(Icons.copy_outlined, size: 18),
+            ),
+          ),
           const SizedBox(height: AlfaSpacing.md),
           if (!connection.passwordConfigured)
             Text(
@@ -487,12 +513,15 @@ class _ConnectionSection extends ConsumerWidget {
                   ),
                   OutlinedButton.icon(
                     key: const Key('pppoe-copy'),
+                    // "COPIAR SENHA", não "COPIAR": agora existem duas ações de
+                    // cópia nesta seção, e um rótulo genérico deixaria o técnico
+                    // adivinhando qual das duas ele acabou de tocar.
                     onPressed: () async {
                       await Clipboard.setData(ClipboardData(text: revealed));
                       onToast('Senha copiada.');
                     },
                     icon: const Icon(Icons.copy_outlined, size: 18),
-                    label: const Text('COPIAR'),
+                    label: const Text('COPIAR SENHA'),
                   ),
                 ],
               ],
@@ -635,6 +664,7 @@ class _Field extends StatelessWidget {
     required this.value,
     this.valueKey,
     this.monospace = false,
+    this.trailing,
   });
 
   final String label;
@@ -642,10 +672,13 @@ class _Field extends StatelessWidget {
   final Key? valueKey;
   final bool monospace;
 
+  /// Ação à direita do valor — hoje, o botão de copiar o usuário.
+  final Widget? trailing;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
+    final campo = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
@@ -663,6 +696,19 @@ class _Field extends StatelessWidget {
             fontWeight: FontWeight.w600,
           ),
         ),
+      ],
+    );
+
+    if (trailing == null) return campo;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // `Expanded` para que um usuário PPPoE longo quebre em vez de empurrar
+        // o botão para fora da tela num aparelho estreito.
+        Expanded(child: campo),
+        const SizedBox(width: AlfaSpacing.sm),
+        trailing!,
       ],
     );
   }

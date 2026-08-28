@@ -191,7 +191,18 @@ void main() {
     expect(orders.items, hasLength(1));
     expect(orders.items.first.number, 7);
 
+    /*
+      A assinatura simula a TELA aberta.
+
+      O provider do detalhe é `autoDispose` — para que a senha PPPoE revelada
+      morra quando o técnico sai da OS. Sem um ouvinte, cada `read` recriaria o
+      controlador e o teste mediria um estado recém-nascido, não o que a
+      operação produziu.
+    */
     final detail = orderDetailControllerProvider('os-1');
+    final tela = container.listen(detail, (_, _) {});
+    addTearDown(tela.close);
+
     await container.read(detail.notifier).load();
     expect(container.read(detail).order!.canStart, isTrue);
 
@@ -277,7 +288,12 @@ void main() {
         .read(sessionControllerProvider.notifier)
         .login(email: 't@a.test', password: 'x');
 
+    // Mesma razão do teste acima: o detalhe é `autoDispose`, e a tela aberta é
+    // o que o mantém vivo entre as chamadas.
     final detail = orderDetailControllerProvider('os-1');
+    final tela = container.listen(detail, (_, _) {});
+    addTearDown(tela.close);
+
     await container.read(detail.notifier).load();
 
     transport.onError(

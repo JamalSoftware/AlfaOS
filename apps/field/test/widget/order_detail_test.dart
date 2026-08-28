@@ -1,5 +1,6 @@
 import 'package:alfaos_field/features/orders/ui/order_detail_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/harness.dart';
@@ -200,6 +201,108 @@ void main() {
 
       expect(find.text('senha-secreta-real'), findsNothing);
       expect(find.text('••••'), findsOneWidget);
+    });
+
+    testWidgets('copiar USUÁRIO não exige revelar a senha', (tester) async {
+      final h = await abrir(tester, payload: detail(connection: _pppoe));
+
+      // O botão existe já na tela mascarada.
+      expect(find.byKey(const Key('pppoe-copy-username')), findsOneWidget);
+      expect(find.text('••••'), findsOneWidget);
+
+      final copiado = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') copiado.add(call);
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('pppoe-copy-username')));
+      await tester.pumpAndSettle();
+
+      // Copiou o usuário, e SÓ ele.
+      expect(copiado, hasLength(1));
+      expect((copiado.single.arguments as Map)['text'], '11-teixeira-ftth');
+      expect(find.text('Usuário copiado.'), findsOneWidget);
+
+      /*
+        E nada foi revelado.
+
+        Este é o ponto da mudança: antes, copiar só existia depois do reveal, e
+        quem precisava apenas do login para conferir no roteador era obrigado a
+        expor o segredo para chegar ao botão.
+      */
+      expect(
+        h.transport.countOf('POST', '/service-orders/os-1/pppoe/reveal'),
+        0,
+      );
+      expect(find.text('••••'), findsOneWidget);
+    });
+
+    testWidgets('copiar SENHA só existe depois do reveal', (tester) async {
+      final h = await abrir(tester, payload: detail(connection: _pppoe));
+
+      // Antes de revelar: não há como copiar a senha.
+      expect(find.byKey(const Key('pppoe-copy')), findsNothing);
+      expect(find.text('COPIAR SENHA'), findsNothing);
+
+      h.transport.onJson(
+        'POST',
+        '/service-orders/os-1/pppoe/reveal',
+        data: {'password': 'senha-secreta-real'},
+      );
+
+      final copiado = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') copiado.add(call);
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('pppoe-reveal')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('COPIAR SENHA'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('pppoe-copy')));
+      await tester.pumpAndSettle();
+
+      expect(copiado, hasLength(1));
+      expect((copiado.single.arguments as Map)['text'], 'senha-secreta-real');
+      expect(find.text('Senha copiada.'), findsOneWidget);
+    });
+
+    testWidgets('as duas ações de cópia são distinguíveis', (tester) async {
+      final h = await abrir(tester, payload: detail(connection: _pppoe));
+      h.transport.onJson(
+        'POST',
+        '/service-orders/os-1/pppoe/reveal',
+        data: {'password': 'senha-secreta-real'},
+      );
+
+      await tester.tap(find.byKey(const Key('pppoe-reveal')));
+      await tester.pumpAndSettle();
+
+      // Rótulo explícito: com duas cópias na mesma seção, "COPIAR" sozinho
+      // deixaria o técnico adivinhando qual delas ele tocou.
+      expect(find.text('COPIAR SENHA'), findsOneWidget);
+      expect(find.text('COPIAR'), findsNothing);
+      expect(find.byKey(const Key('pppoe-copy-username')), findsOneWidget);
     });
 
     testWidgets('a senha não vem no detalhe — só na revelação', (tester) async {

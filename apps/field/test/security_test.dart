@@ -1,6 +1,8 @@
 import 'package:alfaos_field/core/logging/log.dart';
+import 'package:alfaos_field/features/orders/state/order_detail_controller.dart';
 import 'package:alfaos_field/features/orders/ui/order_detail_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/harness.dart';
@@ -101,6 +103,45 @@ void main() {
     expect(find.text('••••'), findsOneWidget);
   });
 
+  test('SAIR DA TELA descarta o texto claro da memória', () async {
+    final h = Harness();
+    h.transport.onJson('GET', '/service-orders/os-1', data: detalhe);
+    h.transport.onJson(
+      'POST',
+      '/service-orders/os-1/pppoe/reveal',
+      data: {'password': 'senha-pppoe-real-123'},
+    );
+
+    final container = ProviderContainer(overrides: h.overrides);
+    addTearDown(container.dispose);
+
+    final provider = orderDetailControllerProvider('os-1');
+
+    // Uma tela aberta é um ouvinte vivo.
+    final tela = container.listen(provider, (_, _) {});
+    await container.read(provider.notifier).load();
+    await container.read(provider.notifier).revealPassword();
+
+    expect(container.read(provider).revealedPassword, 'senha-pppoe-real-123');
+
+    /*
+      A tela fecha.
+
+      Sem `autoDispose`, o `StateNotifier` sobreviveria à navegação e a senha em
+      texto claro ficaria viva na memória do aplicativo até o processo morrer —
+      mesmo depois de o técnico ter saído da OS e guardado o celular.
+
+      "Ocultar" já descarta, mas depende de ele tocar no botão. Isto cobre o
+      caso normal: revela, usa, e simplesmente volta.
+    */
+    tela.close();
+    // O descarte acontece na volta do laço de eventos.
+    await Future<void>.delayed(Duration.zero);
+
+    // Reabrir dá um controlador NOVO, sem o segredo anterior.
+    expect(container.read(provider).revealedPassword, isNull);
+  });
+
   test('o log jamais imprime um cabeçalho de autorização', () {
     final saida = Log.redact({
       'headers': {
@@ -115,6 +156,26 @@ void main() {
     // Controle positivo: o que não é segredo continua legível, senão a função
     // poderia estar simplesmente apagando tudo.
     expect(saida, contains('start-abc'));
+  });
+
+  test('a resposta da revelação não sobrevive ao log', () {
+    /*
+      Forma EXATA do corpo que a rota de revelação devolve.
+
+      O cliente HTTP registra a resposta em debug (`Log.debug(..., data: body)`),
+      então este é o caminho pelo qual a senha chegaria ao logcat — legível por
+      qualquer pessoa com um cabo. A redação acontece na saída, não na chamada,
+      e este teste é a rede que garante que ela cobre esta forma.
+    */
+    final saida = Log.redact({
+      'ok': true,
+      'data': {'password': 'senha-pppoe-real-123'},
+    }).toString();
+
+    expect(saida, isNot(contains('senha-pppoe-real-123')));
+    // Controle positivo: a estrutura continua legível, que é o que torna o log
+    // útil para depurar.
+    expect(saida, contains('ok'));
   });
 
   test('o token nunca é gravado no armazenamento comum', () async {
