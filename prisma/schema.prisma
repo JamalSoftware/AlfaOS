@@ -96,12 +96,27 @@ enum CustomerConnectionType {
 /// é campo separado justamente porque origem e verificação são perguntas
 /// diferentes.
 ///
-/// Solução mínima desta etapa. O PRD §133–§139 descreve uma entidade
-/// `CustomerLocation` própria, com histórico e verificação por GPS do
-/// técnico; migrar para ela é dívida registrada, não trabalho desta versão.
+/// As quatro origens da §134, completas desde a v0.10.
+///
+/// `MANUAL` é o que uma pessoa digitou. `IMPORTED` é coordenada do cadastro do
+/// provedor: útil para chegar perto, mas NÃO é confirmação de que alguém esteve
+/// lá. `GEOCODED` é derivada do endereço textual e é a MAIS FRACA — um ponto
+/// derivado de "Estrada Municipal, s/n, Zona Rural" pode cair quilômetros longe
+/// da porta. `TECHNICIAN_GPS` é a captura do aparelho do técnico no local.
+///
+/// **Nenhuma delas significa verificado.** `verified` é campo separado porque
+/// origem e verificação são perguntas diferentes: uma coordenada `GEOCODED`
+/// que um técnico confirmou no local continua `GEOCODED` de origem e passa a
+/// valer mais que uma `IMPORTED` recém-chegada. Colapsar os dois eixos num
+/// enum só perderia exatamente essa combinação (§134, §197).
+///
+/// A precedência entre elas é código, não convenção: ver
+/// `locationPrecedenceRank` em `src/lib/customer-locations.ts`.
 enum CustomerLocationSource {
   MANUAL
   IMPORTED
+  GEOCODED
+  TECHNICIAN_GPS
 }
 
 /// Política de senha PPPoE padrão da empresa.
@@ -202,6 +217,21 @@ model Company {
   outboxEvents           OutboxEvent[]
   idempotencyRecords     IdempotencyRecord[]
 
+  // v0.10 — execução e fechamento em campo
+  customerLocations         CustomerLocation[]
+  customerLocationHistories CustomerLocationHistory[]
+  serviceOrderCheckIns      ServiceOrderCheckIn[]
+  checklistTemplates        ChecklistTemplate[]
+  checklistTemplateItems    ChecklistTemplateItem[]
+  serviceOrderChecklist     ServiceOrderChecklistItem[]
+  inventoryItems            InventoryItem[]
+  inventoryMovements        InventoryMovement[]
+  serviceOrderEquipments    ServiceOrderEquipment[]
+  serviceOrderContacts      ServiceOrderContactAttempt[]
+  serviceOrderImpediments   ServiceOrderImpediment[]
+  completionPolicies        ServiceOrderCompletionPolicy[]
+  serviceOrderCompletions   ServiceOrderCompletion[]
+
   @@map("companies")
 }
 
@@ -294,6 +324,13 @@ model User {
   notifications      Notification[]
   idempotencyRecords IdempotencyRecord[]
 
+  // v0.10 — quem confirmou, respondeu, movimentou e instalou
+  verifiedLocations   CustomerLocation[]          @relation("LocationVerifier")
+  locationChanges     CustomerLocationHistory[]   @relation("LocationChanger")
+  answeredChecklist   ServiceOrderChecklistItem[] @relation("ChecklistAnswerer")
+  inventoryMovements  InventoryMovement[]         @relation("MovementCreator")
+  installedEquipments ServiceOrderEquipment[]     @relation("EquipmentInstaller")
+
   @@index([companyId])
   @@index([email])
   @@index([companyId, profile, active])
@@ -351,6 +388,14 @@ model Customer {
   serviceOrders       ServiceOrder[]
   diagnosticSnapshots CustomerDiagnosticSnapshot[]
   connections         CustomerConnection[]
+
+  /// Ponto físico confirmável (v0.10, §134). As colunas `latitude`/`longitude`
+  /// acima continuam existindo e são mantidas em sincronia como PROJEÇÃO de
+  /// leitura — remover coluna é migration destrutiva, e a web, o DTO do Field e
+  /// os links de mapa já as consomem. A AUTORIDADE é esta relação.
+  location            CustomerLocation?
+  locationHistory     CustomerLocationHistory[]
+  installedEquipments ServiceOrderEquipment[]
 
   @@unique([companyId, externalProvider, externalId])
   @@index([companyId, name])
@@ -466,6 +511,15 @@ model Technician {
   mobileDevices MobileDevice[]
   notifications Notification[]
 
+  // v0.10 — o técnico como sujeito da execução em campo
+  verifiedLocations  CustomerLocation[]           @relation("LocationVerifierTechnician")
+  locationChanges    CustomerLocationHistory[]
+  checkIns           ServiceOrderCheckIn[]
+  inventoryMovements InventoryMovement[]
+  contactAttempts    ServiceOrderContactAttempt[]
+  impediments        ServiceOrderImpediment[]
+  completions        ServiceOrderCompletion[]
+
   @@unique([userId])
   @@index([companyId])
   @@index([companyId, active])
@@ -531,6 +585,16 @@ model ServiceOrder {
   materials ServiceOrderMaterialUsage[]
   signature ServiceOrderSignature?
 
+  // v0.10 — o que a execução em campo acrescenta à OS
+  checkIn            ServiceOrderCheckIn?
+  checklist          ServiceOrderChecklistItem[]
+  inventoryMovements InventoryMovement[]
+  equipments         ServiceOrderEquipment[]
+  contactAttempts    ServiceOrderContactAttempt[]
+  impediments        ServiceOrderImpediment[]
+  locationChanges    CustomerLocationHistory[]
+  completion         ServiceOrderCompletion?
+
   @@unique([companyId, externalProvider, externalId])
   @@unique([companyId, number])
   @@index([companyId, status])
@@ -590,6 +654,19 @@ model ServiceOrderType {
 
   serviceOrders ServiceOrder[]
 
+  /// v0.10 — o tipo passa a ORIENTAR a execução (§164).
+  ///
+  /// O comentário acima descrevia a decisão da v0.2: checklist e
+  /// obrigatoriedade ficaram DE FORA porque "cada um deles muda como a OS
+  /// conclui". Isso continua verdade — e é exatamente por isso que eles
+  /// entram agora em tabelas PRÓPRIAS, e não como colunas aqui. O catálogo
+  /// segue sendo nome/descrição/ativo/ordem; o que governa a conclusão mora
+  /// em `ServiceOrderCompletionPolicy`, cuja AUSÊNCIA significa "sem
+  /// exigência extra". É o que mantém toda OS e todo tipo já existentes
+  /// concluindo exatamente como antes desta versão.
+  checklistTemplates ChecklistTemplate[]
+  completionPolicy   ServiceOrderCompletionPolicy?
+
   @@unique([companyId, name])
   @@index([companyId, active, sortOrder])
   @@map("service_order_types")
@@ -634,14 +711,30 @@ model ServiceOrderExecution {
   diagnosis      String?      @db.Text
   workPerformed  String?      @db.Text
   notes          String?      @db.Text
+
+  /// Qual checklist governa ESTA execução, capturado no `start`.
+  ///
+  /// A referência fica aqui, e não na OS, porque é um fato da execução: qual
+  /// versão do template o técnico recebeu quando começou. Editar o template
+  /// depois disso incrementa `ChecklistTemplate.version` e não alcança
+  /// nenhuma OS já iniciada — as perguntas dela viraram linhas próprias em
+  /// `ServiceOrderChecklistItem` no momento do start.
+  ///
+  /// Guardar a VERSÃO junto do id é o que torna a divergência detectável: sem
+  /// ela, "esta OS usou o template X" não diz qual X, e um relatório
+  /// retroativo compararia respostas com perguntas que já não são as mesmas.
+  ///
+  /// Nulo em execução anterior à v0.10 e em empresa/tipo sem template.
+  checklistTemplateId      String?
+  checklistTemplateVersion Int?
   /// Optimistic-lock token of the EXECUTION, independent from
   /// `ServiceOrder.version`. Two technicians editing the same text must
   /// conflict on the text they are editing, not on unrelated order changes.
   /// Same rationale as `ServiceOrder.version`: `updatedAt` is `timestamp(3)`,
   /// so two writes in the same millisecond both match and one is silently lost.
-  version        Int          @default(0)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  version                  Int      @default(0)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
   @@index([companyId])
   @@map("service_order_executions")
@@ -666,25 +759,81 @@ model ServiceOrderEvidence {
   uploadedByUserId String?
   uploadedBy       User?        @relation("EvidenceUploader", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
   kind             EvidenceKind @default(PHOTO)
+
+  /// O QUE a foto prova (§162).
+  ///
+  /// `kind` diz que é uma foto; `category` diz que foto é. Um álbum de doze
+  /// imagens sem rótulo não prova nada seis meses depois, quando o cliente
+  /// contesta a instalação e ninguém sabe qual delas é a CTO. É esta coluna
+  /// que permite a `ServiceOrderCompletionPolicy` exigir "a foto da ONU"
+  /// em vez de "seis fotos quaisquer".
+  ///
+  /// `OTHER` é o default deliberado: toda evidência da v0.4 foi anexada sem
+  /// categoria, e inventar uma para elas afirmaria uma classificação que
+  /// ninguém fez.
+  category EvidenceCategory @default(OTHER)
+
+  /// Observação curta do técnico sobre esta foto. Opcional.
+  caption String?
+
+  /// Quando o APARELHO diz que a foto foi tirada.
+  ///
+  /// Informativo, nunca confiável para integridade: o relógio do celular é
+  /// ajustável pelo próprio usuário e o EXIF é editável (§162). O fato que
+  /// vale é `createdAt`, gravado pelo servidor no momento em que o arquivo
+  /// chegou.
+  capturedAt DateTime?
+
+  /// SHA-256 dos BYTES. Metadado de integridade (PRD §162).
+  ///
+  /// **Registrado, e deliberadamente NÃO único.** A tentação era transformá-lo
+  /// em `@@unique([serviceOrderId, contentHash])` e deduplicar reenvio. Duas
+  /// razões contra, e a segunda é a decisiva:
+  ///
+  /// 1. A retentativa do Field já é resolvida pela `Idempotency-Key`, que é o
+  ///    mecanismo desta superfície desde a v0.9. Duas proteções para o mesmo
+  ///    problema é uma a mais para manter em acordo.
+  /// 2. A unique criaria um caminho de SUCESSO SEM ESCRITA — o segundo envio
+  ///    recebendo a linha do primeiro. Isso enfraquece a garantia de corrida
+  ///    do teto de evidências, cujo teste prova que de N envios concorrentes
+  ///    exatamente UM vence. Com deduplicação, N envios idênticos "vencem"
+  ///    todos, e a asserção que a auditoria da v0.4 endureceu deixaria de
+  ///    valer.
+  ///
+  /// Fica como dado: permite conferir integridade e alimentar uma ferramenta
+  /// de limpeza futura, sem participar de nenhuma decisão de escrita.
+  contentHash String?
+
   /// Opaque storage handle generated server-side. Never derived from the
   /// client-supplied filename — that is what keeps `../` out of the path.
-  storageKey       String       @unique
+  storageKey   String   @unique
   /// The name the client sent, kept for display only. Never used to build a path.
-  originalName     String
-  mimeType         String
-  sizeBytes        Int
-  createdAt        DateTime     @default(now())
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  createdAt    DateTime @default(now())
 
   @@index([serviceOrderId, createdAt])
+  @@index([serviceOrderId, category])
+  @@index([serviceOrderId, contentHash])
   @@index([companyId])
   @@map("service_order_evidences")
 }
 
 /// A material the technician declares as used on this order.
 ///
-/// This is NOT stock control: nothing is reserved, decremented or reconciled
-/// against an inventory. It records what was consumed on this visit, which is
-/// what the closing report needs.
+/// Era, na v0.4, exclusivamente declaração em texto livre: nada era reservado,
+/// baixado ou reconciliado contra estoque.
+///
+/// A v0.10 acrescenta a segunda procedência SEM remover a primeira. Quando o
+/// consumo vem do catálogo, `inventoryItemId` e `inventoryMovementId` apontam
+/// para o ledger, que é a AUTORIDADE do saldo; esta linha continua sendo o que
+/// o relatório de fechamento lê. Quando vem do texto livre (web, material sem
+/// cadastro), os dois ficam nulos e o comportamento é o de antes.
+///
+/// **Uma lista só.** Escrever o consumo apenas no ledger produziria duas
+/// listas de "materiais usados" na mesma OS — a do fechamento e a do estoque —
+/// que divergiriam na primeira correção feita em uma delas.
 model ServiceOrderMaterialUsage {
   id              String       @id @default(cuid())
   companyId       String
@@ -698,8 +847,23 @@ model ServiceOrderMaterialUsage {
   unit            MaterialUnit @default(UNIT)
   createdByUserId String?
   createdBy       User?        @relation("MaterialCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+
+  /// Vínculo com o catálogo, quando o consumo saiu do estoque do técnico.
+  /// Nulo em material declarado em texto livre.
+  inventoryItemId String?
+  inventoryItem   InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+
+  /// O movimento do ledger que baixou este material.
+  ///
+  /// `@unique` porque um movimento baixa UM consumo: sem isso, um retry que
+  /// escapasse da idempotência poderia pendurar duas linhas de uso no mesmo
+  /// movimento e o relatório contaria o material duas vezes com o estoque
+  /// debitado uma só.
+  inventoryMovementId String?            @unique
+  inventoryMovement   InventoryMovement? @relation(fields: [inventoryMovementId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([serviceOrderId, createdAt])
   @@index([companyId])
@@ -725,6 +889,30 @@ model ServiceOrderSignature {
   signedAt         DateTime     @default(now())
   capturedByUserId String?
   capturedBy       User?        @relation("SignatureCapturer", fields: [capturedByUserId], references: [id], onDelete: SetNull)
+
+  /// O QUE foi assinado (§37 da v0.10).
+  ///
+  /// Uma assinatura solta prova que alguém desenhou num vidro; ela não prova
+  /// o que a pessoa estava aceitando. Sem este vínculo, um técnico poderia
+  /// colher a assinatura e só depois acrescentar materiais, trocar o serviço
+  /// realizado ou anexar outra foto — e o fechamento sairia com o cliente
+  /// aparentemente concordando com um conteúdo que ele nunca viu.
+  ///
+  /// `signedContentHash` é o resumo determinístico do fechamento no instante
+  /// da assinatura (execução, checklist, evidências, materiais,
+  /// equipamentos). A conclusão recalcula e compara: divergiu, a assinatura
+  /// está OBSOLETA e a OS não fecha até ser recolhida de novo. O técnico
+  /// pode continuar editando o quanto quiser — só não pode fechar com uma
+  /// assinatura que já não corresponde.
+  ///
+  /// `signedOrderVersion` é o `ServiceOrder.version` do mesmo instante:
+  /// guardado para a auditoria conseguir situar a assinatura na linha do
+  /// tempo da OS sem depender de comparar timestamps.
+  ///
+  /// Ambos nulos em assinatura da v0.4, que é anterior à regra. Ver
+  /// `closingContentHash` em `src/lib/service-order-completion.ts`.
+  signedContentHash  String?
+  signedOrderVersion Int?
 
   @@index([companyId])
   @@map("service_order_signatures")
@@ -1040,4 +1228,766 @@ model IdempotencyRecord {
   @@unique([companyId, userId, operation, key])
   @@index([expiresAt])
   @@map("idempotency_records")
+}
+
+// ---------------------------------------------------------------------------
+// AlfaOS Field — execucao e fechamento em campo (v0.10)
+//
+// O Field continua sendo OUTRO CLIENTE do mesmo AlfaOS. Nada aqui e uma
+// segunda maquina de estados: a OS continua PENDING -> ASSIGNED -> IN_PROGRESS
+// -> COMPLETED, e tudo abaixo pendura FATOS nessa linha do tempo sem criar
+// estado principal novo (PRD 167).
+//
+// Duas fronteiras que este bloco existe para manter:
+//
+//  - CHECK-IN NAO E CONFIRMACAO DE LOCALIZACAO. O primeiro diz onde o
+//    aparelho estava; o segundo diz que uma pessoa conferiu que aquele e o
+//    ponto do cliente. Sao tabelas diferentes de proposito.
+//  - SALDO NAO E COLUNA. Material sai de um ledger imutavel, nunca de um
+//    `quantity = quantity - 1` (PRD 181).
+// ---------------------------------------------------------------------------
+
+/// O que mudou numa correcao de cadastro.
+///
+/// Endereco e coordenada sao corrigidos pelas mesmas razoes e quase sempre na
+/// mesma acao, mas nao sao o mesmo dado: da para acertar o numero da casa sem
+/// mexer no ponto, e para mover o ponto sem que o endereco escrito esteja
+/// errado. Um enum so, com os tres casos, mantem UMA trilha cronologica em vez
+/// de duas que precisariam ser intercaladas na leitura.
+enum LocationChangeKind {
+  ADDRESS
+  COORDINATES
+  BOTH
+}
+
+/// Por que o cadastro foi corrigido.
+///
+/// Enum, e nao texto livre, porque a pergunta que a operacao faz e "quantos
+/// clientes tem endereco errado no ERP?" — e essa pergunta nao se responde
+/// lendo trezentas frases digitadas por dez tecnicos diferentes. O texto livre
+/// continua existindo em `note`, ao lado, para o que o enum nao alcanca.
+///
+/// `OTHER` exige `note` preenchida: um motivo generico sem explicacao nao
+/// informa nada e transformaria o enum inteiro num campo opcional na pratica.
+enum LocationChangeReason {
+  INCORRECT_ADDRESS
+  INCORRECT_LOCATION
+  CUSTOMER_MOVED
+  INCOMPLETE_REGISTRATION
+  OTHER
+}
+
+/// De onde veio a coordenada do check-in.
+///
+/// `DEVICE_GPS` e a captura do aparelho. `UNAVAILABLE` e um desfecho de
+/// primeira classe, nao uma falha: o tecnico pode ter negado a permissao, estar
+/// dentro de um predio ou num ponto sem sinal — e o check-in acontece do mesmo
+/// jeito, porque a chegada e o fato operacional, nao a coordenada (PRD 167).
+enum CheckInSource {
+  DEVICE_GPS
+  UNAVAILABLE
+}
+
+/// O que a foto prova (PRD 162).
+///
+/// Lista fechada e deliberadamente curta. `CUSTOM` do PRD ficou de fora: ele so
+/// faz sentido junto de um catalogo de categorias por empresa, que nao existe
+/// nesta versao, e adiciona-lo agora criaria um valor que nenhuma politica
+/// consegue exigir.
+enum EvidenceCategory {
+  BEFORE_SERVICE
+  INSTALLATION_LOCATION
+  CABLE_ROUTE
+  CTO
+  ONU_ONT
+  ROUTER
+  EQUIPMENT
+  OPTICAL_READING
+  WIFI_TEST
+  SPEED_TEST
+  AFTER_SERVICE
+  OTHER
+}
+
+/// Tipos de item de checklist suportados no MVP.
+///
+/// Cinco, nao os nove da 165. `MEASUREMENT`, `EQUIPMENT` e `SIGNATURE` do PRD
+/// ficaram de fora porque cada um deles duplicaria uma entidade que ja existe:
+/// medicao e `NUMBER`, equipamento e `ServiceOrderEquipment`, assinatura e
+/// `ServiceOrderSignature`. Um item de checklist que "e" uma assinatura criaria
+/// duas fontes de verdade sobre a mesma assinatura.
+///
+/// `PHOTO` permanece porque ele nao guarda a foto: ele EXIGE que exista
+/// evidencia na categoria configurada, e a validacao consulta
+/// `ServiceOrderEvidence`.
+enum ChecklistItemType {
+  BOOLEAN
+  TEXT
+  NUMBER
+  SELECT
+  PHOTO
+}
+
+/// Movimentos do ledger de inventario (PRD 181).
+///
+/// Subconjunto MINIMO da v0.10, e a omissao e deliberada:
+/// `TECHNICIAN_TO_TECHNICIAN`, `CUSTOMER_TO_TECHNICIAN`, `DEFECTIVE`,
+/// `DISPOSAL`, `INSPECTED`, `LOST`, `STOLEN`, `SENT_TO_MAINTENANCE` e
+/// `RETURNED_FROM_MAINTENANCE` pertencem a custodia de patrimonio (216-220),
+/// que NAO entra nesta versao. Acrescentar valor a este enum depois e aditivo;
+/// e o enum concorrente que a 181 proibe.
+///
+/// A quantidade e SEMPRE POSITIVA e o sinal vem do tipo. Guardar quantidade
+/// negativa deixaria "saida de 5" e "entrada de -5" representaveis das duas
+/// formas, e o saldo passaria a depender de todo mundo escolher a mesma.
+/// `ADJUSTMENT_IN`/`ADJUSTMENT_OUT` existem em par pelo mesmo motivo.
+enum InventoryMovementType {
+  /// Entrada no estoque do tecnico.
+  WAREHOUSE_TO_TECHNICIAN
+  /// Consumo no atendimento. E a unica que o Field emite.
+  TECHNICIAN_TO_CUSTOMER
+  /// Devolucao ao almoxarifado.
+  TECHNICIAN_TO_WAREHOUSE
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+}
+
+/// Como o tecnico tentou falar com o cliente (PRD 168).
+enum ContactAttemptChannel {
+  PHONE_CALL
+  WHATSAPP
+  SMS
+  OTHER
+}
+
+/// No que deu a tentativa.
+///
+/// "Liguei e nao atendeu" numa caixa de observacao nao e consultavel, nao vira
+/// metrica e nao sustenta uma cobranca contestada — que e exatamente o momento
+/// em que alguem precisa desse dado.
+enum ContactAttemptResult {
+  ANSWERED
+  NO_ANSWER
+  BUSY
+  INVALID_NUMBER
+  CUSTOMER_REQUESTED_LATER
+}
+
+/// Por que o atendimento nao pode ser executado (PRD 169).
+///
+/// Sem esta lista o tecnico que nao conseguiu entrar tem duas saidas: concluir
+/// uma OS que nao executou, ou deixa-la aberta sem explicacao. A primeira
+/// corrompe o historico e o indicador de qualidade; a segunda deixa o
+/// despachante cego. O impedimento e a terceira saida.
+///
+/// **Impedimento NAO muda o status da OS.** Ele e um fato registrado na
+/// timeline; quem decide reagendar ou cancelar e a operacao, pelos comandos que
+/// ja existem.
+enum ImpedimentReason {
+  CUSTOMER_ABSENT
+  CUSTOMER_NOT_ANSWERING
+  NO_ACCESS
+  MISSING_MATERIAL
+  EXTERNAL_NETWORK_ISSUE
+  WEATHER
+  NEED_SECOND_TECHNICIAN
+  NEED_SPECIAL_EQUIPMENT
+  SAFETY_RISK
+  OTHER
+}
+
+/// O ponto fisico do cliente, com procedencia e confirmacao separadas (PRD 134).
+///
+/// Pertence ao CLIENTE, nao a OS: o ponto e o mesmo em todos os atendimentos, e
+/// guarda-lo na OS o duplicaria a cada visita — com as copias divergindo no
+/// instante em que alguem corrigisse uma delas. Um cliente recem-cadastrado ja
+/// pode ter coordenada, sem OS nenhuma.
+///
+/// ## Por que uma tabela, e nao mais colunas em `Customer`
+///
+/// As colunas `latitude`/`longitude` de `Customer` continuam existindo e sao
+/// mantidas em sincronia como projecao de leitura (a web, o DTO do Field e
+/// `map-links` ja as consomem, e remove-las seria migration destrutiva). O que
+/// elas nao conseguem carregar e `accuracy`, `verifiedBy`, `reference` e um
+/// `version` proprio — e sem `version` proprio nao ha compare-and-set possivel
+/// sobre a localizacao, porque `Customer.updatedAt` muda por qualquer edicao de
+/// cadastro.
+///
+/// ## `source` x `verified`
+///
+/// Eixos distintos, e essa e a decisao central da 134. `source` diz de onde o
+/// numero veio; `verified` diz se alguem esteve la. Uma coordenada `GEOCODED`
+/// confirmada por um tecnico no local continua `GEOCODED` e passa a valer mais
+/// que uma `IMPORTED` recem-chegada (197).
+///
+/// **Receber GPS nao marca `verified`.** O aparelho reporta onde ELE esta, nao
+/// que o tecnico conferiu que aquele e o ponto de instalacao. Confirmacao
+/// automatica produziria uma base inteira de coordenadas "verificadas" com a
+/// precisao do GPS do momento — que e precisamente o que a 172 proibe.
+model CustomerLocation {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// Um ponto por cliente nesta versao. A unique e do BANCO, nao da aplicacao:
+  /// confirmar e corrigir sao acoes concorrentes por construcao (dois
+  /// aparelhos, retentativa de fila offline), e check-then-insert deixaria as
+  /// duas criarem linha.
+  customerId String   @unique
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  latitude  Decimal @db.Decimal(10, 7)
+  longitude Decimal @db.Decimal(10, 7)
+
+  /// Precisao declarada pela captura, em metros. Nula quando a origem nao
+  /// informa (digitado a mao, geocodificado, importado).
+  accuracyMeters Int?
+
+  source   CustomerLocationSource
+  verified Boolean                @default(false)
+
+  verifiedAt             DateTime?
+  verifiedByUserId       String?
+  verifiedBy             User?       @relation("LocationVerifier", fields: [verifiedByUserId], references: [id], onDelete: SetNull)
+  /// Qual tecnico confirmou. Separado do usuario porque a pergunta operacional
+  /// e "qual tecnico esteve la", e o vinculo usuario->tecnico pode mudar.
+  verifiedByTechnicianId String?
+  verifiedByTechnician   Technician? @relation("LocationVerifierTechnician", fields: [verifiedByTechnicianId], references: [id], onDelete: SetNull)
+
+  /// Como chegar: ponto de acesso, referencia visual, observacao de chegada.
+  /// Especialmente util em cliente rural, onde o endereco textual nao
+  /// geocodifica para lugar nenhum util.
+  reference String?
+
+  /// Lock otimista PROPRIO da localizacao.
+  ///
+  /// Separado de `ServiceOrder.version` porque sao objetos diferentes: um
+  /// despachante mexendo na OS nao pode invalidar a confirmacao que o tecnico
+  /// esta enviando, e vice-versa.
+  version Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([companyId, verified])
+  @@map("customer_locations")
+}
+
+/// Trilha IMUTAVEL de correcao de endereco e de localizacao (PRD 134, 197).
+///
+/// Uma linha por alteracao, gravada na MESMA transacao da mudanca. Nunca
+/// atualizada e nunca apagada: um log que pode ser editado nao e trilha, e a
+/// pergunta que ele existe para responder — "qual era o endereco antes de o
+/// tecnico mexer, e por que ele mexeu?" — so tem valor se a resposta nao puder
+/// ser reescrita depois.
+///
+/// Complementa `AuditLog`, nao o substitui. O `AuditLog` registra que a acao
+/// aconteceu, em texto sanitizado e uniforme com o resto do sistema; esta
+/// tabela guarda os VALORES, tipados, para que a operacao consiga comparar o
+/// antes e o depois sem fazer parsing de frase.
+///
+/// `serviceOrderId` e opcional porque a correcao pode vir do painel
+/// administrativo, sem OS nenhuma. Quando vem do Field, ele amarra a correcao
+/// ao atendimento em que ela foi descoberta.
+model CustomerLocationHistory {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  serviceOrderId String?
+  serviceOrder   ServiceOrder? @relation(fields: [serviceOrderId], references: [id], onDelete: SetNull)
+
+  kind   LocationChangeKind
+  reason LocationChangeReason
+  /// Obrigatoria quando `reason = OTHER`. Validado na aplicacao, nao no banco:
+  /// um CHECK constraint aqui impediria a insercao mas daria uma mensagem de
+  /// erro de banco a um tecnico em campo.
+  note   String?
+
+  previousLatitude  Decimal?                @db.Decimal(10, 7)
+  previousLongitude Decimal?                @db.Decimal(10, 7)
+  previousSource    CustomerLocationSource?
+  previousVerified  Boolean?
+  newLatitude       Decimal?                @db.Decimal(10, 7)
+  newLongitude      Decimal?                @db.Decimal(10, 7)
+  newSource         CustomerLocationSource?
+  newVerified       Boolean?
+
+  /// Bloco de endereco antes e depois, como snapshot.
+  ///
+  /// JSON, e nao doze colunas: o endereco e lido como um todo ("o que estava
+  /// escrito antes?") e nunca filtrado campo a campo nesta tabela. Doze colunas
+  /// nullable duplicariam o schema de `Customer` e teriam de ser mantidas em
+  /// sincronia com ele para sempre.
+  previousAddress Json?
+  newAddress      Json?
+
+  changedByUserId String?
+  changedBy       User?       @relation("LocationChanger", fields: [changedByUserId], references: [id], onDelete: SetNull)
+  technicianId    String?
+  technician      Technician? @relation(fields: [technicianId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, customerId, createdAt])
+  @@index([companyId, createdAt])
+  @@index([serviceOrderId])
+  @@map("customer_location_histories")
+}
+
+/// Chegada do tecnico ao local (PRD 167).
+///
+/// **Nao confirma a localizacao do cliente.** Esta e a fronteira que a tabela
+/// existe para manter: o check-in diz onde o APARELHO estava quando o tecnico
+/// declarou que chegou; `CustomerLocation.verified` diz que uma pessoa conferiu
+/// que aquele e o ponto de instalacao. Derivar o segundo do primeiro produziria
+/// uma base de coordenadas "verificadas" que ninguem verificou — e faria isso
+/// silenciosamente, em toda OS.
+///
+/// Um por OS (`serviceOrderId @unique`). Repetir o comando com a mesma
+/// `Idempotency-Key` reproduz o desfecho; repetir com chave nova e 409, porque
+/// "cheguei" acontece uma vez por atendimento.
+///
+/// **Nao bloqueia por geofence.** GPS de celular erra dezenas de metros em area
+/// urbana densa e falha dentro de predio — exatamente onde o atendimento
+/// acontece. `distanceMeters` e registrado como INFORMACAO; impedir o trabalho
+/// por uma coordenada imprecisa impediria atendimento real para prevenir uma
+/// fraude hipotetica.
+model ServiceOrderCheckIn {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  serviceOrderId String       @unique
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  technicianId   String
+  technician     Technician   @relation(fields: [technicianId], references: [id], onDelete: Restrict)
+
+  /// Nulas quando a permissao foi negada ou o sinal falhou. O check-in vale
+  /// assim mesmo: a chegada e o fato, a coordenada e o detalhe.
+  latitude       Decimal?      @db.Decimal(10, 7)
+  longitude      Decimal?      @db.Decimal(10, 7)
+  accuracyMeters Int?
+  source         CheckInSource
+
+  /// Distancia ate a localizacao do cliente no momento do check-in, quando as
+  /// duas coordenadas existem. Calculada NO SERVIDOR — distancia enviada pelo
+  /// aparelho seria autoavaliacao.
+  distanceMeters Int?
+
+  checkedInAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([companyId, technicianId, checkedInAt])
+  @@map("service_order_check_ins")
+}
+
+/// Checklist configuravel por empresa e tipo de OS (PRD 165).
+///
+/// O AlfaOS e multiempresa: uma empresa que instala camera e outra que entrega
+/// carne usam o mesmo motor, e o que muda e a configuracao — nunca um `if` por
+/// tipo no codigo, que viraria um arquivo impossivel de alterar sem release
+/// (164).
+///
+/// `serviceOrderTypeId` nulo e o template PADRAO da empresa, usado quando o
+/// tipo da OS nao tem um proprio — inclusive por OS importada, que nao tem
+/// `typeId` (o provedor nao conhece o catalogo da empresa).
+///
+/// `version` incrementa a cada edicao publicada. Ele nao altera OS nenhuma: o
+/// que governa uma execucao ja iniciada sao as linhas copiadas para
+/// `ServiceOrderChecklistItem` no start. O numero existe para que a auditoria
+/// consiga dizer QUAL versao o tecnico respondeu.
+model ChecklistTemplate {
+  id                 String            @id @default(cuid())
+  companyId          String
+  company            Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  serviceOrderTypeId String?
+  serviceOrderType   ServiceOrderType? @relation(fields: [serviceOrderTypeId], references: [id], onDelete: Cascade)
+
+  name    String
+  version Int     @default(1)
+  active  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items ChecklistTemplateItem[]
+
+  /// Um template por tipo. O template PADRAO da empresa
+  /// (`serviceOrderTypeId IS NULL`) e garantido unico por indice parcial na
+  /// migration — em Postgres, NULLs sao distintos entre si, entao esta unique
+  /// composta sozinha deixaria a empresa acumular varios padroes.
+  @@unique([companyId, serviceOrderTypeId])
+  @@index([companyId, active])
+  @@map("checklist_templates")
+}
+
+/// Uma pergunta do template.
+///
+/// `options` so e lido quando `type = SELECT`, e guarda a lista de valores
+/// aceitos. `evidenceCategory` so e lido quando `type = PHOTO`, e diz QUAL
+/// categoria de evidencia satisfaz o item — e o que liga o checklist as fotos
+/// sem duplicar o arquivo dentro da resposta.
+model ChecklistTemplateItem {
+  id         String            @id @default(cuid())
+  companyId  String
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  templateId String
+  template   ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  label       String
+  description String?
+  type        ChecklistItemType
+  required    Boolean           @default(false)
+  sortOrder   Int               @default(0)
+  options     Json?
+
+  evidenceCategory EvidenceCategory?
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([templateId, sortOrder])
+  @@index([companyId])
+  @@map("checklist_template_items")
+}
+
+/// O checklist DESTA OS — snapshot da pergunta e a resposta, na mesma linha.
+///
+/// ## Por que snapshot, e nao referencia
+///
+/// Esta e a regra mais facil de desfazer sem perceber. Se a OS apenas
+/// apontasse para `ChecklistTemplateItem`, editar o template mudaria
+/// retroativamente o checklist de toda OS ja iniciada — inclusive das
+/// concluidas. Uma OS fechada em marco passaria a exibir uma pergunta criada em
+/// agosto, sem resposta, e o relatorio de conformidade do passado mudaria
+/// sozinho.
+///
+/// Por isso `label`, `type`, `required` e `sortOrder` sao COPIADOS no start.
+/// `templateItemId` fica junto apenas como procedencia, e e `SetNull`: apagar a
+/// pergunta do catalogo nao pode apagar a resposta que alguem deu.
+///
+/// ## Uma linha e pergunta e resposta
+///
+/// Separar em duas tabelas obrigaria a decidir o que significa uma resposta sem
+/// pergunta correspondente, e permitiria esse estado existir. Aqui a resposta e
+/// um campo nulo ate ser preenchida.
+model ServiceOrderChecklistItem {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+
+  /// Procedencia. Nulo quando a pergunta de origem foi apagada do catalogo.
+  templateItemId String?
+  templateId     String?
+
+  label            String
+  description      String?
+  type             ChecklistItemType
+  required         Boolean
+  sortOrder        Int
+  options          Json?
+  evidenceCategory EvidenceCategory?
+
+  /// Exatamente um destes e usado, conforme `type`. Tres colunas tipadas em vez
+  /// de um `value String` unico: "1.5" e 1.5 sao coisas diferentes num
+  /// relatorio de medicao, e um campo texto obrigaria todo leitor a reparsear
+  /// confiando que quem escreveu usou o mesmo formato.
+  valueBoolean Boolean?
+  valueText    String?  @db.Text
+  valueNumber  Decimal? @db.Decimal(14, 4)
+
+  answeredAt       DateTime?
+  answeredByUserId String?
+  answeredBy       User?     @relation("ChecklistAnswerer", fields: [answeredByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([serviceOrderId, sortOrder])
+  @@index([companyId])
+  @@map("service_order_checklist_items")
+}
+
+/// Item de catalogo do inventario, por empresa.
+///
+/// Cadastro do QUE existe. Nao guarda saldo: saldo e derivado dos movimentos
+/// (`InventoryMovement`), e uma coluna de quantidade aqui viraria, na primeira
+/// divergencia, a resposta que ninguem consegue explicar (PRD 181).
+model InventoryItem {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// Codigo operacional do item, unico na empresa. E o que o tecnico procura.
+  code String
+  name String
+  unit MaterialUnit @default(UNIT)
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  movements InventoryMovement[]
+  usages    ServiceOrderMaterialUsage[]
+
+  @@unique([companyId, code])
+  @@index([companyId, active])
+  @@map("inventory_items")
+}
+
+/// O ledger. Linha IMUTAVEL, uma por movimento (PRD 181).
+///
+/// > Nao controlar estoque com `quantity = quantity - 1`.
+///
+/// Um contador guarda o saldo e perde a historia. Quando ele diverge da
+/// prateleira — e diverge — nao ha como descobrir onde: qualquer uma das
+/// ultimas trezentas operacoes pode ter falhado no meio, e nenhuma delas deixou
+/// registro. Aqui o saldo e uma SOMA sobre estas linhas, e toda divergencia tem
+/// um movimento que a explica.
+///
+/// ## Imutavel de verdade
+///
+/// Sem `updatedAt` e sem caminho de update ou delete na aplicacao. Corrigir um
+/// movimento errado e emitir o movimento inverso, nao reescrever o historico —
+/// e a ausencia da coluna e o que torna essa regra visivel para quem for mexer
+/// aqui depois.
+///
+/// ## Quantidade sempre positiva
+///
+/// O sinal vem de `type`. Ver `InventoryMovementType`.
+///
+/// ## Concorrencia
+///
+/// Duas baixas simultaneas do mesmo item pelo mesmo tecnico nao podem passar as
+/// duas por um saldo que so cobria uma. O `SUM` sozinho nao protege: sob READ
+/// COMMITTED as duas transacoes leem o mesmo total e as duas se acham
+/// autorizadas. A serializacao e feita com lock consultivo por
+/// `(empresa, item, tecnico)` antes da leitura do saldo — ver
+/// `consumeInventory` em `src/lib/inventory.ts`.
+model InventoryMovement {
+  id        String                @id @default(cuid())
+  companyId String
+  company   Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      InventoryItem         @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  type      InventoryMovementType
+
+  /// Sempre positiva. Decimal(10,3) acompanha `ServiceOrderMaterialUsage`:
+  /// "15,5 m de cabo drop" e entrada real de campo.
+  quantity Decimal @db.Decimal(10, 3)
+
+  /// De quem e o saldo afetado. Nulo apenas em movimento de almoxarifado que
+  /// nao toca tecnico nenhum.
+  technicianId String?
+  technician   Technician? @relation(fields: [technicianId], references: [id], onDelete: Restrict)
+
+  /// Em qual atendimento o material foi consumido. Obrigatorio na pratica para
+  /// `TECHNICIAN_TO_CUSTOMER`, validado na aplicacao — e o que amarra o consumo
+  /// a OS em vez de deixa-lo como baixa avulsa.
+  serviceOrderId String?
+  serviceOrder   ServiceOrder? @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict)
+
+  createdByUserId String?
+  createdBy       User?   @relation("MovementCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+
+  /// A linha de consumo que este movimento baixou, quando houver.
+  materialUsage ServiceOrderMaterialUsage?
+
+  @@index([companyId, itemId, technicianId])
+  @@index([serviceOrderId])
+  @@index([companyId, createdAt])
+  @@map("inventory_movements")
+}
+
+/// Equipamento instalado no cliente durante o atendimento (PRD 180).
+///
+/// Nao confundir com custodia de ferramenta (210-223), que nao existe nesta
+/// versao: aqui o equipamento SAI da empresa e fica na casa do cliente.
+///
+/// `serial` e `macAddress` sao unicos por empresa quando presentes. Em
+/// Postgres, NULLs sao distintos, entao equipamento sem serial nao colide com
+/// outro sem serial — e digitar o serial de uma ONU agachado dentro de um
+/// armario e a origem mais comum de equipamento vinculado ao cliente errado,
+/// que e exatamente o que a unique pega.
+///
+/// `customerId` e denormalizado da OS para que a pergunta "de quem e esta ONU e
+/// quem a colocou aqui" seja respondivel sem passar pela OS — que e como ela e
+/// feita tres anos depois (181).
+model ServiceOrderEquipment {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  customerId     String
+  customer       Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  /// Rotulo livre do tipo (ONU, ONT, roteador, camera, TV Box). Texto, e nao
+  /// enum, porque o catalogo de equipamento e da EMPRESA: um provedor que
+  /// instala camera e outro que instala TV Box nao compartilham lista, e um
+  /// enum obrigaria release para cada equipamento novo.
+  equipmentType String
+  manufacturer  String?
+  model         String?
+  serial        String?
+  macAddress    String?
+  notes         String?
+
+  installedByUserId String?
+  installedBy       User?   @relation("EquipmentInstaller", fields: [installedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, serial])
+  @@unique([companyId, macAddress])
+  @@index([serviceOrderId])
+  @@index([companyId, customerId])
+  @@map("service_order_equipments")
+}
+
+/// Tentativa de contato com o cliente (PRD 168).
+///
+/// **Nao captura conteudo de conversa.** Registrar que houve uma ligacao e dado
+/// operacional; registrar o que foi dito e outra categoria de coisa, com outras
+/// obrigacoes de LGPD (113) — e o AlfaOS nao precisa dela para operar.
+model ServiceOrderContactAttempt {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  technicianId   String
+  technician     Technician   @relation(fields: [technicianId], references: [id], onDelete: Restrict)
+
+  channel ContactAttemptChannel
+  result  ContactAttemptResult
+  /// Observacao curta. Nunca a transcricao da conversa.
+  notes   String?
+
+  attemptedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([serviceOrderId, attemptedAt])
+  @@index([companyId])
+  @@map("service_order_contact_attempts")
+}
+
+/// Impedimento declarado pelo tecnico (PRD 169).
+///
+/// Registro, nao transicao: a OS continua no estado em que estava. Um
+/// impedimento que fechasse a OS seria conclusao falsa, e e justamente o que
+/// esta entidade existe para tornar desnecessario.
+model ServiceOrderImpediment {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  serviceOrderId String
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  technicianId   String
+  technician     Technician   @relation(fields: [technicianId], references: [id], onDelete: Restrict)
+
+  reason ImpedimentReason
+  /// Obrigatoria quando `reason = OTHER`, pelo mesmo motivo de
+  /// `LocationChangeReason`.
+  notes  String?
+
+  reportedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([serviceOrderId, reportedAt])
+  @@index([companyId])
+  @@map("service_order_impediments")
+}
+
+/// O que o tipo de OS EXIGE para concluir (PRD 164, 166).
+///
+/// Uma linha por `ServiceOrderType`. **A ausencia de linha significa "sem
+/// exigencia extra"** — e essa e a propriedade que mantem esta versao
+/// retrocompativel: toda OS e todo tipo que existiam antes da v0.10 continuam
+/// concluindo exatamente como antes, porque nenhum deles tem politica.
+///
+/// Instalacao pede foto, equipamento e assinatura; manutencao pede antes e
+/// depois; entrega de carne pode nao pedir nada. Isso e configuracao da
+/// empresa, nunca `if (tipo === "INSTALACAO")` no codigo — e nunca uma regra
+/// escrita no Flutter, que um APK antigo em campo ignoraria (166).
+model ServiceOrderCompletionPolicy {
+  id                 String           @id @default(cuid())
+  companyId          String
+  company            Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  serviceOrderTypeId String           @unique
+  serviceOrderType   ServiceOrderType @relation(fields: [serviceOrderTypeId], references: [id], onDelete: Cascade)
+
+  /// Todo item `required` do checklist precisa estar respondido.
+  requireChecklist Boolean @default(false)
+  requireSignature Boolean @default(false)
+  requireMaterials Boolean @default(false)
+  requireEquipment Boolean @default(false)
+  requireCheckIn   Boolean @default(false)
+
+  /// Quantidade minima de evidencias, independente de categoria.
+  minEvidenceCount Int @default(0)
+
+  /// Categorias que precisam existir, cada uma com ao menos uma foto.
+  ///
+  /// Lista, e nao uma tabela filha: e um conjunto pequeno, lido inteiro, sempre
+  /// junto da politica, e nunca consultado pelo lado da categoria. Uma tabela
+  /// aqui seria uma juncao a mais para responder a mesma pergunta.
+  requiredEvidenceCategories EvidenceCategory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@map("service_order_completion_policies")
+}
+
+/// O fechamento, congelado (PRD 45 da tarefa v0.10).
+///
+/// Gravado na MESMA transacao que leva a OS a COMPLETED. Guarda o resumo
+/// estruturado do que existia no instante do fechamento: contagens, respostas
+/// do checklist, materiais, equipamentos e o hash do conteudo assinado.
+///
+/// Existe para que o registro final nao dependa de reconstituir o passado a
+/// partir das tabelas vivas. Sem ele, "o que o cliente assinou" so poderia ser
+/// respondido relendo evidencias e materiais como estao HOJE — e a resposta
+/// mudaria a cada correcao posterior autorizada.
+///
+/// Nao e o PDF. O PDF, quando existir, e uma RENDERIZACAO disto; a conclusao
+/// nunca fica bloqueada esperando um pipeline de documento.
+model ServiceOrderCompletion {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  serviceOrderId String       @unique
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  technicianId   String
+  technician     Technician   @relation(fields: [technicianId], references: [id], onDelete: Restrict)
+
+  completedAt DateTime
+
+  /// `ServiceOrder.version` no instante do fechamento.
+  orderVersionAtCompletion Int
+
+  /// Resumo determinístico do conteudo fechado. E o mesmo algoritmo que a
+  /// assinatura usa, e e a comparacao entre os dois que prova que o cliente
+  /// assinou ISTO.
+  contentHash String
+
+  /// Contagens e respostas, sem binario e sem segredo.
+  snapshot Json
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, completedAt])
+  @@map("service_order_completions")
 }
