@@ -71,7 +71,21 @@ class FieldException implements Exception {
     this.conflict = false,
     this.retryAfterSeconds,
     this.status,
+    this.pendencies = const [],
   });
+
+  /// Pendências estruturadas da recusa de conclusão (v0.10).
+  ///
+  /// Chega apenas em `validationError` vindo de `complete`. Cada entrada tem um
+  /// `code` ESTÁVEL — é ele que leva o técnico à seção que falta. A lista é
+  /// aditiva ao contrato: um APK que a ignore mostra a mensagem e se comporta
+  /// como antes.
+  ///
+  /// Guardada como mapa cru de propósito: traduzi-la para um tipo do domínio
+  /// aqui obrigaria a camada de erro a conhecer o domínio de execução, e um
+  /// código novo do servidor viraria exceção de parsing em vez de item
+  /// ignorado.
+  final List<Map<String, dynamic>> pendencies;
 
   final FieldErrorCode code;
 
@@ -100,7 +114,8 @@ class FieldException implements Exception {
       retryable = true,
       conflict = false,
       retryAfterSeconds = null,
-      status = null;
+      status = null,
+      pendencies = const [];
 
   @override
   String toString() => 'FieldException(${code.name}, status: $status)';

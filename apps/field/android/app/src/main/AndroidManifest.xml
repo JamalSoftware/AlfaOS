@@ -1,17 +1,49 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!--
-        INTERNET e a UNICA permissao do aplicativo.
+        Tres permissoes, e cada uma existe porque uma funcionalidade REAL
+        precisa dela agora.
 
-        O Field fala com a API do AlfaOS e com mais nada. Camera, localizacao,
-        armazenamento e telefone NAO sao pedidos: fotos, GPS e evidencias
-        entram em fases futuras, e discar e navegar acontecem por Intent
-        (`tel:`, Maps, Waze), que sao apps externos e nao exigem permissao.
+        Ate a v0.9 INTERNET era a unica. A v0.10 acrescenta camera e
+        localizacao porque a execucao em campo passou a exigir evidencia
+        fotografica e confirmacao de ponto — nao "para depois". Pedir permissao
+        antes de existir a funcionalidade treina o usuario a aceitar sem ler, e
+        no dia em que ela for necessaria o consentimento ja perdeu o
+        significado.
 
-        Pedir permissao "para depois" treina o usuario a aceitar sem ler, e no
-        dia em que a camera for realmente necessaria o consentimento ja terá
-        perdido o significado.
+        Discar e navegar continuam sem permissao: sao Intent para apps
+        externos (`tel:`, Maps, Waze).
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!--
+        Camera: evidencia fotografica do atendimento (PRD 162).
+    -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!--
+        Localizacao ENQUANTO EM USO, e so.
+
+        ACCESS_BACKGROUND_LOCATION NAO e pedida e nao deve ser acrescentada: o
+        AlfaOS nao rastreia tecnico fora do atendimento, e a §138 trata
+        localizacao de pessoa como dado sensivel. Rastreamento continuo e outra
+        capability, com outro consentimento — nao um efeito colateral desta.
+
+        COARSE acompanha FINE porque o Android 12+ deixa o usuario conceder
+        apenas a aproximada; sem declarar as duas, negar a precisa negaria
+        tudo, e um ponto aproximado ainda serve para registrar chegada.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+
+    <!--
+        O aparelho NAO precisa ter camera nem GPS para o aplicativo instalar.
+
+        Sem isto o Play Store esconderia o app de qualquer aparelho sem os dois
+        — e o tecnico que usa um tablet sem camera perderia o acesso a lista de
+        OS inteira por causa de uma funcionalidade opcional.
+    -->
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-feature android:name="android.hardware.location.gps" android:required="false"/>
 
     <application
         android:label="AlfaOS Field"

@@ -153,8 +153,9 @@ export async function addServiceOrderEquipment(
       );
     }
 
+    let equipment;
     try {
-      return await tx.serviceOrderEquipment.create({
+      equipment = await tx.serviceOrderEquipment.create({
         data: {
           companyId,
           serviceOrderId: order.id,
@@ -174,6 +175,36 @@ export async function addServiceOrderEquipment(
         "Já existe um equipamento cadastrado com este número de série ou MAC.",
       );
     }
+
+    /*
+      Entra na TIMELINE, e não só no AuditLog.
+
+      Instalar equipamento é fato operacional, não ação administrativa: é o que
+      responde "de quem é esta ONU e quem a colocou aqui" três anos depois
+      (PRD §181), e quem faz essa pergunta lê a linha do tempo da OS, não a
+      auditoria.
+
+      Evidência fotográfica NÃO ganha evento por foto, de propósito: são até
+      dez por OS, e dez entradas de "foto anexada" afogariam os fatos que
+      importam. Elas continuam no AuditLog, e a contagem entra no evento de
+      conclusão — que foi a escolha da v0.4 e continua certa.
+    */
+    await tx.serviceOrderEvent.create({
+      data: {
+        companyId,
+        serviceOrderId: order.id,
+        userId: actorUserId,
+        event: "EQUIPMENT_INSTALLED",
+        metadata: {
+          equipmentType: equipment.equipmentType,
+          // Identificadores, nunca dado de pessoa.
+          serial: equipment.serial,
+          macAddress: equipment.macAddress,
+        },
+      },
+    });
+
+    return equipment;
   });
 
   await logAudit({

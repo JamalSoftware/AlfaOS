@@ -36,6 +36,21 @@ export interface FieldExecutionBundle {
   orderId: string;
   version: number;
   executionVersion: number | null;
+  /**
+   * O relatório do atendimento.
+   *
+   * Vem no pacote porque a tela precisa MOSTRAR o que já foi escrito antes de
+   * deixar editar — sem isso o técnico reabriria a OS e veria os campos vazios,
+   * e sobrescreveria o próprio texto achando que nunca salvou.
+   *
+   * `diagnosis` e `workPerformed` são os dois únicos requisitos de conclusão
+   * que valem para toda OS, com ou sem política.
+   */
+  report: {
+    diagnosis: string | null;
+    workPerformed: string | null;
+    notes: string | null;
+  };
   location: {
     status: LocationStatus;
     latitude: number | null;
@@ -120,7 +135,14 @@ export async function getFieldExecutionBundle(
       version: true,
       customerId: true,
       typeId: true,
-      execution: { select: { version: true } },
+      execution: {
+        select: {
+          version: true,
+          diagnosis: true,
+          workPerformed: true,
+          notes: true,
+        },
+      },
     },
   });
   if (!order) {
@@ -185,6 +207,11 @@ export async function getFieldExecutionBundle(
     orderId: order.id,
     version: order.version,
     executionVersion: order.execution?.version ?? null,
+    report: {
+      diagnosis: order.execution?.diagnosis ?? null,
+      workPerformed: order.execution?.workPerformed ?? null,
+      notes: order.execution?.notes ?? null,
+    },
     location: {
       status: locationView.status,
       latitude: locationView.location?.latitude ?? null,

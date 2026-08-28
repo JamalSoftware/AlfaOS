@@ -43,6 +43,19 @@ dependencies:
   package_info_plus: ^10.2.1
   uuid: ^4.6.0
 
+  # Execução em campo (v0.10).
+  #
+  # `geolocator` só é usado com permissão "enquanto em uso" — nunca em segundo
+  # plano. `image_picker` cobre câmera e galeria e, no Android moderno, não
+  # exige permissão de armazenamento: ele usa o seletor do sistema, que entrega
+  # o arquivo já autorizado.
+  #
+  # A assinatura NÃO tem dependência: é um `CustomPainter` de ~150 linhas.
+  # Trazer um pacote para desenhar uma polilinha seria superfície de terceiro
+  # em troca de nada.
+  geolocator: ^13.0.2
+  image_picker: ^1.1.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

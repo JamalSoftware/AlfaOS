@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/api/field_api_client.dart';
+import '../core/location/location_service.dart';
+import '../core/media/photo_capture.dart';
 import '../core/storage/session_store.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/state/session_controller.dart';
+import '../features/execution/data/execution_repository.dart';
 import '../features/notifications/data/notifications_repository.dart';
 import '../features/orders/data/orders_repository.dart';
 import 'theme/theme_controller.dart';
@@ -66,6 +69,22 @@ final notificationsRepositoryProvider = Provider<NotificationsRepository>((
   ref,
 ) {
   return NotificationsRepository(api: ref.watch(apiClientProvider));
+});
+
+final executionRepositoryProvider = Provider<ExecutionRepository>((ref) {
+  return ExecutionRepository(api: ref.watch(apiClientProvider));
+});
+
+/// GPS e câmera entram por provider para que o teste os substitua.
+///
+/// Um widget test não tem sensor nenhum. Sem esta fronteira, a tela de execução
+/// — que é a mais importante do aplicativo — seria a única intestável.
+final locationServiceProvider = Provider<LocationService>((ref) {
+  return const GeolocatorLocationService();
+});
+
+final photoCaptureProvider = Provider<PhotoCapture>((ref) {
+  return const ImagePickerPhotoCapture();
 });
 
 /// Registro de push — inerte nesta Alpha.

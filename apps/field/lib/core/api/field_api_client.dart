@@ -67,6 +67,33 @@ class FieldApiClient {
     path,
   );
 
+  /// Envio de arquivo — foto de evidência e assinatura.
+  ///
+  /// `multipart`, não JSON com base64: base64 infla 33% e obrigaria a carregar
+  /// a imagem inteira como string na memória do aparelho, que é justamente o
+  /// recurso escasso num celular de campo com uma foto de 8 MB.
+  ///
+  /// O timeout de envio é maior que o padrão porque a rede do técnico é a pior
+  /// do sistema: 20 segundos derrubariam um upload legítimo em borda de sinal,
+  /// e o técnico repetiria a foto achando que falhou.
+  Future<Map<String, dynamic>> upload(
+    String path, {
+    required FormData form,
+    required String idempotencyKey,
+    String method = 'POST',
+  }) => _send(
+    () async => _dio.request<dynamic>(
+      path,
+      data: form,
+      options: (await _options(true, idempotencyKey: idempotencyKey)).copyWith(
+        method: method,
+        sendTimeout: const Duration(minutes: 2),
+        receiveTimeout: const Duration(minutes: 2),
+      ),
+    ),
+    path,
+  );
+
   Future<Options> _options(bool authenticated, {String? idempotencyKey}) async {
     final headers = <String, String>{};
     if (authenticated) {
@@ -127,6 +154,7 @@ class FieldApiClient {
     var retryable = status >= 500;
     var conflict = status == 409;
     int? retryAfter;
+    var pendencies = const <Map<String, dynamic>>[];
 
     if (data is Map && data['error'] is Map) {
       final error = Map<String, dynamic>.from(data['error'] as Map);
@@ -137,6 +165,15 @@ class FieldApiClient {
       if (error['conflict'] is bool) conflict = error['conflict'] as bool;
       if (error['retryAfterSeconds'] is int) {
         retryAfter = error['retryAfterSeconds'] as int;
+      }
+      // Campo ADITIVO (v0.10): só a recusa de conclusão o traz. Um APK antigo
+      // simplesmente não o lê e continua mostrando a mensagem.
+      final raw2 = error['pendencies'];
+      if (raw2 is List) {
+        pendencies = raw2
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList(growable: false);
       }
     } else if (status == 401) {
       code = FieldErrorCode.unauthenticated;
@@ -149,6 +186,7 @@ class FieldApiClient {
       conflict: conflict,
       retryAfterSeconds: retryAfter,
       status: status,
+      pendencies: pendencies,
     );
 
     /*

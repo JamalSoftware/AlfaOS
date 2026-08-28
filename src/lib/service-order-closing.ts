@@ -668,7 +668,7 @@ export async function putSignature(
           },
         });
       }
-      return tx.serviceOrderSignature.create({
+      const created = await tx.serviceOrderSignature.create({
         data: {
           companyId,
           serviceOrderId: orderId,
@@ -681,6 +681,26 @@ export async function putSignature(
           signedOrderVersion,
         },
       });
+
+      /*
+        Marco da timeline, e só na PRIMEIRA coleta.
+
+        "O cliente assinou" é o fato operacional; redesenhar por causa de um
+        traço torto não é, e um evento por redesenho encheria a linha do tempo
+        de ruído. A substituição continua auditada no `AuditLog`.
+      */
+      await tx.serviceOrderEvent.create({
+        data: {
+          companyId,
+          serviceOrderId: orderId,
+          userId: actorUserId,
+          event: "SIGNATURE_CAPTURED",
+          // Nome de quem assinou, nunca a imagem nem o hash do conteúdo.
+          metadata: { signerName: created.signerName },
+        },
+      });
+
+      return created;
     });
 
     if (previousKey && previousKey !== storageKey) {
