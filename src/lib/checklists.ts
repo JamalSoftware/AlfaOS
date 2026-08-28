@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { ChecklistItemType, EvidenceCategory } from "@prisma/client";
 import { prisma } from "./prisma";
 import { logAudit } from "./audit";
-import { badRequest, conflict, notFound } from "./errors";
+import { badRequest, notFound } from "./errors";
 import {
   claimOrderForChildMutation,
   loadInProgressOwnedOrder,

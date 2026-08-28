@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { DomainError } from "@/lib/errors";
+import { CompletionBlockedError } from "@/lib/service-order-completion";
 import {
   FieldError,
   fieldCodeForStatus,
@@ -42,6 +43,27 @@ export async function runFieldApi(
   try {
     return await handler();
   } catch (error) {
+    /*
+      Pendências de conclusão saem ESTRUTURADAS.
+
+      É a única recusa cujo corpo carrega mais que uma frase, e por um motivo
+      concreto: com uma lista de códigos o aplicativo leva o técnico direto ao
+      item que falta; com um texto, ele procura (PRD §166). O `code` continua
+      sendo `VALIDATION_ERROR`, então um aplicativo que ignore `pendencies` se
+      comporta exatamente como antes — a lista é aditiva ao contrato.
+    */
+    if (error instanceof CompletionBlockedError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            ...fieldErrorBody("VALIDATION_ERROR", error.message),
+            pendencies: error.pendencies,
+          },
+        },
+        { status: fieldErrorStatus("VALIDATION_ERROR") },
+      );
+    }
     if (error instanceof FieldError) {
       return fieldFail(error.code, error.message);
     }

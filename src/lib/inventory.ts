@@ -2,7 +2,12 @@ import { Prisma } from "@prisma/client";
 import type { InventoryMovementType, MaterialUnit } from "@prisma/client";
 import { prisma } from "./prisma";
 import { logAudit } from "./audit";
-import { badRequest, conflict, notFound } from "./errors";
+import {
+  badRequest,
+  conflict,
+  isUniqueConstraintError,
+  notFound,
+} from "./errors";
 import {
   claimOrderForChildMutation,
   loadInProgressOwnedOrder,
@@ -221,6 +226,68 @@ export async function listTechnicianStock(
     unit: item.unit,
     balance: (balances.get(item.id) ?? new Prisma.Decimal(0)).toString(),
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Catálogo
+// ---------------------------------------------------------------------------
+
+export const INVENTORY_CODE_MAX = 40;
+export const INVENTORY_NAME_MAX = 120;
+
+export interface InventoryItemInput {
+  code: string;
+  name: string;
+  unit: MaterialUnit;
+}
+
+/**
+ * Cadastra um item no catálogo da empresa.
+ *
+ * `code` é único por empresa e é o que o técnico procura. Normalizado para
+ * maiúsculas: `cabo-drop` e `CABO-DROP` seriam dois itens com estoques
+ * separados, e a divergência só apareceria numa conferência de prateleira.
+ */
+export async function createInventoryItem(
+  companyId: string,
+  actorUserId: string,
+  input: InventoryItemInput,
+): Promise<{ id: string; code: string; name: string; unit: MaterialUnit }> {
+  const code = input.code.trim().toUpperCase().slice(0, INVENTORY_CODE_MAX);
+  const name = input.name.trim().slice(0, INVENTORY_NAME_MAX);
+  if (!code) throw badRequest("Código do item é obrigatório.");
+  if (!name) throw badRequest("Nome do item é obrigatório.");
+
+  let item;
+  try {
+    item = await prisma.inventoryItem.create({
+      data: { companyId, code, name, unit: input.unit },
+    });
+  } catch (error) {
+    // A unique arbitra: conferir antes deixaria duas criações simultâneas
+    // passarem pela conferência.
+    if (!isUniqueConstraintError(error)) throw error;
+    throw conflict("Já existe um item com este código.");
+  }
+
+  await logAudit({
+    companyId,
+    userId: actorUserId,
+    action: "INVENTORY.ITEM_CREATED",
+    entity: "InventoryItem",
+    entityId: item.id,
+    details: `Item ${item.code} — ${item.name} (${item.unit})`,
+  });
+
+  return { id: item.id, code: item.code, name: item.name, unit: item.unit };
+}
+
+export async function listInventoryItems(companyId: string) {
+  return prisma.inventoryItem.findMany({
+    where: { companyId, active: true },
+    orderBy: { name: "asc" },
+    select: { id: true, code: true, name: true, unit: true },
+  });
 }
 
 // ---------------------------------------------------------------------------

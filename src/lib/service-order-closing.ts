@@ -2,12 +2,7 @@ import { createHash } from "node:crypto";
 import type { EvidenceCategory, EvidenceKind, MaterialUnit, Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { logAudit } from "./audit";
-import {
-  badRequest,
-  conflict,
-  isUniqueConstraintError,
-  notFound,
-} from "./errors";
+import { badRequest, conflict, notFound } from "./errors";
 import {
   buildCompletionSnapshot,
   closingContentHash,

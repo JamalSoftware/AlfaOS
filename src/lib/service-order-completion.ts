@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import type { EvidenceCategory } from "@prisma/client";
-import { DomainError } from "./errors";
+import { logAudit } from "./audit";
+import { DomainError, notFound } from "./errors";
+import { prisma } from "./prisma";
 import { pendingChecklistItems } from "./checklists";
 import type { ExecutionTx } from "./service-orders";
 
@@ -82,6 +84,90 @@ export class CompletionBlockedError extends DomainError {
     this.name = "CompletionBlockedError";
     this.pendencies = pendencies;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Política por tipo de OS
+// ---------------------------------------------------------------------------
+
+export interface CompletionPolicyInput {
+  requireChecklist: boolean;
+  requireSignature: boolean;
+  requireMaterials: boolean;
+  requireEquipment: boolean;
+  requireCheckIn: boolean;
+  minEvidenceCount: number;
+  requiredEvidenceCategories: EvidenceCategory[];
+}
+
+/** Teto do mínimo de evidências: o teto de fotos por OS é 10. */
+export const MAX_REQUIRED_EVIDENCE = 10;
+
+/**
+ * Define o que um tipo de OS exige para concluir.
+ *
+ * Substitui a política inteira em vez de aplicar um patch: uma política parcial
+ * obrigaria a decidir o que um campo ausente significa — "não mude" ou "não
+ * exige" — e as duas leituras produzem resultados opostos para quem esquecer um
+ * campo. Substituindo, o que está gravado é sempre exatamente o que alguém
+ * enviou.
+ *
+ * A política é do TIPO, e o tipo é da empresa: `serviceOrderTypeId` é validado
+ * contra `companyId` antes de qualquer escrita, senão um ADMIN poderia
+ * configurar a exigência de conclusão de outra empresa.
+ */
+export async function putCompletionPolicy(
+  companyId: string,
+  actorUserId: string,
+  serviceOrderTypeId: string,
+  input: CompletionPolicyInput,
+): Promise<{ serviceOrderTypeId: string }> {
+  const minEvidenceCount = Math.max(
+    0,
+    Math.min(MAX_REQUIRED_EVIDENCE, Math.trunc(input.minEvidenceCount)),
+  );
+  // Categorias repetidas exigiriam a mesma foto duas vezes e produziriam duas
+  // pendências idênticas na tela do técnico.
+  const categories = Array.from(new Set(input.requiredEvidenceCategories));
+
+  const saved = await prisma.$transaction(async (tx) => {
+    const type = await tx.serviceOrderType.findFirst({
+      where: { id: serviceOrderTypeId, companyId },
+      select: { id: true, name: true },
+    });
+    if (!type) {
+      throw notFound("Tipo de OS não encontrado.");
+    }
+
+    const data = {
+      requireChecklist: input.requireChecklist,
+      requireSignature: input.requireSignature,
+      requireMaterials: input.requireMaterials,
+      requireEquipment: input.requireEquipment,
+      requireCheckIn: input.requireCheckIn,
+      minEvidenceCount,
+      requiredEvidenceCategories: categories,
+    };
+
+    await tx.serviceOrderCompletionPolicy.upsert({
+      where: { serviceOrderTypeId },
+      create: { companyId, serviceOrderTypeId, ...data },
+      update: data,
+    });
+
+    return type;
+  });
+
+  await logAudit({
+    companyId,
+    userId: actorUserId,
+    action: "SERVICE_ORDER_TYPE.COMPLETION_POLICY_SAVED",
+    entity: "ServiceOrderCompletionPolicy",
+    entityId: serviceOrderTypeId,
+    details: `Requisitos de conclusão de "${saved.name}" atualizados`,
+  });
+
+  return { serviceOrderTypeId };
 }
 
 // ---------------------------------------------------------------------------
