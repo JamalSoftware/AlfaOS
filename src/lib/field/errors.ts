@@ -39,6 +39,19 @@ export const FIELD_ERROR_CODES = [
    * `UNAUTHENTICATED` uniforme.
    */
   "DEVICE_REVOKED",
+
+  /**
+   * A foto da etiqueta passou do prazo e não serve mais para criar equipamento.
+   *
+   * Código PRÓPRIO pelo mesmo motivo de `DEVICE_REVOKED`: é a única recusa de
+   * validação cuja saída não é "corrija o formulário". Tentar de novo com a
+   * mesma foto nunca vai funcionar — o aplicativo precisa pedir uma nova
+   * captura, e distinguir isso por texto de mensagem seria frágil.
+   *
+   * Um APK que não conheça o código cai em `unknown` e mostra a mensagem do
+   * servidor, que já explica o que fazer.
+   */
+  "LABEL_EXPIRED",
   "INTERNAL",
 ] as const;
 
@@ -75,6 +88,9 @@ const STATUS_BY_CODE: Record<FieldErrorCode, number> = {
   UPSTREAM_UNAVAILABLE: 503,
   IDEMPOTENCY_CONFLICT: 409,
   DEVICE_REVOKED: 403,
+  // 400 e não 409: nada mudou debaixo do aparelho — o prazo simplesmente
+  // passou. `conflict` faria o Flutter recarregar o pacote, que não é a saída.
+  LABEL_EXPIRED: 400,
   INTERNAL: 500,
 };
 

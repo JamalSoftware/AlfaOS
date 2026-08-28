@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { COMMITTED_EVIDENCE } from "@/lib/service-order-closing";
 import { getCustomerLocationView, type LocationStatus } from "@/lib/customer-locations";
 import { getOrderChecklist, type PublicChecklistItem } from "@/lib/checklists";
 import {
@@ -169,7 +170,9 @@ export async function getFieldExecutionBundle(
     }),
     getOrderChecklist(companyId, order.id),
     prisma.serviceOrderEvidence.findMany({
-      where: { serviceOrderId: order.id, companyId },
+      // Etiqueta temporária NÃO é foto da OS: ela vira evidência só quando o
+      // equipamento que ela identifica passa a existir.
+      where: { serviceOrderId: order.id, companyId, ...COMMITTED_EVIDENCE },
       select: { id: true, category: true, caption: true, createdAt: true },
       orderBy: { createdAt: "asc" },
     }),

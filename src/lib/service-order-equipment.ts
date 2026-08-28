@@ -1,6 +1,13 @@
 import { prisma } from "./prisma";
 import { logAudit } from "./audit";
-import { badRequest, conflict, isUniqueConstraintError, notFound } from "./errors";
+import {
+  badRequest,
+  conflict,
+  isUniqueConstraintError,
+  notFound,
+  uniqueTargetIncludes,
+} from "./errors";
+import { FieldError } from "./field/errors";
 import {
   claimOrderForChildMutation,
   loadInProgressOwnedOrder,
@@ -161,6 +168,10 @@ export async function addServiceOrderEquipment(
     throw badRequest("Endereço MAC inválido.");
   }
 
+  // Um instante só para a transação inteira: ler o relógio duas vezes deixaria
+  // a etiqueta expirar no meio da própria conferência.
+  const now = new Date();
+
   const created = await prisma.$transaction(async (tx) => {
     const { order } = await loadInProgressOwnedOrder(
       tx,
@@ -194,11 +205,29 @@ export async function addServiceOrderEquipment(
         companyId,
         category: "EQUIPMENT_LABEL",
       },
-      select: { id: true },
+      select: { id: true, status: true, expiresAt: true },
     });
     if (!label) {
       throw badRequest(
         "Anexe a foto da etiqueta do equipamento antes de registrá-lo.",
+      );
+    }
+
+    /*
+      Já promovida significa JÁ USADA.
+
+      Uma etiqueta só sai de `TEMPORARY` quando um equipamento passa a existir
+      apontando para ela. Reapresentá-la é tentar identificar um segundo
+      aparelho com a prova do primeiro — e aí não haveria como saber, olhando a
+      foto, de qual dos dois ela é.
+    */
+    if (label.status !== "TEMPORARY") {
+      throw conflict("Esta foto de etiqueta já identifica outro equipamento.");
+    }
+    if (label.expiresAt !== null && label.expiresAt.getTime() <= now.getTime()) {
+      throw new FieldError(
+        "LABEL_EXPIRED",
+        "A foto da etiqueta expirou. Fotografe a etiqueta de novo.",
       );
     }
 
@@ -230,9 +259,40 @@ export async function addServiceOrderEquipment(
       });
     } catch (error) {
       if (!isUniqueConstraintError(error)) throw error;
+      /*
+        Duas uniques podem estourar aqui, e a mensagem tem de dizer qual.
+
+        No caminho do Field, quem separa duas tentativas simultâneas é o
+        compare-and-set da versão da OS, antes de chegar a esta linha — medido:
+        a segunda leva 409 mesmo sem a unique. A unique em `labelEvidenceId` é
+        a rede embaixo dela, e vale para qualquer escrita, inclusive as que
+        ainda não existem.
+      */
       throw conflict(
-        "Já existe um equipamento cadastrado com este número de série ou MAC.",
+        uniqueTargetIncludes(error, "labelEvidenceId")
+          ? "Esta foto de etiqueta já identifica outro equipamento."
+          : "Já existe um equipamento cadastrado com este número de série ou MAC.",
       );
+    }
+
+    /*
+      PROMOÇÃO — na mesma transação da criação.
+
+      A foto deixa de ser arquivo recebido e passa a ser evidência da OS no
+      mesmo commit em que o equipamento nasce. Fora da transação existiria uma
+      janela em que o equipamento já existe apontando para uma prova que a
+      política de conclusão ainda ignora.
+
+      `updateMany` com `status: TEMPORARY` no filtro, e não `update`: se algo
+      tiver promovido esta linha no intervalo, a contagem volta zero e a
+      transação inteira é abortada. Nenhum estado intermediário sobrevive.
+    */
+    const promoted = await tx.serviceOrderEvidence.updateMany({
+      where: { id: label.id, companyId, status: "TEMPORARY" },
+      data: { status: "COMMITTED", expiresAt: null },
+    });
+    if (promoted.count !== 1) {
+      throw conflict("Esta foto de etiqueta já identifica outro equipamento.");
     }
 
     /*

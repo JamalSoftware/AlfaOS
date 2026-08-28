@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import type { ChecklistItemType, EvidenceCategory } from "@prisma/client";
 import { prisma } from "./prisma";
+import { COMMITTED_EVIDENCE } from "./service-order-closing";
 import { logAudit } from "./audit";
 import { badRequest, notFound } from "./errors";
 import {
@@ -505,6 +506,7 @@ export async function pendingChecklistItems(
       where: {
         serviceOrderId: orderId,
         companyId,
+        ...COMMITTED_EVIDENCE,
         category: { in: photoCategories },
       },
       select: { category: true },

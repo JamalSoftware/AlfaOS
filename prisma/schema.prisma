@@ -813,12 +813,25 @@ model ServiceOrderEvidence {
   sizeBytes    Int
   createdAt    DateTime @default(now())
 
-  /// Equipamentos que usam esta foto como etiqueta de identificacao.
-  ///
-  /// Lista, e nao um-para-um: nada impede duas ONUs iguais aparecerem na mesma
-  /// foto, e proibir isso no schema nao tornaria o registro mais verdadeiro.
-  identifies ServiceOrderEquipment[] @relation("EquipmentLabel")
+  /// `COMMITTED` no default: so a etiqueta do equipamento nasce `TEMPORARY`.
+  status EvidenceStatus @default(COMMITTED)
 
+  /// Prazo para a etiqueta virar equipamento. Nulo quando ja e definitiva.
+  ///
+  /// Vencido, o upload nao serve mais para criar equipamento e vira alvo do
+  /// expurgo. Nao e seguranca — e higiene de armazenamento: sem prazo, toda
+  /// foto tirada e abandonada ficaria no disco para sempre.
+  expiresAt DateTime?
+
+  /// O equipamento que esta foto identifica.
+  ///
+  /// UM, no maximo — a unique fica do lado do equipamento. Duas ONUs na mesma
+  /// foto significariam dois aparelhos com a mesma prova de identidade, que e
+  /// exatamente a confusao que a foto veio evitar.
+  identifies ServiceOrderEquipment? @relation("EquipmentLabel")
+
+  /// Varredura do expurgo: temporarias vencidas.
+  @@index([status, expiresAt])
   @@index([serviceOrderId, createdAt])
   @@index([serviceOrderId, category])
   @@index([serviceOrderId, contentHash])
@@ -1300,6 +1313,25 @@ enum CheckInSource {
 /// faz sentido junto de um catalogo de categorias por empresa, que nao existe
 /// nesta versao, e adiciona-lo agora criaria um valor que nenhuma politica
 /// consegue exigir.
+/// Estagio de vida de uma evidencia.
+///
+/// Existe por causa da foto da ETIQUETA do equipamento, que e enviada ANTES de
+/// o equipamento existir: o registro precisa do id dela para apontar. Sem
+/// estado, essa foto nasceria como evidencia definitiva da OS e ficaria la
+/// mesmo se o cadastro fosse recusado — contando na politica de conclusao e
+/// aparecendo no relatorio como prova de um aparelho que ninguem registrou.
+///
+/// `COMMITTED` e o default de proposito: toda foto anterior a esta migration e
+/// toda foto anexada pelo caminho normal ja sao definitivas no instante em que
+/// chegam, e so a etiqueta passa por estagio.
+enum EvidenceStatus {
+  /// Recebida, guardada, mas ainda nao e prova de nada. Expira.
+  TEMPORARY
+
+  /// Evidencia operacional da OS.
+  COMMITTED
+}
+
 enum EvidenceCategory {
   BEFORE_SERVICE
   INSTALLATION_LOCATION
@@ -1875,7 +1907,18 @@ model ServiceOrderEquipment {
   /// `Restrict` de proposito: apagar a foto deixaria para tras um equipamento
   /// sem serie, sem MAC e sem etiqueta, ou seja, um registro que nao responde
   /// a pergunta que ele existe para responder.
-  labelEvidenceId String?
+  ///
+  /// `@unique` e o invariante de UMA FOTO, UM EQUIPAMENTO — no BANCO, e nao
+  /// so no caminho que o Field usa hoje.
+  ///
+  /// Duas requisicoes SIMULTANEAS ja sao separadas antes de chegar aqui, pelo
+  /// compare-and-set da versao da OS — medido: a segunda leva 409 mesmo sem
+  /// esta unique. O que a unique acrescenta e o que nenhum `if` alcanca:
+  /// qualquer escrita futura que nao passe por `addServiceOrderEquipment` —
+  /// uma ferramenta administrativa, uma correcao manual, um script de
+  /// migracao — continua impedida de dar a mesma prova de identidade a dois
+  /// aparelhos. Verificado por reversao: sem ela, um `create` direto duplica.
+  labelEvidenceId String?               @unique
   labelEvidence   ServiceOrderEvidence? @relation("EquipmentLabel", fields: [labelEvidenceId], references: [id], onDelete: Restrict)
 
   installedByUserId String?

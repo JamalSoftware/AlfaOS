@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../app/theme/tokens.dart';
+import '../../../core/errors/field_error.dart';
 import '../domain/execution.dart';
 import '../state/execution_controller.dart';
 import 'signature_pad.dart';
@@ -881,6 +882,20 @@ Future<void> showEquipmentSheet(
                   if (ok) return null;
 
                   final motivo = notifier.lastError;
+                  /*
+                    Etiqueta vencida: a saída é OUTRA FOTO.
+
+                    Insistir com a mesma imagem produziria a mesma recusa para
+                    sempre. Soltar a captura devolve o formulário ao estado em
+                    que ele pede a etiqueta — com o resto do que foi digitado
+                    intacto, porque redigitar não é parte do problema.
+
+                    A decisão vem do CÓDIGO do servidor, não de ler a mensagem:
+                    aqui o aplicativo só reage ao que lhe foi dito.
+                  */
+                  if (notifier.lastErrorCode == FieldErrorCode.labelExpired) {
+                    setState(() => etiqueta = null);
+                  }
                   notifier.consumeError();
                   return motivo ??
                       'O atendimento mudou enquanto você preenchia. '

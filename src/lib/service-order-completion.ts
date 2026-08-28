@@ -3,6 +3,7 @@ import type { EvidenceCategory } from "@prisma/client";
 import { logAudit } from "./audit";
 import { DomainError, notFound } from "./errors";
 import { prisma } from "./prisma";
+import { COMMITTED_EVIDENCE } from "./service-order-closing";
 import { pendingChecklistItems } from "./checklists";
 import type { ExecutionTx } from "./service-orders";
 
@@ -223,7 +224,7 @@ export async function closingContentHash(
         orderBy: { id: "asc" },
       }),
       tx.serviceOrderEvidence.findMany({
-        where: { serviceOrderId: orderId, companyId },
+        where: { serviceOrderId: orderId, companyId, ...COMMITTED_EVIDENCE },
         select: { id: true, category: true },
         orderBy: { id: "asc" },
       }),
@@ -363,7 +364,7 @@ export async function validateServiceOrderCompletion(
 
   if (policy.minEvidenceCount > 0 || policy.requiredEvidenceCategories.length > 0) {
     const evidences = await tx.serviceOrderEvidence.findMany({
-      where: { serviceOrderId: orderId, companyId },
+      where: { serviceOrderId: orderId, companyId, ...COMMITTED_EVIDENCE },
       select: { category: true },
     });
     if (evidences.length < policy.minEvidenceCount) {
@@ -489,7 +490,7 @@ export async function buildCompletionSnapshot(
     contactAttemptCount,
   ] = await Promise.all([
     tx.serviceOrderEvidence.findMany({
-      where: { serviceOrderId: orderId, companyId },
+      where: { serviceOrderId: orderId, companyId, ...COMMITTED_EVIDENCE },
       select: { id: true, category: true },
       orderBy: { id: "asc" },
     }),

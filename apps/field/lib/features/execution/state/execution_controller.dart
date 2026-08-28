@@ -191,6 +191,18 @@ class ExecutionController extends StateNotifier<ExecutionState> {
   /// fechar, porque o mundo que ele descrevia não existe mais.
   String? get lastError => state.error;
 
+  FieldErrorCode? _lastErrorCode;
+
+  /// Código do último comando recusado.
+  ///
+  /// A mensagem serve para a pessoa; o CÓDIGO serve para o formulário decidir.
+  /// A única decisão que ele toma hoje é a da etiqueta vencida, cuja saída não
+  /// é "corrija e reenvie" mas "fotografe de novo" — e distinguir isso pelo
+  /// texto da mensagem quebraria na primeira vez que alguém a reescrevesse.
+  ///
+  /// Fora daqui, quem decide continua sendo o servidor.
+  FieldErrorCode? get lastErrorCode => _lastErrorCode;
+
   Future<void> load() async {
     state = state.copyWith(loading: true, clearError: true, notFound: false);
     try {
@@ -247,6 +259,7 @@ class ExecutionController extends StateNotifier<ExecutionState> {
     final bundle = state.bundle;
     if (bundle == null || state.busy) return false;
 
+    _lastErrorCode = null;
     state = state.copyWith(busy: true, clearError: true, clearMessage: true);
     try {
       await action(bundle);
@@ -255,6 +268,7 @@ class ExecutionController extends StateNotifier<ExecutionState> {
       state = state.copyWith(busy: false, message: successMessage);
       return true;
     } on FieldException catch (error) {
+      _lastErrorCode = error.code;
       state = state.copyWith(busy: false);
       if (error.conflict) {
         // A intenção representava um mundo que não existe mais.

@@ -6347,3 +6347,47 @@ Consultar a própria carga é útil e não é o que faz o técnico atender um
 cliente. Amarrar o primeiro aplicativo a um módulo de patrimônio que ainda não
 existe no backend adiaria o APK por uma tela que ninguém abre em campo.
 
+
+---
+
+# 224. GESTÃO ADMINISTRATIVA DE EQUIPAMENTOS INSTALADOS
+
+**Lacuna aprovada, não implementada.** Registrada aqui para não se perder.
+
+## O que existe hoje
+
+O equipamento instalado só existe na API do Field. Não há tela nem rota na web:
+nem consulta, nem edição, nem visualização da foto da etiqueta. O técnico
+registra, e a partir daí o dado é lido apenas pelo próprio aplicativo e pelo
+snapshot de fechamento da OS.
+
+## Por que a lacuna se abriu agora
+
+A v0.10.1 trocou a identificação digitada pela **foto da etiqueta**: série e MAC
+viraram opcionais justamente porque transcrever doze caracteres de um adesivo,
+agachado dentro de um armário, é a origem mais comum de equipamento vinculado ao
+cliente errado (§180).
+
+A troca move a transcrição para o escritório — mas o escritório ainda não tem
+onde fazê-la. Enquanto essa tela não existir, os campos opcionais ficam como o
+técnico os deixou, e a foto é a única identificação de fato.
+
+## O que a tela deverá permitir
+
+* consultar equipamentos por cliente e por OS;
+* visualizar a foto da etiqueta em tamanho legível;
+* complementar fabricante, modelo, série e MAC a partir da imagem;
+* histórico e auditoria de quem complementou o quê e quando.
+
+## Uma regra desde já
+
+**Nunca alterar evidência histórica em silêncio.** Complementar um campo é um
+fato novo, com autor e instante — não uma correção que apaga o estado anterior.
+A foto da etiqueta, uma vez promovida, é imutável: ela é a prova de identidade
+daquele aparelho, e reescrevê-la destruiria a única coisa que o registro existe
+para preservar.
+
+## Prioridade
+
+**P1.** Não bloqueia o Field: o técnico já registra o equipamento com a foto, e
+a OS fecha. O que falta é a ponta do escritório.

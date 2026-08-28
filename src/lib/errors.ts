@@ -54,3 +54,21 @@ export function isUniqueConstraintError(error: unknown): boolean {
     (error as { code?: unknown }).code === "P2002"
   );
 }
+
+/**
+ * QUAL unique estourou.
+ *
+ * Uma tabela com mais de uma unique produz o mesmo `P2002` para todas, e a
+ * mensagem ao técnico muda conforme a coluna: "serial já cadastrado" e "esta
+ * foto já identifica outro equipamento" são problemas diferentes com saídas
+ * diferentes. O `meta.target` do Prisma traz as colunas do índice violado.
+ */
+export function uniqueTargetIncludes(error: unknown, column: string): boolean {
+  if (!isUniqueConstraintError(error)) return false;
+  const target = (error as { meta?: { target?: unknown } }).meta?.target;
+  if (Array.isArray(target)) {
+    return target.some((c) => String(c).includes(column));
+  }
+  // Alguns conectores devolvem o NOME do índice em vez das colunas.
+  return typeof target === "string" && target.includes(column);
+}

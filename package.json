@@ -12,6 +12,7 @@
     "e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "outbox:work": "node dist/scripts/outbox-worker.js",
+    "evidence:cleanup": "node dist/scripts/evidence-cleanup.js",
     "build:worker": "tsc -p tsconfig.worker.json"
   },
   "dependencies": {

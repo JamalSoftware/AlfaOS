@@ -41,6 +41,34 @@ export const EVIDENCE_MAX_BYTES = 8 * 1024 * 1024;
  */
 export const EVIDENCE_MAX_PER_ORDER = 10;
 
+/**
+ * Prazo da foto de etiqueta ainda não vinculada a um equipamento.
+ *
+ * 24 horas cobrem o dia de trabalho inteiro com folga: o técnico fotografa a
+ * etiqueta, o registro é recusado por qualquer motivo, ele corrige e reenvia —
+ * inclusive depois do almoço, ou no dia seguinte se voltou ao mesmo endereço.
+ * Um prazo curto transformaria uma correção comum em "fotografe de novo".
+ *
+ * Não é mecanismo de segurança: a foto sem vínculo não prova nada e não conta
+ * em lugar nenhum. É higiene de armazenamento — sem prazo, toda foto tirada e
+ * abandonada ficaria no disco para sempre.
+ */
+export const EQUIPMENT_LABEL_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * O filtro de "evidência de verdade".
+ *
+ * Toda leitura que trata evidência como PROVA — política de conclusão, item de
+ * checklist por foto, o pacote da execução, o snapshot de fechamento — passa
+ * por aqui. Uma etiqueta ainda temporária existe como arquivo recebido e não
+ * como fato operacional; contá-la deixaria a OS satisfazer requisito de foto
+ * com uma imagem de um equipamento que ninguém registrou.
+ *
+ * O TETO de imagens por OS é a exceção deliberada e conta as duas: ele protege
+ * disco, e byte temporário ocupa disco igual.
+ */
+export const COMMITTED_EVIDENCE = { status: "COMMITTED" } as const;
+
 /** Signatures are small line drawings; 2 MB is generous for a PNG canvas. */
 export const SIGNATURE_MAX_BYTES = 2 * 1024 * 1024;
 
@@ -260,13 +288,32 @@ export async function addEvidence(
       await storage.put(storageKey, input.data, sniffed);
       wrote = true;
 
+      /*
+        A etiqueta do equipamento nasce TEMPORÁRIA.
+
+        Ela é enviada ANTES de o equipamento existir, porque o registro precisa
+        do id dela para apontar. Sem estágio, ela seria evidência definitiva da
+        OS no instante em que chega — e continuaria lá mesmo se o cadastro
+        fosse recusado, contando na política de conclusão e aparecendo no
+        relatório como prova de um aparelho que ninguém registrou.
+
+        Toda outra foto é definitiva na chegada: ela documenta o atendimento
+        por si só, e não depende de nada ser criado depois.
+      */
+      const category = input.category ?? "OTHER";
+      const temporary = category === "EQUIPMENT_LABEL";
+
       return tx.serviceOrderEvidence.create({
         data: {
           companyId,
           serviceOrderId: orderId,
           uploadedByUserId: actorUserId,
           kind: "PHOTO",
-          category: input.category ?? "OTHER",
+          category,
+          status: temporary ? "TEMPORARY" : "COMMITTED",
+          expiresAt: temporary
+            ? new Date(Date.now() + EQUIPMENT_LABEL_TTL_MS)
+            : null,
           caption: input.caption?.trim().slice(0, EVIDENCE_CAPTION_MAX) || null,
           capturedAt: input.capturedAt ?? null,
           contentHash,
@@ -808,7 +855,7 @@ export async function getServiceOrderClosingBundle(
 ): Promise<ServiceOrderClosingBundle> {
   const [evidences, materials, signature] = await Promise.all([
     prisma.serviceOrderEvidence.findMany({
-      where: { serviceOrderId: orderId, companyId },
+      where: { serviceOrderId: orderId, companyId, ...COMMITTED_EVIDENCE },
       orderBy: { createdAt: "asc" },
     }),
     prisma.serviceOrderMaterialUsage.findMany({
@@ -944,7 +991,7 @@ export async function completeServiceOrder(
 
     const [evidenceCount, materialCount, signature] = await Promise.all([
       tx.serviceOrderEvidence.count({
-        where: { serviceOrderId: order.id, companyId },
+        where: { serviceOrderId: order.id, companyId, ...COMMITTED_EVIDENCE },
       }),
       tx.serviceOrderMaterialUsage.count({
         where: { serviceOrderId: order.id, companyId },

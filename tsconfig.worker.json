@@ -35,6 +35,9 @@
   // compilação que não sabe lidar com JSX nem com `next/server`.
   "include": [
     "scripts/outbox-worker.ts",
+    "scripts/evidence-cleanup.ts",
+    "src/lib/field/evidence-cleanup.ts",
+    "src/lib/storage.ts",
     "src/lib/outbox.ts",
     "src/lib/outbox-handlers.ts",
     "src/lib/prisma.ts",

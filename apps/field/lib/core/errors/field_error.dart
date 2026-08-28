@@ -17,6 +17,12 @@ enum FieldErrorCode {
   upstreamUnavailable,
   idempotencyConflict,
   deviceRevoked,
+
+  /// A foto da etiqueta passou do prazo e não serve mais para criar
+  /// equipamento. Reenviar o mesmo comando nunca resolve: a saída é uma nova
+  /// captura, e por isso o código é próprio em vez de mais um erro de
+  /// validação genérico.
+  labelExpired,
   internal,
 
   /// Código que este APK não conhece, ou falha antes de haver resposta.
@@ -45,6 +51,8 @@ FieldErrorCode fieldErrorCodeFrom(String? raw) {
       return FieldErrorCode.upstreamUnavailable;
     case 'IDEMPOTENCY_CONFLICT':
       return FieldErrorCode.idempotencyConflict;
+    case 'LABEL_EXPIRED':
+      return FieldErrorCode.labelExpired;
     case 'DEVICE_REVOKED':
       return FieldErrorCode.deviceRevoked;
     case 'INTERNAL':
