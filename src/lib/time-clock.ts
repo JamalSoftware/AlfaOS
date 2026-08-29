@@ -225,6 +225,26 @@ export async function punchTimeClock(
   const occurredAt = new Date();
 
   const created = await prisma.$transaction(async (tx) => {
+    /*
+      A pertinência é conferida AQUI, e não só em quem chama.
+
+      As rotas derivam empresa e usuário do mesmo principal, então nenhum
+      caminho de produção consegue desalinhá-los hoje. Sem esta conferência,
+      porém, a função aceita o par (empresa B, usuário da A) e grava uma jornada
+      atravessada — encontrado no ataque próprio a este módulo, e corrigido
+      antes de existir a rota que o exploraria (uma tela de quiosque, um "bater
+      por outra pessoa" no painel).
+
+      É a mesma disciplina de `getMemberWorkdayView`, que já conferia.
+    */
+    const member = await tx.user.findFirst({
+      where: { id: userId, companyId },
+      select: { id: true },
+    });
+    if (!member) {
+      throw notFound("Funcionário não encontrado.");
+    }
+
     const timezone = await companyTimezone(tx, companyId);
     const date = workdayDateOf(occurredAt, timezone);
     const workday = await lockWorkday(tx, companyId, userId, date, timezone);
