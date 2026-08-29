@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/theme/theme_controller.dart';
@@ -64,6 +65,27 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
           const SizedBox(height: AlfaSpacing.md),
+          /*
+            A jornada mora aqui, não numa quarta aba.
+
+            A casca tem três destinos por decisão registrada: cada aba a mais é
+            uma decisão a mais entre o técnico e a próxima OS. Bater ponto
+            acontece duas a quatro vezes por dia; abrir OS acontece o dia
+            inteiro.
+          */
+          SectionCard(
+            title: 'Jornada',
+            child: ListTile(
+              key: const Key('open-time-clock'),
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.schedule),
+              title: const Text('Minha jornada'),
+              subtitle: const Text('Entrada, intervalo e saída'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/jornada'),
+            ),
+          ),
+          const SizedBox(height: AlfaSpacing.lg),
           SectionCard(
             title: 'Aparência',
             // `RadioGroup` é a API atual: o grupo guarda o valor e o callback,

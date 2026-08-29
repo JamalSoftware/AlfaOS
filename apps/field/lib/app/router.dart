@@ -9,6 +9,7 @@ import '../features/notifications/ui/notifications_screen.dart';
 import '../features/orders/ui/order_detail_screen.dart';
 import '../features/orders/ui/orders_screen.dart';
 import '../features/settings/ui/settings_screen.dart';
+import '../features/timeclock/ui/time_clock_screen.dart';
 import 'home_shell.dart';
 import 'providers.dart';
 
@@ -50,6 +51,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/splash', builder: (_, _) => const BootstrapScreen()),
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
       GoRoute(path: '/revoked', builder: (_, _) => const RevokedScreen()),
+      GoRoute(
+        // Fora do shell, como o detalhe da OS. A jornada é área própria, aberta
+        // a partir de "Mais" — quarta aba foi decisão contra, e a razão está no
+        // `HomeShell`: cada aba a mais é uma decisão entre o técnico e a
+        // próxima OS.
+        parentNavigatorKey: _rootKey,
+        path: '/jornada',
+        builder: (_, _) => const TimeClockScreen(),
+      ),
       GoRoute(
         path: '/offline',
         builder: (_, _) => const OfflineBootstrapScreen(),
