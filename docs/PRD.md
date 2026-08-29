@@ -2643,6 +2643,15 @@ Não classificar tudo como MVP. Classificação por módulo/bloco:
 | Assistente inteligente (IA) | FUTURO |
 | Reabertura/devolução formal de OS | FUTURO |
 | SaaS multiempresa comercial (billing, planos) | FUTURO |
+| Jornada / Ponto do funcionário (§226–§233) | IMPORTANTE — **próxima fase** |
+| Rede interna do cliente: papel, topologia, IP de gerenciamento (§234–§238) | IMPORTANTE |
+| Propriedade e patrimônio do equipamento instalado (§241, §242) | IMPORTANTE |
+| Contatos do cliente e correção em campo (§247, §248) | IMPORTANTE |
+| Gestão administrativa de equipamentos — painel web (§224) | IMPORTANTE |
+| Credencial de acesso ao equipamento (§243) | IMPORTANTE |
+| Backhaul, local físico, perfil de rede e Wi-Fi (§239, §240, §244) | DIFERENCIAL |
+| Painel de qualidade cadastral (§249) | DIFERENCIAL |
+| Medições por equipamento (§245) | FUTURO |
 
 Uma funcionalidade classificada como DIFERENCIAL ou FUTURO **não** entra automaticamente na próxima versão — precisa de escopo aprovado explicitamente (seção 119).
 
@@ -5366,6 +5375,16 @@ O Field não muda nada disso, porque **o Field não fala com o ReceitaNet** (§1
 Classificação da **trilha Field**. Convive com a §117, que classifica o produto
 inteiro — ver a nota de abertura da Parte V.
 
+> **Parte desta lista já é código.** A v0.10 entregou check-in, início,
+> checklist, fotos estruturadas, materiais, tentativa de contato, impedimentos,
+> assinatura, conclusão validada e confirmação de localização em campo — na web
+> e no aplicativo. O inventário do que foi publicado está na **§225**, e é ela
+> que diz o que ainda é especificação nesta tabela.
+>
+> Continuam sem existir, entre os P0: fundação offline no cliente, push real,
+> QR/código de barras, o Toolbox inteiro (Wi-Fi Analyzer, gateway discovery,
+> configuração assistida, quick diagnostics, speed test).
+
 ## FIELD MVP — P0
 
 ```text
@@ -6379,6 +6398,23 @@ técnico os deixou, e a foto é a única identificação de fato.
 * complementar fabricante, modelo, série e MAC a partir da imagem;
 * histórico e auditoria de quem complementou o quê e quando.
 
+## O escopo cresceu depois da v0.10
+
+A Parte VIII acrescentou dimensões que esta tela precisa mostrar e editar. Ela
+deixou de ser "um CRUD de equipamento" e passou a ser a ponta administrativa da
+rede interna do cliente:
+
+| Também precisa cobrir | Seção |
+|---|---|
+| propriedade — patrimônio da empresa × equipamento do cliente | §241 |
+| papel na rede, separado do tipo físico | §235 |
+| topologia — quem alimenta quem | §236 |
+| IP de gerenciamento, porta e protocolo | §238 |
+| local físico do aparelho na casa | §240 |
+| ciclo de vida do patrimônio e substituição | §242 |
+| credencial de acesso, sob a proteção da senha PPPoE | §243 |
+| histórico de instalação, troca, defeito e retirada | §246 |
+
 ## Uma regra desde já
 
 **Nunca alterar evidência histórica em silêncio.** Complementar um campo é um
@@ -6391,3 +6427,862 @@ para preservar.
 
 **P1.** Não bloqueia o Field: o técnico já registra o equipamento com a foto, e
 a OS fecha. O que falta é a ponta do escritório.
+
+---
+
+# PARTE VIII — JORNADA, REDE INTERNA DO CLIENTE E QUALIDADE CADASTRAL
+
+> **Tudo nesta Parte é ESPECIFICAÇÃO, com uma exceção: a §225, que registra o
+> que foi entregue.** A §119 continua valendo — estar aqui não autoriza
+> implementar. Cada seção traz sua classificação (`DONE` / `P0` / `P1` / `P2` /
+> `FUTURE`) na abertura, justamente para que "aprovado" e "implementado" nunca
+> se confundam.
+>
+> A Parte nasceu de decisões tomadas **depois** da publicação da v0.10, e não
+> revoga nenhuma anterior. Onde ela toca algo já decidido — o equipamento
+> instalado da §180/§181, a precedência de localização da §197, a custódia da
+> Parte VII —, ela referencia em vez de reescrever.
+
+---
+
+# 225. ESTADO PUBLICADO — v0.10 FIELD EXECUTION & CLOSING
+
+**Classificação: `DONE`.** Publicada em `main`, tag
+`v0.10-field-execution-closing`.
+
+Esta seção existe para o PRD parar de descrever como futuro aquilo que já é
+código em produção. Antes dela, a Parte V inteira era especificação; a lista
+abaixo saiu de lá.
+
+## O que a v0.10 entregou
+
+| Capability | Onde estava especificada |
+|---|---|
+| `CustomerLocation` com origem e `verified` separados | §133–§135, §197 |
+| Confirmação de localização em campo, com aceite explícito | §172 |
+| Correção de localização e endereço, com histórico imutável | §137, §197 |
+| Check-in da OS, com distância congelada no instante | §167 |
+| Evidências categorizadas, com upload e teto por OS | §162, §163 |
+| Checklist dinâmico por `ServiceOrderType`, como **snapshot** | §164–§166 |
+| Ledger mínimo de inventário e baixa de material sob lock | §181 |
+| Equipamento instalado no cliente | §180, §181 |
+| Foto da etiqueta como evidência de identificação | novo — §226 registra a decisão |
+| Estágio `TEMPORARY` → `COMMITTED` da etiqueta, com TTL e expurgo | novo |
+| Tentativa de contato e impedimento | §168 |
+| Assinatura vinculada ao conteúdo assinado | §170 |
+| Política de conclusão por tipo de OS | §166 |
+| Fechamento transacional, com snapshot e validação revalidada | §166 |
+| Execução completa no Field Flutter | §150–§152, §172 |
+
+## O que mudou de regra durante a v0.10
+
+Três decisões que não estavam no PRD e passaram a valer:
+
+**A identificação do equipamento é a FOTO da etiqueta.** Série e MAC ficaram
+**opcionais**. Transcrever doze caracteres de um adesivo, agachado dentro de um
+armário, é a origem mais comum de equipamento vinculado ao cliente errado
+(§180) — e a câmera lê o mesmo adesivo sem errar. A transcrição, quando alguém
+precisar dela, é trabalho de escritório com a imagem na tela (§224).
+
+**A etiqueta passa por estágio.** Ela é enviada **antes** de o equipamento
+existir, porque o registro precisa do id dela. Nasce `TEMPORARY` com prazo, não
+conta como evidência em lugar nenhum, e só vira `COMMITTED` na mesma transação
+que cria o equipamento. Recusado o cadastro, ela continua utilizável para a
+retentativa — o técnico corrige e reenvia sem fotografar de novo.
+
+**Uma foto, um equipamento.** Vínculo 1:1, garantido por unique no banco além da
+conferência de domínio. Remover o equipamento **rebaixa** a etiqueta de volta a
+`TEMPORARY` em vez de apagá-la: a foto é verdadeira, foi tirada em campo; o que
+deixou de valer é o vínculo.
+
+## O que continua sem existir
+
+Offline no cliente, FCM real, todo o toolkit (§173–§179), `ToolExecution`
+(§176), custódia de patrimônio (Parte VII), PDF de fechamento, reabertura de OS,
+mapa operacional e Central de Despacho (Parte VI). A §119 se aplica a todos.
+
+---
+
+# 226. JORNADA / PONTO — CAPABILITY OFICIAL
+
+**Classificação: `P0` da próxima fase.** Nada implementado.
+
+O AlfaOS **deverá** registrar a **jornada de trabalho** do funcionário: entrada,
+intervalo e saída, com espelho, correção auditada e visão de gestor. Hoje não
+existe nada disso — nem modelo, nem rota, nem tela.
+
+## Ponto NÃO é check-in — e a confusão seria cara
+
+As duas coisas gravam "cheguei", com GPS, e é aí que a semelhança termina.
+
+| | Ponto | Check-in da OS |
+|---|---|---|
+| Pergunta que responde | "esta pessoa estava trabalhando?" | "o técnico chegou neste atendimento?" |
+| Vive preso a | pessoa e dia | uma `ServiceOrder` |
+| Quantidade | uma jornada por dia | um por OS |
+| Consequência | jornada, horas, folha | execução da OS |
+| Quem lê | RH, gestão | despacho, o próprio técnico |
+| Correção | pedido formal, com aprovação | não se corrige; é fato do atendimento |
+
+**Derivar um do outro seria o defeito.** Tratar o primeiro check-in do dia como
+entrada produziria jornada para quem atendeu e nenhuma para quem passou o dia
+no almoxarifado, na oficina ou em treinamento. Tratar a entrada como check-in
+poluiria a OS com um evento que não é dela.
+
+São entidades separadas, e nenhuma alimenta a outra automaticamente. É a mesma
+disciplina da §167, que já separou check-in de confirmação de localização pela
+mesma razão: dois fatos parecidos, provas diferentes.
+
+## Quem tem jornada
+
+Funcionário — não só técnico. O modelo se prende a `User` dentro de uma
+empresa, e o `Technician` é um caso particular. Um atendente de call center bate
+ponto e nunca abre uma OS.
+
+---
+
+# 227. MARCAÇÕES DA JORNADA
+
+**Classificação: `P0` da próxima fase.**
+
+Quatro marcações no MVP:
+
+```text
+ENTRADA
+INÍCIO DO INTERVALO
+RETORNO DO INTERVALO
+SAÍDA / FIM DA JORNADA
+```
+
+Mais de um intervalo por dia deve ser possível desde o modelo — jornada com
+dois intervalos existe, e um esquema que só aceite um par exigiria migration
+para algo previsível.
+
+## O relógio do servidor é a autoridade
+
+**O horário que vale é o do servidor.** O relógio do telefone é ajustável pelo
+próprio usuário, em dois toques, sem deixar rastro — e uma jornada que aceite o
+horário informado pelo aparelho não registra jornada nenhuma, registra o que a
+pessoa digitou.
+
+O horário do dispositivo **é gravado**, como metadata, e é útil exatamente por
+divergir: a diferença entre os dois é sinal. Um aparelho consistentemente
+adiantado é um relógio errado; um aparelho adiantado só na entrada é outra
+coisa.
+
+A batida offline (§232) é a única em que o servidor não estava presente no
+instante — e ela é marcada como tal, nunca apresentada como se fosse online.
+
+---
+
+# 228. EVIDÊNCIA DA BATIDA
+
+**Classificação: `P0` da próxima fase.**
+
+Cada marcação registra, conforme a política da empresa:
+
+* carimbo do **servidor** — o horário que vale;
+* carimbo do **dispositivo** — metadata, nunca autoridade;
+* `MobileDevice` e `installationId`;
+* `User` e, quando houver, `Technician`;
+* `companyId`;
+* coordenada e `accuracy`, **quando autorizada**;
+* origem da marcação — aplicativo, web, ajuste aprovado;
+* estado online/offline no instante;
+* endereço de origem da requisição, quando a política exigir.
+
+## O que NÃO entra
+
+**IMEI, não.** É identificador de hardware, imutável, e serve para rastrear a
+pessoa além do propósito. `installationId` já identifica a instalação, morre com
+a reinstalação e é o que a §155 escolheu para o `MobileDevice`.
+
+**Rastreamento contínuo, não.** A localização é registrada **na marcação** — um
+ponto, quatro vezes por dia. O AlfaOS não vira um rastreador que acompanha o
+funcionário o dia inteiro; §233 fecha isso, e a §139 já fixava o princípio para
+a localização do técnico.
+
+## Localização é evidência, não permissão
+
+GPS negado, sem sinal ou impreciso **não bloqueia a marcação**. Uma jornada que
+não pode ser registrada porque o prédio é de concreto transfere ao funcionário
+um problema que não é dele. Falta a coordenada, o registro diz que faltou — e a
+marcação existe.
+
+---
+
+# 229. HISTÓRICO IMUTÁVEL E PEDIDO DE AJUSTE
+
+**Classificação: `P0` da próxima fase.**
+
+**A marcação original nunca é editada.** Esta é a regra que sustenta todas as
+outras: um registro de jornada que pode ser reescrito não prova nada, e a
+primeira reescrita silenciosa destrói o valor de todo o histórico.
+
+## O caminho da correção
+
+Esquecimento e erro acontecem. O funcionário abre um pedido — `TimeAdjustmentRequest`
+ou conceito equivalente — registrando:
+
+* a marcação afetada, ou a ausência dela;
+* tipo de correção — inclusão, alteração de horário, exclusão;
+* horário solicitado;
+* motivo, e observação livre;
+* solicitante e instante do pedido.
+
+O gestor **aprova, rejeita ou comenta**. Aprovado, o efeito aparece no espelho
+como um registro **derivado**, com origem `AJUSTE_APROVADO`, apontando para o
+pedido e para o aprovador.
+
+A marcação original permanece. O espelho mostra o valor vigente; o histórico
+mostra o que foi batido, o que foi pedido, por quem, e quem decidiu.
+
+## Por que não deixar o gestor editar direto
+
+Porque o pedido é a prova. Sem ele existe uma alteração sem motivo declarado e
+sem contraditório — e é exatamente o que uma fiscalização, ou uma discussão
+entre as duas partes, precisa reconstruir.
+
+---
+
+# 230. ESPELHO DE PONTO
+
+**Classificação: `P0` da próxima fase.**
+
+Visão do funcionário sobre a própria jornada, em três recortes: **diário**,
+**semanal** e **mensal**.
+
+Mostra: entrada, intervalos, saída, horas trabalhadas, atrasos, faltas, horas
+extras, ocorrências, ajustes pedidos e o estado de aprovação de cada um.
+
+O funcionário vê o **próprio** espelho sem pedir nada a ninguém. Um sistema de
+ponto em que a pessoa depende do RH para saber quantas horas tem é um sistema
+que gera conflito por desenho.
+
+## Banco de horas
+
+**`P1`, configurável por empresa.** Nem toda empresa opera banco de horas, e as
+que operam têm regras próprias de compensação e prazo. O modelo precisa nascer
+capaz de acumular saldo; a política de como esse saldo se comporta é
+configuração, não código.
+
+## O que o AlfaOS NÃO faz
+
+Não calcula folha, não aplica convenção coletiva, não decide desconto. Ele
+registra e apresenta o que foi registrado — a mesma fronteira da §219 para
+custódia. Integração com folha é `FUTURE`, e por exportação.
+
+---
+
+# 231. PAINEL DO GESTOR
+
+**Classificação: `P0` da próxima fase.**
+
+Visão operacional do dia, respondendo "quem está trabalhando agora":
+
+```text
+TRABALHANDO          bateu entrada, sem saída
+EM INTERVALO         bateu início do intervalo, sem retorno
+JORNADA ENCERRADA    bateu saída
+NÃO INICIOU          escala prevista, nenhuma marcação
+MARCAÇÃO PENDENTE    sequência incompleta (ex.: intervalo sem retorno)
+AJUSTE PENDENTE      pedido aguardando decisão
+```
+
+Filtros: técnico, equipe, período, empresa e status.
+
+`NÃO INICIOU` só faz sentido com escala prevista — sem ela o painel não sabe
+distinguir folga de ausência. Escala/turno já é `P1` da trilha Field (§194), e
+os dois se encontram aqui.
+
+---
+
+# 232. PONTO OFFLINE
+
+**Classificação: `P0` da próxima fase — arquitetura documentada, nada implementado.**
+
+Zona rural sem sinal é o caso normal, não a exceção. Um ponto que exige rede
+para registrar entrada faz o técnico bater ponto no lugar errado, na hora
+errada, quando o sinal voltar.
+
+## Arquitetura
+
+* **Fila local.** A marcação é gravada no aparelho no instante do toque, com o
+  carimbo do dispositivo e a coordenada, e entra numa fila persistente.
+* **Chave de idempotência criada no TOQUE**, não no envio. É a mesma disciplina
+  da §160 e a que a v0.9 já aplicou: chave nova a cada tentativa faria o
+  servidor ver marcações distintas, e uma reconexão instável produziria três
+  entradas para a mesma pessoa.
+* **Sincronização posterior**, com o servidor decidindo. O aparelho envia o que
+  observou; quem grava é o servidor.
+* **Marcada como offline.** O registro sincronizado diz que foi offline e traz
+  os dois horários — o do aparelho e o da chegada ao servidor. Apresentá-lo como
+  online seria afirmar uma prova que não existe.
+* **Detecção de alteração de relógio.** Sequência não monotônica, salto entre
+  marcações, divergência grande entre aparelho e servidor: tudo isso é
+  registrado como sinal, e o registro não é recusado por isso — quem decide é
+  gente, com o dado à vista.
+* **Conflito explícito.** Duas marcações incompatíveis não são resolvidas por
+  desempate automático; viram pendência para o gestor.
+
+## O que a fila do ponto NÃO é
+
+Não é o motor offline geral do Field (§158–§161). Os dois compartilham a
+disciplina — fila, idempotência, conflito explícito —, e quando o motor geral
+existir, o ponto deve usá-lo em vez de manter fila paralela.
+
+---
+
+# 233. LGPD E OS LIMITES DA JORNADA
+
+**Classificação: `P0` da próxima fase — requisito, não feature.**
+
+Jornada e localização são dado pessoal, e o de localização é sensível pelo que
+revela sobre a vida de quem é observado.
+
+* **Finalidade declarada e estrita.** A coordenada da marcação existe para
+  provar onde a jornada começou e terminou. Não para inferir rota, não para
+  medir produtividade minuto a minuto, não para saber onde a pessoa almoça.
+* **RBAC.** Espelho próprio para o funcionário; visão de equipe para o gestor;
+  visão da empresa para `ADMIN`. Ninguém vê jornada de outra empresa — a
+  mesma regra de tenant que vale para todo o resto.
+* **Minimização.** Um ponto por marcação. Nada de coleta contínua.
+* **Retenção.** Prazo declarado, com expurgo do que passou dele. A jornada tem
+  prazo legal próprio, mais longo que o de um log operacional — os dois não
+  compartilham política.
+* **Auditoria.** Quem consultou jornada de quem, e quando. Consulta de dado
+  pessoal é ação auditável, não leitura livre.
+
+> **O AlfaOS não vira rastreador.** Se uma funcionalidade só se sustenta
+> acompanhando a pessoa fora da marcação, ela não entra — a §139 já fixou isso
+> para a localização do técnico, e a jornada não abre exceção.
+
+---
+
+# 234. REDE INTERNA DO CLIENTE — CAPABILITY OFICIAL
+
+**Classificação: `P1`.** Nada implementado.
+
+O técnico abre o cliente e entende **como a rede da casa está montada**, antes
+de chegar lá.
+
+```text
+ONU (bridge)
+ └─ Roteador principal — TP-Link AX53 · 192.168.1.1
+     ├─ Repetidor Sala      — RE305 · 192.168.1.2
+     ├─ Repetidor Quarto    — RE305 · 192.168.1.3
+     └─ AP Área Externa     — EAP110 · 192.168.1.4
+```
+
+## O problema que isto resolve
+
+Hoje o equipamento instalado é uma **lista plana** (§180, v0.10): três linhas
+soltas, sem dizer qual alimenta qual, em que IP se administra cada uma, nem
+qual delas é o roteador. O técnico que vai atender uma reclamação de Wi-Fi no
+quarto descobre a topologia no local, perguntando ao cliente — que muitas vezes
+também não sabe.
+
+A rede interna é a diferença entre "existem três aparelhos" e "o repetidor do
+quarto pendura no roteador principal por Wi-Fi, e é onde o sinal cai".
+
+## Fronteira
+
+Isto é a rede **dentro** da casa do cliente. A rede **do provedor** — CTO,
+caixa, splitter, backbone — é do FiberMap, e a §202 já fixou que o AlfaOS
+consulta topologia externa sem copiá-la. As duas se encontram na ONU e param
+ali.
+
+---
+
+# 235. TIPO FÍSICO × PAPEL NA REDE
+
+**Classificação: `P1`.**
+
+Dois campos, não um.
+
+```text
+equipmentType   O QUE o aparelho é
+networkRole     O QUE ele faz nesta rede
+```
+
+| `equipmentType` | `networkRole` |
+|---|---|
+| `ONU` · `ONT` · `ROUTER` · `REPEATER` | `ACCESS_TERMINATION` |
+| `ACCESS_POINT` · `MESH_NODE` | `ROUTER_PRIMARY` |
+| `CAMERA` · `OTHER` | `REPEATER` · `ACCESS_POINT` |
+| | `MESH_NODE` · `OTHER` |
+
+## Por que separar
+
+**Nem toda ONT roteia.** A mesma ONT é `ACCESS_TERMINATION` numa casa em modo
+bridge, com um roteador do cliente atrás, e `ROUTER_PRIMARY` na casa ao lado,
+roteando sozinha. Colapsar os dois campos obrigaria a escolher entre mentir
+sobre o hardware ou mentir sobre a função.
+
+O tipo é do aparelho e não muda; o papel é da instalação e muda quando alguém
+troca o modo de operação. Um campo só perderia a mudança.
+
+`equipmentType` continua **texto livre** como a v0.10 o entregou — o catálogo é
+da empresa (§180). `networkRole` é enum fechado, porque é ele que a topologia e
+as validações leem.
+
+---
+
+# 236. TOPOLOGIA
+
+**Classificação: `P1`.**
+
+Cada equipamento aponta para o **upstream** — `parentEquipmentId` ou
+equivalente.
+
+```text
+ONU bridge
+  └─ AX53          ROUTER_PRIMARY
+       └─ RE305    REPEATER
+```
+
+Regras que o modelo precisa suportar desde o início:
+
+* **Nulo é válido.** O equipamento de borda não tem pai, e todo equipamento da
+  v0.10 nasce sem pai — a topologia é aditiva sobre o que já existe.
+* **Um pai, muitos filhos.**
+* **Sem ciclo.** A validação é do servidor.
+* **Mesmo cliente.** O pai é da mesma rede; apontar para equipamento de outro
+  cliente é o mesmo erro de tenant que o resto do sistema já recusa.
+* **Remoção não quebra a árvore.** Equipamento removido sai da topologia ativa
+  (§246) e os filhos precisam de destino declarado, não de um pai fantasma.
+
+A visualização em árvore é `P2` — o dado vem primeiro, e ele já é útil em lista
+ordenada.
+
+---
+
+# 237. POLÍTICA DE REDE POR EMPRESA
+
+**Classificação: `P1`.**
+
+O AlfaOS é SaaS multiempresa. O padrão de instalação de repetidor da Alfa
+Telecom é **dela**, não do produto.
+
+Conceito equivalente a `EquipmentNetworkPolicy`, por `companyId`:
+
+```text
+requireManagementIpFor      [REPEATER, ACCESS_POINT, ...]
+requireParentFor            [REPEATER, ACCESS_POINT, ...]
+requireSameSubnetAsRouter   bool
+dhcpServerExpected          DISABLED | ENABLED | UNSPECIFIED
+enforcement                 WARN | BLOCK
+```
+
+## O padrão aprovado da Alfa Telecom
+
+* repetidor com **IP fixo de gerenciamento**;
+* IP na **mesma sub-rede** do roteador principal;
+* **DHCP Server desativado** no repetidor;
+* **upstream obrigatório**;
+* **IP de gerenciamento obrigatório**.
+
+Isto é o `default` de uma empresa, carregado como configuração. Fixar no código
+transformaria a regra de um provedor em regra do produto — e o provedor ao lado,
+que opera mesh com DHCP no nó principal, não conseguiria registrar a própria
+rede.
+
+`enforcement` existe porque as duas posturas são legítimas: uma empresa quer
+recusar o registro fora do padrão, outra quer registrar a realidade e sinalizar
+a divergência. O AlfaOS não escolhe por elas.
+
+---
+
+# 238. IP DE GERENCIAMENTO E SUB-REDE
+
+**Classificação: `P1`.**
+
+Cada equipamento pode registrar:
+
+* `managementIp`;
+* `prefix` / máscara;
+* `managementPort`, opcional;
+* protocolo — `HTTP` / `HTTPS`, quando aplicável;
+* data da **última confirmação** do dado.
+
+A data importa: um IP de gerenciamento anotado há dois anos, numa rede que
+mudou de roteador, é pior que nenhum — ele manda o técnico tentar um endereço
+que não responde e concluir que o aparelho morreu.
+
+## Validação de sub-rede
+
+Quando a política exigir, o repetidor precisa estar na mesma sub-rede do
+`ROUTER_PRIMARY`:
+
+```text
+Router     192.168.1.1/24
+Repetidor  192.168.0.20     → divergente
+```
+
+Conforme `enforcement`: alerta ou recusa.
+
+## Prevenção de IP duplicado
+
+O AlfaOS conhece os IPs de gerenciamento **documentados** do cliente e sugere o
+próximo livre:
+
+```text
+192.168.1.1  roteador
+192.168.1.2  repetidor
+192.168.1.3  repetidor
+             → sugerir 192.168.1.4
+```
+
+> **Isto NÃO é descoberta de rede.** O AlfaOS sabe o que foi registrado nele, e
+> só. Um IP livre na base pode estar ocupado por uma impressora que ninguém
+> cadastrou. A sugestão é conveniência de digitação; afirmar que o endereço está
+> livre exigiria varredura real, que é trabalho do Toolbox (§173–§179) e não
+> existe.
+
+---
+
+# 239. BACKHAUL E PORTAS
+
+**Classificação: `P2`.**
+
+Como o equipamento se conecta ao upstream:
+
+```text
+ETHERNET · WIFI · MESH · OTHER
+```
+
+E, quando conhecido, `upstreamPort` e `downstreamPort`:
+
+```text
+ONU LAN1   → WAN do AX53
+AX53 LAN2  → AP externo
+```
+
+É o dado que responde "o repetidor do quarto está pendurado por Wi-Fi" — que
+costuma ser a explicação da reclamação, não um detalhe.
+
+Opcional sempre: ninguém deve deixar de registrar um equipamento por não saber
+em que porta ele está.
+
+---
+
+# 240. LOCAL FÍSICO
+
+**Classificação: `P2`.**
+
+Onde o aparelho está na casa:
+
+```text
+Sala · Quarto · Cozinha · Escritório · Garagem · Área externa · Outro
+```
+
+Mais um campo livre complementar — "quarto dos fundos", "atrás da TV", "no
+poste da entrada". A lista cobre o comum; o texto cobre o resto sem exigir
+release para cada casa diferente.
+
+---
+
+# 241. PROPRIEDADE DO EQUIPAMENTO
+
+**Classificação: `P1`.**
+
+Campo **estrutural**, não rótulo de tela:
+
+```text
+equipmentOwnership   PROVIDER_OWNED | CUSTOMER_OWNED
+```
+
+A UX traduz para **PATRIMÔNIO DA EMPRESA** e **EQUIPAMENTO DO CLIENTE**.
+
+## Por que estrutural
+
+Porque a informação decide comportamento, não só aparência. Retirada, troca,
+inventário, cobrança e o que o técnico pode levar embora dependem dela. Um badge
+visual não é consultável, não é filtrável, e some no primeiro redesenho.
+
+O erro que isto evita é concreto: técnico que retira o roteador **do cliente**
+achando que era comodato da empresa. Custa o aparelho e a relação.
+
+## Evolução
+
+A arquitetura precisa comportar, sem migration dolorosa, quatro casos:
+
+```text
+patrimônio da empresa em comodato
+equipamento vendido pela empresa ao cliente
+equipamento próprio do cliente
+equipamento de terceiro
+```
+
+Não é preciso implementar os quatro de uma vez. É preciso que os dois primeiros
+valores não fechem a porta para os outros dois — um booleano `isCompanyOwned`
+fecharia.
+
+---
+
+# 242. PATRIMÔNIO DA EMPRESA — CICLO DE VIDA
+
+**Classificação: `P1`.**
+
+Quando `PROVIDER_OWNED`, prever: número de patrimônio, serial, MAC, status, data
+de instalação, técnico, cliente atual, retirada com motivo, substituição e
+histórico.
+
+Estados futuros:
+
+```text
+INSTALLED · ACTIVE · REMOVED · REPLACED
+DEFECTIVE · IN_STOCK · DISCARDED
+```
+
+## Três fronteiras que não podem se misturar
+
+**Não é o ledger de material da v0.10.** Aquele conta consumível — metro de
+cabo, conector — e a §211 já explicou a diferença: consumível some ao ser usado,
+patrimônio continua existindo e volta.
+
+**Não é a custódia do técnico (Parte VII).** Lá o bem fica **com o técnico**;
+aqui ele fica **na casa do cliente**. A §211 fixou que os movimentos
+compartilham um ledger só — se este módulo precisar de movimentação, ele usa o
+mesmo, e não cria um enum concorrente.
+
+**Não é `Asset` da §210.** Um roteador em comodato e uma furadeira do técnico
+podem acabar compartilhando modelo; se compartilharem, é decisão consciente na
+implementação, não coincidência.
+
+---
+
+# 243. CREDENCIAL DE ACESSO AO EQUIPAMENTO
+
+**Classificação: `P1`.**
+
+Armazenamento **opcional** de `username` e `password` de administração do
+equipamento.
+
+**Nunca plaintext persistente.** A arquitetura é a mesma já validada para a
+senha PPPoE (§140, `docs/SECURITY.md` §8.7):
+
+* criptografia em repouso, com AAD amarrando a linha;
+* **máscara de comprimento fixo** na listagem — o tamanho da senha não vaza;
+* revelação **explícita**, sob ação deliberada;
+* RBAC — quem pode revelar é decisão de papel;
+* `AuditLog` de cada revelação;
+* resposta `no-store`;
+* **o Flutter não persiste o plaintext** — nem em cache, nem em secure storage;
+  ao sair da tela, ele morre;
+* nunca em log.
+
+Isto já regrediu uma vez na história do projeto (PPPOE-01, `docs/V0.7-AUDIT.md`).
+Repetir a arquitetura é mais barato que reaprender.
+
+---
+
+# 244. PERFIL DE REDE E WI-FI
+
+**Classificação: `P2`.**
+
+Visão consolidada da rede interna:
+
+```text
+Gateway   192.168.1.1
+Subnet    192.168.1.0/24
+DHCP      faixa, quando conhecida
+Equipamentos + topologia
+```
+
+**Derivar, não duplicar.** Gateway e sub-rede saem do `ROUTER_PRIMARY` (§235).
+Um campo próprio no cliente criaria duas verdades que divergem na primeira troca
+de roteador.
+
+## Wi-Fi
+
+Metadata operacional: `SSID`, banda, canal, largura, segurança e data da última
+verificação.
+
+**Senha de Wi-Fi tem a mesma proteção da §243** — é credencial, e o fato de o
+cliente conhecê-la não a torna pública dentro do sistema.
+
+---
+
+# 245. MEDIÇÕES POR EQUIPAMENTO
+
+**Classificação: `FUTURE`.**
+
+Medições por equipamento e por local: `RSSI`, banda, backhaul, throughput, data e
+técnico.
+
+Compatível com o Toolbox (§173–§179) e o Wi-Fi Analyzer (§174) quando eles
+existirem — a medição feita pela ferramenta deve poder se prender ao equipamento
+medido, e não virar um segundo histórico paralelo. `ToolExecution` (§176) é o
+lugar natural.
+
+Nada disso agora.
+
+---
+
+# 246. HISTÓRICO DE EQUIPAMENTO
+
+**Classificação: `P1`.**
+
+**História operacional não é apagada em silêncio.** Registrar instalação,
+substituição, retirada, defeito e troca — cada uma com motivo, autor e instante.
+
+Equipamento removido **sai da topologia ativa e permanece no histórico**. A
+pergunta que o registro existe para responder é "de quem é esta ONU e quem a
+colocou aqui", três anos depois (§181) — e ela continua valendo depois de o
+aparelho sair.
+
+A v0.10 já estabeleceu o precedente na etiqueta: remover o equipamento
+**rebaixa** a foto em vez de apagá-la (§225). Aqui é a mesma disciplina, um
+nível acima.
+
+> **Lacuna conhecida:** a remoção de equipamento gera `AuditLog`, mas ainda não
+> gera `ServiceOrderEvent`. Registrado na §250.
+
+---
+
+# 247. CONTATOS DO CLIENTE
+
+**Classificação: `P1`.**
+
+Hoje o `Customer` tem `phone`, `secondaryPhone` e `email` — campos soltos, sem
+tipo, sem procedência e sem histórico. O Field exibe os dois telefones (§144),
+mas não existe fluxo para **confirmar** ou **corrigir** o que está errado.
+
+Planejar `CustomerContact` e `CustomerContactHistory`, ou conceito equivalente.
+
+## Múltiplos contatos
+
+```text
+principal · WhatsApp · secundário · fixo · alternativo
+```
+
+Campos: `type`, `number`, `primary`, nome/relação (opcional), `verified`,
+`source` e carimbos.
+
+`verified` e `source` separados **não é redundância** — é exatamente a lição da
+§197 para localização: *de onde veio* e *alguém conferiu* são perguntas
+diferentes, e colapsá-las produziu uma base inteira de coordenadas "verificadas"
+que ninguém verificou.
+
+O contato do vizinho que atende quando o cliente não está é dado operacional
+real, e hoje não tem onde morar a não ser numa observação livre.
+
+---
+
+# 248. CORREÇÃO DE TELEFONE E PRECEDÊNCIA ERP × CAMPO
+
+**Classificação: `P1`.**
+
+O Field **deverá** ganhar **CORRIGIR TELEFONE**, registrando: número anterior,
+novo, motivo, técnico, empresa, instante, `source` e `verified`. Hoje o
+aplicativo apenas **exibe** os telefones (§144); não há fluxo de correção.
+
+**Nunca sobrescrever em silêncio.**
+
+## A precedência é a da §197
+
+Um contato **confirmado em campo** não é destruído por uma importação
+automática posterior não confirmada. É a mesma regra que a localização já
+aplica, pela mesma razão: o técnico que ligou para o número e falou com a pessoa
+tem prova melhor que um cadastro copiado.
+
+Divergência não é erro a resolver sozinho — é fato a registrar e mostrar.
+
+## Escrita no ERP
+
+**Não inventar endpoint de escrita do ReceitaNet.** A §64 e a
+`docs/RECEITANET-HOMOLOGATION.md` já fixaram: nada além do que o OpenAPI
+descreve, e a matriz READ-ONLY/MUTANTE é a autoridade.
+
+Enquanto não houver API oficial confirmada, a correção **vive no AlfaOS** e é
+sinalizada como divergente do ERP. Quem reconcilia é gente, com a divergência
+à vista.
+
+---
+
+# 249. PAINEL DE QUALIDADE CADASTRAL
+
+**Classificação: `P2`.**
+
+Indicadores da carteira, para administrativo e despacho:
+
+```text
+endereço confirmado          localização confirmada
+telefone confirmado          divergente do ERP
+sem localização              sem contato
+última confirmação
+```
+
+É a mesma família da cobertura de mapeamento (§198), e deve reusá-la em vez de
+criar um segundo painel que conta a mesma coisa de outro jeito.
+
+O valor prático: o despacho descobre **antes** de mandar o técnico que o
+endereço nunca foi confirmado e o telefone não atende.
+
+---
+
+# 250. RISCOS RESIDUAIS DA v0.10
+
+**Classificação: registro.** Nenhum é bloqueador — a v0.10 foi publicada com
+`APPROVED WITH RISKS`, 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW.
+
+| Item | O que é | Encaminhamento |
+|---|---|---|
+| **FLUTTER-RACE-01** | corrida no aplicativo, sem efeito em dado do servidor | `P2` |
+| **CLEANUP-01** | o expurgo de etiqueta temporária é comando manual, sem scheduler | `P1` — junto com o agendador |
+| **Retenção de `CustomerLocationHistory`** | histórico cresce sem política de expurgo | `P1` — junto com a retenção da §233 |
+| **Storage de rede** | o lock de linha da OS atravessa a escrita do arquivo; hoje é disco local e rápido | `P1` — antes de S3/R2/MinIO |
+| **Next/PostCSS** | vulnerabilidades **pré-existentes** de dependência | `P1` — em janela própria, nunca com correção forçada |
+| **Remoção de equipamento sem `ServiceOrderEvent`** | gera `AuditLog`, mas não entra na timeline | `P1` — §246 |
+
+Registrados aqui para não virarem descoberta futura. **Não são bugs abertos da
+v0.10.**
+
+---
+
+# 251. ROADMAP PÓS-v0.10
+
+```text
+v0.10   Field Execution & Closing          DONE / PUBLISHED
+        tag v0.10-field-execution-closing
+```
+
+## Próxima fase
+
+| Capability | Classificação | Seções |
+|---|---|---|
+| Jornada / Ponto | **P0** | §226–§233 |
+
+## Depois
+
+| Capability | Classificação | Seções |
+|---|---|---|
+| Offline-first completo no cliente | P0 do Field | §158–§161 |
+| Push FCM real | P0 do Field | §153–§155 |
+| Contatos do cliente e correção em campo | P1 | §247, §248 |
+| Rede interna do cliente — papel, topologia, IP | P1 | §234–§238 |
+| Propriedade e patrimônio do equipamento | P1 | §241, §242 |
+| Gestão administrativa de equipamentos (web) | P1 | §224 |
+| Credencial de acesso ao equipamento | P1 | §243 |
+| Mapa operacional e Central de Despacho | P1 | §196–§209 |
+| Custódia de patrimônio do técnico | P1 | §210–§223 |
+| Backhaul, local físico, perfil de rede, Wi-Fi | P2 | §239, §240, §244 |
+| Painel de qualidade cadastral | P2 | §249 |
+| Technician Toolbox | P0 do Field / DIFERENCIAL | §173–§179 |
+| Wi-Fi Analyzer | P0 do Field / DIFERENCIAL | §174 |
+| Speed Test | P0 do Field | §179 |
+| Medições por equipamento | FUTURE | §245 |
+| OLT / ONU / potência óptica | P1 do Field | §182 |
+| RADIUS | FUTURE | §129 |
+| ACS / TR-069 / TR-369 | FUTURE | §178 |
+| Smart Dispatch | FUTURE | §208 |
+| IA aplicada à operação | FUTURE | §189 |
+
+> **A numeração de versão não é decidida aqui.** Este roadmap ordena
+> capabilities; qual delas vira `v0.11` é escopo aprovado à parte, pela §119.
+> Versões históricas não são renumeradas.
+>
+> **Duas escalas continuam convivendo** (§117, §194): esta tabela usa a
+> classificação do produto e marca, quando aplicável, a prioridade da trilha
+> Field. Quando as duas divergirem, a §194 decide o que entra no aplicativo.

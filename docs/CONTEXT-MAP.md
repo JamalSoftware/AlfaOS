@@ -110,7 +110,9 @@ Três invariantes da v0.10 que são fáceis de desfazer sem perceber:
 * **Escrita automática de coordenada passa OBRIGATORIAMENTE por `applyImportedCustomerLocation`.** A auditoria da v0.10 encontrou essa função sem chamador de produção, com o enriquecimento gravando direto e rebaixando `verified` — ver `docs/SECURITY.md` §8.14. Se você está escrevendo `latitude` em `Customer`, está no caminho errado.
 * **O checklist da OS é snapshot, não referência.** Editar o template não pode alcançar OS já iniciada.
 
-**Continua só especificação:** Flutter (Etapa B da v0.10), offline no cliente, FCM real, todo o toolkit, `ToolExecution`, custódia de patrimônio, PDF de fechamento e reabertura de OS.
+**Implementado na v0.10 (Flutter, Etapa B) — publicado:** a execução inteira no aplicativo do técnico. Localização, check-in, relatório, checklist, fotos, materiais, equipamento, assinatura e conclusão. A **foto da etiqueta** passou a ser a identificação do equipamento (série e MAC viraram opcionais), com estágio `TEMPORARY` → `COMMITTED`, TTL, promoção transacional, vínculo 1:1 e expurgo por comando (`npm run evidence:cleanup`). O inventário do que a v0.10 entregou está em `docs/PRD.md` **§225**; a tag é `v0.10-field-execution-closing`.
+
+**Continua só especificação:** offline no cliente, FCM real, todo o toolkit, `ToolExecution`, custódia de patrimônio, PDF de fechamento e reabertura de OS.
 
 **Carregar:** `docs/PRD.md` **Parte V (§150–§195)** — a especificação completa do Field. Carregue apenas o bloco relevante à tarefa, não a Parte inteira:
 
@@ -136,7 +138,7 @@ Três invariantes da v0.10 que são fáceis de desfazer sem perceber:
 **Quando:** a tarefa envolve o aplicativo do técnico, notificações, sincronização offline, evidências, checklist dinâmico, ferramentas técnicas, inventário, ou qualquer fundação de backend que o Field exige.
 **Quando NÃO:** tarefas do painel Web sem relação com o Field, integrações ERP, ou módulos já cobertos por doc próprio. Para segurança de token móvel, dispositivo e segredo offline, o documento é `docs/SECURITY.md` §8.9.
 
-**Nada da Parte V está implementado** — não existe app Flutter, nem push, nem outbox, nem `ToolExecution`. É especificação, e a §119 se aplica: estar no PRD não autoriza implementar.
+**Boa parte da Parte V já é código** — o aplicativo Flutter existe, o outbox existe, e a execução em campo foi publicada na v0.10. O que continua especificação está listado acima e na §194, que traz a nota do que sobrou. `ToolExecution`, o toolkit e o push real **não existem**, e para eles a §119 se aplica: estar no PRD não autoriza implementar.
 
 **Duas escalas de prioridade convivem:** a §117 classifica o produto inteiro (MVP/IMPORTANTE/DIFERENCIAL/FUTURO); a §194 classifica a trilha Field (P0/P1/P2). Uma capability pode ser DIFERENCIAL e P0 ao mesmo tempo — conferir as duas antes de concluir que algo está ou não no escopo.
 
@@ -187,6 +189,43 @@ Três decisões que são fáceis de desfazer sem perceber:
 
 Nada disso está implementado — é especificação, e a §119 se aplica.
 
+## Jornada / Ponto do funcionário — PLANNED
+
+**Carregar:** `docs/PRD.md` §226–§233 — marcações, evidência da batida, histórico imutável e pedido de ajuste, espelho, painel do gestor, ponto offline e LGPD.
+**Quando:** a tarefa envolve jornada de trabalho, batida de ponto, espelho, banco de horas ou aprovação de ajuste.
+**Quando NÃO:** check-in de OS — **não é a mesma coisa** (§226). Check-in é `docs/TECHNICIAN-EXECUTION.md` e a §167.
+
+Três regras que serão fáceis de desfazer sem perceber:
+
+* **Ponto não é check-in.** Derivar entrada do primeiro check-in do dia deixaria sem jornada quem passou o dia no almoxarifado (§226).
+* **O relógio do servidor é a autoridade.** O carimbo do aparelho é metadata, e existe porque diverge (§227).
+* **A marcação original nunca é editada.** Correção é pedido com aprovação, e o registro derivado aponta para ele (§229).
+
+**PLANNED / FUTURE — nada implementado.** Não existe modelo, rota, tela nem tabela. A §119 se aplica.
+
+## Rede interna do cliente e equipamentos — PLANNED
+
+**Carregar:** `docs/PRD.md` §234–§246 — papel na rede separado do tipo físico, topologia, política por empresa, IP de gerenciamento, backhaul, local, propriedade, patrimônio, credencial de acesso, perfil de rede e histórico. A ponta administrativa é a §224.
+**Quando:** a tarefa envolve topologia da casa do cliente, repetidor, IP de gerenciamento, propriedade do equipamento ou o painel web de equipamentos.
+**Quando NÃO:** rede do PROVEDOR — CTO, caixa, backbone. Isso é FiberMap, e a fronteira está na §202. Material consumido no atendimento é inventário (§181); ferramenta cedida ao técnico é custódia (Parte VII, §211).
+
+**O que JÁ existe (v0.10):** `ServiceOrderEquipment` com tipo, fabricante, modelo, série e MAC opcionais, e a foto da etiqueta com estágio e vínculo 1:1. **Não existe** papel na rede, topologia, IP, propriedade, política por empresa nem histórico de troca — tudo isso é `PLANNED`.
+
+Duas decisões que o PRD já fixou e não devem ser desfeitas na implementação:
+
+* **`equipmentType` e `networkRole` são campos diferentes** (§235). Nem toda ONT roteia, e o tipo não muda quando o modo de operação muda.
+* **O padrão de repetidor da Alfa Telecom é configuração, não código** (§237). Hardcode transformaria a regra de um provedor em regra do produto.
+
+## Contatos do cliente — PLANNED
+
+**Carregar:** `docs/PRD.md` §247–§249 — múltiplos contatos, correção em campo, precedência ERP × campo e painel de qualidade cadastral.
+**Quando:** a tarefa envolve telefone, WhatsApp, contato alternativo ou confirmação de dado cadastral pelo técnico.
+**Quando NÃO:** endereço e coordenada — isso é `CustomerLocation` (§133–§139, §197), já implementado.
+
+**O que JÁ existe:** `Customer.phone`, `Customer.secondaryPhone` e `Customer.email` — campos soltos, sem tipo, sem procedência, sem histórico. **Não existe** `CustomerContact`, correção em campo nem trilha de alteração.
+
+A precedência é a mesma da localização (§197): **contato confirmado em campo não é destruído por importação automática posterior**. E não existe endpoint de escrita no ReceitaNet — a divergência fica registrada no AlfaOS (§248).
+
 ## Design system e temas
 
 **Carregar:** `src/app/globals.css` (os tokens) e `tailwind.config.ts` (como eles viram classe). `docs/PRD.md` §149 registra as decisões; `docs/SECURITY.md` §8.10, a allowlist.
@@ -223,4 +262,6 @@ Context7 deve complementar o projeto, não substituir suas fontes internas.
 
 ---
 
-Atualize este mapa sempre que um documento relevante novo for criado (ex.: quando a auditoria da v0.3 for concluída, quando a integração ReceitaNet ganhar doc próprio, quando o Field App em Flutter for iniciado).
+Atualize este mapa sempre que um documento relevante novo for criado (ex.: quando a auditoria da v0.3 for concluída, quando a integração ReceitaNet ganhar doc próprio, quando Jornada/Ponto, Rede Interna do Cliente ou Contatos saírem de `PLANNED` e ganharem código ou doc próprio).
+
+**Seções marcadas `PLANNED`** descrevem o que foi aprovado no PRD e **não** existe em código. Nenhuma delas aponta para arquivo de implementação, porque não há. Ao implementar uma, troque a marcação e liste os arquivos reais — um mapa que aponta para o que não existe é pior que um mapa incompleto.
