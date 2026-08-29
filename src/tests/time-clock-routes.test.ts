@@ -6,8 +6,11 @@ import {
   GET as ownAdjustmentsRoute,
   POST as requestAdjustmentRoute,
 } from "@/app/api/field/v1/time-clock/adjustments/route";
+import { POST as decisionRoute } from "@/app/api/time-clock/adjustments/[id]/decision/route";
 import { prisma } from "@/lib/prisma";
 import {
+  apiRequest,
+  createTokenFor,
   fieldRequest,
   registerTestDevice,
   seedTestData,
@@ -307,6 +310,178 @@ describe("Field — pedido de correção", () => {
     expect(
       await prisma.timeAdjustmentRequest.count({
         where: { userId: fixture.techA.id, status: "PENDING" },
+      }),
+    ).toBe(1);
+  });
+});
+
+describe("Field + painel — o ataque completo, pelas rotas", () => {
+  it("o servidor mostra a jornada encerrada e RECUSA a batida", async () => {
+    /*
+      O caminho inteiro, sem atalho pelo domínio: o técnico bate pelo Field, o
+      técnico pede a correção pelo Field, o ADMIN decide pelo painel, e o
+      técnico tenta bater de novo pelo Field.
+
+      Era aqui que espelho e escrita discordavam: `/today` respondia jornada
+      encerrada, sem nenhuma ação permitida, e `POST /entries` aceitava um
+      retorno de intervalo — porque a última linha por horário era um início de
+      intervalo já superado pela correção.
+    */
+    const { token } = await cenario();
+
+    await punch(token, { type: "CLOCK_IN" }, key("in"));
+    /*
+      A pausa separa os dois carimbos do servidor.
+
+      Sem ela as duas batidas caem a milissegundos uma da outra e não sobra
+      instante ENTRE elas para a correção pedir — e o ataque depende exatamente
+      disso: a marcação superada precisa ficar depois da saída corrigida.
+    */
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    await punch(token, { type: "BREAK_START" }, key("break"));
+
+    const [entrada, intervalo] = await prisma.timeEntry.findMany({
+      where: { userId: fixture.techA.id },
+      orderBy: { occurredAt: "asc" },
+    });
+    expect(intervalo.occurredAt.getTime() - entrada.occurredAt.getTime()).
+      toBeGreaterThan(10);
+
+    // "Aquilo não era intervalo, era a minha saída — e foi antes."
+    const pedido = await requestAdjustmentRoute(
+      fieldRequest("/api/field/v1/time-clock/adjustments", {
+        method: "POST",
+        token,
+        idempotencyKey: key("ajuste"),
+        body: {
+          requestedType: "WRONG_TIME",
+          requestedEntryType: "CLOCK_OUT",
+          requestedOccurredAt: new Date(
+            entrada.occurredAt.getTime() + 10,
+          ).toISOString(),
+          reason: "Bati intervalo quando já estava saindo.",
+          targetEntryId: intervalo.id,
+        },
+      }),
+    );
+    expect(pedido.status).toBe(201);
+    const pedidoId = (
+      (await body(pedido)).data?.adjustment as { id: string }
+    ).id;
+
+    const decisao = await decisionRoute(
+      apiRequest(
+        `/api/time-clock/adjustments/${pedidoId}/decision`,
+        {
+          method: "POST",
+          body: { decision: "APPROVED" },
+          headers: { Origin: "http://localhost", Host: "localhost" },
+        },
+        await createTokenFor(fixture.adminA.id),
+      ),
+      { params: { id: pedidoId } },
+    );
+    expect(decisao.status).toBe(200);
+
+    // O servidor DIZ que acabou.
+    const hoje = await todayRoute(
+      fieldRequest("/api/field/v1/time-clock/today", { token }),
+    );
+    const workday = (await body(hoje)).data?.workday as {
+      state: string;
+      allowedActions: string[];
+    };
+    expect(workday.state).toBe("FINISHED");
+    expect(workday.allowedActions).toEqual([]);
+
+    // E RECUSA de acordo. Sem isto, a jornada encerrada continuava recebendo
+    // marcação pelo aplicativo.
+    const tentativa = await punch(token, { type: "BREAK_END" }, key("volta"));
+    expect(tentativa.status).toBe(400);
+
+    const erro = (await body(tentativa)).error;
+    // Código estável do catálogo — o app nunca interpreta mensagem humana.
+    expect(erro?.code).toBe("VALIDATION_ERROR");
+    expect(erro?.retryable).toBe(false);
+
+    // Três linhas: entrada, intervalo superado e a saída derivada. Nada a mais.
+    expect(
+      await prisma.timeEntry.count({ where: { userId: fixture.techA.id } }),
+    ).toBe(3);
+  });
+
+  it("pedir correção sobre marcação JÁ corrigida volta CONFLICT, não erro de servidor", async () => {
+    /*
+      A recusa nova precisa chegar ao aplicativo como código ESTÁVEL.
+
+      Um 409 que virasse 500 diria ao Flutter "tente de novo" — e a retentativa
+      nunca funcionaria, porque o pedido está errado, não a rede.
+    */
+    const { token } = await cenario();
+    await punch(token, { type: "CLOCK_IN" }, key("in"));
+
+    const entrada = await prisma.timeEntry.findFirstOrThrow({
+      where: { userId: fixture.techA.id },
+    });
+    // 1ms antes: mesmo dia civil em qualquer hora em que a suíte rode.
+    const antes = new Date(entrada.occurredAt.getTime() - 1).toISOString();
+
+    const primeiro = await requestAdjustmentRoute(
+      fieldRequest("/api/field/v1/time-clock/adjustments", {
+        method: "POST",
+        token,
+        idempotencyKey: key("ajuste1"),
+        body: {
+          requestedType: "WRONG_TIME",
+          requestedEntryType: "CLOCK_IN",
+          requestedOccurredAt: antes,
+          reason: "Cheguei um pouco antes.",
+          targetEntryId: entrada.id,
+        },
+      }),
+    );
+    const primeiroId = (
+      (await body(primeiro)).data?.adjustment as { id: string }
+    ).id;
+
+    await decisionRoute(
+      apiRequest(
+        `/api/time-clock/adjustments/${primeiroId}/decision`,
+        {
+          method: "POST",
+          body: { decision: "APPROVED" },
+          headers: { Origin: "http://localhost", Host: "localhost" },
+        },
+        await createTokenFor(fixture.adminA.id),
+      ),
+      { params: { id: primeiroId } },
+    );
+
+    // Segundo pedido apontando para a marcação que já foi superada.
+    const segundo = await requestAdjustmentRoute(
+      fieldRequest("/api/field/v1/time-clock/adjustments", {
+        method: "POST",
+        token,
+        idempotencyKey: key("ajuste2"),
+        body: {
+          requestedType: "WRONG_TIME",
+          requestedEntryType: "CLOCK_IN",
+          requestedOccurredAt: antes,
+          reason: "De novo na versão antiga.",
+          targetEntryId: entrada.id,
+        },
+      }),
+    );
+
+    expect(segundo.status).toBe(409);
+    const erro = (await body(segundo)).error;
+    expect(erro?.code).toBe("CONFLICT");
+    expect(erro?.retryable).toBe(false);
+
+    // Um pedido aprovado, e nada pendente sobrando.
+    expect(
+      await prisma.timeAdjustmentRequest.count({
+        where: { userId: fixture.techA.id },
       }),
     ).toBe(1);
   });

@@ -189,19 +189,20 @@ Três decisões que são fáceis de desfazer sem perceber:
 
 Nada disso está implementado — é especificação, e a §119 se aplica.
 
-## Jornada / Ponto do funcionário — PLANNED
+## Jornada / Ponto do funcionário — FASE 1 IMPLEMENTADA
 
-**Carregar:** `docs/PRD.md` §226–§233 — marcações, evidência da batida, histórico imutável e pedido de ajuste, espelho, painel do gestor, ponto offline e LGPD.
+**Carregar:** `docs/PRD.md` §226–§233 — marcações, evidência da batida, histórico imutável e pedido de ajuste, espelho, painel do gestor, ponto offline e LGPD. Código: `src/lib/workday.ts` (dia, estado e **sequência efetiva**) e `src/lib/time-clock.ts` (domínio).
 **Quando:** a tarefa envolve jornada de trabalho, batida de ponto, espelho, banco de horas ou aprovação de ajuste.
 **Quando NÃO:** check-in de OS — **não é a mesma coisa** (§226). Check-in é `docs/TECHNICIAN-EXECUTION.md` e a §167.
 
-Três regras que serão fáceis de desfazer sem perceber:
+Quatro regras que serão fáceis de desfazer sem perceber:
 
 * **Ponto não é check-in.** Derivar entrada do primeiro check-in do dia deixaria sem jornada quem passou o dia no almoxarifado (§226).
 * **O relógio do servidor é a autoridade.** O carimbo do aparelho é metadata, e existe porque diverge (§227).
 * **A marcação original nunca é editada.** Correção é pedido com aprovação, e o registro derivado aponta para ele (§229).
+* **Só existe UMA noção de "marcação atual".** A correção aprovada **supera** a original sem apagá-la, e as duas linhas convivem na tabela. Quem lê o histórico bruto lê um dia que não existe: estado, ação permitida, validação de sequência e espelho passam todos por `resolveEffectiveTimeEntries`. Ler `timeEntry.findMany` direto para decidir qualquer coisa é o defeito, não o atalho.
 
-**PLANNED / FUTURE — nada implementado.** Não existe modelo, rota, tela nem tabela. A §119 se aplica.
+**O que JÁ existe:** `Workday`, `TimeEntry`, `TimeAdjustmentRequest` e `Company.timezone`; as rotas `/api/field/v1/time-clock/*` e `/api/time-clock/*`; a tela `/jornada` e a tela do Field. **Não existe** banco de horas, escala prevista, folha, engine offline no cliente nem tela de configuração de fuso — `Company.timezone` só tem o default. A §119 se aplica ao que falta.
 
 ## Rede interna do cliente e equipamentos — PLANNED
 

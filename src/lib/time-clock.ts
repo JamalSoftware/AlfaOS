@@ -13,6 +13,7 @@ import {
   assertTransitionAllowed,
   deriveWorkdayState,
   isValidSequence,
+  resolveEffectiveTimeEntries,
   resolveTimezone,
   workdayDateOf,
   type WorkdayState,
@@ -190,6 +191,33 @@ async function lockWorkday(
   return row;
 }
 
+/**
+ * Trava um dia que JÁ existe, pelo id.
+ *
+ * Mesma linha, mesmo lock que `lockWorkday` — muda só o predicado, porque a
+ * decisão de um ajuste chega com o `workdayId` na mão e não deve criar dia
+ * nenhum. O que importa é que **todo caminho que escreve o dia passa por este
+ * lock antes de ler os fatos**: sem isso, duas aprovações concorrentes leem o
+ * mesmo estado e cada uma grava uma correção cega para a outra.
+ *
+ * A ordem é sempre a mesma — dia primeiro, depois a linha do pedido — e é ela
+ * que mantém o módulo livre de deadlock entre bater ponto, pedir e decidir.
+ */
+async function lockWorkdayById(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  workdayId: string,
+): Promise<void> {
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "workdays"
+    WHERE "id" = ${workdayId} AND "companyId" = ${companyId}
+    FOR UPDATE
+  `;
+  if (!rows[0]) {
+    throw notFound("Jornada não encontrada.");
+  }
+}
+
 async function companyTimezone(
   tx: Prisma.TransactionClient,
   companyId: string,
@@ -249,14 +277,21 @@ export async function punchTimeClock(
     const date = workdayDateOf(occurredAt, timezone);
     const workday = await lockWorkday(tx, companyId, userId, date, timezone);
 
-    const existing = await tx.timeEntry.findMany({
-      where: { workdayId: workday.id, companyId },
-      select: { type: true },
-      orderBy: { occurredAt: "asc" },
-    });
+    /*
+      A batida é governada pela sequência EFETIVA, nunca pelo histórico bruto.
+
+      Uma correção aprovada supera a marcação antiga sem apagá-la, e a linha
+      superada continua na tabela. Derivando o estado do bruto, o servidor
+      mostrava a jornada encerrada e ainda assim aceitava um retorno de
+      intervalo — porque a última linha POR HORÁRIO era um início de intervalo
+      já superado. Espelho e escrita liam dias diferentes.
+
+      Mesma função do espelho, mesma resposta.
+    */
+    const efetivas = await loadEffectiveEntries(tx, companyId, workday.id);
 
     assertTransitionAllowed(
-      deriveWorkdayState(existing.map((e) => e.type)),
+      deriveWorkdayState(efetivas.map((e) => e.type)),
       input.type,
     );
 
@@ -313,11 +348,12 @@ export async function punchTimeClock(
  * considerando marcações mais ajustes aprovados".
  */
 async function supersededEntryIds(
+  client: Prisma.TransactionClient,
   companyId: string,
   workdayIds: readonly string[],
 ): Promise<Set<string>> {
   if (workdayIds.length === 0) return new Set();
-  const rows = await prisma.timeAdjustmentRequest.findMany({
+  const rows = await client.timeAdjustmentRequest.findMany({
     where: {
       companyId,
       status: "APPROVED",
@@ -327,6 +363,27 @@ async function supersededEntryIds(
     select: { targetEntryId: true },
   });
   return new Set(rows.map((r) => r.targetEntryId as string));
+}
+
+/**
+ * As marcações efetivas de um dia, já em ordem.
+ *
+ * **É por aqui que passa toda leitura que decide alguma coisa** — estado, ação
+ * permitida, sequência válida, espelho. Recebe o cliente para que a decisão de
+ * um ajuste leia os fatos DENTRO da sua transação, depois do lock: ler pelo
+ * cliente global veria um instantâneo de fora da transação, que é justamente o
+ * que o lock existe para impedir.
+ */
+async function loadEffectiveEntries(
+  client: Prisma.TransactionClient,
+  companyId: string,
+  workdayId: string,
+): Promise<TimeEntry[]> {
+  const [todas, superadas] = await Promise.all([
+    client.timeEntry.findMany({ where: { workdayId, companyId } }),
+    supersededEntryIds(client, companyId, [workdayId]),
+  ]);
+  return resolveEffectiveTimeEntries(todas, superadas);
 }
 
 /**
@@ -368,18 +425,13 @@ export async function getWorkdayView(
     };
   }
 
-  const [todas, superadas, pendingAdjustments] = await Promise.all([
-    prisma.timeEntry.findMany({
-      where: { workdayId: workday.id, companyId },
-      orderBy: { occurredAt: "asc" },
-    }),
-    supersededEntryIds(companyId, [workday.id]),
+  const [entries, pendingAdjustments] = await Promise.all([
+    loadEffectiveEntries(prisma, companyId, workday.id),
     prisma.timeAdjustmentRequest.count({
       where: { workdayId: workday.id, companyId, status: "PENDING" },
     }),
   ]);
 
-  const entries = todas.filter((e) => !superadas.has(e.id));
   const totals = summarize(entries);
 
   return {
@@ -509,12 +561,13 @@ export async function getWorkdayHistory(
   );
 
   const superadas = await supersededEntryIds(
+    prisma,
     companyId,
     workdays.map((w) => w.id),
   );
 
   return workdays.map((workday) => {
-    const efetivas = workday.entries.filter((e) => !superadas.has(e.id));
+    const efetivas = resolveEffectiveTimeEntries(workday.entries, superadas);
     const totals = summarize(efetivas);
     return {
       date: workday.date.toISOString().slice(0, 10),
@@ -589,6 +642,24 @@ export async function requestTimeAdjustment(
   }
 
   const created = await prisma.$transaction(async (tx) => {
+    /*
+      Pertinência ANTES de abrir o dia — a mesma defesa em profundidade da
+      batida, pelo mesmo motivo.
+
+      As rotas derivam empresa e usuário do mesmo principal, então nenhum
+      caminho de produção consegue desalinhá-los hoje. Sem esta conferência,
+      porém, a função aceita o par (empresa B, usuário da A) e `lockWorkday`
+      CRIA uma jornada atravessada antes de qualquer outra validação — dado
+      cross-tenant nascido de um efeito colateral.
+    */
+    const member = await tx.user.findFirst({
+      where: { id: userId, companyId },
+      select: { id: true },
+    });
+    if (!member) {
+      throw notFound("Funcionário não encontrado.");
+    }
+
     const timezone = await companyTimezone(tx, companyId);
     const date = workdayDateOf(input.requestedOccurredAt, timezone);
     const workday = await lockWorkday(tx, companyId, userId, date, timezone);
@@ -612,6 +683,22 @@ export async function requestTimeAdjustment(
       });
       if (!target) {
         throw notFound("Marcação não encontrada nesta jornada.");
+      }
+
+      /*
+        E tem de ser a versão VIGENTE.
+
+        Corrigir de novo é legítimo — o sistema não pode ficar preso depois da
+        primeira correção. O que não é legítimo é apontar para a versão já
+        superada: aprovar isso daria ao mesmo fato duas versões efetivas. A
+        recusa já aqui poupa o pedido de morrer na mesa do gestor, e a decisão
+        confere de novo, sob lock, porque entre pedir e decidir o mundo anda.
+      */
+      const efetivas = await loadEffectiveEntries(tx, companyId, workday.id);
+      if (!efetivas.some((e) => e.id === input.targetEntryId)) {
+        throw conflict(
+          "Esta marcação já foi corrigida. Peça a correção sobre a marcação que está valendo.",
+        );
       }
     }
 
@@ -731,7 +818,43 @@ export async function decideTimeAdjustment(
   decisionReason?: string | null,
 ): Promise<PublicAdjustment> {
   const decided = await prisma.$transaction(async (tx) => {
-    const request = await tx.timeAdjustmentRequest.findFirst({
+    const head = await tx.timeAdjustmentRequest.findFirst({
+      where: { id: requestId, companyId },
+      select: { workdayId: true },
+    });
+    if (!head) {
+      throw notFound("Solicitação não encontrada.");
+    }
+
+    /*
+      TRAVA O DIA, e não só o pedido.
+
+      `updateMany(status = PENDING)` arbitra duas decisões sobre o MESMO
+      pedido — e só isso. O problema real são pedidos DIFERENTES sobre o mesmo
+      dia: cada um reivindica a sua própria linha sem incomodar o outro, os dois
+      leem o mesmo estado e os dois gravam, cegos um para o outro. Dois ajustes
+      da mesma marcação viravam duas versões efetivas do mesmo fato.
+
+      Travado o dia, a segunda decisão espera, relê o que a primeira deixou e
+      decide sobre a realidade — aprovando, se a combinação fecha, e recusando
+      se não fecha.
+
+      O lock é o PRIMEIRO passo da escrita, aqui como na batida. Ordem única de
+      aquisição é o que mantém o módulo livre de deadlock.
+    */
+    await lockWorkdayById(tx, companyId, head.workdayId);
+
+    /*
+      O pedido é relido JÁ SOB LOCK.
+
+      A leitura de fora do lock serve para achar o dia, e mais nada: entre ela e
+      o lock, outra decisão pode ter concluído. Reler aqui é o que garante que
+      um pedido já decidido pare ANTES de qualquer escrita — sem isso, a
+      aprovação em duplicata chegaria a tentar criar a segunda marcação derivada
+      e bateria na unique de `adjustmentRequestId`, transformando um conflito
+      previsível num erro de banco.
+    */
+    const request = await tx.timeAdjustmentRequest.findFirstOrThrow({
       where: { id: requestId, companyId },
       select: {
         id: true,
@@ -743,27 +866,7 @@ export async function decideTimeAdjustment(
         requestedOccurredAt: true,
       },
     });
-    if (!request) {
-      throw notFound("Solicitação não encontrada.");
-    }
-
-    /*
-      `updateMany` com o status no predicado, e não `update`.
-
-      Duas aprovações simultâneas do mesmo pedido leriam `PENDING` as duas e
-      criariam DUAS marcações derivadas para uma correção só. O banco arbitra: a
-      segunda atualiza zero linhas e a transação inteira aborta.
-    */
-    const claimed = await tx.timeAdjustmentRequest.updateMany({
-      where: { id: request.id, companyId, status: "PENDING" },
-      data: {
-        status: decision,
-        decidedById: deciderUserId,
-        decidedAt: new Date(),
-        decisionReason: trimTo(decisionReason, ADJUSTMENT_REASON_MAX),
-      },
-    });
-    if (claimed.count !== 1) {
+    if (request.status !== "PENDING") {
       throw conflict("Esta solicitação já foi decidida.");
     }
 
@@ -776,22 +879,54 @@ export async function decideTimeAdjustment(
         `CLOCK_IN` gravaria um fato que a sequência não sustenta, e o espelho
         mostraria a pessoa "trabalhando" depois de ter saído.
 
-        A conferência é sobre a sequência RESULTANTE, ordenada por horário —
-        não sobre a ordem em que as linhas foram criadas.
+        A conferência é sobre a sequência EFETIVA resultante, ordenada por
+        horário — não sobre o histórico bruto e não sobre a ordem em que as
+        linhas foram criadas.
+
+        Somando o bruto, a segunda correção legítima do dia era recusada: a
+        entrada antiga, já superada pela primeira aprovação, continuava contando
+        e a sequência aparecia com duas entradas. Quem errasse duas marcações no
+        mesmo dia só conseguia corrigir a primeira.
       */
-      const existing = await tx.timeEntry.findMany({
-        where: { workdayId: request.workdayId, companyId },
-        select: { id: true, type: true, occurredAt: true },
-      });
-      const resulting = [
-        ...existing.filter((e) => e.id !== request.targetEntryId),
-        {
-          type: request.requestedEntryType,
-          occurredAt: request.requestedOccurredAt,
-        },
-      ]
-        .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime())
-        .map((e) => e.type);
+      const efetivas = await loadEffectiveEntries(
+        tx,
+        companyId,
+        request.workdayId,
+      );
+
+      /*
+        O alvo precisa continuar VIGENTE.
+
+        Se outra decisão já superou esta marcação, aprovar aqui daria ao mesmo
+        fato duas versões efetivas — e nem sempre a gramática do dia denuncia
+        isso: "a entrada era às 12h" e "aquilo era início de intervalo" produzem,
+        cada uma, um dia perfeitamente legal. Quem impede é esta regra, não a
+        sequência.
+
+        A conferência do pedido é UX; esta, sob lock, é a autoridade.
+      */
+      if (
+        request.targetEntryId &&
+        !efetivas.some((e) => e.id === request.targetEntryId)
+      ) {
+        throw conflict(
+          "Esta marcação já foi corrigida por outra solicitação. Reavalie o pedido.",
+        );
+      }
+
+      const resulting = resolveEffectiveTimeEntries(
+        [
+          ...efetivas.filter((e) => e.id !== request.targetEntryId),
+          {
+            // Id sintético: a marcação ainda não existe, e só participa da
+            // ordenação. Prefixo impossível para um cuid, para não colidir.
+            id: `~novo-${request.id}`,
+            type: request.requestedEntryType,
+            occurredAt: request.requestedOccurredAt,
+          },
+        ],
+        new Set<string>(),
+      ).map((e) => e.type);
 
       if (!isValidSequence(resulting)) {
         throw badRequest(
@@ -811,6 +946,31 @@ export async function decideTimeAdjustment(
           adjustmentRequestId: request.id,
         },
       });
+    }
+
+    /*
+      A decisão é gravada por ÚLTIMO, e com o status no predicado.
+
+      Por último porque a marcação derivada precisa nascer da realidade
+      validada: marcar o pedido antes fazia a própria decisão em andamento
+      aparecer como uma correção já aprovada, e o alvo dela era descartado do
+      dia por causa dela mesma.
+
+      Com o predicado porque o lock ordena, mas é este `updateMany` que diz que
+      um pedido só é decidido UMA vez — a regra continua verdadeira mesmo que um
+      caminho futuro chegue aqui sem passar pelo lock.
+    */
+    const claimed = await tx.timeAdjustmentRequest.updateMany({
+      where: { id: request.id, companyId, status: "PENDING" },
+      data: {
+        status: decision,
+        decidedById: deciderUserId,
+        decidedAt: new Date(),
+        decisionReason: trimTo(decisionReason, ADJUSTMENT_REASON_MAX),
+      },
+    });
+    if (claimed.count !== 1) {
+      throw conflict("Esta solicitação já foi decidida.");
     }
 
     return tx.timeAdjustmentRequest.findFirstOrThrow({
@@ -903,6 +1063,7 @@ export async function getTeamWorkday(
   });
   const byUser = new Map(workdays.map((w) => [w.userId, w]));
   const superadas = await supersededEntryIds(
+    prisma,
     companyId,
     workdays.map((w) => w.id),
   );
@@ -916,8 +1077,9 @@ export async function getTeamWorkday(
 
   const members = users.map((user) => {
     const workday = byUser.get(user.id);
-    const entries = (workday?.entries ?? []).filter(
-      (e) => !superadas.has(e.id),
+    const entries = resolveEffectiveTimeEntries(
+      workday?.entries ?? [],
+      superadas,
     );
     const totals = summarize(entries);
     const last = entries.at(-1) ?? null;

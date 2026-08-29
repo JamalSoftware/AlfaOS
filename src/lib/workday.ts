@@ -70,6 +70,53 @@ export function resolveTimezone(value: string | null | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
+// A sequência efetiva
+// ---------------------------------------------------------------------------
+
+/**
+ * O que REALMENTE vale no dia, em ordem de horário.
+ *
+ * ## Por que isto é uma função só
+ *
+ * Uma correção aprovada não apaga nem edita a marcação original (§229): ela
+ * cria uma marcação derivada e **supera** a antiga. O dia passa a ter, no
+ * banco, duas linhas para o mesmo fato — e qualquer código que leia a tabela
+ * bruta lê um dia que não existe.
+ *
+ * O módulo já teve DUAS noções de "marcação atual": o espelho descartava as
+ * superadas, a batida e a validação da aprovação não. Disso saíram três
+ * defeitos de uma raiz só — jornada encerrada que aceitava batida, segunda
+ * correção legítima recusada, e duas aprovações sobre o mesmo fato.
+ *
+ * Por isso a resolução mora aqui, ao lado da máquina de estados: quem deriva
+ * estado, ação permitida ou sequência válida recebe **esta** sequência, e não
+ * existe segunda definição para divergir.
+ *
+ * ## Superar é diferença de conjuntos, não caminhada
+ *
+ * Uma cadeia (original → correção 1 → correção 2) resolve sozinha: os ids
+ * superados saem, e sobra a última versão. Não há travessia de arestas, então
+ * não há ciclo possível de percorrer — e nenhum grafo para manter.
+ *
+ * ## Empate de horário
+ *
+ * Duas marcações no mesmo milissegundo são desempatadas pelo `id`. O critério
+ * importa menos que ser o MESMO em toda leitura: ordem instável faria o espelho
+ * e a escrita discordarem de novo, agora por sorte.
+ */
+export function resolveEffectiveTimeEntries<
+  T extends { id: string; occurredAt: Date },
+>(entries: readonly T[], supersededIds: ReadonlySet<string>): T[] {
+  return entries
+    .filter((entry) => !supersededIds.has(entry.id))
+    .sort(
+      (a, b) =>
+        a.occurredAt.getTime() - b.occurredAt.getTime() ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Máquina de estados da jornada
 // ---------------------------------------------------------------------------
 
