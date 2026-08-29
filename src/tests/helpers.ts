@@ -37,6 +37,21 @@ export async function resetDatabase(): Promise<void> {
   }
 
   await prisma.customerDiagnosticSnapshot.deleteMany();
+  /*
+    Jornada, de baixo para cima.
+
+    A marcação derivada aponta para o pedido que a criou, e o pedido aponta para
+    a marcação-alvo — as duas com `Restrict`. Por isso o pedido é desarmado
+    ANTES: sem isso, apagar `time_entries` esbarra na FK do efeito, e apagar
+    `time_adjustment_requests` esbarra na do alvo. Zerar os dois ponteiros
+    primeiro rompe o ciclo sem precisar de ordem mágica.
+  */
+  await prisma.timeAdjustmentRequest.updateMany({
+    data: { targetEntryId: null },
+  });
+  await prisma.timeEntry.deleteMany();
+  await prisma.timeAdjustmentRequest.deleteMany();
+  await prisma.workday.deleteMany();
   // Equipamento antes de evidência: desde a v0.10.1 ele aponta para a foto da
   // etiqueta com `Restrict`, e apagar a foto primeiro viola a FK.
   await prisma.serviceOrderEquipment.deleteMany();

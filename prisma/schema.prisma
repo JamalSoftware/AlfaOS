@@ -193,11 +193,25 @@ model Company {
   /// `PppoePasswordPolicy` — o default não deriva nada.
   pppoePasswordPolicy PppoePasswordPolicy @default(MANUAL_ONLY)
 
+  /// Fuso horario que define o DIA OPERACIONAL desta empresa.
+  ///
+  /// Nome IANA (`America/Sao_Paulo`, `America/Manaus`). Nao e enfeite de
+  /// apresentacao: e ele que decide a que dia pertence uma batida das 23h50 e
+  /// se a jornada da madrugada e de ontem ou de hoje. Calcular isso em UTC
+  /// jogaria a jornada da noite para o dia seguinte no Brasil inteiro.
+  ///
+  /// Unica configuracao de fuso do projeto — nao existia nenhuma antes da
+  /// jornada, e nao deve nascer uma segunda.
+  timezone String @default("America/Sao_Paulo")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   users                  User[]
   auditLogs              AuditLog[]
+  workdays               Workday[]
+  timeEntries            TimeEntry[]
+  timeAdjustments        TimeAdjustmentRequest[]
   erpIntegration         ERPIntegration?
   customers              Customer[]
   technicians            Technician[]
@@ -316,6 +330,11 @@ model User {
 
   auditLogs          AuditLog[]
   technicians        Technician[]
+  workdays           Workday[]              @relation("WorkdayOwner")
+  timeEntries        TimeEntry[]            @relation("TimeEntryOwner")
+  timeAdjustments    TimeAdjustmentRequest[] @relation("AdjustmentRequester")
+  adjustmentsAuthored TimeAdjustmentRequest[] @relation("AdjustmentAuthor")
+  adjustmentsDecided TimeAdjustmentRequest[] @relation("AdjustmentDecider")
   serviceOrderEvents ServiceOrderEvent[]
   uploadedEvidences  ServiceOrderEvidence[]      @relation("EvidenceUploader")
   createdMaterials   ServiceOrderMaterialUsage[] @relation("MaterialCreator")
@@ -510,6 +529,7 @@ model Technician {
   serviceOrders ServiceOrder[]
   mobileDevices MobileDevice[]
   notifications Notification[]
+  timeEntries   TimeEntry[]
 
   // v0.10 — o técnico como sujeito da execução em campo
   verifiedLocations  CustomerLocation[]           @relation("LocationVerifierTechnician")
@@ -1081,6 +1101,8 @@ model MobileDevice {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  timeEntries TimeEntry[]
 
   /// Reinstalar o app na mesma conta reaproveita a linha em vez de acumular
   /// uma por login. `companyId` entra na chave porque nada neste schema e
@@ -2069,4 +2091,216 @@ model ServiceOrderCompletion {
 
   @@index([companyId, completedAt])
   @@map("service_order_completions")
+}
+
+// ---------------------------------------------------------------------------
+// JORNADA / PONTO DO FUNCIONARIO (PRD 226-233)
+//
+// NAO confundir com `ServiceOrderCheckIn`. As duas gravam "cheguei", com GPS, e
+// param de se parecer ai:
+//
+//   ponto     -> a pessoa estava trabalhando?   preso a PESSOA e DIA
+//   check-in  -> o tecnico chegou no atendimento? preso a uma ServiceOrder
+//
+// Derivar uma da outra e o defeito que a 226 proibe: tratar o primeiro check-in
+// do dia como entrada deixaria sem jornada quem passou o dia no almoxarifado.
+// ---------------------------------------------------------------------------
+
+/// As quatro marcacoes da jornada.
+///
+/// Mais de um intervalo por dia e valido — a sequencia aceita pares
+/// BREAK_START/BREAK_END repetidos. Um esquema que so aceitasse um par exigiria
+/// migration para algo que ja se sabe que acontece.
+enum TimeEntryType {
+  CLOCK_IN
+  BREAK_START
+  BREAK_END
+  CLOCK_OUT
+}
+
+/// De onde a marcacao veio.
+///
+/// `ADJUSTMENT` e o unico jeito de uma marcacao nascer sem alguem ter batido:
+/// ela e o efeito de um pedido APROVADO (229), e aponta para ele.
+enum TimeEntrySource {
+  FIELD_APP
+  WEB
+  ADJUSTMENT
+}
+
+/// Ancora de concorrencia e de DIA OPERACIONAL. **Nao guarda estado derivado.**
+///
+/// O estado da jornada (NOT_STARTED/WORKING/ON_BREAK/FINISHED) e sempre
+/// derivado da sequencia de marcacoes, como a 226 exige. Esta linha existe por
+/// duas outras razoes:
+///
+/// 1. **Serializar batidas.** Dois CLOCK_IN simultaneos leem "sem marcacao" os
+///    dois e inserem os dois. Nao ha `version` de agregado para o cliente
+///    mandar — e nem faria sentido exigir isso de quem so tocou um botao. O
+///    comando trava ESTA linha (`FOR UPDATE`) antes de ler a sequencia, e o
+///    segundo so acorda depois de o primeiro ter gravado.
+/// 2. **Congelar o dia.** `date` e calculada no fuso da empresa no instante da
+///    primeira batida e nao muda depois. Recalcular a cada leitura faria a
+///    jornada de ontem mudar de dia quando a empresa trocasse de fuso.
+model Workday {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("WorkdayOwner", fields: [userId], references: [id], onDelete: Restrict)
+
+  /// Dia civil no fuso da empresa. Sem hora: e uma data, nao um instante.
+  date DateTime @db.Date
+
+  /// Fuso vigente quando o dia foi aberto. Guardado para a leitura futura saber
+  /// sob qual regra ele foi calculado, mesmo que a empresa mude de fuso depois.
+  timezone String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries     TimeEntry[]
+  adjustments TimeAdjustmentRequest[]
+
+  @@unique([companyId, userId, date])
+  @@index([companyId, date])
+  @@map("workdays")
+}
+
+/// Uma marcacao de ponto. **IMUTAVEL.**
+///
+/// Nao existe caminho de UPDATE para esta tabela em lugar nenhum do codigo, e
+/// isso e a regra que sustenta todas as outras (229): um registro de jornada
+/// que pode ser reescrito nao prova nada, e a primeira reescrita silenciosa
+/// destroi o valor de todo o historico.
+///
+/// Correcao nao edita: ela cria OUTRA linha, com `source = ADJUSTMENT`,
+/// apontando para o pedido aprovado que a originou.
+model TimeEntry {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("TimeEntryOwner", fields: [userId], references: [id], onDelete: Restrict)
+  workdayId String
+  workday   Workday  @relation(fields: [workdayId], references: [id], onDelete: Restrict)
+
+  /// Quem bateu, quando e o tecnico. Nulo para quem nao e tecnico — a jornada e
+  /// do FUNCIONARIO, e o tecnico e um caso particular (226).
+  technicianId String?
+  technician   Technician? @relation(fields: [technicianId], references: [id], onDelete: SetNull)
+
+  /// Aparelho que originou a batida no Field. Reusa a fundacao da v0.9 — nao
+  /// existe segundo registro de dispositivo no projeto.
+  mobileDeviceId String?
+  mobileDevice   MobileDevice? @relation(fields: [mobileDeviceId], references: [id], onDelete: SetNull)
+
+  type   TimeEntryType
+  source TimeEntrySource
+
+  /// **O horario que vale.** Carimbado pelo SERVIDOR.
+  ///
+  /// O relogio do telefone e ajustavel pelo proprio usuario em dois toques, sem
+  /// deixar rastro: uma jornada que aceite o horario informado pelo aparelho
+  /// nao registra jornada, registra o que a pessoa digitou (227).
+  occurredAt DateTime
+
+  /// O que o APARELHO disse. Metadata, nunca autoridade.
+  ///
+  /// Guardado porque e util exatamente por divergir: a diferenca entre os dois
+  /// e sinal. Aparelho sempre adiantado e relogio errado; adiantado so na
+  /// entrada e outra coisa.
+  deviceOccurredAt DateTime?
+
+  /// Quando o aparelho gravou a batida offline, e quando ela chegou ao
+  /// servidor. Nulos hoje — o motor offline nao existe (232). Os campos nascem
+  /// junto porque acrescenta-los depois exigiria migration numa tabela que
+  /// nunca deve ser reescrita.
+  offlineRecordedAt DateTime?
+  syncReceivedAt    DateTime?
+
+  /// Evidencia da batida, nunca autoridade do horario (228). Ausencia NAO
+  /// bloqueia: uma jornada que nao pode ser registrada porque o predio e de
+  /// concreto transfere ao funcionario um problema que nao e dele.
+  latitude       Decimal? @db.Decimal(10, 7)
+  longitude      Decimal? @db.Decimal(10, 7)
+  accuracyMeters Int?
+
+  /// Pedido aprovado que originou esta marcacao. Preenchido apenas quando
+  /// `source = ADJUSTMENT`.
+  adjustmentRequestId String?                @unique
+  adjustmentRequest   TimeAdjustmentRequest? @relation("AdjustmentEffect", fields: [adjustmentRequestId], references: [id], onDelete: Restrict)
+
+  /// Pedidos que apontam para esta marcacao como alvo de correcao.
+  adjustmentTargets TimeAdjustmentRequest[] @relation("AdjustmentTarget")
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, userId, occurredAt])
+  @@index([workdayId, occurredAt])
+  @@map("time_entries")
+}
+
+/// O que o funcionario diz que aconteceu de errado.
+enum TimeAdjustmentType {
+  MISSING_ENTRY
+  WRONG_TIME
+  BREAK
+  OTHER
+}
+
+enum TimeAdjustmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Pedido de correcao de jornada.
+///
+/// O caminho UNICO de correcao (229). Existe para que uma alteracao nunca
+/// aconteca sem motivo declarado e sem contraditorio — que e exatamente o que
+/// uma fiscalizacao, ou uma discussao entre as duas partes, precisa
+/// reconstruir. Por isso o gestor nao edita a marcacao direto.
+///
+/// Pedido rejeitado NAO e apagado.
+model TimeAdjustmentRequest {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("AdjustmentRequester", fields: [userId], references: [id], onDelete: Restrict)
+  workdayId String
+  workday   Workday  @relation(fields: [workdayId], references: [id], onDelete: Restrict)
+
+  /// Marcacao afetada. NULO quando o pedido e de inclusao — o funcionario
+  /// esqueceu de bater, e nao existe linha para apontar.
+  targetEntryId String?
+  targetEntry   TimeEntry? @relation("AdjustmentTarget", fields: [targetEntryId], references: [id], onDelete: Restrict)
+
+  requestedType       TimeAdjustmentType
+  /// Que marcacao deveria existir, ou passar a valer.
+  requestedEntryType  TimeEntryType
+  requestedOccurredAt DateTime
+  reason              String
+  notes               String?
+
+  requestedById String
+  requestedBy   User   @relation("AdjustmentAuthor", fields: [requestedById], references: [id], onDelete: Restrict)
+
+  status TimeAdjustmentStatus @default(PENDING)
+
+  decidedById    String?
+  decidedBy      User?     @relation("AdjustmentDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt      DateTime?
+  decisionReason String?
+
+  /// A marcacao derivada que a aprovacao criou. Um pedido aprovado produz UMA.
+  effect TimeEntry? @relation("AdjustmentEffect")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, status, createdAt])
+  @@index([workdayId])
+  @@map("time_adjustment_requests")
 }
