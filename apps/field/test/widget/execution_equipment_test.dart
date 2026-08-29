@@ -427,6 +427,162 @@ void main() {
       expect(find.text('Endereço MAC inválido'), findsNothing);
     });
 
+    /*
+      Regressão do TEST-COV-01, apontado pela auditoria independente da v0.10.
+
+      `LABEL_EXPIRED` é a única recusa cuja saída não é "corrija e reenvie": a
+      mesma foto nunca mais vai passar, e o formulário tem de PEDIR OUTRA. A
+      decisão vem do CÓDIGO do servidor, nunca de ler a mensagem — mas não havia
+      nenhum teste prendendo isso, então trocar `labelExpired` por outro código,
+      ou apagar o `setState` que solta a captura, passava despercebido.
+    */
+    testWidgets('LABEL_EXPIRED solta só a captura e pede outra foto', (
+      tester,
+    ) async {
+      final harness = await _abrirTela(tester);
+      await _preencher(tester, serial: 'FICT010');
+
+      // Controle positivo: com a etiqueta anexada, Registrar está habilitado.
+      expect(find.text('Etiqueta anexada'), findsOneWidget);
+      expect(
+        tester.widget<FilledButton>(find.byKey(_submit)).onPressed,
+        isNotNull,
+      );
+
+      harness.transport.onError(
+        'POST',
+        _rota,
+        status: 400,
+        code: 'LABEL_EXPIRED',
+        message: 'A foto da etiqueta expirou. Fotografe a etiqueta de novo.',
+      );
+
+      await tester.tap(find.byKey(_submit));
+      await _settle(tester);
+
+      expect(tester.takeException(), isNull);
+      // Não fecha como sucesso.
+      expect(find.text('Equipamento instalado'), findsOneWidget);
+      // O motivo aparece dentro da folha, onde o técnico está trabalhando.
+      expect(find.textContaining('expirou'), findsWidgets);
+      // O que foi DIGITADO sobrevive: redigitar não é parte do problema.
+      expect(find.text('Fabricante Ficticio'), findsOneWidget);
+      expect(find.text('MODELO-X'), findsOneWidget);
+      expect(find.text('FICT010'), findsOneWidget);
+      // Só a CAPTURA foi descartada, e o formulário volta a exigi-la.
+      expect(find.text('Foto da etiqueta — obrigatória'), findsOneWidget);
+      expect(find.text('Etiqueta anexada'), findsNothing);
+      expect(
+        tester.widget<FilledButton>(find.byKey(_submit)).onPressed,
+        isNull,
+        reason: 'sem etiqueta válida, REGISTRAR tem de desabilitar',
+      );
+      // E não entrou em laço de reenvio.
+      expect(harness.transport.countOf('POST', _rota), 1);
+    });
+
+    testWidgets('depois do LABEL_EXPIRED, uma foto nova registra', (
+      tester,
+    ) async {
+      final harness = await _abrirTela(tester);
+      await _preencher(tester, serial: 'FICT011');
+
+      harness.transport.onError(
+        'POST',
+        _rota,
+        status: 400,
+        code: 'LABEL_EXPIRED',
+        message: 'A foto da etiqueta expirou.',
+      );
+      await tester.tap(find.byKey(_submit));
+      await _settle(tester);
+      expect(find.text('Foto da etiqueta — obrigatória'), findsOneWidget);
+
+      // A segunda captura devolve outro id, e o servidor passa a aceitar.
+      harness.transport.onJson(
+        'POST',
+        _rotaEvidencia,
+        status: 201,
+        data: _evidenciaCriada('etiqueta-2'),
+      );
+      await _fotografarEtiqueta(tester);
+      expect(find.text('Etiqueta anexada'), findsOneWidget);
+
+      harness.transport.onJson('POST', _rota);
+      harness.transport.onJson(
+        'GET',
+        '/service-orders/os-1/execution',
+        data: _bundle(equipments: const [_equipamentoDoServidor], version: 6),
+      );
+
+      await tester.tap(find.byKey(_submit));
+      await _settle(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Equipamento instalado'), findsNothing);
+      expect(harness.transport.countOf('POST', _rota), 2);
+      expect(find.textContaining('SERIAL-DO-SERVIDOR'), findsOneWidget);
+    });
+
+    testWidgets('LABEL_EXPIRED não é conflito: não recarrega o pacote', (
+      tester,
+    ) async {
+      final harness = await _abrirTela(tester);
+      await _preencher(tester, serial: 'FICT012');
+
+      harness.transport.onError(
+        'POST',
+        _rota,
+        status: 400,
+        code: 'LABEL_EXPIRED',
+        message: 'A foto da etiqueta expirou.',
+      );
+      final recargasAntes = harness.transport.countOf(
+        'GET',
+        '/service-orders/os-1/execution',
+      );
+
+      await tester.tap(find.byKey(_submit));
+      await _settle(tester);
+
+      /*
+        `conflict: false` no envelope. Tratar como conflito faria o app dizer
+        "o atendimento mudou em outro lugar" e recarregar — quando nada mudou:
+        o prazo simplesmente passou.
+      */
+      expect(
+        harness.transport.countOf('GET', '/service-orders/os-1/execution'),
+        recargasAntes,
+      );
+      expect(find.textContaining('mudou em outro lugar'), findsNothing);
+      expect(find.text('Equipamento instalado'), findsOneWidget);
+    });
+
+    testWidgets('400 COMUM não descarta a etiqueta — só LABEL_EXPIRED faz', (
+      tester,
+    ) async {
+      final harness = await _abrirTela(tester);
+      await _preencher(tester, serial: 'FICT013');
+
+      harness.transport.onError(
+        'POST',
+        _rota,
+        status: 400,
+        code: 'VALIDATION_ERROR',
+        message: 'Endereço MAC inválido.',
+      );
+      await tester.tap(find.byKey(_submit));
+      await _settle(tester);
+
+      expect(find.textContaining('MAC inválido'), findsOneWidget);
+      // A foto continua anexada: refotografar seria trabalho perdido.
+      expect(find.text('Etiqueta anexada'), findsOneWidget);
+      expect(
+        tester.widget<FilledButton>(find.byKey(_submit)).onPressed,
+        isNotNull,
+      );
+    });
+
     testWidgets('409 mantém a folha aberta para tentar com a versão nova', (
       tester,
     ) async {

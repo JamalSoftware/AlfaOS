@@ -40,6 +40,10 @@ import { INT32_MAX } from "@/lib/version";
  * `Content-Type`, ambos escolhidos pelo cliente. `.exe` renomeado `.jpg` não
  * passa, e SVG não é aceito em formato nenhum porque carrega script.
  */
+
+/** Os valores REAIS do enum. Ver o comentário na leitura de `category`. */
+const EVIDENCE_CATEGORIES = new Set<string>(Object.values(EvidenceCategory));
+
 export async function POST(
   request: Request,
   context: { params: { id: string } },
@@ -79,9 +83,23 @@ export async function POST(
       throw new FieldError("VALIDATION_ERROR", "Versão inválida.");
     }
 
+    /*
+      Categoria validada por VALOR, nunca com `in`.
+
+      `rawCategory in EvidenceCategory` percorre a cadeia de protótipos, então
+      `toString`, `constructor`, `hasOwnProperty` e `__proto__` passavam pela
+      conferência — eram "chaves" de `Object.prototype` — e chegavam ao Prisma
+      como valor de enum. O Prisma recusava, mas com erro de validação de
+      cliente, que o envelope traduz em `INTERNAL` (500). E `INTERNAL` é
+      `retryable`, então uma recusa que NUNCA vira sucesso era anunciada ao
+      aplicativo como transitória, e o Flutter reenviava.
+
+      `EVIDENCE_CATEGORIES` compara contra os valores reais do enum. O `Set` é
+      construído uma vez, no módulo, e não a cada upload.
+    */
     const rawCategory = form.get("category");
     const category =
-      typeof rawCategory === "string" && rawCategory in EvidenceCategory
+      typeof rawCategory === "string" && EVIDENCE_CATEGORIES.has(rawCategory)
         ? (rawCategory as EvidenceCategory)
         : null;
     if (rawCategory !== null && category === null) {

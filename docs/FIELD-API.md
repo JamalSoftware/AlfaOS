@@ -164,6 +164,7 @@ de suporte.
 | Método | Caminho | O que faz |
 |---|---|---|
 | GET | `/service-orders/:id/execution` | pacote da tela de execução, numa leitura |
+| POST | `/service-orders/:id/execution` | salva o relatório do atendimento |
 | POST | `/service-orders/:id/check-in` | chegada ao local |
 | POST | `/service-orders/:id/location/confirm` | confirma o ponto cadastrado |
 | POST | `/service-orders/:id/location/correct` | corrige endereço e/ou coordenada |
@@ -186,6 +187,49 @@ que um técnico inelegível reserve uma chave que depois bloquearia a legítima.
 
 Duas remoções usam `POST` e não `DELETE`: o comando precisa de `expectedVersion`
 no corpo, e corpo em `DELETE` é mal suportado por proxies.
+
+**`POST /service-orders/:id/execution`** é o único comando cujo `expectedVersion`
+é o da EXECUÇÃO, não o da OS. Corpo: `diagnosis`, `workPerformed` e `notes`, os
+três opcionais e cada um até `EXECUTION_TEXT_MAX_LENGTH`. Nenhum é obrigatório
+aqui — só no fechamento, onde `diagnosis` e `workPerformed` são os dois
+requisitos que valem para toda OS, com ou sem política. Durante o atendimento o
+técnico salva o que tem até agora, quantas vezes quiser.
+
+Os dois locks são separados de propósito: um despachante tocando a OS não pode
+invalidar o parágrafo que o técnico está digitando, e salvar o parágrafo não pode
+invalidar uma foto em envio.
+
+### Ciclo de vida da foto de etiqueta
+
+O equipamento é identificado por uma FOTO da etiqueta, não por série ou MAC
+digitados — os dois viraram opcionais. A foto sobe antes, pela rota de evidência
+com `category: EQUIPMENT_LABEL`, e o registro aponta para o id dela em
+`labelEvidenceId`.
+
+Ela tem um estágio próprio, e o aplicativo precisa conhecê-lo:
+
+| Momento | Estado | O que o app vê |
+|---|---|---|
+| upload | `TEMPORARY`, com prazo de 24 h | **não** aparece em `evidences`; não conta para concluir |
+| registro do equipamento | `COMMITTED`, sem prazo | aparece em `evidences`; conta normalmente |
+| remoção do equipamento | volta a `TEMPORARY`, com prazo NOVO | some de `evidences`; volta a poder ser usada |
+| prazo vencido | continua `TEMPORARY` | registro recusado com `LABEL_EXPIRED` |
+
+Duas consequências para o cliente:
+
+- **retentativa não pede foto nova.** Um `VALIDATION_ERROR` (MAC malformado,
+  por exemplo) não consome a captura: o técnico corrige o formulário e reenvia
+  com o mesmo `labelEvidenceId`.
+- **`LABEL_EXPIRED` pede.** É a única recusa cuja saída não é "corrija e
+  reenvie" — a mesma foto nunca mais vai passar. O aplicativo decide isso pelo
+  `code`, nunca pela mensagem. Ele é `400` e **não** `conflict`: nada mudou
+  debaixo do aparelho, o prazo simplesmente passou, então recarregar o pacote
+  não é a saída.
+
+Uma foto identifica **um** equipamento: `labelEvidenceId` é único por banco.
+Rebaixá-la na remoção é o que mantém as duas coisas verdadeiras ao mesmo tempo —
+que ela pode ser reaproveitada depois de um cadastro errado, e que nunca existe
+prova definitiva de um aparelho que não está mais registrado.
 
 **Não existe rota de ENTRADA de estoque no Field.** Se existisse, o técnico
 criaria o próprio saldo antes de baixá-lo, e a validação de saldo não valeria

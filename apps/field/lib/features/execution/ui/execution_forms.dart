@@ -850,10 +850,15 @@ Future<void> showEquipmentSheet(
                 A foto da etiqueta é a evidência de identificação.
 
                 Ela sobe SOZINHA, antes do registro, porque o equipamento
-                precisa apontar para o id dela. Se o registro falhar depois, a
-                foto fica na OS como qualquer outra evidência — é uma foto
-                verdadeira do atendimento, e apagá-la seria descartar trabalho
-                já feito em campo.
+                precisa apontar para o id dela. Até esse registro acontecer ela
+                fica TEMPORÁRIA no servidor: não entra na lista de fotos da OS,
+                não conta para concluir, e expira se ninguém a usar. Se o
+                registro falhar, ela continua disponível para a retentativa —
+                o técnico corrige o formulário e reenvia sem fotografar de
+                novo.
+
+                A exceção é `LABEL_EXPIRED`: aí o prazo passou, e a saída é
+                outra foto. Ver o `onSubmit` logo abaixo.
               */
               _LabelPhotoField(
                 key: const Key('equipment-label-photo'),

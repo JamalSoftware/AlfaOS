@@ -12,6 +12,7 @@ import {
   claimOrderForChildMutation,
   loadInProgressOwnedOrder,
 } from "./service-order-child-mutation";
+import { EQUIPMENT_LABEL_TTL_MS } from "./service-order-closing";
 
 /**
  * # Equipamento instalado no cliente
@@ -338,6 +339,43 @@ export async function addServiceOrderEquipment(
   return toPublicEquipment(created);
 }
 
+/**
+ * Remove um equipamento e SOLTA a etiqueta que o identificava.
+ *
+ * ## A etiqueta não sobrevive ao equipamento
+ *
+ * A promoção para `COMMITTED` é feita por `addServiceOrderEquipment` e só faz
+ * sentido enquanto existe um equipamento apontando para a foto. Deixá-la
+ * definitiva depois da remoção produz exatamente o estado que o estágio
+ * temporário foi criado para impedir: uma prova definitiva de um aparelho que
+ * ninguém registrou — contando na política de conclusão e aparecendo no
+ * relatório.
+ *
+ * O defeito era observável: com `minEvidenceCount = 1`, subir a etiqueta,
+ * registrar o equipamento e removê-lo deixava a OS concluindo com a foto órfã
+ * como única evidência. E a mesma foto ficava inutilizável, porque
+ * `status !== "TEMPORARY"` a recusava com "já identifica outro equipamento" —
+ * uma frase falsa, já que ela não identificava mais nada.
+ *
+ * ## Rebaixar, não apagar
+ *
+ * A foto é verdadeira: foi tirada em campo, daquele aparelho. O que deixou de
+ * ser verdade é o vínculo. Rebaixá-la devolve o caminho natural de correção —
+ * remover o equipamento errado, corrigir e registrar de novo REUSANDO a mesma
+ * captura — enquanto apagá-la obrigaria o técnico a fotografar outra vez uma
+ * etiqueta que ele talvez já não alcance.
+ *
+ * O prazo novo é o `EQUIPMENT_LABEL_TTL_MS` oficial, o mesmo do upload. Um
+ * segundo TTL faria "quanto tempo a etiqueta vale" depender de qual caminho a
+ * criou.
+ *
+ * ## Na MESMA transação
+ *
+ * Fora dela existiria uma janela — curta, mas real — com o equipamento já
+ * removido e a etiqueta ainda `COMMITTED`, que é precisamente o estado
+ * defeituoso. Uma conclusão concorrente nessa janela leria a foto órfã como
+ * evidência válida.
+ */
 export async function removeServiceOrderEquipment(
   companyId: string,
   actorUserId: string,
@@ -363,6 +401,32 @@ export async function removeServiceOrderEquipment(
     );
 
     await tx.serviceOrderEquipment.delete({ where: { id: equipment.id } });
+
+    if (equipment.labelEvidenceId) {
+      /*
+        `updateMany` com `companyId` no predicado, e a contagem conferida.
+
+        A FK é `Restrict` e `labelEvidenceId` é único, então a linha existe e
+        só este equipamento apontava para ela — contar zero aqui significaria
+        que a suposição quebrou, e abortar é melhor que seguir deixando a
+        etiqueta definitiva. O `expiresAt` é reescrito mesmo se ela já
+        estivesse temporária: o prazo conta a partir de quando a foto voltou a
+        estar disponível, não de quando foi tirada.
+      */
+      const released = await tx.serviceOrderEvidence.updateMany({
+        where: { id: equipment.labelEvidenceId, companyId },
+        data: {
+          status: "TEMPORARY",
+          expiresAt: new Date(Date.now() + EQUIPMENT_LABEL_TTL_MS),
+        },
+      });
+      if (released.count !== 1) {
+        throw conflict(
+          "Não foi possível liberar a foto da etiqueta. Recarregue e tente novamente.",
+        );
+      }
+    }
+
     return equipment;
   });
 
@@ -372,7 +436,9 @@ export async function removeServiceOrderEquipment(
     action: "SERVICE_ORDER.EQUIPMENT_REMOVED",
     entity: "ServiceOrderEquipment",
     entityId: removed.id,
-    details: `Equipamento ${removed.equipmentType} removido da OS`,
+    details: `Equipamento ${removed.equipmentType} removido da OS${
+      removed.labelEvidenceId ? " (foto da etiqueta liberada para reuso)" : ""
+    }`,
   });
 }
 

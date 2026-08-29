@@ -10,8 +10,17 @@ import {
   completeServiceOrder,
   EQUIPMENT_LABEL_TTL_MS,
 } from "@/lib/service-order-closing";
-import { CompletionBlockedError, putCompletionPolicy } from "@/lib/service-order-completion";
-import { addServiceOrderEquipment } from "@/lib/service-order-equipment";
+import {
+  CompletionBlockedError,
+  putCompletionPolicy,
+  validateServiceOrderCompletion,
+} from "@/lib/service-order-completion";
+import { putChecklistTemplate } from "@/lib/checklists";
+import { FieldError } from "@/lib/field/errors";
+import {
+  addServiceOrderEquipment,
+  removeServiceOrderEquipment,
+} from "@/lib/service-order-equipment";
 import { purgeExpiredTemporaryEvidence } from "@/lib/field/evidence-cleanup";
 import { getFieldExecutionBundle } from "@/lib/field/execution";
 import { startServiceOrder, updateServiceOrderExecution } from "@/lib/service-orders";
@@ -679,5 +688,492 @@ describe("Etiqueta — legado", () => {
       },
     });
     expect(outro.labelEvidenceId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Remoção do equipamento — a etiqueta não sobrevive ao que ela identificava
+// ---------------------------------------------------------------------------
+
+/**
+ * Regressão do LABEL-ORPHAN-01, achado pela auditoria independente da v0.10.
+ *
+ * A promoção para `COMMITTED` acontecia no registro e nunca era desfeita. Um
+ * técnico que registrasse o equipamento errado e o removesse deixava para trás
+ * uma foto DEFINITIVA de um aparelho que não existe mais — contando na política
+ * de conclusão, aparecendo no relatório, e inutilizável, porque
+ * `status !== "TEMPORARY"` a recusava com "já identifica outro equipamento".
+ *
+ * Era o estado exato que o estágio temporário foi criado para impedir: ele
+ * fechava o caminho "nunca registrado" e deixava aberto o "registrado e depois
+ * removido".
+ */
+describe("Etiqueta — liberada quando o equipamento sai", () => {
+  /** Registra um equipamento com etiqueta e devolve os dois ids. */
+  async function comEquipamento(ctx: Awaited<ReturnType<typeof cenario>>) {
+    const etiqueta = await anexar(ctx);
+    const equipamento = await addServiceOrderEquipment(
+      ctx.companyId,
+      ctx.userId,
+      ctx.orderId,
+      {
+        expectedOrderVersion: await versionOf(ctx.orderId),
+        equipmentType: "ONU",
+        labelEvidenceId: etiqueta,
+      },
+    );
+    const promovida = await prisma.serviceOrderEvidence.findUniqueOrThrow({
+      where: { id: etiqueta },
+    });
+    // Controle positivo: sem isto, o teste de rebaixamento poderia passar
+    // porque a foto nunca chegou a ser promovida.
+    expect(promovida.status).toBe("COMMITTED");
+    expect(promovida.expiresAt).toBeNull();
+    return { etiqueta, equipamentoId: equipamento.id };
+  }
+
+  it("remover o equipamento devolve a etiqueta a TEMPORARY, com prazo novo", async () => {
+    const ctx = await cenario();
+    const { etiqueta, equipamentoId } = await comEquipamento(ctx);
+
+    const antesDaRemocao = Date.now();
+    await removeServiceOrderEquipment(
+      ctx.companyId,
+      ctx.userId,
+      ctx.orderId,
+      equipamentoId,
+      await versionOf(ctx.orderId),
+    );
+
+    const liberada = await prisma.serviceOrderEvidence.findUniqueOrThrow({
+      where: { id: etiqueta },
+    });
+    expect(liberada.status).toBe("TEMPORARY");
+    expect(liberada.expiresAt).not.toBeNull();
+
+    /*
+      O prazo é o TTL OFICIAL, contado a partir da liberação.
+
+      Um segundo TTL faria "quanto tempo a etiqueta vale" depender de qual
+      caminho a criou. A janela de um minuto para os DOIS lados cobre o tempo
+      que a transação levou entre o relógio lido aqui e o lido lá dentro — a
+      afirmação é sobre a ordem de grandeza ser o TTL, não sobre o milissegundo.
+    */
+    const restante = liberada.expiresAt!.getTime() - antesDaRemocao;
+    expect(restante).toBeGreaterThan(EQUIPMENT_LABEL_TTL_MS - 60_000);
+    expect(restante).toBeLessThan(EQUIPMENT_LABEL_TTL_MS + 60_000);
+
+    expect(
+      await prisma.serviceOrderEquipment.count({
+        where: { serviceOrderId: ctx.orderId },
+      }),
+    ).toBe(0);
+  });
+
+  it("a foto liberada some do pacote da execução", async () => {
+    const ctx = await cenario();
+    const { etiqueta, equipamentoId } = await comEquipamento(ctx);
+
+    const comEla = await getFieldExecutionBundle(
+      ctx.companyId,
+      ctx.technicianId,
+      ctx.orderId,
+    );
+    expect(comEla.evidences.map((e) => e.id)).toContain(etiqueta);
+
+    await removeServiceOrderEquipment(
+      ctx.companyId,
+      ctx.userId,
+      ctx.orderId,
+      equipamentoId,
+      await versionOf(ctx.orderId),
+    );
+
+    const semEla = await getFieldExecutionBundle(
+      ctx.companyId,
+      ctx.technicianId,
+      ctx.orderId,
+    );
+    expect(semEla.evidences.map((e) => e.id)).not.toContain(etiqueta);
+    expect(semEla.equipments).toHaveLength(0);
+  });
+
+  it("a foto liberada NÃO satisfaz mais o mínimo de evidências", async () => {
+    const ctx = await cenario();
+    await putCompletionPolicy(ctx.companyId, fixture.adminA.id, fixture.typeA.id, {
+      requireChecklist: false,
+      requireSignature: false,
+      requireMaterials: false,
+      requireEquipment: false,
+      requireCheckIn: false,
+      minEvidenceCount: 1,
+      requiredEvidenceCategories: [],
+    });
+    const execucao = await updateServiceOrderExecution(
+      ctx.companyId,
+      ctx.userId,
+      ctx.orderId,
+      0,
+      { diagnosis: "Diagnóstico fictício.", workPerformed: "Serviço fictício." },
+    );
+    const { equipamentoId } = await comEquipamento(ctx);
+
+    await removeServiceOrderEquipment(
+      ctx.companyId,
+      ctx.userId,
+      ctx.orderId,
+      equipamentoId,
+      await versionOf(ctx.orderId),
+    );
+
+    /*
+      Este era o defeito, medido: antes da correção a conclusão devolvia 200
+      com ZERO pendências — a foto órfã sozinha satisfazia "ao menos uma foto".
+    */
+    const versaoAntes = await versionOf(ctx.orderId);
+    const erro = await expectDomainError(
+      () =>
+        completeServiceOrder(ctx.companyId, ctx.userId, ctx.orderId, {
+          expectedOrderVersion: versaoAntes,
+          expectedExecutionVersion: execucao.version,
+        }),
+      400,
+    );
+    expect(erro).toBeInstanceOf(CompletionBlockedError);
+    expect(
+      (erro as CompletionBlockedError).pendencies.map((p) => p.code),
+    ).toContain("EVIDENCE_COUNT_BELOW_MINIMUM");
+
+    expect(
+      await prisma.serviceOrderCompletion.count({
+        where: { serviceOrderId: ctx.orderId },
+      }),
+    ).toBe(0);
+    expect(await versionOf(ctx.orderId)).toBe(versaoAntes);
+  });
+
+  it("a foto liberada NÃO satisfaz mais um item PHOTO de checklist", async () => {
+    await putChecklistTemplate(fixture.companyA.id, fixture.adminA.id, {
+      serviceOrderTypeId: fixture.typeA.id,
+      name: "Com etiqueta",
+      items: [
+        {
+          label: "Foto da etiqueta do aparelho",
+          type: "PHOTO",
+          required: true,
+          evidenceCategory: "EQUIPMENT_LABEL",
+        },
+      ],
+    });
+    await putCompletionPolicy(
+      fixture.companyA.id,
+      fixture.adminA.id,
+      fixture.typeA.id,
+      {
+        requireChecklist: true,
+        requireSignature: false,
+        requireMaterials: false,
+        requireEquipment: false,
+        requireCheckIn: false,
+        minEvidenceCount: 0,
+        requiredEvidenceCategories: [],
+      },
+    );
+
+    /*
+      A OS nasce DEPOIS do template: o checklist é copiado no `start`, e um
+      template criado depois não alcança OS já iniciada — que é a regra do
+      snapshot.
+    */
+    const ctx = await cenario();
+    const execucao = await updateServiceOrderExecution(
+      ctx.companyId,
+      ctx.userId,
+      ctx.orderId,
+      0,
+      { diagnosis: "Diagnóstico fictício.", workPerformed: "Serviço fictício." },
+    );
+    expect(
+      await prisma.serviceOrderChecklistItem.count({
+        where: { serviceOrderId: ctx.orderId },
+      }),
+    ).toBe(1);
+
+    const { equipamentoId } = await comEquipamento(ctx);
+
+    // Controle positivo: com o equipamento registrado, não há pendência.
+    expect(
+      await validateServiceOrderCompletion(prisma, {
+        companyId: ctx.companyId,
+        orderId: ctx.orderId,
+        serviceOrderTypeId: fixture.typeA.id,
+      }),
+    ).toEqual([]);
+
+    await removeServiceOrderEquipment(
+      ctx.companyId,
+      ctx.userId,
+      ctx.orderId,
+      equipamentoId,
+      await versionOf(ctx.orderId),
+    );
+
+    const versaoAntes = await versionOf(ctx.orderId);
+    const erro = await expectDomainError(
+      () =>
+        completeServiceOrder(ctx.companyId, ctx.userId, ctx.orderId, {
+          expectedOrderVersion: versaoAntes,
+          expectedExecutionVersion: execucao.version,
+        }),
+      400,
+    );
+    expect(
+      (erro as CompletionBlockedError).pendencies.map((p) => p.code),
+    ).toContain("CHECKLIST_ITEM_PENDING");
+  });
+
+  it("a MESMA foto registra outro equipamento, sem nova captura", async () => {
+    const ctx = await cenario();
+    const { etiqueta, equipamentoId } = await comEquipamento(ctx);
+
+    await removeServiceOrderEquipment(
+      ctx.companyId,
+      ctx.userId,
+      ctx.orderId,
+      equipamentoId,
+      await versionOf(ctx.orderId),
+    );
+
+    /*
+      O caminho de correção que o defeito fechava: remover o cadastro errado,
+      corrigir e registrar de novo REUSANDO a captura. Antes, esta chamada
+      recebia 409 "Esta foto de etiqueta já identifica outro equipamento" —
+      uma frase falsa, porque ela não identificava mais nada.
+    */
+    const novo = await addServiceOrderEquipment(
+      ctx.companyId,
+      ctx.userId,
+      ctx.orderId,
+      {
+        expectedOrderVersion: await versionOf(ctx.orderId),
+        equipmentType: "ROTEADOR",
+        macAddress: "A1:B2:C3:D4:E5:F6",
+        labelEvidenceId: etiqueta,
+      },
+    );
+    expect(novo.labelEvidenceId).toBe(etiqueta);
+    expect(novo.id).not.toBe(equipamentoId);
+
+    // E a promoção acontece de novo.
+    const repromovida = await prisma.serviceOrderEvidence.findUniqueOrThrow({
+      where: { id: etiqueta },
+    });
+    expect(repromovida.status).toBe("COMMITTED");
+    expect(repromovida.expiresAt).toBeNull();
+
+    // Um equipamento apontando para ela, nunca dois.
+    expect(
+      await prisma.serviceOrderEquipment.count({
+        where: { labelEvidenceId: etiqueta },
+      }),
+    ).toBe(1);
+  });
+
+  it("etiqueta liberada e VENCIDA volta a ser recusada com LABEL_EXPIRED", async () => {
+    const ctx = await cenario();
+    const { etiqueta, equipamentoId } = await comEquipamento(ctx);
+    await removeServiceOrderEquipment(
+      ctx.companyId,
+      ctx.userId,
+      ctx.orderId,
+      equipamentoId,
+      await versionOf(ctx.orderId),
+    );
+
+    // O prazo novo é real: passado ele, a foto não serve mais.
+    await vencer(etiqueta);
+    const versaoAntes = await versionOf(ctx.orderId);
+    const erro = await expectDomainError(
+      () =>
+        addServiceOrderEquipment(ctx.companyId, ctx.userId, ctx.orderId, {
+          expectedOrderVersion: versaoAntes,
+          equipmentType: "ONU",
+          labelEvidenceId: etiqueta,
+        }),
+      400,
+    );
+    expect((erro as FieldError).code).toBe("LABEL_EXPIRED");
+    expect(await prisma.serviceOrderEquipment.count()).toBe(0);
+    expect(await versionOf(ctx.orderId)).toBe(versaoAntes);
+  });
+
+  it("remoção recusada não libera a etiqueta — nada pela metade", async () => {
+    const ctx = await cenario();
+    const { etiqueta, equipamentoId } = await comEquipamento(ctx);
+
+    // Versão velha: o compare-and-set aborta a transação inteira.
+    const versaoVelha = (await versionOf(ctx.orderId)) - 1;
+    await expectDomainError(
+      () =>
+        removeServiceOrderEquipment(
+          ctx.companyId,
+          ctx.userId,
+          ctx.orderId,
+          equipamentoId,
+          versaoVelha,
+        ),
+      409,
+    );
+
+    const intacta = await prisma.serviceOrderEvidence.findUniqueOrThrow({
+      where: { id: etiqueta },
+    });
+    expect(intacta.status).toBe("COMMITTED");
+    expect(intacta.expiresAt).toBeNull();
+    expect(
+      await prisma.serviceOrderEquipment.count({ where: { id: equipamentoId } }),
+    ).toBe(1);
+  });
+
+  it("segunda remoção do mesmo equipamento é 404, e não rebaixa nada de novo", async () => {
+    const ctx = await cenario();
+    const { etiqueta, equipamentoId } = await comEquipamento(ctx);
+    await removeServiceOrderEquipment(
+      ctx.companyId,
+      ctx.userId,
+      ctx.orderId,
+      equipamentoId,
+      await versionOf(ctx.orderId),
+    );
+    const depoisDaPrimeira = await prisma.serviceOrderEvidence.findUniqueOrThrow({
+      where: { id: etiqueta },
+    });
+
+    const versaoAtual = await versionOf(ctx.orderId);
+    await expectDomainError(
+      () =>
+        removeServiceOrderEquipment(
+          ctx.companyId,
+          ctx.userId,
+          ctx.orderId,
+          equipamentoId,
+          versaoAtual,
+        ),
+      404,
+    );
+
+    const inalterada = await prisma.serviceOrderEvidence.findUniqueOrThrow({
+      where: { id: etiqueta },
+    });
+    expect(inalterada.status).toBe("TEMPORARY");
+    expect(inalterada.expiresAt!.getTime()).toBe(
+      depoisDaPrimeira.expiresAt!.getTime(),
+    );
+    // A recusa não consome a versão da OS.
+    expect(await versionOf(ctx.orderId)).toBe(versaoAtual);
+  });
+
+  it("CORRIDA remoção × conclusão: nunca sela uma OS contando a foto órfã", async () => {
+    const ctx = await cenario();
+    await putCompletionPolicy(ctx.companyId, fixture.adminA.id, fixture.typeA.id, {
+      requireChecklist: false,
+      requireSignature: false,
+      requireMaterials: false,
+      requireEquipment: false,
+      requireCheckIn: false,
+      minEvidenceCount: 1,
+      requiredEvidenceCategories: [],
+    });
+    const execucao = await updateServiceOrderExecution(
+      ctx.companyId,
+      ctx.userId,
+      ctx.orderId,
+      0,
+      { diagnosis: "Diagnóstico fictício.", workPerformed: "Serviço fictício." },
+    );
+    const { etiqueta, equipamentoId } = await comEquipamento(ctx);
+    const versao = await versionOf(ctx.orderId);
+
+    /*
+      As duas disputam o MESMO compare-and-set da OS, então uma perde. O que
+      este teste proíbe é o estado híbrido: equipamento removido com a foto
+      ainda definitiva — que é exatamente o defeito, agora numa janela de
+      concorrência em vez de num caminho sequencial.
+    */
+    const resultados = await Promise.allSettled([
+      removeServiceOrderEquipment(
+        ctx.companyId,
+        ctx.userId,
+        ctx.orderId,
+        equipamentoId,
+        versao,
+      ),
+      completeServiceOrder(ctx.companyId, ctx.userId, ctx.orderId, {
+        expectedOrderVersion: versao,
+        expectedExecutionVersion: execucao.version,
+      }),
+    ]);
+    expect(resultados.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+
+    const ordem = await prisma.serviceOrder.findUniqueOrThrow({
+      where: { id: ctx.orderId },
+      select: { status: true },
+    });
+    const etiquetaFinal = await prisma.serviceOrderEvidence.findUniqueOrThrow({
+      where: { id: etiqueta },
+    });
+    const equipamentos = await prisma.serviceOrderEquipment.count({
+      where: { serviceOrderId: ctx.orderId },
+    });
+
+    if (ordem.status === "COMPLETED") {
+      // Fechou: o equipamento continua lá e a foto continua sendo prova dele.
+      expect(equipamentos).toBe(1);
+      expect(etiquetaFinal.status).toBe("COMMITTED");
+    } else {
+      // A remoção venceu: nada foi selado e a foto está solta.
+      expect(equipamentos).toBe(0);
+      expect(etiquetaFinal.status).toBe("TEMPORARY");
+      expect(
+        await prisma.serviceOrderCompletion.count({
+          where: { serviceOrderId: ctx.orderId },
+        }),
+      ).toBe(0);
+    }
+    // Em nenhum dos dois desfechos existe foto definitiva sem equipamento.
+    expect(etiquetaFinal.status === "COMMITTED" && equipamentos === 0).toBe(false);
+  });
+
+  it("CORRIDA remoção × novo registro com a mesma foto: uma só vence", async () => {
+    const ctx = await cenario();
+    const { etiqueta, equipamentoId } = await comEquipamento(ctx);
+    const versao = await versionOf(ctx.orderId);
+
+    const resultados = await Promise.allSettled([
+      removeServiceOrderEquipment(
+        ctx.companyId,
+        ctx.userId,
+        ctx.orderId,
+        equipamentoId,
+        versao,
+      ),
+      addServiceOrderEquipment(ctx.companyId, ctx.userId, ctx.orderId, {
+        expectedOrderVersion: versao,
+        equipmentType: "ROTEADOR",
+        labelEvidenceId: etiqueta,
+      }),
+    ]);
+    expect(resultados.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+
+    // Erro CONTROLADO no perdedor, nunca 500 cru.
+    const falha = resultados.find((r) => r.status === "rejected");
+    expect((falha as PromiseRejectedResult).reason).toBeInstanceOf(DomainError);
+
+    // E jamais dois equipamentos na mesma foto.
+    expect(
+      await prisma.serviceOrderEquipment.count({
+        where: { labelEvidenceId: etiqueta },
+      }),
+    ).toBeLessThanOrEqual(1);
   });
 });

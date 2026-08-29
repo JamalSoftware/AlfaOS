@@ -479,6 +479,96 @@ describe("B4 · upload não confia em nada que o cliente diz", () => {
     expect(response.status).toBe(400);
   });
 
+  /*
+    Regressão do EVID-CAT-01, achado pela auditoria independente da v0.10.
+
+    A rota validava a categoria com `rawCategory in EvidenceCategory`, e o
+    operador `in` percorre a CADEIA DE PROTÓTIPOS. Os nomes abaixo são membros
+    de `Object.prototype`, então passavam pela conferência e chegavam ao Prisma
+    como valor de enum. Ele recusava — mas com erro de validação de cliente,
+    que o envelope traduz em `INTERNAL` (500).
+
+    E `INTERNAL` está no conjunto `RETRYABLE`. Ou seja: uma recusa que nunca
+    vira sucesso era anunciada ao aplicativo como transitória, e o Flutter
+    reenviava. O teste da categoria inventada acima não pegava isso, porque
+    `CATEGORIA_INVENTADA` não é membro de `Object.prototype`.
+  */
+  const HERDADAS_DE_OBJECT = [
+    "toString",
+    "constructor",
+    "hasOwnProperty",
+    "__proto__",
+    "valueOf",
+    "isPrototypeOf",
+  ];
+
+  for (const categoria of HERDADAS_DE_OBJECT) {
+    it(`categoria "${categoria}" é 400, não 500`, async () => {
+      const a = await actor(fixture.techA.id);
+      const form = new FormData();
+      form.set("file", new File([new Uint8Array(PNG)], "x.png", { type: "image/png" }));
+      form.set("expectedOrderVersion", String(a.orderVersion));
+      form.set("category", categoria);
+
+      const response = await evidenceRoute(
+        formRequest(
+          `/api/field/v1/service-orders/${a.orderId}/evidence`,
+          form,
+          a.token,
+          `sec-proto-${categoria}-${Date.now()}`,
+        ),
+        { params: { id: a.orderId } },
+      );
+      const parsed = await body(response);
+
+      expect({ status: response.status, code: parsed.error?.code }).toEqual({
+        status: 400,
+        code: "VALIDATION_ERROR",
+      });
+      // Não pode ser anunciada como transitória: reenviar nunca vai funcionar.
+      expect(parsed.error?.retryable).toBe(false);
+
+      // Nada gravado, nada consumido.
+      expect(
+        await prisma.serviceOrderEvidence.count({
+          where: { serviceOrderId: a.orderId },
+        }),
+      ).toBe(0);
+      const order = await prisma.serviceOrder.findUniqueOrThrow({
+        where: { id: a.orderId },
+        select: { version: true },
+      });
+      expect(order.version).toBe(a.orderVersion);
+      // Nem arquivo órfão no storage.
+      const dir = path.join(storageRoot, fixture.companyA.id, a.orderId);
+      expect(await fs.readdir(dir).catch(() => [])).toHaveLength(0);
+    });
+  }
+
+  it("CONTROLE POSITIVO: uma categoria REAL do enum continua sendo aceita", async () => {
+    const a = await actor(fixture.techA.id);
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(PNG)], "x.png", { type: "image/png" }));
+    form.set("expectedOrderVersion", String(a.orderVersion));
+    form.set("category", "CTO");
+
+    const response = await evidenceRoute(
+      formRequest(
+        `/api/field/v1/service-orders/${a.orderId}/evidence`,
+        form,
+        a.token,
+        `sec-cat-ok-${Date.now()}`,
+      ),
+      { params: { id: a.orderId } },
+    );
+    expect(response.status).toBe(201);
+    const evidence = await prisma.serviceOrderEvidence.findFirstOrThrow({
+      where: { serviceOrderId: a.orderId },
+    });
+    expect(evidence.category).toBe("CTO");
+    expect(evidence.status).toBe("COMMITTED");
+  });
+
   it("partes extras do formulário são ignoradas, não obedecidas", async () => {
     const a = await actor(fixture.techA.id);
     const form = new FormData();

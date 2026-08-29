@@ -1625,6 +1625,147 @@ describe("Validação de conclusão por tipo de OS", () => {
     expect(order.status).toBe("COMPLETED");
   });
 
+
+  /*
+    Regressão do TEST-COV-01, apontado pela auditoria independente da v0.10.
+
+    Sabotando o ramo `if (policy.requireChecklist)` em
+    `validateServiceOrderCompletion`, a suíte inteira acusava UM único teste —
+    o de cima. Uma proteção com uma testemunha só é uma proteção que some sem
+    ninguém ver.
+
+    Os três abaixo cobrem o que aquele não cobre: que é a FLAG quem bloqueia,
+    que item opcional não é o que segura, e que responder parcialmente não
+    libera.
+  */
+  it("é a flag que bloqueia: com requireChecklist=false o mesmo item pendente NÃO impede", async () => {
+    await seedTemplate();
+    await policy({ requireChecklist: false });
+    const s = await scenario();
+
+    // Controle positivo do estado: o item obrigatório está mesmo sem resposta.
+    const checklist = await getOrderChecklist(fixture.companyA.id, s.orderId);
+    const obrigatorio = checklist.find((i) => i.required)!;
+    expect(obrigatorio.answeredAt).toBeNull();
+
+    await completeServiceOrder(fixture.companyA.id, fixture.techA.id, s.orderId, {
+      expectedOrderVersion: s.orderVersion,
+      expectedExecutionVersion: s.executionVersion,
+    });
+    expect(
+      (
+        await prisma.serviceOrder.findUniqueOrThrow({
+          where: { id: s.orderId },
+          select: { status: true },
+        })
+      ).status,
+    ).toBe("COMPLETED");
+  });
+
+  it("responder o item OPCIONAL não libera enquanto o obrigatório estiver pendente", async () => {
+    await seedTemplate();
+    await policy({ requireChecklist: true });
+    const s = await scenario();
+
+    const checklist = await getOrderChecklist(fixture.companyA.id, s.orderId);
+    const opcional = checklist.find((i) => !i.required && i.type === "NUMBER")!;
+    await answerChecklistItem(fixture.companyA.id, fixture.techA.id, s.orderId, {
+      itemId: opcional.id,
+      expectedOrderVersion: await orderVersionOf(s.orderId),
+      valueNumber: -21.4,
+    });
+
+    const versaoAntes = await orderVersionOf(s.orderId);
+    const error = await expectDomainError(
+      () =>
+        completeServiceOrder(fixture.companyA.id, fixture.techA.id, s.orderId, {
+          expectedOrderVersion: versaoAntes,
+          expectedExecutionVersion: s.executionVersion,
+        }),
+      400,
+    );
+    const pendencies = (error as CompletionBlockedError).pendencies;
+    expect(pendencies.map((p) => p.code)).toContain("CHECKLIST_ITEM_PENDING");
+
+    // A pendência aponta o item CERTO — é o que leva o técnico direto a ele.
+    const obrigatorio = checklist.find((i) => i.required)!;
+    expect(
+      pendencies.find((p) => p.code === "CHECKLIST_ITEM_PENDING")?.itemId,
+    ).toBe(obrigatorio.id);
+
+    // E a recusa não sela nada nem consome a versão.
+    expect(
+      await prisma.serviceOrderCompletion.count({
+        where: { serviceOrderId: s.orderId },
+      }),
+    ).toBe(0);
+    expect(await orderVersionOf(s.orderId)).toBe(versaoAntes);
+  });
+
+  it("dois obrigatórios pendentes viram DUAS pendências, e uma resposta só não fecha", async () => {
+    await seedTemplate([
+      { label: "Cabo testado?", type: "BOOLEAN", required: true },
+      { label: "Rota do cabo descrita", type: "TEXT", required: true },
+    ]);
+    await policy({ requireChecklist: true });
+    const s = await scenario();
+
+    const primeiro = await expectDomainError(
+      () =>
+        completeServiceOrder(fixture.companyA.id, fixture.techA.id, s.orderId, {
+          expectedOrderVersion: s.orderVersion,
+          expectedExecutionVersion: s.executionVersion,
+        }),
+      400,
+    );
+    expect(
+      (primeiro as CompletionBlockedError).pendencies.filter(
+        (p) => p.code === "CHECKLIST_ITEM_PENDING",
+      ),
+    ).toHaveLength(2);
+
+    const checklist = await getOrderChecklist(fixture.companyA.id, s.orderId);
+    await answerChecklistItem(fixture.companyA.id, fixture.techA.id, s.orderId, {
+      itemId: checklist[0].id,
+      expectedOrderVersion: await orderVersionOf(s.orderId),
+      valueBoolean: true,
+    });
+
+    const versaoDepoisDaPrimeiraResposta = await orderVersionOf(s.orderId);
+    const segundo = await expectDomainError(
+      () =>
+        completeServiceOrder(fixture.companyA.id, fixture.techA.id, s.orderId, {
+          expectedOrderVersion: versaoDepoisDaPrimeiraResposta,
+          expectedExecutionVersion: s.executionVersion,
+        }),
+      400,
+    );
+    expect(
+      (segundo as CompletionBlockedError).pendencies.filter(
+        (p) => p.code === "CHECKLIST_ITEM_PENDING",
+      ),
+    ).toHaveLength(1);
+
+    // Respondido o segundo, fecha.
+    await answerChecklistItem(fixture.companyA.id, fixture.techA.id, s.orderId, {
+      itemId: checklist[1].id,
+      expectedOrderVersion: await orderVersionOf(s.orderId),
+      valueText: "Pelo forro, saindo na sala.",
+    });
+    await completeServiceOrder(fixture.companyA.id, fixture.techA.id, s.orderId, {
+      expectedOrderVersion: await orderVersionOf(s.orderId),
+      expectedExecutionVersion: s.executionVersion,
+    });
+    expect(
+      (
+        await prisma.serviceOrder.findUniqueOrThrow({
+          where: { id: s.orderId },
+          select: { status: true },
+        })
+      ).status,
+    ).toBe("COMPLETED");
+  });
+
   it("item PHOTO é satisfeito pela evidência, não por uma resposta", async () => {
     await putChecklistTemplate(fixture.companyA.id, fixture.adminA.id, {
       serviceOrderTypeId: fixture.typeA.id,

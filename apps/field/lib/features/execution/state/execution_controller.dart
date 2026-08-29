@@ -511,9 +511,18 @@ class ExecutionController extends StateNotifier<ExecutionState> {
         idempotencyKey: IdempotencyKey.forOperation('evidence'),
         capturedAt: DateTime.now(),
       );
-      // A etiqueta passa a existir na OS como qualquer outra evidência: se o
-      // registro do equipamento falhar depois, ela fica — é uma foto
-      // verdadeira do atendimento, tirada em campo.
+      /*
+        A etiqueta NÃO é evidência da OS ainda.
+
+        O servidor a grava como TEMPORARY, com prazo: ela não aparece no pacote
+        de execução, não conta na política de conclusão e expira sozinha se
+        ninguém a usar. Só o registro do equipamento a promove a definitiva —
+        e remover esse equipamento a devolve para temporária, disponível para
+        um novo registro dentro do prazo.
+
+        O `load` aqui é pelo `version`: o upload moveu a versão da OS, e o
+        comando seguinte precisa da nova para o compare-and-set.
+      */
       await load();
       state = state.copyWith(busy: false);
       return id;
