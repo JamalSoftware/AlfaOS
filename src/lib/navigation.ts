@@ -9,6 +9,7 @@ export type IconName =
   | "integrations"
   | "ordertypes"
   | "devices"
+  | "workday"
   | "settings"
   | "myorders"
   | "profile";
@@ -62,6 +63,14 @@ export const NAVIGATION: NavItem[] = [
     label: "Tipos de OS",
     icon: "ordertypes",
     profiles: [AccessProfile.ADMIN],
+  },
+  {
+    // Lista para ADMIN e DISPATCHER: saber quem esta em jornada e insumo do
+    // despacho. Decidir correcao, dentro dela, continua so do ADMIN.
+    href: "/jornada",
+    label: "Jornada",
+    icon: "workday",
+    profiles: [AccessProfile.ADMIN, AccessProfile.DISPATCHER],
   },
   {
     href: "/dispositivos",

@@ -9,6 +9,13 @@ const paths: Record<IconName, React.ReactNode> = {
       <rect x="3" y="16" width="7" height="5" rx="1" />
     </>
   ),
+  // Relogio: a jornada e sobre TEMPO, nao sobre pessoas nem sobre OS.
+  workday: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </>
+  ),
   devices: (
     <>
       <rect x="7" y="3" width="10" height="18" rx="2" />
