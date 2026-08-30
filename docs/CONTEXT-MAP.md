@@ -166,9 +166,11 @@ Três regras que a Parte VI fixou e são fáceis de desfazer sem perceber:
 
 O quadro (§203) decide **quem** atende. A ordem de execução dentro da fila de cada técnico é outra Parte — ver abaixo.
 
-## Fila Operacional de OS — PLANNED
+## Fila Operacional de OS — PLANNED, plano fechado
 
-**Carregar:** PRD §308–§332 (Parte XII). Para entender o modelo que já existe, também `prisma/schema.prisma` (`ServiceOrderPriority`, `ServiceOrder`) e `src/lib/service-orders.ts` (rótulos, ordenação da fila do técnico, `assignTechnician`).
+**Carregar:** `docs/DISPATCH-QUEUE.md` (plano de implementação — schema, algoritmo, transações, endpoints, fases `DQ-1`–`DQ-7`) e PRD §308–§332 (Parte XII — o porquê e as regras de produto). Para entender o modelo que já existe, também `prisma/schema.prisma` (`ServiceOrderPriority`, `ServiceOrder`) e `src/lib/service-orders.ts` (rótulos, ordenação da fila do técnico, `assignTechnician`).
+
+**Qual dos dois abrir:** o PRD responde *por que* e *qual é a regra*; o `DISPATCH-QUEUE.md` responde *como executar*. Para implementar, o segundo — as onze decisões (`D-01`–`D-11`) estão fechadas lá, com tabela.
 
 | Assunto | Seções |
 |---|---|
@@ -190,8 +192,10 @@ Quatro regras que a Parte XII fixou e são fáceis de desfazer sem perceber:
 * **Delta não é idempotente** (§318). "Subir uma posição" aplicada duas vezes sobe duas. O contrato usa alvo absoluto, mais `Idempotency-Key`.
 * **Posição nunca vira `scheduledAt`** (§324). Fabricar horário a partir de ordem produz, um dia depois, um horário que alguém acha que foi prometido ao cliente.
 
+Dois achados do levantamento que o plano depende e que valem fora dele: **não existe operação de cancelamento nem de desatribuição de OS** — `status: "CANCELLED"` nunca é escrito e `technicianId: null` só aparece em fixture —, e **`ServiceOrder` não tem índice em `technicianId`**.
+
 **Quando:** a tarefa envolve ordem de atendimento, prioridade de OS, reordenação de fila ou o painel de despacho por técnico.
-**Quando NÃO:** qualquer outra coisa. **Nada disso existe em código** — nenhuma migration, nenhuma rota, nenhuma tela. A §119 se aplica, e três decisões de schema (`D-01`, `D-02`, `D-11`) precisam ser fechadas antes da primeira rota.
+**Quando NÃO:** qualquer outra coisa. **Nada disso existe em código** — nenhuma migration, nenhuma rota, nenhuma tela. A §119 se aplica: o plano estar fechado não autoriza implementar.
 
 ## Experiência do técnico na OS
 

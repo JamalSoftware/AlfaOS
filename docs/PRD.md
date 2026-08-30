@@ -10219,7 +10219,18 @@ O ranking local do Field (§257) trata `LOW` e `NORMAL` como o mesmo nível:
 0  IN_PROGRESS     1  URGENT     2  HIGH     3  o resto
 ```
 
-## IMPLEMENTATION DECISION REQUIRED
+## IMPLEMENTATION DECISION REQUIRED — FECHADA em 2026-08-30
+
+> **As onze decisões (`D-01`–`D-11`) foram todas resolvidas.** A tabela com a
+> decisão aprovada de cada uma, e o plano que as executa, está em
+> `docs/DISPATCH-QUEUE.md`. O texto abaixo é preservado como o registro da
+> pergunta original — não é mais pendência.
+>
+> Resposta a estas três: **não existe fila de dois blocos.** São **quatro
+> bandas**, `URGENT > HIGH > NORMAL > LOW`; o colapso é só da ação rápida
+> `Normal ↔ Urgente` na tela do dispatcher; e o que mora no domínio não é uma
+> regra de colapso, é o **mapa de precedência** — que também remove a
+> dependência da ordem de declaração do enum.
 
 A visão de produto desta Parte descreve a fila em **dois blocos** — urgentes e
 normais. O domínio tem **quatro** valores. A incompatibilidade é real e não é
@@ -11122,16 +11133,17 @@ compatibilidade com as prioridades existentes (D-01, D-02)
 
 ```text
 1.  Field Workspace Visual Polish       local, aguardando publicação
-2.  Fila Operacional — PRD              DONE nesta tarefa   §308–§331
-3.  Fila Operacional — backend + Web    PLANNED
-4.  Field consome a fila autoritativa   PLANNED
-5.  Piloto em dispositivo e Web         PLANNED
+2.  Fila Operacional — PRD              DONE                §308–§331
+2b. Plano de implementação fechado      DONE   docs/DISPATCH-QUEUE.md
+3.  Fila Operacional — backend + Web    PLANNED             DQ-1 … DQ-4
+4.  Field consome a fila autoritativa   PLANNED             DQ-5, DQ-6
+5.  Piloto em dispositivo e Web         PLANNED             DQ-7
 6.  Field Notification Foundation + FCM PLANNED
 7.  Notificações de fila e prioridade   PLANNED
 ```
 
-**Nenhuma etapa de 3 a 7 está feita.** O item 2 é a única coisa que esta tarefa
-entregou, e ela é documentação.
+**Nenhuma etapa de 3 a 7 está feita, e nenhuma linha de código foi escrita.**
+Os itens 2 e 2b são documentação.
 
 ## Onde isto entra nas escalas existentes
 
@@ -11140,8 +11152,18 @@ Na trilha do mapa e do despacho (§209), a Fila Operacional é **anterior** à
 Central de Despacho completa: ela não precisa de mapa, de geocodificação nem de
 habilidades cadastradas — precisa de prioridade mutável e de posição.
 
-## As decisões que bloqueiam o começo
+## As decisões que bloqueavam o começo — todas fechadas
 
-O item 3 não pode começar antes de `D-01`, `D-02` e `D-11`: são as três que
-determinam o schema. As demais (`D-04` a `D-10`) podem ser fechadas durante a
-implementação, mas todas antes da primeira rota.
+`D-01` a `D-11` foram resolvidas em 2026-08-30. As três que determinavam o
+schema (`D-01`, `D-02`, `D-11`) fecharam assim: **quatro bandas de precedência**,
+**enum intacto** e **agregado próprio com posição global normalizada**. A tabela
+completa e o plano de execução estão em `docs/DISPATCH-QUEUE.md`.
+
+Uma consequência precisa ficar visível aqui, porque contraria a recomendação
+que a §329 havia registrado: com posição **global**, a `I-12` (urgente precede
+normal) **deixa de ser garantida pelo banco** e passa a ser invariante de
+aplicação, reestabelecida pela normalização em toda transação de escrita. Foi
+uma troca deliberada — a fila que o usuário vê é única, e guardar o que se
+apresenta evita uma numeração que não existiria em lugar nenhum. O preço é que
+essa invariante só é verdade enquanto houver teste, e por isso ela tem teste de
+concorrência dedicado com prova de reversão.
