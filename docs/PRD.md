@@ -3,7 +3,7 @@
 **Produto:** AlfaOS  
 **Documento:** PRD Mestre 2.0  
 **Objetivo:** Fonte principal de contexto funcional e técnico para desenvolvimento assistido por IA  
-**Status atual:** Baseline publicada `v0.10-field-execution-closing`. Core operacional fechado ponta a ponta e execução em campo publicada no aplicativo Flutter. **A Fase 1 da Jornada/Ponto está entregue e homologada em piloto físico, mas SEM tag e SEM push** — ver §252. O inventário do que já é código está na §225 (v0.10) e na §252 (Jornada Fase 1); o restante deste documento é especificação, e a §119 se aplica.  
+**Status atual:** Baseline publicada `v0.10-field-execution-closing`. Core operacional fechado ponta a ponta e execução em campo publicada no aplicativo Flutter. **A Fase 1 da Jornada/Ponto está entregue e homologada em piloto físico, mas SEM tag e SEM push** — ver §252. O inventário do que já é código está na §225 (v0.10) e na §252 (Jornada Fase 1); o restante deste documento é especificação, e a §119 se aplica.\
 **Arquitetura:** SaaS multiempresa preparado para múltiplos ERPs  
 **Primeiro cliente:** Alfa Telecom  
 **Premissa central:** o AlfaOS é o sistema de execução e gestão operacional das Ordens de Serviço. ERPs são origem, fonte de dados do cliente ou destino de sincronização — nunca o motor operacional. Ver Parte III (seções 121+).  
@@ -7405,34 +7405,133 @@ A §119 se aplica a todos: estão especificados, não autorizados.
 
 # 253. RISCOS E PENDÊNCIAS DA JORNADA FASE 1
 
-**Classificação: registro.** Nenhum é bloqueador do release da Fase 1. Nenhum é
-funcionalidade implementada — são **decisões pendentes**, registradas aqui para
-não virarem descoberta futura.
+**Classificação: registro.** Três dos quatro itens foram **fechados no
+endurecimento final da Fase 1**, depois do piloto físico e antes do checkpoint.
+O que sobra é `JOR-05`, que continua não sendo bloqueador.
 
-| Item | O que é | Encaminhamento |
+| Item | O que é | Estado |
 |---|---|---|
-| **LOW-1** | um `ADMIN` pode abrir uma correção e **aprovar a própria correção**. Pedido e decisão continuam registrados separadamente, com `requestedById` e `decidedById` distintos — mas nada impede que sejam a mesma pessoa | `P1` — segregação de função é decisão de produto |
-| **LOW-2** | a criação administrativa pela web **não tem idempotência equivalente à do Field**. O Field exige `Idempotency-Key` criada no toque; a rota web aceita o duplo clique | `P1` |
-| **LOW-3** | o Field monta o horário solicitado na correção a partir do **fuso do aparelho**, não do fuso da empresa. Aparelho em fuso divergente pede o instante errado | `P1` — depende de JOR-05 |
-| **JOR-05** | `Company.timezone` existe no modelo e **só tem o valor padrão**: não há superfície administrativa para configurá-lo | `P1` |
+| **LOW-1** | um `ADMIN` podia abrir uma correção e **aprovar a própria correção** | **RESOLVIDO** — abrir continua permitido; decidir o que se abriu para a própria jornada, não |
+| **LOW-2** | a criação administrativa pela web **não tinha idempotência equivalente à do Field** | **RESOLVIDO** — `Idempotency-Key` obrigatória, na mesma infraestrutura do Field |
+| **LOW-3** | o Field montava o horário solicitado a partir do **fuso do aparelho** | **RESOLVIDO** — o `WorkdayView` carrega o deslocamento da empresa, e é ele que vale |
+| **JOR-05** | `Company.timezone` existe no modelo e **só tem o valor padrão**: não há superfície administrativa para configurá-lo | **PENDENTE**, `P1` — não bloqueia a Fase 1 |
 
-## Por que LOW-1 não é MEDIUM
+## LOW-1 — a regra que a Fase 1 tomou
 
-Porque o contraditório que a §229 exige é **rastreabilidade**, e ela existe: o
-pedido tem autor, motivo e instante; a decisão tem decisor, instante e motivo; e
-a marcação original permanece. O que falta é **política** — se a empresa quer
-proibir autoaprovação, e quem aprova a jornada do próprio `ADMIN`. Isso é
-configuração de empresa, e resolvê-lo por hardcode transformaria a regra de um
-provedor em regra do produto.
+O registro anterior classificava a autoaprovação como política de empresa, e
+argumentava que resolvê-la por código transformaria a regra de um provedor em
+regra do produto. **O piloto físico mudou a decisão**, e ela agora é normativa
+da Fase 1:
 
-## Por que LOW-3 e JOR-05 andam juntos
+> Quem **abriu** a correção não **decide** essa correção quando a jornada é a
+> própria.
 
-Enquanto o fuso da empresa não tiver superfície de configuração, corrigir o
-Field para usá-lo significa consumir um valor que ninguém consegue ajustar. Os
-dois se resolvem na mesma tarefa: superfície administrativa primeiro, cliente
-depois. **O fuso é do dia operacional, não da apresentação** — é ele que decide
-se a batida das 23h50 pertence a ontem ou a hoje, e essa decisão nunca deve
-depender de onde o aparelho acha que está.
+A regra é a **conjunção** das duas condições, e cada metade sozinha estaria
+errada:
+
+* só `requestedById == decisor` proibiria o gestor de aprovar a correção que
+  ele mesmo abriu **para um funcionário** — o caminho normal do painel (§231),
+  onde não há conflito de interesse: quem se beneficia é outra pessoa;
+* só `jornada == decisor` proibiria o `ADMIN` de decidir um pedido que um
+  **colega** abriu sobre o dia dele — e ali o contraditório já existe, porque
+  duas pessoas participaram do fato.
+
+Juntas, descrevem o único caso em que uma pessoa é ao mesmo tempo **autora,
+beneficiária e autoridade**.
+
+**Abrir continua permitido**, e isso é deliberado: um `ADMIN` que esqueceu de
+bater precisa registrar o que houve. Proibir a abertura o empurraria de volta
+para o `UPDATE` na marcação, que é exatamente o que o módulo existe para
+impedir (§229).
+
+A recusa é **403**, com mensagem administrativa — o pedido existe, é da empresa
+e quem pediu tem direito de vê-lo na fila. Ela acontece **depois do lock e
+antes de qualquer escrita**: nenhuma `TimeEntry` derivada, nenhum `updateMany`
+no pedido e **nenhum `AuditLog`** — a tentativa recusada não deixa rastro de
+decisão, porque decisão nenhuma houve. O pedido permanece `PENDING`.
+
+A tela deixa de oferecer os botões e escreve `Requer outro aprovador`. **Isso é
+UX, não a proteção**: a autoridade é o domínio, e um `POST` montado à mão bate
+na mesma regra.
+
+Política configurável por empresa — exigir dois aprovadores sempre, ou permitir
+autoaprovação em empresas de uma pessoa só — continua sendo assunto futuro, e
+agora tem um padrão seguro para partir.
+
+## LOW-2 — a mesma idempotência, não uma parecida
+
+A rota `POST /api/time-clock/members/:userId/adjustments` passa a **exigir**
+`Idempotency-Key`. Obrigatória, e não opcional: uma chave que o cliente pode
+omitir é uma proteção que não vale nas requisições que mais precisam dela.
+
+A infraestrutura é a **do Field** — mesma tabela, mesmo lease, mesma arbitragem
+pela unique do banco. O que mudou foi o tipo do primeiro parâmetro de
+`withIdempotency`, que passou a descrever o que a função realmente usa
+(empresa e pessoa) em vez de um `FieldPrincipal`. Nenhuma rota do Field mudou.
+
+Duas decisões de escopo:
+
+* a operação tem nome **próprio** (`time-clock.admin-adjustment`). Compartilhar
+  o nome com o comando do aplicativo faria uma chave repetida entre painel e
+  Field devolver o desfecho guardado do outro;
+* o usuário do escopo é **quem assina** o pedido — o gestor —, não o
+  funcionário da jornada. Dois gestores com a mesma chave abrem pedidos
+  separados, que é o certo: são dois pedidos.
+
+O formulário guarda a chave por **submissão lógica**: mesma intenção reapresenta
+a mesma chave; conteúdo diferente gera chave nova. Assim o duplo clique é
+deduplicado sem que uma segunda correção legítima do mesmo dia receba
+`IDEMPOTENCY_CONFLICT`.
+
+## LOW-3 — o fuso da empresa vai no DTO
+
+`WorkdayView` ganhou **`utcOffset`** (`-03:00`), calculado no servidor para
+**aquele dia** pela mesma `utcOffsetIn` que o painel já usava. O nome IANA
+continua no DTO, mas sozinho não serve ao aplicativo: resolver
+`America/Sao_Paulo` exige a base de fusos, que o Dart não traz.
+
+O Field passou a **ler e a montar** horário com esse deslocamento — o
+preenchimento do formulário, a lista de marcações e o instante enviado. Uma
+tabela de fusos dentro do APK foi recusada: ela envelhece na primeira mudança de
+lei, e um celular em campo é o que menos se atualiza. Quem conhece horário de
+verão é o servidor, com `Intl`.
+
+**As duas respostas que produzem um `Workday` carregam o campo** — `today` e a
+própria batida. A segunda foi achado da revisão de segurança: o aplicativo grava
+o dia que volta do `POST /entries` e só depois relê `today`; quando essa
+releitura falha, o estado fica com o da batida, e sem o deslocamento ali o
+defeito voltava por essa janela.
+
+**Por que não esperou a JOR-05.** O registro anterior amarrava LOW-3 à
+superfície de configuração, com o argumento de que corrigir o cliente seria
+consumir um valor que ninguém consegue ajustar. O argumento não se sustenta: o
+defeito não é o valor estar fixo — é **o aparelho ser a autoridade**. Com o
+padrão `America/Sao_Paulo`, um celular em fuso divergente já pedia o instante
+errado, e isso continuaria verdadeiro depois da JOR-05. Trocar a autoridade vale
+por si; configurar o valor é outra tarefa.
+
+## JOR-05 — o que continua pendente
+
+`Company.timezone` segue **sem tela**. O padrão `America/Sao_Paulo` atende o
+piloto, e o campo já é validado na leitura (`resolveTimezone` cai no padrão
+diante de um fuso inválido gravado). A superfície administrativa entra na fase
+de configuração/SaaS, junto das demais opções de empresa.
+
+**O fuso é do dia operacional, não da apresentação** — é ele que decide se a
+batida das 23h50 pertence a ontem ou a hoje, e essa decisão nunca deve depender
+de onde o aparelho acha que está.
+
+## Registrado no mesmo endurecimento
+
+Dois itens que não estavam na lista original e foram fechados junto:
+
+* **CTA duplicado** — a tela de jornada do Field oferecia `SOLICITAR CORREÇÃO`
+  em dois lugares. Ficou a porta única da seção `Correções` (§258), que é onde o
+  pedido vive depois de aberto;
+* **reset do banco de teste** — `e2e/reset-db.ts` enumerava tabelas à mão e não
+  conhecia `Workday`. A suíte Playwright quebrava no `globalSetup` quando rodava
+  **depois** da Vitest, que compartilha o mesmo banco. Passou a truncar o que o
+  catálogo do Postgres lista, o que remove a classe inteira de defeito.
 
 ---
 

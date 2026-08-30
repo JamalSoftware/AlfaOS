@@ -41,10 +41,13 @@ Map<String, dynamic> _workday({
   required List<String> allowedActions,
   List<Map<String, dynamic>> entries = const [],
   String date = '2026-08-29',
+  String timezone = 'America/Sao_Paulo',
+  String utcOffset = '-03:00',
 }) => {
   'workdayId': 'wd-1',
   'date': date,
-  'timezone': 'America/Sao_Paulo',
+  'timezone': timezone,
+  'utcOffset': utcOffset,
   'state': state,
   'allowedActions': allowedActions,
   'entries': entries,
@@ -144,20 +147,52 @@ void main() {
 
       // Nada de gesto oculto nem menu "Mais": o botão é visível na tela.
       expect(find.byKey(const Key('request-adjustment')), findsOneWidget);
-      expect(find.text('SOLICITAR CORREÇÃO'), findsWidgets);
     });
 
-    testWidgets('a jornada encerrada oferece o botão junto da orientação', (
+    /*
+      PORTA ÚNICA (PRD §258).
+
+      Este é o teste que detecta a volta do CTA duplicado. `findsOneWidget`
+      sobre o RÓTULO, e não sobre a chave: um segundo botão reintroduzido com
+      outra `Key` — que foi exatamente o caso anterior,
+      `request-adjustment-today` — passaria por qualquer asserção feita por
+      chave, e é o rótulo repetido que o técnico enxerga.
+
+      A jornada encerrada é o estado que mais provoca a duplicata: é onde a
+      tela precisa mandar corrigir, e onde o botão extra foi parar da primeira
+      vez.
+    */
+    testWidgets('a jornada encerrada tem UMA porta de correção, não duas', (
       tester,
     ) async {
       await _abrir(tester, workday: comEntrada);
 
-      // A frase que manda solicitar e a ação que solicita, no mesmo cartão.
+      expect(find.text('SOLICITAR CORREÇÃO'), findsOneWidget);
+      expect(find.byKey(const Key('request-adjustment-today')), findsNothing);
+
+      // A orientação continua existindo — e aponta para onde a porta está.
       expect(
-        find.text('Jornada encerrada. Para corrigir, solicite um ajuste.'),
+        find.text(
+          'Jornada encerrada. Para corrigir, use Correções, logo abaixo.',
+        ),
         findsOneWidget,
       );
-      expect(find.byKey(const Key('request-adjustment-today')), findsOneWidget);
+    });
+
+    testWidgets('com jornada em andamento também há UMA porta só', (
+      tester,
+    ) async {
+      await _abrir(
+        tester,
+        workday: _workday(
+          state: 'WORKING',
+          allowedActions: const ['BREAK_START', 'CLOCK_OUT'],
+          entries: [_entry('e-in', 'CLOCK_IN', '11:00')],
+        ),
+      );
+
+      expect(find.text('SOLICITAR CORREÇÃO'), findsOneWidget);
+      expect(find.byKey(const Key('request-adjustment-today')), findsNothing);
     });
 
     testWidgets('o formulário abre com a marcação e o horário do dia', (
@@ -281,6 +316,106 @@ void main() {
       expect(find.byKey(const Key('adjustment-error')), findsOneWidget);
       expect(find.text('Esta marcação já foi corrigida.'), findsOneWidget);
       expect(find.byKey(const Key('adjustment-submit')), findsOneWidget);
+    });
+  });
+
+  /*
+    O FUSO É O DA EMPRESA, NÃO O DO APARELHO (§253, LOW-3).
+
+    Estes testes não dependem do fuso da máquina que os roda — condição para
+    provarem qualquer coisa sobre um celular em campo.
+
+    O par de asserções cobre as três formas de regredir:
+
+    - voltar o PREENCHIMENTO ao relógio do aparelho: os dois deslocamentos
+      passariam a mostrar a mesma hora, e o primeiro teste cai;
+    - voltar o ENVIO ao relógio do aparelho: o horário exibido deixaria de
+      bater com o instante enviado, e o segundo teste cai;
+    - voltar OS DOIS: o primeiro teste continua caindo.
+  */
+  group('o horário é lido e montado no fuso da EMPRESA', () {
+    testWidgets('o mesmo instante aparece conforme o deslocamento do dia', (
+      tester,
+    ) async {
+      // 11:00Z é 08:00 em São Paulo…
+      await _abrir(
+        tester,
+        workday: _workday(
+          state: 'FINISHED',
+          allowedActions: const [],
+          entries: [_entry('e-in', 'CLOCK_IN', '11:00')],
+          utcOffset: '-03:00',
+        ),
+      );
+      await _abrirFolha(tester);
+      expect(find.text('08:00'), findsWidgets);
+      expect(find.text('13:00'), findsNothing);
+    });
+
+    testWidgets('…e 13:00 numa empresa em +02:00, do MESMO instante', (
+      tester,
+    ) async {
+      await _abrir(
+        tester,
+        workday: _workday(
+          state: 'FINISHED',
+          allowedActions: const [],
+          entries: [_entry('e-in', 'CLOCK_IN', '11:00')],
+          timezone: 'Europe/Lisbon',
+          utcOffset: '+02:00',
+        ),
+      );
+      await _abrirFolha(tester);
+      expect(find.text('13:00'), findsWidgets);
+      expect(find.text('08:00'), findsNothing);
+    });
+
+    testWidgets('o instante enviado é o horário EXIBIDO, no fuso da empresa', (
+      tester,
+    ) async {
+      final h = await _abrir(
+        tester,
+        workday: _workday(
+          state: 'FINISHED',
+          allowedActions: const [],
+          entries: [_entry('e-in', 'CLOCK_IN', '11:00')],
+          utcOffset: '-03:00',
+        ),
+      );
+      h.transport.onJson(
+        'POST',
+        '/time-clock/adjustments',
+        status: 201,
+        data: {
+          'adjustment': {
+            'id': 'adj-tz',
+            'status': 'PENDING',
+            'requestedEntryType': 'CLOCK_IN',
+            'requestedOccurredAt': '2026-08-29T11:00:00.000Z',
+            'workdayDate': '2026-08-29',
+          },
+        },
+      );
+
+      await _abrirFolha(tester);
+      // A folha mostra 08:00, que é o que a pessoa lê e confirma.
+      expect(find.text('08:00'), findsWidgets);
+
+      await tester.enterText(
+        find.byKey(const Key('adjustment-reason')),
+        'confirmando o horário exibido',
+      );
+      await tester.tap(find.byKey(const Key('adjustment-submit')));
+      await _settle(tester);
+
+      final corpo =
+          h.transport.requestFor('POST', '/time-clock/adjustments').data
+              as Map<String, dynamic>;
+
+      // 08:00 em -03:00 é 11:00Z. Num aparelho noutro fuso, montar pelo
+      // relógio dele mandaria qualquer outro instante — e o gestor veria uma
+      // hora que ninguém escolheu.
+      expect(corpo['requestedOccurredAt'], '2026-08-29T11:00:00.000Z');
     });
   });
 

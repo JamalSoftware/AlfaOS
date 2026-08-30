@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 interface EntryOption {
   id: string;
@@ -18,6 +18,19 @@ interface MemberAdjustmentFormProps {
   /** Deslocamento do fuso da EMPRESA naquele dia, como `-03:00`. */
   offset: string;
   entries: EntryOption[];
+}
+
+/**
+ * Um identificador aceito pelo servidor (`[A-Za-z0-9._:-]`, 8–200).
+ *
+ * `randomUUID` não existe em contexto não seguro; o `Math.random` de reserva
+ * não precisa ser criptográfico, porque a chave não autoriza nada — ela só
+ * distingue submissões, e o escopo dela já é `(empresa, gestor, operação)`.
+ */
+function novaChave(): string {
+  const c = globalThis.crypto;
+  if (typeof c?.randomUUID === "function") return c.randomUUID();
+  return `k-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 const ENTRY_TYPES = [
@@ -54,6 +67,30 @@ export function MemberAdjustmentForm({
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /*
+    A chave da SUBMISSÃO LÓGICA, não da requisição.
+
+    Mesma intenção — duplo clique, reenvio depois de um timeout, o gestor
+    apertando de novo porque a tela pareceu travada — carrega a MESMA chave, e
+    o servidor abre um pedido só.
+
+    Mudou o que está sendo pedido, muda a assinatura e nasce chave nova: uma
+    correção realmente diferente é outro comando, e reaproveitar a chave dela
+    receberia `IDEMPOTENCY_CONFLICT` por conteúdo divergente — travando
+    justamente o pedido legítimo.
+
+    Fica em `ref`, e não em estado: trocá-la não redesenha nada, e um
+    `useState` aqui provocaria uma renderização no meio do envio.
+  */
+  const chave = useRef<{ assinatura: string; valor: string } | null>(null);
+
+  function chaveDe(assinatura: string): string {
+    if (chave.current?.assinatura !== assinatura) {
+      chave.current = { assinatura, valor: novaChave() };
+    }
+    return chave.current.valor;
+  }
 
   /** Ao escolher uma marcação existente, o tipo e a hora partem dela. */
   function pickTarget(id: string) {
@@ -94,19 +131,29 @@ export function MemberAdjustmentForm({
         return;
       }
 
+      const payload = {
+        requestedType: targetEntryId ? "WRONG_TIME" : "MISSING_ENTRY",
+        requestedEntryType: entryType,
+        requestedOccurredAt: requestedOccurredAt.toISOString(),
+        reason: reason.trim(),
+        targetEntryId: targetEntryId || null,
+      };
+
       const res = await fetch(`/api/time-clock/members/${userId}/adjustments`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          requestedType: targetEntryId ? "WRONG_TIME" : "MISSING_ENTRY",
-          requestedEntryType: entryType,
-          requestedOccurredAt: requestedOccurredAt.toISOString(),
-          reason: reason.trim(),
-          targetEntryId: targetEntryId || null,
-        }),
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": chaveDe(JSON.stringify(payload)),
+        },
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
+        // Intenção cumprida: um pedido igual, depois disto, é outro comando e
+        // merece chave nova. Sem isto, corrigir a MESMA marcação de novo — o
+        // gestor errou o horário duas vezes — receberia o desfecho guardado do
+        // primeiro pedido em vez de abrir o segundo.
+        chave.current = null;
         setOpen(false);
         setTargetEntryId("");
         setTime("");
@@ -122,10 +169,10 @@ export function MemberAdjustmentForm({
         o servidor não aceitou — e o gestor descobriria só ao não encontrar nada
         na fila.
       */
-      const payload = (await res.json().catch(() => ({}))) as {
+      const recusa = (await res.json().catch(() => ({}))) as {
         error?: string;
       };
-      setError(payload.error ?? "Não foi possível abrir a correção.");
+      setError(recusa.error ?? "Não foi possível abrir a correção.");
     } catch {
       setError("Falha de rede. Tente de novo.");
     } finally {

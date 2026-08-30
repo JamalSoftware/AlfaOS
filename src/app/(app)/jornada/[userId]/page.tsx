@@ -4,7 +4,6 @@ import { notFound } from "next/navigation";
 import { requirePageProfile } from "@/lib/guards";
 import { getCompanyUser } from "@/lib/users";
 import { getMemberWorkdayView, listOwnAdjustments } from "@/lib/time-clock";
-import { utcOffsetIn } from "@/lib/workday";
 import { EmptyState } from "@/components/EmptyState";
 import { MemberAdjustmentForm } from "./MemberAdjustmentForm";
 
@@ -203,10 +202,9 @@ export default async function MemberWorkdayPage({
         <MemberAdjustmentForm
           userId={params.userId}
           date={workday.date}
-          offset={utcOffsetIn(
-            new Date(`${workday.date}T12:00:00.000Z`),
-            workday.timezone,
-          )}
+          // O deslocamento vem PRONTO da visão do dia — a mesma que o Field
+          // consome. Recalculá-lo aqui era um segundo lugar capaz de divergir.
+          offset={workday.utcOffset}
           entries={entries}
         />
       </section>

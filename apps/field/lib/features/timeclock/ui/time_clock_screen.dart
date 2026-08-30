@@ -127,7 +127,7 @@ class _TodayCard extends StatelessWidget {
             const SizedBox(height: AlfaSpacing.md),
             Text(
               'Última marcação: ${timeEntryLabel(last.type)} às '
-              '${_hhmm(last.occurredAt)}',
+              '${_hhmm(last.occurredAt, workday.utcOffset)}',
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ],
@@ -159,31 +159,29 @@ class _TodayCard extends StatelessWidget {
             ),
             const SizedBox(height: AlfaSpacing.sm),
           ],
+          /*
+            PORTA ÚNICA DA CORREÇÃO (PRD §258).
+
+            Este cartão teve o seu próprio botão SOLICITAR CORREÇÃO, e a seção
+            Correções tem outro. O piloto físico mostrou o custo: dois botões
+            idênticos na mesma rolagem, um deles condicionado a um estado que o
+            técnico não enxerga, e nenhuma pista de que levam ao mesmo lugar.
+            Duas portas para a mesma sala é a pessoa perguntando qual é a certa.
+
+            Ficou a da seção Correções, porque é onde o pedido VIVE depois de
+            aberto: quem solicita volta ali para ver o desfecho. O caminho
+            continua sem gesto e sem menu — está na mesma tela, uma rolagem
+            abaixo.
+
+            Este cartão passa a responder só quatro coisas: em que estado a
+            jornada está, quanto já foi trabalhado, qual foi a última marcação
+            e se existe correção esperando decisão.
+          */
           if (workday.allowedActions.isEmpty)
             Text(
-              'Jornada encerrada. Para corrigir, solicite um ajuste.',
+              'Jornada encerrada. Para corrigir, use Correções, logo abaixo.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
-          /*
-            A orientação vinha SEM a ação.
-
-            A tela dizia 'solicite um ajuste' e não havia onde solicitar: o
-            caminho existia no repositório e no servidor, e nenhum toque
-            chegava até ele. Instrução sem botão é pior que a ausência da
-            funcionalidade — manda a pessoa procurar o que não está lá.
-
-            O botão fica aqui, colado na frase que o pede, e também na seção
-            Correções logo abaixo. Nada disso mora atrás de gesto ou menu.
-          */
-          if (workday.entries.isNotEmpty || workday.allowedActions.isEmpty) ...[
-            const SizedBox(height: AlfaSpacing.md),
-            OutlinedButton.icon(
-              key: const Key('request-adjustment-today'),
-              onPressed: () => openAdjustmentSheet(context, state, notifier),
-              icon: const Icon(Icons.edit_calendar_outlined),
-              label: const Text('SOLICITAR CORREÇÃO'),
-            ),
-          ],
           if (workday.pendingAdjustments > 0) ...[
             const SizedBox(height: AlfaSpacing.sm),
             Text(
@@ -259,7 +257,7 @@ class _EntriesCard extends StatelessWidget {
                         ? const Text('Correção aprovada')
                         : null,
                     trailing: Text(
-                      _hhmm(entry.occurredAt),
+                      _hhmm(entry.occurredAt, workday.utcOffset),
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -340,8 +338,15 @@ class _AdjustmentsCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
+                      // O deslocamento é o do dia de HOJE. A lista mostra
+                      // pedidos de outros dias, e num fuso com horário de
+                      // verão um deles pode aparecer com uma hora de
+                      // diferença — a data vai ao lado, e nada aqui é
+                      // gravado. O horário que o servidor guarda continua
+                      // sendo o montado na folha, com o deslocamento certo.
                       '${timeEntryLabel(pedido.requestedEntryType)} às '
-                      '${_hhmm(pedido.requestedOccurredAt)} · ${pedido.workdayDate}',
+                      '${_hhmm(pedido.requestedOccurredAt, state.workday.utcOffset)}'
+                      ' · ${pedido.workdayDate}',
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                     Text(
@@ -421,7 +426,12 @@ class _AdjustmentSheetState extends State<_AdjustmentSheet> {
     if (primeira != null) {
       _targetEntryId = primeira.id;
       _type = primeira.type;
-      _hora = TimeOfDay.fromDateTime(primeira.occurredAt);
+      // No relógio da EMPRESA, como o campo será relido ao enviar. Preencher
+      // com a hora do aparelho e enviar no fuso da empresa faria o formulário
+      // deslocar sozinho uma marcação que ninguém quis mudar.
+      _hora = TimeOfDay.fromDateTime(
+        inCompanyTime(primeira.occurredAt, widget.workday.utcOffset),
+      );
     }
   }
 
@@ -437,26 +447,31 @@ class _AdjustmentSheetState extends State<_AdjustmentSheet> {
       final alvo = widget.workday.entries.where((e) => e.id == id).firstOrNull;
       if (alvo != null) {
         _type = alvo.type;
-        _hora = TimeOfDay.fromDateTime(alvo.occurredAt);
+        _hora = TimeOfDay.fromDateTime(
+          inCompanyTime(alvo.occurredAt, widget.workday.utcOffset),
+        );
       }
     });
   }
 
-  /// O instante pedido, ancorado no DIA OPERACIONAL que o servidor informou.
+  /// O instante pedido, no DIA e no FUSO que o servidor informou.
   ///
-  /// A data vem do workday, nunca de DateTime.now(): perto da meia-noite os
-  /// dois discordam, e ancorar no relógio do aparelho mandaria a correção
-  /// para o dia seguinte.
+  /// A data vem do workday, nunca de `DateTime.now()`: perto da meia-noite os
+  /// dois discordam, e ancorar no relógio do aparelho mandaria a correção para
+  /// o dia seguinte.
+  ///
+  /// O FUSO vem do workday pelo mesmo motivo, um degrau acima. `08:30` é
+  /// 08:30 na empresa — o aparelho pode estar em qualquer fuso, e antes disto
+  /// era ele quem definia o instante enviado (§253, LOW-3).
   DateTime? _instante() {
     final hora = _hora;
     if (hora == null) return null;
-    final partes = widget.workday.date.split('-');
-    if (partes.length != 3) return null;
-    final ano = int.tryParse(partes[0]);
-    final mes = int.tryParse(partes[1]);
-    final dia = int.tryParse(partes[2]);
-    if (ano == null || mes == null || dia == null) return null;
-    return DateTime(ano, mes, dia, hora.hour, hora.minute);
+    return instantFromCompanyTime(
+      widget.workday.date,
+      hora.hour,
+      hora.minute,
+      widget.workday.utcOffset,
+    );
   }
 
   Future<void> _enviar() async {
@@ -540,7 +555,8 @@ class _AdjustmentSheetState extends State<_AdjustmentSheet> {
                   DropdownMenuItem<String?>(
                     value: entry.id,
                     child: Text(
-                      '${timeEntryLabel(entry.type)} às ${_hhmm(entry.occurredAt)}',
+                      '${timeEntryLabel(entry.type)} às '
+                      '${_hhmm(entry.occurredAt, widget.workday.utcOffset)}',
                     ),
                   ),
               ],
@@ -672,9 +688,16 @@ class _ErrorBanner extends StatelessWidget {
   }
 }
 
-String _hhmm(DateTime value) =>
-    '${value.hour.toString().padLeft(2, '0')}:'
-    '${value.minute.toString().padLeft(2, '0')}';
+/// `HH:MM` no relógio da EMPRESA.
+///
+/// O deslocamento é obrigatório no parâmetro de propósito: sem ele a função
+/// voltaria a ler o relógio do aparelho, e a tela mostraria um horário
+/// enquanto o servidor guarda outro (§253, LOW-3).
+String _hhmm(DateTime value, String utcOffset) {
+  final local = inCompanyTime(value, utcOffset);
+  return '${local.hour.toString().padLeft(2, '0')}:'
+      '${local.minute.toString().padLeft(2, '0')}';
+}
 
 IconData _iconFor(TimeEntryType type) {
   switch (type) {

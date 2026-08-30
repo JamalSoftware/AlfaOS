@@ -212,7 +212,23 @@ export default async function TeamWorkdayPage() {
                       */}
                       <p className="mt-2 text-sm text-fg">{adjustment.reason}</p>
                     </div>
-                    <AdjustmentDecisionButtons adjustmentId={adjustment.id} />
+                    {/*
+                      Quem abriu o pedido para a PRÓPRIA jornada não o decide.
+
+                      A conferência é a MESMA conjunção que
+                      `decideTimeAdjustment` aplica, e é feita com ids — nomes
+                      colidem entre homônimos. Aqui ela serve só para a tela
+                      não oferecer um botão que o servidor vai recusar; a
+                      autoridade continua sendo o domínio, e um POST montado à
+                      mão bate na mesma regra (§253, LOW-1).
+                    */}
+                    <AdjustmentDecisionButtons
+                      adjustmentId={adjustment.id}
+                      requiresAnotherApprover={
+                        adjustment.requestedById === session.id &&
+                        adjustment.userId === session.id
+                      }
+                    />
                   </div>
                 </li>
               ))}

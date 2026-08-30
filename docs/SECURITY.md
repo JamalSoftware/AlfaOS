@@ -1698,3 +1698,112 @@ conteúdo de conversa é outra categoria de dado, com outras obrigações de LGP
 - **Sem expurgo** de `CustomerLocationHistory`. A trilha é imutável e cresce; a
   deduplicação de divergência impede o crescimento por sincronização repetida,
   mas não há política de retenção.
+
+---
+
+## 8.15. Jornada / Ponto — Fase 1
+
+A jornada acrescenta duas superfícies: `/api/field/v1/time-clock/*`, que segue
+integralmente o modelo da **§8.13** (token opaco de `MobileDevice`, só
+`Authorization: Bearer`, `Idempotency-Key` obrigatória, sem cookie e portanto
+sem CSRF), e `/api/time-clock/*`, administrativa, que segue o modelo da web —
+sessão em cookie, `assertSameOrigin` e papel conferido na rota.
+
+Três garantias transversais valem em ambas, e nenhuma delas depende do cliente:
+
+- **`companyId` sai da sessão ou do token**, nunca do corpo nem da rota;
+- **`userId` da jornada é conferido no domínio**, e um id de outra empresa
+  devolve **404** — não 403, para que um id sondado não aprenda que existe;
+- **`TimeEntry` não tem caminho de `UPDATE`** em lugar nenhum do projeto.
+  Correção cria linha nova, e a antiga permanece superada e visível (PRD §229).
+
+### Separação de função na própria jornada
+
+> Quem **abriu** a correção não **decide** essa correção quando a jornada é a
+> própria.
+
+A regra é a **conjunção** de `requestedById == decisor` **e** `userId ==
+decisor`, e vive em `decideTimeAdjustment` (`src/lib/time-clock.ts`). Cada
+metade sozinha estaria errada: a primeira proibiria o gestor de aprovar o que
+abriu **para um funcionário** (§231, sem conflito de interesse); a segunda
+proibiria o `ADMIN` de decidir o que um **colega** abriu sobre o dia dele (onde
+o contraditório já existe).
+
+**Abrir para si mesmo continua permitido.** Proibir a abertura empurraria o
+`ADMIN` de volta para o `UPDATE` na marcação — o que o módulo existe para
+impedir.
+
+Três propriedades da recusa importam para auditoria:
+
+1. é **403** com mensagem administrativa: o pedido existe, é da empresa, e quem
+   pediu tem direito de vê-lo na fila;
+2. acontece **depois do lock do dia e da releitura**, e **antes de qualquer
+   escrita** — nenhuma `TimeEntry` derivada, nenhum `updateMany` no pedido e
+   **nenhum `AuditLog`**. Um rastro de aprovação sem aprovação mente para quem
+   audita depois;
+3. o pedido permanece **`PENDING`**: recusar a decisão não pode consumir o
+   pedido, ou a pessoa perderia a correção legítima ao tentar decidi-la por
+   engano.
+
+A fila do painel deixa de oferecer os botões e escreve `Requer outro
+aprovador`. **Isso é UX.** A autoridade é o domínio — um `POST` montado à mão,
+com sessão válida de `ADMIN`, recebe a mesma recusa (`time-clock-security.test.ts`).
+
+### Idempotência da criação administrativa
+
+`POST /api/time-clock/members/:userId/adjustments` **exige** `Idempotency-Key`.
+Obrigatória, e não opcional: uma chave que o cliente pode omitir é uma proteção
+que não vale nas requisições que mais precisam dela.
+
+É a **mesma** infraestrutura da §8.13 — mesma tabela, mesmo lease de dois
+minutos, mesma arbitragem pela unique `(companyId, userId, operation, key)`. Um
+segundo sistema de idempotência para a web teria regras próprias de expiração e
+tomada, e seria o que divergisse primeiro.
+
+Duas escolhas de escopo são de segurança, não de estilo:
+
+- **operação com nome próprio** (`time-clock.admin-adjustment`). Compartilhar o
+  nome com o comando do Field faria uma chave repetida entre os dois devolver o
+  desfecho guardado do outro;
+- **o usuário do escopo é quem assina** — o gestor —, não o funcionário da
+  jornada. Sem o usuário no escopo, a tabela viraria oráculo: apresentar a chave
+  de um colega e ler a resposta guardada para ele.
+
+### O fuso é da empresa, não do aparelho
+
+`WorkdayView` carrega **`utcOffset`** (`-03:00`), calculado no servidor para
+aquele dia por `utcOffsetIn`. O aplicativo monta o horário solicitado com esse
+deslocamento.
+
+Não é confidencialidade — é **integridade do registro de jornada**. Um celular
+em fuso divergente fazia o técnico escolher `08:30` e o servidor gravar outro
+instante, sem nada na tela denunciar. O deslocamento vem do servidor porque
+resolver um nome IANA exige a base de fusos, e uma tabela embutida no APK
+envelhece na primeira mudança de lei.
+
+**O cliente nunca envia fuso.** Um `timezone` no corpo seria entrada não
+confiável decidindo a que dia civil pertence uma batida; os schemas são
+`.strict()` e recusam o campo. O servidor lê `Company.timezone`, e
+`resolveTimezone` cai em `America/Sao_Paulo` diante de valor inválido gravado.
+
+**As DUAS respostas que produzem um `Workday` carregam o deslocamento** —
+`GET /today` e `POST /entries`. A revisão do endurecimento encontrou a segunda
+sem ele: o aplicativo grava o dia que volta da batida e só depois relê `today`,
+e quando essa releitura falha — rede caindo logo após bater — o estado **fica**
+com o que veio da batida, até a próxima leitura que der certo. A janela não é
+de um quadro, e dentro dela o Field voltava ao relógio do aparelho para exibir
+e para montar correção. Corrigido, com regressão nas duas pontas
+(`time-clock-hardening.test.ts` e `apps/field/test/widget/time_clock_test.dart`).
+
+### Riscos residuais aceitos
+
+- **`Company.timezone` não tem superfície administrativa** (JOR-05, PRD §253).
+  O padrão atende o piloto; a leitura já é defensiva. Não é risco de
+  autorização.
+- **A lista de correções do Field exibe horários de outros dias com o
+  deslocamento de hoje.** Só exibição, com a data ao lado, e só divergiria num
+  fuso com horário de verão. O instante gravado é sempre o montado com o
+  deslocamento do dia correto.
+- **Segregação de função não é configurável por empresa.** A regra é fixa na
+  Fase 1. Política por empresa — exigir dois aprovadores sempre, ou liberar
+  autoaprovação em empresa de uma pessoa só — fica para a fase de configuração.

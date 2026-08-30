@@ -191,7 +191,7 @@ Nada disso está implementado — é especificação, e a §119 se aplica.
 
 ## Jornada / Ponto do funcionário — FASE 1 ENTREGUE, RELEASE PENDENTE
 
-**Carregar:** `docs/PRD.md` §226–§233 — marcações, evidência da batida, histórico imutável e pedido de ajuste, espelho, painel do gestor, ponto offline e LGPD. Código: `src/lib/workday.ts` (dia, estado e **sequência efetiva**) e `src/lib/time-clock.ts` (domínio).
+**Carregar:** `docs/PRD.md` §226–§233 — marcações, evidência da batida, histórico imutável e pedido de ajuste, espelho, painel do gestor, ponto offline e LGPD. Se a tarefa toca autorização, quem decide ou fuso, leia junto `docs/SECURITY.md` **§8.15**. Código: `src/lib/workday.ts` (dia, estado e **sequência efetiva**) e `src/lib/time-clock.ts` (domínio).
 **Quando:** a tarefa envolve jornada de trabalho, batida de ponto, espelho, banco de horas ou aprovação de ajuste.
 **Quando NÃO:** check-in de OS — **não é a mesma coisa** (§226). Check-in é `docs/TECHNICIAN-EXECUTION.md` e a §167.
 
@@ -206,7 +206,13 @@ Quatro regras que serão fáceis de desfazer sem perceber:
 
 **O que JÁ existe:** `Workday`, `TimeEntry`, `TimeAdjustmentRequest` e `Company.timezone`; as rotas `/api/field/v1/time-clock/*` e `/api/time-clock/*`; a tela `/jornada`, a página por funcionário e a tela do Field. **Não existe** banco de horas, escala prevista, folha, engine offline no cliente nem tela de configuração de fuso — `Company.timezone` só tem o default. A §119 se aplica ao que falta.
 
-**Quatro pendências registradas (§253), nenhuma bloqueadora e nenhuma implementada:** `ADMIN` pode aprovar a própria correção (LOW-1); a criação administrativa web não tem idempotência equivalente à do Field (LOW-2); o Field monta o horário solicitado no fuso do **aparelho**, não no da empresa (LOW-3); e `Company.timezone` não tem superfície administrativa (JOR-05). LOW-3 depende de JOR-05 — resolver o cliente antes da configuração seria consumir um valor que ninguém consegue ajustar.
+**Das quatro pendências registradas (§253), três foram fechadas no endurecimento final** — e as três viraram regra que dá para desfazer sem perceber:
+
+* **Quem abre não decide, quando a jornada é a própria** (LOW-1). Abrir continua permitido; a recusa é 403, vem **depois do lock e antes de qualquer escrita**, e não deixa `TimeEntry`, `updateMany` nem `AuditLog`. A tela esconder o botão é UX — a autoridade é `decideTimeAdjustment`.
+* **A criação administrativa exige `Idempotency-Key`** (LOW-2), na **mesma** infraestrutura do Field, com nome de operação próprio (`time-clock.admin-adjustment`). Criar uma segunda idempotência para a web é o defeito, não o atalho.
+* **O fuso do horário solicitado é o da EMPRESA** (LOW-3). `WorkdayView.utcOffset` vai no DTO e o Field o usa para ler e montar horário. O relógio do aparelho não é autoridade sobre jornada, e uma tabela de fusos dentro do APK envelhece na primeira mudança de lei.
+
+**Continua pendente: JOR-05** — `Company.timezone` não tem superfície administrativa. Não bloqueia: o padrão `America/Sao_Paulo` atende, e o campo já cai no padrão quando o valor gravado é inválido.
 
 ## Field Workspace, App Shell e Dashboard — PLANNED
 
@@ -220,7 +226,7 @@ Quatro regras que serão fáceis de desfazer sem perceber:
 * **Item planejado não vira item cinza** (§256). Menu com linhas desabilitadas ensina o técnico a ignorar o menu.
 * **O dashboard não decide o que é permitido** (§257). Ele apresenta `allowedActions`, que já vem do servidor derivado da sequência efetiva — recalcular no cliente faz o aplicativo discordar do domínio na primeira correção aprovada.
 
-A porta única da correção (§258) **corrige o que já existe**: hoje a tela de jornada do Field oferece "Solicitar correção" em dois lugares.
+A porta única da correção (§258) **já foi aplicada** no endurecimento final da Fase 1: a tela de jornada do Field oferecia "SOLICITAR CORREÇÃO" em dois lugares, e ficou só o da seção `Correções` — que é onde o pedido vive depois de aberto. O cartão de hoje responde estado, trabalhado, última marcação e correções pendentes, e mais nada. O teste que segura isso conta o RÓTULO, não a chave: um segundo botão com outra `Key` foi exatamente o caso anterior.
 
 ## Mapa operacional no Field, agenda e estoque do técnico — PLANNED
 

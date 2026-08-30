@@ -100,16 +100,31 @@ function marcar(workdayId: string, type: TimeEntryType, occurredAt: Date) {
 
 const MESMA_ORIGEM = { Origin: "http://localhost", Host: "localhost" };
 
+/**
+ * Chave nova a cada chamada, salvo quando o teste manda a sua.
+ *
+ * A rota exige `Idempotency-Key` (§253, LOW-2). O padrão é chave nova porque
+ * cada `pedirComoGestor()` destes testes é um comando diferente; os testes de
+ * idempotência passam a chave explicitamente e é ISSO que eles medem.
+ */
+let sequencia = 0;
+const chaveNova = () => `teste-gestor-${Date.now()}-${++sequencia}`;
+
 function pedirComoGestor(
   userId: string,
   body: Record<string, unknown>,
   token: string,
   headers: Record<string, string> = MESMA_ORIGEM,
+  idempotencyKey: string = chaveNova(),
 ) {
   return adminAdjustmentRoute(
     apiRequest(
       `/api/time-clock/members/${userId}/adjustments`,
-      { method: "POST", body, headers },
+      {
+        method: "POST",
+        body,
+        headers: { "Idempotency-Key": idempotencyKey, ...headers },
+      },
       token,
     ),
     { params: { userId } },
@@ -731,5 +746,206 @@ describe("E2E da correção — Field pede, painel decide, Field relê", () => {
     expect(rejeitado.decisionReason).toBe(
       "A OS do dia mostra você em campo às 08h.",
     );
+  });
+});
+
+/*
+  IDEMPOTÊNCIA DA CRIAÇÃO ADMINISTRATIVA (§253, LOW-2).
+
+  O Field já nascia protegido: cada comando carrega uma `Idempotency-Key` e o
+  servidor executa uma vez só. O painel não tinha equivalente — e o navegador
+  reenvia tanto quanto o celular: duplo clique, `retry` depois de um timeout,
+  F5 no meio do POST.
+
+  A proteção é a MESMA infraestrutura, não uma parecida: mesma tabela, mesmo
+  lease, mesma arbitragem pelo banco. Um segundo sistema de idempotência com
+  regras próprias seria a definição de divergência futura.
+*/
+describe("a criação administrativa é idempotente", () => {
+  const CHAVE = "gestor-correcao-2026-08-29-clockin";
+
+  async function pedir(chave: string, overrides: Record<string, unknown> = {}) {
+    return pedirComoGestor(
+      fixture.techA.id,
+      corpoDoPedido(overrides),
+      await createTokenFor(fixture.adminA.id),
+      MESMA_ORIGEM,
+      chave,
+    );
+  }
+
+  const pendentes = () =>
+    prisma.timeAdjustmentRequest.count({
+      where: { companyId: fixture.companyA.id, status: "PENDING" },
+    });
+
+  it("sem a chave, a rota recusa antes de gravar", async () => {
+    // Uma chave que o cliente pode omitir é uma proteção que não vale nas
+    // requisições que mais precisam dela.
+    const r = await adminAdjustmentRoute(
+      apiRequest(
+        `/api/time-clock/members/${fixture.techA.id}/adjustments`,
+        {
+          method: "POST",
+          body: corpoDoPedido(),
+          headers: MESMA_ORIGEM,
+        },
+        await createTokenFor(fixture.adminA.id),
+      ),
+      { params: { userId: fixture.techA.id } },
+    );
+
+    expect(r.status).toBe(400);
+    expect(await pendentes()).toBe(0);
+  });
+
+  it("uma submissão normal abre UM pedido", async () => {
+    const r = await pedir(CHAVE);
+    expect(r.status).toBe(201);
+    expect(await pendentes()).toBe(1);
+  });
+
+  it("dez submissões simultâneas com a MESMA chave abrem UM pedido", async () => {
+    /*
+      A corrida real, não a sequencial.
+
+      Dez requisições disparadas juntas passam todas pela verificação antes de
+      qualquer uma gravar — é por isso que "consultar e depois inserir" não
+      resolve, e por isso a reserva é gravada ANTES de executar, deixando a
+      unique do banco arbitrar.
+    */
+    const respostas = await Promise.all(
+      Array.from({ length: 10 }, () => pedir(CHAVE)),
+    );
+
+    // Ninguém recebe 500: quem perde a corrida recebe conflito honesto.
+    expect(respostas.some((r) => r.status >= 500)).toBe(false);
+    expect(respostas.some((r) => r.status === 201)).toBe(true);
+    for (const r of respostas) {
+      expect([201, 409]).toContain(r.status);
+    }
+
+    expect(await pendentes()).toBe(1);
+  });
+
+  it("reenviar a mesma chave devolve o MESMO pedido, sem abrir outro", async () => {
+    const primeira = await pedir(CHAVE);
+    expect(primeira.status).toBe(201);
+    const primeiroId = (
+      (await primeira.json()) as { data: { adjustment: { id: string } } }
+    ).data.adjustment.id;
+
+    const segunda = await pedir(CHAVE);
+    expect(segunda.status).toBe(201);
+    const segundoId = (
+      (await segunda.json()) as { data: { adjustment: { id: string } } }
+    ).data.adjustment.id;
+
+    // Reprodução do desfecho guardado — não uma segunda execução.
+    expect(segundoId).toBe(primeiroId);
+    expect(await pendentes()).toBe(1);
+  });
+
+  it("a MESMA chave com horário diferente é IDEMPOTENCY_CONFLICT", async () => {
+    expect((await pedir(CHAVE)).status).toBe(201);
+
+    const conflito = await pedir(CHAVE, {
+      requestedOccurredAt: em(0.5).toISOString(),
+    });
+
+    /*
+      409, e o pedido novo NÃO nasce.
+
+      Reaproveitar a chave com outro conteúdo é sintoma de cliente confuso. O
+      servidor não escolhe qual das duas intenções vale: ele recusa e devolve
+      a contradição para quem a criou.
+    */
+    expect(conflito.status).toBe(409);
+    expect(await pendentes()).toBe(1);
+  });
+
+  it("chaves diferentes abrem pedidos diferentes", async () => {
+    // Duas correções realmente distintas não podem ser confundidas com
+    // retentativa: o gestor errou o horário duas vezes e precisa dos dois.
+    expect((await pedir("chave-um")).status).toBe(201);
+    expect(
+      (await pedir("chave-dois", { requestedOccurredAt: em(0.5).toISOString() }))
+        .status,
+    ).toBe(201);
+
+    expect(await pendentes()).toBe(2);
+  });
+
+  it("a chave de um gestor não devolve o desfecho do outro", async () => {
+    /*
+      O escopo é `(empresa, usuário, operação, chave)`.
+
+      Sem o usuário no escopo, a tabela viraria um oráculo: eu apresento a
+      chave de um colega e leio a resposta que o servidor guardou para ele.
+    */
+    expect((await pedir(CHAVE)).status).toBe(201);
+
+    const outro = await prisma.user.create({
+      data: {
+        companyId: fixture.companyA.id,
+        name: "Gestora Dois",
+        email: "gestora2@alfa.test",
+        profile: "ADMIN",
+        active: true,
+        passwordHash: "x",
+      },
+      select: { id: true },
+    });
+
+    const r = await pedirComoGestor(
+      fixture.techA.id,
+      corpoDoPedido({ requestedOccurredAt: em(0.5).toISOString() }),
+      await createTokenFor(outro.id),
+      MESMA_ORIGEM,
+      CHAVE,
+    );
+
+    // Mesma chave, outra pessoa: é outro comando, e ele executa.
+    expect(r.status).toBe(201);
+    expect(await pendentes()).toBe(2);
+  });
+
+  it("a chave do painel não colide com a do aplicativo", async () => {
+    /*
+      Operações com nomes PRÓPRIOS.
+
+      Se o painel e o Field compartilhassem o nome da operação, uma chave
+      repetida entre os dois faria o segundo receber o desfecho guardado do
+      primeiro — silenciosamente, e com o pedido errado na tela.
+
+      Aqui o técnico usa a MESMA string de chave que o gestor usou. São
+      pessoas diferentes e operações diferentes: os dois pedidos existem.
+    */
+    expect((await pedir(CHAVE)).status).toBe(201);
+
+    await prisma.technician.upsert({
+      where: { userId: fixture.techA.id },
+      update: {},
+      create: { companyId: fixture.companyA.id, userId: fixture.techA.id },
+    });
+    const device = await registerTestDevice(fixture.techA.id, {
+      installationId: `inst-colisao-${Date.now()}`,
+    });
+    const r = await fieldAdjustmentRoute(
+      fieldRequest("/api/field/v1/time-clock/adjustments", {
+        method: "POST",
+        token: device.token,
+        idempotencyKey: CHAVE,
+        body: {
+          requestedType: "MISSING_ENTRY",
+          requestedEntryType: "CLOCK_IN",
+          requestedOccurredAt: em(0.5).toISOString(),
+          reason: "esqueci de bater na entrada",
+        },
+      }),
+    );
+
+    expect(r.status).toBe(201);
+    expect(await pendentes()).toBe(2);
   });
 });

@@ -7,7 +7,7 @@ import type {
 } from "@prisma/client";
 import { prisma } from "./prisma";
 import { logAudit } from "./audit";
-import { badRequest, conflict, notFound } from "./errors";
+import { badRequest, conflict, forbidden, notFound } from "./errors";
 import {
   allowedTransitions,
   assertTransitionAllowed,
@@ -15,6 +15,7 @@ import {
   isValidSequence,
   resolveEffectiveTimeEntries,
   resolveTimezone,
+  utcOffsetIn,
   workdayDateOf,
   type WorkdayState,
 } from "./workday";
@@ -70,6 +71,23 @@ export interface WorkdayView {
   workdayId: string | null;
   date: string;
   timezone: string;
+  /**
+   * O deslocamento do fuso da EMPRESA neste dia, como `-03:00`.
+   *
+   * O nome IANA sozinho não serve ao aplicativo: resolver `America/Sao_Paulo`
+   * exige a base de fusos, que o Dart não traz. Sem este campo o Flutter só
+   * tinha o relógio do aparelho para montar "08:30 daquele dia" — e um celular
+   * configurado noutro fuso mandava um instante diferente do que a pessoa
+   * escolheu, sem nada na tela denunciar (§253, LOW-3).
+   *
+   * É o MESMO valor que o painel do gestor já usa, da MESMA função
+   * (`utcOffsetIn`), pelo mesmo motivo: quem digita um horário está digitando
+   * no fuso da empresa, não no do dispositivo que tem em mãos.
+   *
+   * Calculado para ESTE dia, e não para o fuso em abstrato — onde há horário
+   * de verão o deslocamento muda ao longo do ano.
+   */
+  utcOffset: string;
   state: WorkdayState;
   allowedActions: readonly TimeEntryType[];
   entries: PublicTimeEntry[];
@@ -410,11 +428,25 @@ export async function getWorkdayView(
     select: { id: true, timezone: true },
   });
 
+  /*
+    Meio-dia UTC como âncora do deslocamento.
+
+    O deslocamento é do INSTANTE, não do fuso, então precisa de um instante — e
+    ele tem de cair dentro do dia civil em qualquer fuso plausível. Meia-noite
+    UTC cairia no dia anterior em toda a América, e o dia da virada de horário
+    de verão devolveria o deslocamento errado. Meio-dia é o mesmo ponto de
+    ancoragem que a página do gestor já usa.
+  */
+  const offsetAnchor = new Date(
+    `${date.toISOString().slice(0, 10)}T12:00:00.000Z`,
+  );
+
   if (!workday) {
     return {
       workdayId: null,
       date: date.toISOString().slice(0, 10),
       timezone,
+      utcOffset: utcOffsetIn(offsetAnchor, timezone),
       state: "NOT_STARTED",
       allowedActions: allowedTransitions("NOT_STARTED"),
       entries: [],
@@ -438,6 +470,9 @@ export async function getWorkdayView(
     workdayId: workday.id,
     date: date.toISOString().slice(0, 10),
     timezone: workday.timezone,
+    // Do fuso GRAVADO no dia, não do atual da empresa: um dia antigo continua
+    // sendo lido com o fuso sob o qual foi vivido.
+    utcOffset: utcOffsetIn(offsetAnchor, resolveTimezone(workday.timezone)),
     state: totals.state,
     allowedActions: allowedTransitions(totals.state),
     entries: entries.map(toPublicEntry),
@@ -604,6 +639,19 @@ export interface PublicAdjustment {
    * funcionario, e quem decide nao saberia sobre qual jornada esta decidindo.
    */
   userName: string;
+  /**
+   * De quem é a jornada, e quem abriu o pedido.
+   *
+   * Os NOMES servem para exibir; estes dois ids servem para DECIDIR. A fila do
+   * gestor precisa saber se o pedido diante dele é aquele que ele mesmo abriu
+   * para a própria jornada — o caso que `decideTimeAdjustment` recusa — e
+   * comparar nomes seria comparar homônimos.
+   *
+   * São ids da MESMA empresa de quem lê (toda consulta filtra por `companyId`)
+   * e não saem no DTO do Field, que monta o seu próprio objeto.
+   */
+  userId: string;
+  requestedById: string;
   requestedType: TimeAdjustmentType;
   requestedEntryType: TimeEntryType;
   requestedOccurredAt: Date;
@@ -770,6 +818,8 @@ export async function requestTimeAdjustment(
 function toPublicAdjustment(row: {
   id: string;
   status: TimeAdjustmentStatus;
+  userId: string;
+  requestedById: string;
   user: { name: string };
   requestedType: TimeAdjustmentType;
   requestedEntryType: TimeEntryType;
@@ -787,6 +837,8 @@ function toPublicAdjustment(row: {
   return {
     id: row.id,
     status: row.status,
+    userId: row.userId,
+    requestedById: row.requestedById,
     userName: row.user.name,
     requestedType: row.requestedType,
     requestedEntryType: row.requestedEntryType,
@@ -926,6 +978,7 @@ export async function decideTimeAdjustment(
       select: {
         id: true,
         userId: true,
+        requestedById: true,
         workdayId: true,
         status: true,
         targetEntryId: true,
@@ -935,6 +988,45 @@ export async function decideTimeAdjustment(
     });
     if (request.status !== "PENDING") {
       throw conflict("Esta solicitação já foi decidida.");
+    }
+
+    /*
+      NINGUÉM DECIDE O PEDIDO QUE ABRIU PARA A PRÓPRIA JORNADA.
+
+      Abrir continua permitido: um ADMIN que esqueceu de bater precisa poder
+      registrar o que houve, e proibir isso só o empurraria para o `UPDATE`
+      direto na marcação — exatamente o que o módulo existe para impedir
+      (§229). O que ele não pode é fechar o ciclo sozinho.
+
+      A regra é a CONJUNÇÃO das duas condições, e as duas importam:
+
+      - `requestedById === deciderUserId` sem a segunda seria proibir o gestor
+        de aprovar a correção que ele mesmo abriu para um funcionário — que é o
+        caminho normal do painel (§231) e não tem conflito de interesse: quem
+        se beneficia é outra pessoa.
+      - `userId === deciderUserId` sem a primeira seria proibir o ADMIN de
+        decidir um pedido que um COLEGA abriu sobre a jornada dele. Aí já
+        existe contraditório: duas pessoas participaram do fato.
+
+      Juntas, elas descrevem o único caso em que uma pessoa é, ao mesmo tempo,
+      autora, beneficiária e autoridade — e é só esse que a Fase 1 fecha.
+
+      403, e não 404: o pedido existe, é da empresa e quem pediu tem todo o
+      direito de vê-lo na fila. Esconder a existência aqui não protege nada e
+      faria a tela mentir sobre um registro que ela acabou de listar.
+
+      A checagem vem DEPOIS do lock e da releitura, e ANTES de qualquer
+      escrita: nada de `TimeEntry` derivada, nada de `updateMany` no pedido e
+      nada de `AuditLog` — a tentativa recusada não deixa rastro de decisão
+      porque decisão nenhuma houve.
+    */
+    if (
+      request.requestedById === deciderUserId &&
+      request.userId === deciderUserId
+    ) {
+      throw forbidden(
+        "Outra pessoa autorizada deve decidir esta correção de jornada.",
+      );
     }
 
     if (decision === "APPROVED") {

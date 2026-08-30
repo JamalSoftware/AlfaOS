@@ -5,6 +5,14 @@ import { useState } from "react";
 
 interface AdjustmentDecisionButtonsProps {
   adjustmentId: string;
+  /**
+   * Este pedido foi aberto por quem está lendo, para a jornada de quem está
+   * lendo — e por isso ele não pode decidi-lo (§253, LOW-1).
+   *
+   * Quem calcula é a página, comparando ids da sessão. Este componente não
+   * consulta nada: ele só deixa de oferecer o que o servidor recusaria.
+   */
+  requiresAnotherApprover?: boolean;
 }
 
 /**
@@ -25,6 +33,7 @@ interface AdjustmentDecisionButtonsProps {
  */
 export function AdjustmentDecisionButtons({
   adjustmentId,
+  requiresAnotherApprover = false,
 }: AdjustmentDecisionButtonsProps) {
   const router = useRouter();
   const [loading, setLoading] = useState<"APPROVED" | "REJECTED" | null>(null);
@@ -69,6 +78,28 @@ export function AdjustmentDecisionButtons({
     } finally {
       setLoading(null);
     }
+  }
+
+  /*
+    Sem botão, e com a razão escrita.
+
+    Um botão desabilitado diria "você poderia, mas não agora" — e a pessoa
+    ficaria clicando. O que houve é outra coisa: este pedido precisa de OUTRO
+    aprovador, e a saída é chamar alguém, não insistir.
+
+    O retorno antecipado vem depois de todos os hooks: nenhum deles fica
+    condicionado.
+  */
+  if (requiresAnotherApprover) {
+    return (
+      <p
+        data-testid="requires-another-approver"
+        className="max-w-56 text-right text-xs text-fg-muted"
+      >
+        Requer outro aprovador — você abriu esta correção para a sua própria
+        jornada.
+      </p>
+    );
   }
 
   return (

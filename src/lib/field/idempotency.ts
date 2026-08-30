@@ -2,10 +2,38 @@ import { createHash } from "node:crypto";
 import { isUniqueConstraintError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { FieldError } from "./errors";
-import type { FieldPrincipal } from "./auth";
 
 /**
- * # Idempotência dos comandos do Field
+ * Quem ancora o escopo da chave.
+ *
+ * Tipado pelo que a função REALMENTE usa — empresa e pessoa — e não por
+ * `FieldPrincipal`. `FieldPrincipal` satisfaz esta forma estruturalmente, então
+ * nenhuma rota do Field mudou; o que a abertura acrescenta é a sessão da WEB,
+ * que precisa da mesma proteção e não tem principal de Field nenhum.
+ *
+ * Amarrar a idempotência ao tipo do Field obrigaria o painel a ter a sua
+ * própria — e duas tabelas de idempotência com regras próprias de lease,
+ * expiração e tomada é exatamente o que o §253 (LOW-2) não pede: ele pede a
+ * MESMA proteção, não uma parecida.
+ */
+export interface IdempotencyActor {
+  user: { id: string; companyId: string };
+}
+
+/** Ator a partir de uma sessão da web, que não tem `FieldPrincipal`. */
+export function idempotencyActor(
+  companyId: string,
+  userId: string,
+): IdempotencyActor {
+  return { user: { id: userId, companyId } };
+}
+
+/**
+ * # Idempotência dos comandos mutantes
+ *
+ * Nasceu para o Field e serve aos DOIS clientes. O painel usa a mesma tabela,
+ * o mesmo lease e a mesma arbitragem pelo banco: o navegador também reenvia —
+ * duplo clique, `retry` depois de um timeout, aba recarregada no meio do POST.
  *
  * O caso concreto (PRD §160): a internet volta e o aplicativo reenvia
  * `COMPLETE_ORDER` três vezes, porque não sabe se as duas primeiras chegaram.
@@ -213,7 +241,7 @@ function decide<T>(
  * verificação no mesmo instante e executarem as duas.
  */
 export async function withIdempotency<T>(
-  principal: FieldPrincipal,
+  principal: IdempotencyActor,
   operation: string,
   key: string,
   payload: unknown,

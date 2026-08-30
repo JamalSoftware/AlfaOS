@@ -136,6 +136,7 @@ class TimeEntry {
 class Workday {
   const Workday({
     required this.date,
+    this.utcOffset = '',
     required this.state,
     required this.allowedActions,
     required this.entries,
@@ -146,6 +147,22 @@ class Workday {
   });
 
   final String date;
+
+  /// Deslocamento do fuso da EMPRESA neste dia, como `-03:00`.
+  ///
+  /// **O relógio do aparelho não é autoridade sobre horário de jornada.** Um
+  /// celular configurado noutro fuso — viagem, roaming, ajuste manual — fazia
+  /// o técnico escolher `08:30` e o servidor receber outro instante, sem nada
+  /// na tela denunciar (§253, LOW-3).
+  ///
+  /// Vem calculado pelo servidor porque o Dart não traz a base de fusos: com
+  /// `America/Sao_Paulo` sozinho o aplicativo não chegaria a deslocamento
+  /// nenhum. É a mesma resposta que o painel do gestor já usa para o navegador.
+  ///
+  /// Vazio significa servidor antigo: aí o aparelho volta a ser a única
+  /// referência disponível — o comportamento anterior, e não uma falha.
+  final String utcOffset;
+
   final WorkdayState state;
 
   /// **O servidor decide a transição** (PRD §229). A tela desenha o botão a
@@ -186,6 +203,7 @@ class Workday {
 
     return Workday(
       date: json['date'] as String? ?? '',
+      utcOffset: json['utcOffset'] as String? ?? '',
       state: workdayStateFrom(json['state'] as String?),
       allowedActions: listOf(
         'allowedActions',
@@ -201,6 +219,82 @@ class Workday {
       pendingAdjustments: (json['pendingAdjustments'] as num?)?.toInt() ?? 0,
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// O relógio da empresa
+// ---------------------------------------------------------------------------
+
+/*
+  O fuso da EMPRESA é a única referência de horário de jornada.
+
+  Estas duas funções são o par que fecha o LOW-3 (§253): uma lê um instante no
+  relógio da empresa, a outra monta um instante a partir dele. As duas recebem
+  o deslocamento que o servidor calculou para AQUELE dia — nada aqui consulta
+  base de fuso, nem tenta deduzir horário de verão, porque a conversão civil
+  já foi feita por quem tem autoridade e tabela para fazê-la.
+
+  Uma tabela de offsets embutida no APK envelheceria na primeira mudança de
+  lei, e um aplicativo em campo é justamente o que não se atualiza a tempo.
+*/
+
+/// `+HH:MM` / `-HH:MM` como `Duration`. `null` quando não é um deslocamento.
+Duration? parseUtcOffset(String? raw) {
+  if (raw == null) return null;
+  final m = RegExp(r'^([+-])(\d{2}):(\d{2})$').firstMatch(raw.trim());
+  if (m == null) return null;
+  final horas = int.parse(m.group(2)!);
+  final minutos = int.parse(m.group(3)!);
+  if (horas > 14 || minutos > 59) return null;
+  final magnitude = Duration(hours: horas, minutes: minutos);
+  return m.group(1) == '-' ? -magnitude : magnitude;
+}
+
+/// O mesmo instante, lido no relógio de parede da empresa.
+///
+/// O resultado serve para LER campos (`hour`, `minute`) — não é um instante
+/// novo, e somá-lo a outra coisa não faz sentido. Sem deslocamento utilizável,
+/// devolve o horário local do aparelho: é o que existia antes, e continua
+/// melhor que exibir UTC como se fosse a hora da pessoa.
+DateTime inCompanyTime(DateTime instant, String utcOffset) {
+  final deslocamento = parseUtcOffset(utcOffset);
+  if (deslocamento == null) return instant.toLocal();
+  return instant.toUtc().add(deslocamento);
+}
+
+/// O instante absoluto de uma hora civil no fuso da EMPRESA.
+///
+/// `date` é o dia operacional que o servidor informou (`AAAA-MM-DD`), nunca
+/// `DateTime.now()`: perto da meia-noite os dois discordam, e ancorar no
+/// relógio do aparelho mandaria a correção para o dia seguinte.
+///
+/// Sem deslocamento utilizável, cai no fuso do aparelho — de novo, o
+/// comportamento anterior, e o servidor continua validando o que chegar.
+DateTime? instantFromCompanyTime(
+  String date,
+  int hour,
+  int minute,
+  String utcOffset,
+) {
+  final partes = date.split('-');
+  if (partes.length != 3) return null;
+  final ano = int.tryParse(partes[0]);
+  final mes = int.tryParse(partes[1]);
+  final dia = int.tryParse(partes[2]);
+  if (ano == null || mes == null || dia == null) return null;
+
+  if (parseUtcOffset(utcOffset) == null) {
+    return DateTime(ano, mes, dia, hour, minute);
+  }
+
+  String pad(int valor, int casas) => valor.toString().padLeft(casas, '0');
+  final civil =
+      '${pad(ano, 4)}-${pad(mes, 2)}-${pad(dia, 2)}'
+      'T${pad(hour, 2)}:${pad(minute, 2)}:00';
+
+  // `DateTime.parse` entende o deslocamento ISO e devolve o instante absoluto.
+  // Montar a conta à mão duplicaria a aritmética que ele já faz certo.
+  return DateTime.tryParse('$civil${utcOffset.trim()}');
 }
 
 /// Um dia no histórico. Resumo, não a lista de marcações.

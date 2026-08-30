@@ -961,3 +961,112 @@ describe("Painel do gestor", () => {
     expect(tech?.pendingAdjustments).toBe(1);
   });
 });
+
+/*
+  O DESLOCAMENTO DO DIA VAI NO DTO (§253, LOW-3).
+
+  O nome IANA sozinho não serve ao Flutter: resolver `America/Sao_Paulo` exige
+  a base de fusos, que o Dart não traz. Sem um deslocamento pronto, o aplicativo
+  só tinha o relógio do aparelho para montar "08:30 daquele dia" — e um celular
+  configurado noutro fuso mandava outro instante.
+
+  Quem calcula é o servidor, com `Intl`, que já conhece horário de verão e não
+  envelhece dentro de um APK. O aplicativo só honra o que recebe; a prova de
+  que ele honra está em `apps/field/test/company_time_test.dart`.
+*/
+describe("a visão do dia carrega o deslocamento do fuso da empresa", () => {
+  async function comFuso(timezone: string) {
+    await prisma.company.update({
+      where: { id: fixture.companyA.id },
+      data: { timezone },
+    });
+  }
+
+  it("São Paulo devolve -03:00, e o nome IANA continua junto", async () => {
+    await comFuso("America/Sao_Paulo");
+    const v = await getWorkdayView(
+      fixture.companyA.id,
+      fixture.techA.id,
+      new Date("2026-08-29T15:00:00.000Z"),
+    );
+
+    expect(v.timezone).toBe("America/Sao_Paulo");
+    expect(v.utcOffset).toBe("-03:00");
+  });
+
+  it("HORÁRIO DE VERÃO: o mesmo fuso muda de deslocamento ao longo do ano", async () => {
+    /*
+      O teste que impede a tabela de offsets.
+
+      `America/New_York` é `-05:00` em janeiro e `-04:00` em julho. Um valor
+      fixo por fuso passaria em metade do ano e erraria a outra metade — de
+      hora em hora, na jornada de gente real.
+
+      A função recebe o INSTANTE justamente por isto.
+    */
+    await comFuso("America/New_York");
+
+    const inverno = await getWorkdayView(
+      fixture.companyA.id,
+      fixture.techA.id,
+      new Date("2026-01-15T17:00:00.000Z"),
+    );
+    const verao = await getWorkdayView(
+      fixture.companyA.id,
+      fixture.techA.id,
+      new Date("2026-07-15T17:00:00.000Z"),
+    );
+
+    expect(inverno.utcOffset).toBe("-05:00");
+    expect(verao.utcOffset).toBe("-04:00");
+  });
+
+  it("fuso sem deslocamento inteiro é devolvido com os minutos", async () => {
+    // `Asia/Kolkata` é +05:30. Um contrato que só transportasse horas erraria
+    // a Índia inteira — e a máscara `+HH:MM` existe para isso.
+    await comFuso("Asia/Kolkata");
+    const v = await getWorkdayView(
+      fixture.companyA.id,
+      fixture.techA.id,
+      new Date("2026-08-29T06:00:00.000Z"),
+    );
+    expect(v.utcOffset).toBe("+05:30");
+  });
+
+  it("UTC devolve +00:00, e não a string vazia", async () => {
+    // `Intl` crava "GMT" quando o deslocamento é zero, sem o "+00:00" que um
+    // ISO precisa. Vazio no DTO faria o aplicativo cair no relógio do aparelho
+    // justamente onde o fuso é conhecido.
+    await comFuso("Etc/UTC");
+    const v = await getWorkdayView(
+      fixture.companyA.id,
+      fixture.techA.id,
+      new Date("2026-08-29T12:00:00.000Z"),
+    );
+    expect(v.utcOffset).toBe("+00:00");
+  });
+
+  it("o dia com jornada aberta também carrega o deslocamento", async () => {
+    // O caminho com `Workday` é OUTRO retorno da mesma função: um deles ganhar
+    // o campo e o outro não deixaria o app sem fuso justamente depois da
+    // primeira batida.
+    await comFuso("America/Sao_Paulo");
+    await punchTimeClock(fixture.companyA.id, fixture.techA.id, {
+      type: "CLOCK_IN",
+    });
+
+    const v = await getWorkdayView(fixture.companyA.id, fixture.techA.id);
+    expect(v.workdayId).not.toBeNull();
+    expect(v.utcOffset).toBe("-03:00");
+  });
+
+  it("a visão do gestor sobre um funcionário carrega o mesmo deslocamento", async () => {
+    await comFuso("America/Sao_Paulo");
+    const v = await getMemberWorkdayView(
+      fixture.companyA.id,
+      fixture.techA.id,
+      new Date("2026-08-29T15:00:00.000Z"),
+    );
+    expect(v.utcOffset).toBe("-03:00");
+  });
+});

@@ -12,6 +12,8 @@ import { test, expect, type Page } from "@playwright/test";
  */
 
 const ADMIN_EMAIL = "admin@alfatelecom.local";
+/** O segundo aprovador. A regra de quatro olhos da §253 (LOW-1) depende dele. */
+const ADMIN2_EMAIL = "admin2@alfatelecom.local";
 const DISPATCHER_EMAIL = "dispatcher@alfatelecom.local";
 const TECH_EMAIL = "tech@alfatelecom.local";
 const PASSWORD = "AlfaOS@2026";
@@ -94,14 +96,20 @@ test.describe("correção administrativa", () => {
     .toISOString()
     .slice(0, 10);
 
-  test("ADMIN abre a correção pela tabela e ela cai na fila", async ({
-    page,
-  }) => {
-    await login(page, ADMIN_EMAIL);
+  /** Abre a correção de um funcionário pela tela dele. Devolve o motivo usado. */
+  async function abrirCorrecaoPara(
+    page: Page,
+    funcionario: string,
+    motivo: string,
+  ) {
     await page.goto("/jornada");
 
-    // Pela TABELA, não por URL direta: prova que a ação existe para a pessoa.
-    await page.getByRole("link", { name: "Ver / corrigir" }).first().click();
+    // Pela TABELA, e na LINHA da pessoa certa: prova que a ação existe para
+    // quem usa, e que ela é sobre quem o gestor escolheu.
+    await page
+      .getByRole("row", { name: new RegExp(funcionario) })
+      .getByRole("link", { name: "Ver / corrigir" })
+      .click();
     await page.waitForURL(new RegExp("/jornada/"));
 
     // O dia é escolhido na própria tela.
@@ -113,9 +121,7 @@ test.describe("correção administrativa", () => {
     await expect(page.getByTestId("member-adjustment-form")).toBeVisible();
 
     await page.getByLabel("Horário correto").fill("08:30");
-    await page
-      .getByLabel("Motivo")
-      .fill("Celular sem bateria; ele trabalhou o dia inteiro.");
+    await page.getByLabel("Motivo").fill(motivo);
     await page.getByTestId("submit-member-adjustment").click();
 
     /*
@@ -126,13 +132,99 @@ test.describe("correção administrativa", () => {
     */
     await expect(page.getByTestId("member-adjustment-list")).toBeVisible();
     await expect(page.getByText("Aguardando decisão")).toBeVisible();
+  }
+
+  test("ADMIN abre a correção pela tabela e ela cai na fila", async ({
+    page,
+  }) => {
+    const motivo = "Celular sem bateria; ele trabalhou o dia inteiro.";
+    await login(page, ADMIN_EMAIL);
+    await abrirCorrecaoPara(page, "Tecnico Alfa", motivo);
 
     // E cai na MESMA fila do painel — não existe uma segunda fila.
     await page.goto("/jornada");
-    await expect(
-      page.getByText("Celular sem bateria; ele trabalhou o dia inteiro."),
-    ).toBeVisible();
+    await expect(page.getByText(motivo)).toBeVisible();
     await expect(page.getByRole("button", { name: "Aprovar" })).toBeVisible();
+  });
+
+  /*
+    QUATRO OLHOS NA PRÓPRIA JORNADA (§253, LOW-1).
+
+    Este é o teste de tela que detecta a volta da autoaprovação. Ele é o par do
+    ataque de rota em `src/tests/time-clock-security.test.ts`: aqui prova-se que
+    a fila não OFERECE a decisão; lá, que o servidor a RECUSA mesmo que alguém
+    monte o POST à mão.
+
+    Os dois precisam existir. Só a tela seria segurança por omissão de botão; só
+    a rota deixaria o gestor clicando num botão que sempre falha.
+  */
+  test("o pedido que o ADMIN abriu para SI MESMO não oferece decisão", async ({
+    page,
+  }) => {
+    const motivo = "Fiquei no almoxarifado e esqueci de bater a entrada.";
+    await login(page, ADMIN_EMAIL);
+    await abrirCorrecaoPara(page, "Administrador Alfa", motivo);
+
+    await page.goto("/jornada");
+    const item = page.locator("li", { hasText: motivo });
+    await expect(item).toBeVisible();
+
+    // Sem botão, e com a razão escrita: a saída é chamar outra pessoa.
+    await expect(item.getByTestId("requires-another-approver")).toBeVisible();
+    await expect(item.getByRole("button", { name: "Aprovar" })).toHaveCount(0);
+    await expect(item.getByRole("button", { name: "Rejeitar" })).toHaveCount(0);
+  });
+
+  /*
+    E O CAMINHO LEGÍTIMO CONTINUA ABERTO (§21 do plano de fechamento).
+
+    A mesma correção que o primeiro ADMIN não pode decidir é decidida pelo
+    segundo. A aprovação NÃO edita a marcação: ela passa pelo mesmo
+    `decideTimeAdjustment` — mesmo lock do dia, mesma validação de sequência
+    efetiva e mesma supersessão que o pedido do aplicativo usa.
+  */
+  test("OUTRO ADMIN decide o pedido, e a correção passa a valer", async ({
+    page,
+  }) => {
+    const motivo = "Cheguei às 08:30 e o ponto não registrou.";
+    await login(page, ADMIN_EMAIL);
+    await abrirCorrecaoPara(page, "Administrador Alfa", motivo);
+
+    // Troca de pessoa: quem decide é outro administrador autorizado. Pelo
+    // botão, que é o único caminho que encerra a sessão de verdade.
+    await page.getByRole("button", { name: "Sair" }).click();
+    await page.waitForURL(/\/login/);
+    await login(page, ADMIN2_EMAIL);
+    await page.goto("/jornada");
+
+    const item = page.locator("li", { hasText: motivo });
+    await expect(item).toBeVisible();
+    // Para ESTE aprovador o pedido não é próprio, então a decisão aparece.
+    await expect(item.getByTestId("requires-another-approver")).toHaveCount(0);
+
+    await item.getByRole("button", { name: "Aprovar" }).click();
+
+    // Decidido, o pedido sai da fila de pendentes.
+    await expect(page.locator("li", { hasText: motivo })).toHaveCount(0, {
+      timeout: 15_000,
+    });
+
+    /*
+      E a correção virou marcação EFETIVA, sem apagar nada.
+
+      O espelho do dia passa a mostrar 08:30 marcada como correção aprovada — a
+      linha derivada. A original, quando existe, continua no banco: quem lê o
+      histórico bruto vê as duas, e quem lê o espelho vê a que vale (§229).
+    */
+    await page
+      .getByRole("row", { name: /Administrador Alfa/ })
+      .getByRole("link", { name: "Ver / corrigir" })
+      .click();
+    await page.getByLabel("Dia").fill(DIA);
+    await page.getByRole("button", { name: "Ver dia" }).click();
+    await page.waitForURL(new RegExp(`date=${DIA}`));
+
+    await expect(page.getByText("correção aprovada").first()).toBeVisible();
   });
 
   test("o formulário recusa envio sem motivo, e a recusa fica na tela", async ({

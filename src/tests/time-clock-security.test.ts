@@ -409,3 +409,161 @@ describe("Fronteira de tenant no domínio", () => {
     expect(response.status).toBe(400);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Autoaprovação
+// ---------------------------------------------------------------------------
+
+/*
+  A REGRA VALE NA ROTA, não só na função (§253, LOW-1).
+
+  A tela deixa de oferecer o botão quando o pedido é do próprio leitor sobre a
+  própria jornada — e isso é UX. Estes testes atacam pela porta que a UI não
+  guarda: um POST montado à mão, com sessão legítima de ADMIN, contra o
+  endpoint de decisão.
+
+  O controle positivo mora junto de propósito: uma recusa que passa porque a
+  rota está quebrada para todo mundo não prova regra nenhuma.
+*/
+describe("ATAQUE: o ADMIN decide a correção que abriu para si mesmo", () => {
+  async function pedidoPropriodoAdmin() {
+    return requestTimeAdjustment(fixture.companyA.id, fixture.adminA.id, {
+      requestedType: "MISSING_ENTRY",
+      requestedEntryType: "CLOCK_IN",
+      requestedOccurredAt: new Date(Date.now() - 3_600_000),
+      reason: "esqueci de bater e sou eu quem administra",
+      targetEntryId: null,
+    });
+  }
+
+  const decidir = async (id: string, userId: string, decision: string) =>
+    decisionRoute(
+      apiRequest(
+        `/api/time-clock/adjustments/${id}/decision`,
+        {
+          method: "POST",
+          body: {
+            decision,
+            decisionReason: decision === "REJECTED" ? "não procede" : null,
+          },
+          headers: { Origin: "http://localhost", Host: "localhost" },
+        },
+        await createTokenFor(userId),
+      ),
+      { params: { id } },
+    );
+
+  it("o POST direto é recusado com 403, nas duas decisões", async () => {
+    for (const decision of ["APPROVED", "REJECTED"]) {
+      const pedido = await pedidoPropriodoAdmin();
+      const response = await decidir(pedido.id, fixture.adminA.id, decision);
+
+      expect(response.status).toBe(403);
+      // A mensagem diz o que fazer — chamar outra pessoa — sem detalhe técnico.
+      expect(await body(response)).toMatchObject({
+        error: "Outra pessoa autorizada deve decidir esta correção de jornada.",
+      });
+
+      const linha = await prisma.timeAdjustmentRequest.findUniqueOrThrow({
+        where: { id: pedido.id },
+        select: { status: true, decidedById: true },
+      });
+      expect(linha.status).toBe("PENDING");
+      expect(linha.decidedById).toBeNull();
+      expect(
+        await prisma.timeEntry.count({
+          where: { adjustmentRequestId: pedido.id },
+        }),
+      ).toBe(0);
+      expect(
+        await prisma.auditLog.count({ where: { entityId: pedido.id } }),
+      ).toBe(0);
+    }
+  });
+
+  it("CONTROLE POSITIVO: outro ADMIN decide o mesmo pedido pela mesma rota", async () => {
+    const pedido = await pedidoPropriodoAdmin();
+    const segundo = await prisma.user.create({
+      data: {
+        companyId: fixture.companyA.id,
+        name: "Administradora Dois",
+        email: "admin.dois@alfa.test",
+        profile: "ADMIN",
+        active: true,
+        passwordHash: "x",
+      },
+      select: { id: true },
+    });
+
+    const response = await decidir(pedido.id, segundo.id, "APPROVED");
+    expect(response.status).toBe(200);
+
+    const linha = await prisma.timeAdjustmentRequest.findUniqueOrThrow({
+      where: { id: pedido.id },
+      select: { status: true, decidedById: true },
+    });
+    expect(linha.status).toBe("APPROVED");
+    expect(linha.decidedById).toBe(segundo.id);
+  });
+
+  it("um pedido aberto PELO gestor para outra pessoa continua decidível por ele", async () => {
+    // O contraponto: o gestor não é beneficiário, e o §231 depende disto.
+    await prisma.technician.upsert({
+      where: { userId: fixture.techA.id },
+      update: {},
+      create: { companyId: fixture.companyA.id, userId: fixture.techA.id },
+    });
+    const pedido = await requestTimeAdjustment(
+      fixture.companyA.id,
+      fixture.techA.id,
+      {
+        requestedType: "MISSING_ENTRY",
+        requestedEntryType: "CLOCK_IN",
+        requestedOccurredAt: new Date(Date.now() - 3_600_000),
+        reason: "o aparelho dele estava sem bateria",
+        targetEntryId: null,
+      },
+      fixture.adminA.id,
+    );
+
+    const response = await decidir(pedido.id, fixture.adminA.id, "APPROVED");
+    expect(response.status).toBe(200);
+  });
+
+  it("um pedido aberto por OUTRA pessoa sobre a jornada do gestor é decidível", async () => {
+    /*
+      A regra é a CONJUNÇÃO, e este teste é o que a delimita.
+
+      Aqui já existe contraditório: alguém abriu, o gestor decide. Barrar este
+      caso obrigaria a empresa a ter dois ADMIN para corrigir a jornada de um —
+      regra que a Fase 1 não tomou, e que este teste impede de entrar por
+      descuido.
+    */
+    const outro = await prisma.user.create({
+      data: {
+        companyId: fixture.companyA.id,
+        name: "Administradora Tres",
+        email: "admin.tres@alfa.test",
+        profile: "ADMIN",
+        active: true,
+        passwordHash: "x",
+      },
+      select: { id: true },
+    });
+    const pedido = await requestTimeAdjustment(
+      fixture.companyA.id,
+      fixture.adminA.id,
+      {
+        requestedType: "MISSING_ENTRY",
+        requestedEntryType: "CLOCK_IN",
+        requestedOccurredAt: new Date(Date.now() - 3_600_000),
+        reason: "vi que faltou a entrada dele",
+        targetEntryId: null,
+      },
+      outro.id,
+    );
+
+    const response = await decidir(pedido.id, fixture.adminA.id, "APPROVED");
+    expect(response.status).toBe(200);
+  });
+});

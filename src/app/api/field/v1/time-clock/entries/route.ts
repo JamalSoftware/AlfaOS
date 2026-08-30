@@ -78,8 +78,24 @@ export const POST = fieldCommand(
           occurredAt: result.entry.occurredAt.toISOString(),
           source: result.entry.source,
         },
+        /*
+          O dia já atualizado, SEM a lista de marcações — quem quiser a lista
+          relê `today`.
+
+          O FUSO vai junto, e isso não é enfeite. Esta resposta é a OUTRA fonte
+          de `Workday` do aplicativo: o controlador grava o que volta daqui e só
+          depois relê `today`. Quando a releitura falha — a rede caiu logo
+          depois da batida, que é o caso comum em campo —, o estado FICA com o
+          que veio desta resposta, até a próxima leitura que der certo.
+
+          Sem `utcOffset` aqui, essa janela devolvia o aplicativo ao relógio do
+          aparelho: horário exibido no fuso errado e, pior, correção montada no
+          fuso errado — exatamente o defeito que a §253 (LOW-3) fechou.
+        */
         workday: {
           date: result.workday.date,
+          timezone: result.workday.timezone,
+          utcOffset: result.workday.utcOffset,
           state: result.workday.state,
           allowedActions: result.workday.allowedActions,
           workedMinutes: result.workday.workedMinutes,

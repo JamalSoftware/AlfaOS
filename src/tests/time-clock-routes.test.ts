@@ -7,6 +7,7 @@ import {
   POST as requestAdjustmentRoute,
 } from "@/app/api/field/v1/time-clock/adjustments/route";
 import { POST as decisionRoute } from "@/app/api/time-clock/adjustments/[id]/decision/route";
+import { GET as adminQueueRoute } from "@/app/api/time-clock/adjustments/route";
 import { prisma } from "@/lib/prisma";
 import {
   apiRequest,
@@ -484,5 +485,189 @@ describe("Field + painel — o ataque completo, pelas rotas", () => {
         where: { userId: fixture.techA.id },
       }),
     ).toBe(1);
+  });
+});
+
+/*
+  E2E PERMANENTE DA JORNADA (§253, fechamento da Fase 1).
+
+  O dia inteiro pelas rotas reais — as quatro transições, e depois a correção
+  ponta a ponta: o Field pede, o painel vê, OUTRO administrador decide, o Field
+  relê e encontra a versão corrigida valendo, com a original preservada.
+
+  Existe como teste permanente, e não como roteiro de piloto, porque foi o
+  piloto físico que encontrou os três defeitos que esta rodada fecha. O que só
+  se verifica à mão volta a quebrar quando ninguém estiver olhando.
+*/
+describe("E2E — o dia inteiro e a correção, pelas rotas", () => {
+  const estadoDe = async (response: Response) => {
+    const payload = await body(response);
+    return payload.data?.workday as {
+      state: string;
+      allowedActions: string[];
+      utcOffset: string;
+      entries: { id: string; type: string; fromAdjustment: boolean }[];
+    };
+  };
+
+  it("CLOCK_IN → BREAK_START → BREAK_END → CLOCK_OUT, e o servidor manda o estado", async () => {
+    const { token } = await cenario();
+
+    /*
+      O estado NUNCA é derivado no cliente.
+
+      Cada batida devolve o estado novo e a lista de ações permitidas, e é
+      dessa lista que o aplicativo desenha o botão. Um APK que decidisse
+      sozinho continuaria oferecendo uma transição que o servidor já recusa.
+    */
+    const passos = [
+      { type: "CLOCK_IN", estado: "WORKING", segue: ["BREAK_START", "CLOCK_OUT"] },
+      { type: "BREAK_START", estado: "ON_BREAK", segue: ["BREAK_END"] },
+      { type: "BREAK_END", estado: "WORKING", segue: ["BREAK_START", "CLOCK_OUT"] },
+      { type: "CLOCK_OUT", estado: "FINISHED", segue: [] },
+    ] as const;
+
+    for (const passo of passos) {
+      const r = await punch(token, { type: passo.type }, key(passo.type));
+      expect(r.status).toBe(201);
+
+      const workday = await estadoDe(r);
+      expect(workday.state).toBe(passo.estado);
+      expect(workday.allowedActions).toEqual([...passo.segue]);
+    }
+
+    /*
+      Encerrada, a jornada não reabre por batida: reabrir é correção (§229).
+
+      400, e não 409: nada mudou debaixo do aparelho para o app recarregar e
+      resolver. A transição pedida é inválida naquele estado, e a saída é o
+      pedido de correção — que é o que a mensagem manda fazer.
+    */
+    const depois = await punch(token, { type: "CLOCK_IN" }, key("reabrir"));
+    expect(depois.status).toBe(400);
+    expect((await body(depois)).error?.message).toContain("solicite um ajuste");
+
+    // Quatro marcações, nenhuma delas derivada de correção.
+    const linhas = await prisma.timeEntry.findMany({
+      where: { userId: fixture.techA.id },
+      orderBy: { occurredAt: "asc" },
+      select: { type: true, source: true },
+    });
+    expect(linhas.map((l) => l.type)).toEqual([
+      "CLOCK_IN",
+      "BREAK_START",
+      "BREAK_END",
+      "CLOCK_OUT",
+    ]);
+    expect(linhas.every((l) => l.source === "FIELD_APP")).toBe(true);
+  });
+
+  it("Field pede, painel vê, OUTRO admin aprova, Field relê a versão corrigida", async () => {
+    const { token } = await cenario();
+
+    // 1. O dia acontece.
+    await punch(token, { type: "CLOCK_IN" }, key("in"));
+    const hoje = await estadoDe(
+      await todayRoute(
+        fieldRequest("/api/field/v1/time-clock/today", { token }),
+      ),
+    );
+    const entradaOriginal = hoje.entries[0];
+    expect(entradaOriginal.fromAdjustment).toBe(false);
+
+    // O DTO carrega o fuso da empresa: é com ele que o aplicativo monta o
+    // horário pedido, e não com o relógio do aparelho (§253, LOW-3).
+    expect(hoje.utcOffset).toMatch(/^[+-]\d{2}:\d{2}$/);
+
+    // 2. O técnico pede a correção pelo Field.
+    const corrigidoPara = new Date(Date.now() - 30 * 60_000);
+    const pedido = await requestAdjustmentRoute(
+      fieldRequest("/api/field/v1/time-clock/adjustments", {
+        method: "POST",
+        token,
+        idempotencyKey: key("pedido"),
+        body: {
+          requestedType: "WRONG_TIME",
+          requestedEntryType: "CLOCK_IN",
+          requestedOccurredAt: corrigidoPara.toISOString(),
+          reason: "bati depois de já ter começado",
+          targetEntryId: entradaOriginal.id,
+        },
+      }),
+    );
+    expect(pedido.status).toBe(201);
+    const pedidoId = (
+      (await body(pedido)).data as { adjustment: { id: string } }
+    ).adjustment.id;
+
+    // 3. O painel VÊ o pedido na fila — mesma fila, sem segundo caminho.
+    const fila = await adminQueueRoute(
+      apiRequest(
+        "/api/time-clock/adjustments",
+        {},
+        await createTokenFor(fixture.adminA.id),
+      ),
+    );
+    const naFila = (
+      (await fila.json()) as { data: { adjustments: { id: string }[] } }
+    ).data.adjustments;
+    expect(naFila.map((a) => a.id)).toContain(pedidoId);
+
+    // 4. OUTRO administrador decide. Quem pediu foi o técnico, então qualquer
+    //    ADMIN serve — o que a regra proíbe é decidir o que se pediu para si.
+    const segundoAdmin = await prisma.user.create({
+      data: {
+        companyId: fixture.companyA.id,
+        name: "Administradora do Turno",
+        email: "turno@alfa.test",
+        profile: "ADMIN",
+        active: true,
+        passwordHash: "x",
+      },
+      select: { id: true },
+    });
+    const decisao = await decisionRoute(
+      apiRequest(
+        `/api/time-clock/adjustments/${pedidoId}/decision`,
+        {
+          method: "POST",
+          body: { decision: "APPROVED" },
+          headers: { Origin: "http://localhost", Host: "localhost" },
+        },
+        await createTokenFor(segundoAdmin.id),
+      ),
+      { params: { id: pedidoId } },
+    );
+    expect(decisao.status).toBe(200);
+
+    // 5. O Field RELÊ e encontra a versão corrigida valendo.
+    const depois = await estadoDe(
+      await todayRoute(
+        fieldRequest("/api/field/v1/time-clock/today", { token }),
+      ),
+    );
+    expect(depois.entries).toHaveLength(1);
+    expect(depois.entries[0].fromAdjustment).toBe(true);
+    expect(depois.entries[0].id).not.toBe(entradaOriginal.id);
+    expect(depois.state).toBe("WORKING");
+
+    /*
+      6. E a ORIGINAL continua no banco.
+
+      O espelho mostra UMA entrada — a que vale. A tabela guarda DUAS: a batida
+      original e a correção que a superou. Apagar ou editar a primeira
+      destruiria justamente o que o registro existe para preservar (§229).
+    */
+    const brutas = await prisma.timeEntry.findMany({
+      where: { userId: fixture.techA.id, type: "CLOCK_IN" },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, source: true, adjustmentRequestId: true },
+    });
+    expect(brutas).toHaveLength(2);
+    expect(brutas[0].id).toBe(entradaOriginal.id);
+    expect(brutas[0].source).toBe("FIELD_APP");
+    expect(brutas[0].adjustmentRequestId).toBeNull();
+    expect(brutas[1].source).toBe("ADJUSTMENT");
+    expect(brutas[1].adjustmentRequestId).toBe(pedidoId);
   });
 });

@@ -45,6 +45,9 @@ Map<String, dynamic> _workday({
   'workdayId': 'wd-1',
   'date': '2026-08-29',
   'timezone': 'America/Sao_Paulo',
+  // O deslocamento acompanha o dia: sem ele a tela cairia no relógio da
+  // máquina que roda o teste, e a hora exibida mudaria de CI para CI.
+  'utcOffset': '-03:00',
   'state': state,
   'allowedActions': allowedActions,
   'entries': entries,
@@ -179,8 +182,9 @@ void main() {
 
       expect(find.text('ENCERRADA'), findsOneWidget);
       expect(find.byType(FilledButton), findsNothing);
-      // E diz o que fazer: reabrir não é batida, é correção.
-      expect(find.textContaining('solicite um ajuste'), findsOneWidget);
+      // E diz o que fazer: reabrir não é batida, é correção — que mora na
+      // seção Correções, a porta única do §258.
+      expect(find.textContaining('use Correções'), findsOneWidget);
     });
 
     testWidgets('ação desconhecida de um servidor mais novo é ignorada', (
@@ -263,16 +267,18 @@ void main() {
 
       expect(ctx.harness.transport.countOf('POST', '/time-clock/entries'), 1);
       /*
-        O horário aparece em hora LOCAL do aparelho.
+        O horário aparece no fuso da EMPRESA, e por isso pode ser CRAVADO.
 
-        A asserção deriva o esperado da mesma conversão em vez de fixar
-        "11:02": o carimbo viaja em UTC e a tela mostra local, então um número
-        escrito à mão passaria só na máquina de quem o escreveu.
+        Antes a asserção derivava o esperado de `.toLocal()`, porque a tela
+        lia o relógio do aparelho e um número escrito à mão só passaria na
+        máquina de quem o escreveu. Isso deixou de ser verdade com o §253
+        (LOW-3): o dia traz `utcOffset`, e 11:02Z em `-03:00` é 08:02 em
+        qualquer máquina.
+
+        Derivar de `.toLocal()` AGORA seria pior que rígido — seria um teste
+        que passa no fuso de quem o escreveu e esconde a regressão nos outros.
       */
-      final oficial = DateTime.parse('2026-08-29T11:02:00.000Z').toLocal();
-      final hh = oficial.hour.toString().padLeft(2, '0');
-      final mm = oficial.minute.toString().padLeft(2, '0');
-      expect(find.textContaining('Entrada às $hh:$mm'), findsOneWidget);
+      expect(find.textContaining('Entrada às 08:02'), findsOneWidget);
     });
 
     testWidgets('cancelar o diálogo não bate nada', (tester) async {
@@ -433,6 +439,69 @@ void main() {
         find.textContaining('2 correção(ões) aguardando decisão'),
         findsOneWidget,
       );
+    });
+  });
+
+  _regressaoFusoNaBatida();
+}
+
+/*
+  A RESPOSTA DA BATIDA TAMBÉM CARREGA O FUSO (§253, LOW-3).
+
+  Achado da revisão de segurança do endurecimento final. A batida é a OUTRA
+  fonte de `Workday` do aplicativo: o controlador grava o que volta do `POST` e
+  só depois relê `today`. Quando a releitura falha — rede caindo logo depois de
+  bater, que é o caso comum em campo —, o estado FICA com o que veio da batida.
+
+  Sem `utcOffset` nessa resposta, essa janela devolvia o aplicativo ao relógio
+  do aparelho: horário exibido no fuso errado e, pior, correção montada no fuso
+  errado. A janela não é de um quadro — dura até a próxima leitura que der certo.
+*/
+void _regressaoFusoNaBatida() {
+  group('o fuso sobrevive à batida com releitura falhando', () {
+    testWidgets('a hora continua no fuso da EMPRESA, não no do aparelho', (
+      tester,
+    ) async {
+      final ctx = await _abrir(
+        tester,
+        workday: _workday(state: 'NOT_STARTED', allowedActions: ['CLOCK_IN']),
+      );
+
+      ctx.harness.transport.onJson(
+        'POST',
+        '/time-clock/entries',
+        status: 201,
+        data: {
+          'entry': {
+            'id': 'e-1',
+            'type': 'CLOCK_IN',
+            'occurredAt': '2026-08-29T11:02:00.000Z',
+            'source': 'FIELD_APP',
+          },
+          'workday': _workday(
+            state: 'WORKING',
+            allowedActions: ['BREAK_START', 'CLOCK_OUT'],
+            entries: [_entry('CLOCK_IN', '11:02')],
+          ),
+        },
+      );
+
+      // A RELEITURA FALHA. É este o caminho que o defeito exigia.
+      ctx.harness.transport.onError(
+        'GET',
+        '/time-clock/today',
+        status: 503,
+        code: 'UPSTREAM_UNAVAILABLE',
+        message: 'Servidor indisponível.',
+      );
+
+      await tester.tap(find.byKey(const Key('punch-CLOCK_IN')));
+      await _settle(tester);
+      await tester.tap(find.byKey(const Key('punch-confirm')));
+      await _settle(tester);
+
+      // 11:02Z em -03:00 é 08:02, e continua sendo depois da falha.
+      expect(find.textContaining('Entrada às 08:02'), findsOneWidget);
     });
   });
 }

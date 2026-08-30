@@ -59,6 +59,17 @@ beforeEach(async () => {
 
 const MESMA_ORIGEM = { Origin: "http://localhost", Host: "localhost" };
 
+/**
+ * Chave nova a cada chamada.
+ *
+ * A rota exige `Idempotency-Key` (§253, LOW-2), e cada `pedir()` destes testes
+ * é um COMANDO diferente. Repetir a chave faria o segundo receber o desfecho
+ * guardado do primeiro — e um teste de enumeração passaria por replay em vez
+ * de por autorização, que é o oposto do que ele afirma.
+ */
+let sequencia = 0;
+const chaveNova = () => `teste-membro-${Date.now()}-${++sequencia}`;
+
 function corpo(overrides: Record<string, unknown> = {}) {
   return {
     requestedType: "MISSING_ENTRY",
@@ -73,7 +84,11 @@ function pedir(userId: string, token: string, body = corpo()) {
   return adminAdjustmentRoute(
     apiRequest(
       `/api/time-clock/members/${userId}/adjustments`,
-      { method: "POST", body, headers: MESMA_ORIGEM },
+      {
+        method: "POST",
+        body,
+        headers: { ...MESMA_ORIGEM, "Idempotency-Key": chaveNova() },
+      },
       token,
     ),
     { params: { userId } },
@@ -220,15 +235,164 @@ describe("ATAQUE: dois pedidos administrativos idênticos em corrida", () => {
   });
 });
 
-describe("ATAQUE: o ADMIN corrige a PRÓPRIA jornada", () => {
-  it("consegue abrir e decidir sozinho — e tudo fica auditado", async () => {
-    const token = await createTokenFor(fixture.adminA.id);
+/*
+  SEPARAÇÃO DE FUNÇÕES NA PRÓPRIA JORNADA (§253, LOW-1).
 
+  A v0.9 fechou sem esta regra, e o registro dizia isso com todas as letras:
+  quem pedia podia decidir, e o que existia era rastro. O piloto físico
+  transformou a observação em decisão normativa da Fase 1 — abrir continua
+  permitido, fechar o ciclo sozinho não.
+
+  Proibir a ABERTURA seria o erro fácil: um ADMIN que esqueceu de bater ficaria
+  sem caminho nenhum, e o único jeito de acertar o próprio dia voltaria a ser
+  o `UPDATE` na marcação — exatamente o que o módulo existe para impedir.
+*/
+describe("ATAQUE: o ADMIN corrige a PRÓPRIA jornada", () => {
+  /**
+   * Um SEGUNDO ADMIN da empresa A.
+   *
+   * Criado aqui, e não na fixture compartilhada: acrescentar um usuário à
+   * empresa A mexeria na contagem de todo teste que lista gente dela.
+   */
+  const outroAdmin = () =>
+    prisma.user.create({
+      data: {
+        companyId: fixture.companyA.id,
+        name: "Segundo Administrador",
+        email: "admin2@alfa.test",
+        profile: "ADMIN",
+        active: true,
+        passwordHash: "x",
+      },
+      select: { id: true },
+    });
+
+  async function abrirParaSiMesmo() {
+    const token = await createTokenFor(fixture.adminA.id);
     const r = await pedir(fixture.adminA.id, token);
+    // (A) ABRIR é permitido.
     expect(r.status).toBe(201);
-    const id = (
-      (await r.json()) as { data: { adjustment: { id: string } } }
-    ).data.adjustment.id;
+    return ((await r.json()) as { data: { adjustment: { id: string } } }).data
+      .adjustment.id;
+  }
+
+  it("abre para si mesmo, mas NÃO aprova nem rejeita", async () => {
+    const id = await abrirParaSiMesmo();
+
+    // (B) e (C): as duas decisões, não só a aprovação. Recusar só o "sim"
+    // deixaria o mesmo conflito de interesse pela porta do "não".
+    for (const decisao of ["APPROVED", "REJECTED"] as const) {
+      await expect(
+        decideTimeAdjustment(
+          fixture.companyA.id,
+          fixture.adminA.id,
+          id,
+          decisao,
+        ),
+      ).rejects.toMatchObject({ status: 403 });
+    }
+
+    // (F) O pedido sobrevive à tentativa, e sobrevive PENDENTE: recusar a
+    // decisão não pode consumir o pedido, ou a pessoa perderia a correção
+    // legítima ao tentar decidi-la por engano.
+    const linha = await prisma.timeAdjustmentRequest.findUniqueOrThrow({
+      where: { id },
+      select: {
+        status: true,
+        requestedById: true,
+        decidedById: true,
+        decidedAt: true,
+      },
+    });
+    expect(linha.status).toBe("PENDING");
+    expect(linha.requestedById).toBe(fixture.adminA.id);
+    expect(linha.decidedById).toBeNull();
+    expect(linha.decidedAt).toBeNull();
+
+    // (G) Nenhuma marcação derivada nasceu da tentativa.
+    expect(
+      await prisma.timeEntry.count({
+        where: { adjustmentRequestId: id },
+      }),
+    ).toBe(0);
+
+    // (H) E nenhum AuditLog de decisão que não houve. Um rastro de aprovação
+    // sem aprovação é pior que rastro nenhum: mente para quem audita depois.
+    expect(
+      await prisma.auditLog.count({ where: { entityId: id } }),
+    ).toBe(0);
+  });
+
+  it("OUTRO ADMIN da mesma empresa decide normalmente", async () => {
+    const id = await abrirParaSiMesmo();
+    const segundo = await outroAdmin();
+
+    // (D) O caminho legítimo continua aberto — a regra é sobre a MESMA
+    // pessoa, não sobre o perfil.
+    const decidido = await decideTimeAdjustment(
+      fixture.companyA.id,
+      segundo.id,
+      id,
+      "APPROVED",
+    );
+    expect(decidido.status).toBe("APPROVED");
+
+    const linha = await prisma.timeAdjustmentRequest.findUniqueOrThrow({
+      where: { id },
+      select: { requestedById: true, decidedById: true },
+    });
+    expect(linha.requestedById).toBe(fixture.adminA.id);
+    expect(linha.decidedById).toBe(segundo.id);
+
+    // Agora sim há decisão, e ela é auditada.
+    const auditoria = await prisma.auditLog.findMany({
+      where: { entityId: id },
+      select: { action: true, userId: true, companyId: true },
+    });
+    expect(auditoria).toHaveLength(1);
+    expect(auditoria[0]).toEqual({
+      action: "TIME_ADJUSTMENT.APPROVED",
+      userId: segundo.id,
+      companyId: fixture.companyA.id,
+    });
+
+    // E a marcação derivada nasceu, apontando para o pedido.
+    expect(
+      await prisma.timeEntry.count({ where: { adjustmentRequestId: id } }),
+    ).toBe(1);
+  });
+
+  it("ADMIN de OUTRA empresa não decide — e não aprende que existe", async () => {
+    const id = await abrirParaSiMesmo();
+
+    // (E) 404, não 403: a resposta é indistinguível de "pedido inexistente".
+    // Um 403 aqui confirmaria a existência do id a quem sondasse.
+    await expect(
+      decideTimeAdjustment(
+        fixture.companyB.id,
+        fixture.adminB.id,
+        id,
+        "APPROVED",
+      ),
+    ).rejects.toMatchObject({ status: 404 });
+
+    const linha = await prisma.timeAdjustmentRequest.findUniqueOrThrow({
+      where: { id },
+      select: { status: true, decidedById: true },
+    });
+    expect(linha.status).toBe("PENDING");
+    expect(linha.decidedById).toBeNull();
+  });
+
+  it("o gestor decide o que abriu para OUTRA pessoa", async () => {
+    // O contraponto que delimita a regra: quem abre em nome de um funcionário
+    // não é beneficiário nenhum, e barrar isso quebraria o §231 — o caminho
+    // do painel para quem ficou sem aparelho.
+    const token = await createTokenFor(fixture.adminA.id);
+    const r = await pedir(fixture.techA.id, token);
+    expect(r.status).toBe(201);
+    const id = ((await r.json()) as { data: { adjustment: { id: string } } })
+      .data.adjustment.id;
 
     const decidido = await decideTimeAdjustment(
       fixture.companyA.id,
@@ -237,29 +401,6 @@ describe("ATAQUE: o ADMIN corrige a PRÓPRIA jornada", () => {
       "APPROVED",
     );
     expect(decidido.status).toBe("APPROVED");
-
-    /*
-      Não há separação de funções: quem pede e quem decide podem ser a mesma
-      pessoa. O que existe é RASTRO — pedido, autor, decisor e AuditLog ficam
-      todos gravados, e a marcação derivada aponta para o pedido.
-    */
-    const linha = await prisma.timeAdjustmentRequest.findUniqueOrThrow({
-      where: { id },
-      select: { requestedById: true, decidedById: true, reason: true },
-    });
-    expect(linha.requestedById).toBe(fixture.adminA.id);
-    expect(linha.decidedById).toBe(fixture.adminA.id);
-
-    const auditoria = await prisma.auditLog.findMany({
-      where: { entityId: id },
-      select: { action: true, userId: true, companyId: true },
-    });
-    expect(auditoria).toHaveLength(1);
-    expect(auditoria[0]).toEqual({
-      action: "TIME_ADJUSTMENT.APPROVED",
-      userId: fixture.adminA.id,
-      companyId: fixture.companyA.id,
-    });
   });
 });
 

@@ -69,6 +69,25 @@ async function main() {
     profile: AccessProfile.ADMIN,
     password: DEMO_PASSWORD,
   });
+  /*
+    Um SEGUNDO administrador na empresa demonstração.
+
+    Existe por causa da regra de quatro olhos da jornada (§253, LOW-1): quem
+    abre uma correção para a PRÓPRIA jornada não pode decidi-la. Com um ADMIN
+    só, esse pedido ficaria sem decisor possível no ambiente de demonstração, e
+    o caminho legítimo não teria como ser mostrado nem testado.
+
+    O nome não começa com "Administrador" de propósito: a tabela é ordenada por
+    nome, e um segundo "Administrador…" mudaria a primeira linha e casaria por
+    substring com as buscas por papel que outros testes já fazem.
+  */
+  await upsertUser({
+    companyId: companyA.id,
+    name: "Gestora Noturna Alfa",
+    email: "admin2@alfatelecom.local",
+    profile: AccessProfile.ADMIN,
+    password: DEMO_PASSWORD,
+  });
   await upsertUser({
     companyId: companyA.id,
     name: "Despachante Alfa",
@@ -141,6 +160,7 @@ async function main() {
   console.log("Seed complete.");
   console.log("Demo users (password: " + DEMO_PASSWORD + "):");
   console.log("  admin@alfatelecom.local      (Alfa Telecom - ADMIN)");
+  console.log("  admin2@alfatelecom.local     (Alfa Telecom - ADMIN, 2o aprovador)");
   console.log("  dispatcher@alfatelecom.local  (Alfa Telecom - DISPATCHER)");
   console.log("  tech@alfatelecom.local        (Alfa Telecom - TECHNICIAN)");
   console.log("  admin@empresatesteb.local     (Empresa Teste B - ADMIN)");

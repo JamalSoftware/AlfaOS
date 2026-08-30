@@ -2,6 +2,11 @@ import { AccessProfile } from "@prisma/client";
 import { z } from "zod";
 import { assertProfile, jsonError, jsonOk, runApi } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
+import {
+  idempotencyActor,
+  parseIdempotencyKey,
+  withIdempotency,
+} from "@/lib/field/idempotency";
 import { getSessionUser } from "@/lib/session";
 import {
   ADJUSTMENT_NOTES_MAX,
@@ -43,6 +48,18 @@ import {
  *
  * `companyId` sai da SESSÃO; `userId` vem da rota e é conferido dentro do
  * domínio. Um `userId` de outra empresa devolve 404, não 403.
+ *
+ * ## `Idempotency-Key` é OBRIGATÓRIO
+ *
+ * A mesma proteção do Field, na mesma tabela (§253, LOW-2). Sem ela, um duplo
+ * clique, um `retry` depois de timeout ou um F5 no meio do POST abriam DOIS
+ * pedidos idênticos — e cada um vira uma marcação derivada distinta ao ser
+ * aprovado. O `decideTimeAdjustment` recusa o segundo pela supersessão, mas só
+ * depois de a fila já ter duas linhas para o mesmo fato, e alguém precisar
+ * decidir a duplicata que não devia existir.
+ *
+ * Obrigatório, e não opcional: uma chave que o cliente pode omitir é uma
+ * proteção que não vale nas requisições que mais precisam dela.
  */
 const ADMIN_ONLY = [AccessProfile.ADMIN];
 
@@ -93,34 +110,71 @@ export async function POST(
       return jsonError("Dados inválidos.", 400);
     }
 
-    const adjustment = await requestTimeAdjustment(
-      session.companyId,
-      context.params.userId,
-      {
-        requestedType: parsed.data.requestedType,
-        requestedEntryType: parsed.data.requestedEntryType,
-        requestedOccurredAt: new Date(parsed.data.requestedOccurredAt),
-        reason: parsed.data.reason,
-        notes: parsed.data.notes ?? null,
-        targetEntryId: parsed.data.targetEntryId ?? null,
+    /*
+      A chave é lida DEPOIS do corpo, e não antes como no Field.
+
+      No Field a ordem é o contrário de propósito: o aplicativo monta a
+      requisição sozinho, e recusar cedo evita trabalho à toa. Aqui quem monta
+      é um formulário, e o gestor precisa ver "dados inválidos" quando os dados
+      estão inválidos — não um erro de cabeçalho que ele não digitou.
+
+      Nenhuma das duas ordens afeta a proteção: a reserva continua sendo
+      gravada antes de qualquer escrita de domínio.
+    */
+    const key = parseIdempotencyKey(request);
+
+    /*
+      O escopo é (empresa, GESTOR, operação, chave).
+
+      O usuário do escopo é quem ASSINA o pedido, não o funcionário da jornada
+      — é o mesmo critério do Field, onde os dois coincidem. Dois gestores que
+      gerassem a mesma chave para o mesmo funcionário abrem pedidos separados,
+      que é o certo: são dois pedidos.
+
+      A operação é PRÓPRIA (`time-clock.admin-adjustment`). Compartilhar o nome
+      com o comando do Field faria uma chave do aplicativo e uma do painel
+      colidirem, e a segunda receberia o desfecho guardado da primeira.
+    */
+    const outcome = await withIdempotency(
+      idempotencyActor(session.companyId, session.id),
+      "time-clock.admin-adjustment",
+      key,
+      { userId: context.params.userId, ...parsed.data },
+      async () => {
+        const adjustment = await requestTimeAdjustment(
+          session.companyId,
+          context.params.userId,
+          {
+            requestedType: parsed.data.requestedType,
+            requestedEntryType: parsed.data.requestedEntryType,
+            requestedOccurredAt: new Date(parsed.data.requestedOccurredAt),
+            reason: parsed.data.reason,
+            notes: parsed.data.notes ?? null,
+            targetEntryId: parsed.data.targetEntryId ?? null,
+          },
+          // O AUTOR é o gestor da sessão, nunca o funcionário: o histórico
+          // precisa mostrar que este pedido não partiu de quem bateu o ponto.
+          session.id,
+        );
+
+        return {
+          status: 201,
+          resourceId: adjustment.id,
+          body: {
+            adjustment: {
+              id: adjustment.id,
+              status: adjustment.status,
+              requestedEntryType: adjustment.requestedEntryType,
+              requestedOccurredAt:
+                adjustment.requestedOccurredAt.toISOString(),
+              workdayDate: adjustment.workdayDate,
+              requestedByName: adjustment.requestedByName,
+            },
+          },
+        };
       },
-      // O AUTOR é o gestor da sessão, nunca o funcionário: o histórico precisa
-      // mostrar que este pedido não partiu de quem bateu o ponto.
-      session.id,
     );
 
-    return jsonOk(
-      {
-        adjustment: {
-          id: adjustment.id,
-          status: adjustment.status,
-          requestedEntryType: adjustment.requestedEntryType,
-          requestedOccurredAt: adjustment.requestedOccurredAt.toISOString(),
-          workdayDate: adjustment.workdayDate,
-          requestedByName: adjustment.requestedByName,
-        },
-      },
-      201,
-    );
+    return jsonOk(outcome.body, outcome.status);
   });
 }
