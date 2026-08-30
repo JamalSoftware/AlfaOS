@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show IconData, Icons;
 
 /// Jornada de trabalho do funcionário — **não** é o check-in da OS.
 ///
@@ -68,6 +69,23 @@ String timeEntryLabel(TimeEntryType type) {
       return 'Saída';
     case TimeEntryType.unknown:
       return 'Marcação';
+  }
+}
+
+/// O ícone do FATO. Compartilhado entre a tela de jornada e o Dashboard —
+/// duas telas mostrando a mesma marcação não podem discordar sobre o ícone.
+IconData timeEntryIcon(TimeEntryType type) {
+  switch (type) {
+    case TimeEntryType.clockIn:
+      return Icons.login;
+    case TimeEntryType.breakStart:
+      return Icons.free_breakfast_outlined;
+    case TimeEntryType.breakEnd:
+      return Icons.work_outline;
+    case TimeEntryType.clockOut:
+      return Icons.logout;
+    case TimeEntryType.unknown:
+      return Icons.schedule;
   }
 }
 
@@ -260,6 +278,18 @@ DateTime inCompanyTime(DateTime instant, String utcOffset) {
   final deslocamento = parseUtcOffset(utcOffset);
   if (deslocamento == null) return instant.toLocal();
   return instant.toUtc().add(deslocamento);
+}
+
+/// `HH:MM` no relógio da EMPRESA.
+///
+/// O deslocamento é obrigatório no parâmetro de propósito: sem ele a função
+/// voltaria a ler o relógio do aparelho, e a tela mostraria um horário
+/// enquanto o servidor guarda outro (§253, LOW-3). Compartilhada entre a tela
+/// de jornada e o Dashboard, pela mesma razão do ícone acima.
+String hhmmInCompanyTime(DateTime value, String utcOffset) {
+  final local = inCompanyTime(value, utcOffset);
+  return '${local.hour.toString().padLeft(2, '0')}:'
+      '${local.minute.toString().padLeft(2, '0')}';
 }
 
 /// O instante absoluto de uma hora civil no fuso da EMPRESA.

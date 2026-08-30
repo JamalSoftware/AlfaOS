@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/auth/state/session_controller.dart';
 import '../features/auth/ui/login_screen.dart';
+import '../features/dashboard/ui/dashboard_screen.dart';
 import '../features/execution/ui/execution_screen.dart';
 import '../features/notifications/ui/notifications_screen.dart';
 import '../features/orders/ui/order_detail_screen.dart';
@@ -27,7 +28,7 @@ final routerProvider = Provider<GoRouter>((ref) {
 
   return GoRouter(
     navigatorKey: _rootKey,
-    initialLocation: '/orders',
+    initialLocation: '/inicio',
     refreshListenable: _PhaseListenable(ref),
     redirect: (context, state) {
       final location = state.matchedLocation;
@@ -44,7 +45,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         case SessionPhase.authenticated:
           // Já autenticado não fica preso nas telas de porta.
           const gates = {'/login', '/splash', '/revoked', '/offline'};
-          return gates.contains(location) ? '/orders' : null;
+          return gates.contains(location) ? '/inicio' : null;
       }
     },
     routes: [
@@ -52,17 +53,22 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
       GoRoute(path: '/revoked', builder: (_, _) => const RevokedScreen()),
       GoRoute(
-        // Fora do shell, como o detalhe da OS. A jornada é área própria, aberta
-        // a partir de "Mais" — quarta aba foi decisão contra, e a razão está no
-        // `HomeShell`: cada aba a mais é uma decisão entre o técnico e a
-        // próxima OS.
-        parentNavigatorKey: _rootKey,
-        path: '/jornada',
-        builder: (_, _) => const TimeClockScreen(),
-      ),
-      GoRoute(
         path: '/offline',
         builder: (_, _) => const OfflineBootstrapScreen(),
+      ),
+      GoRoute(
+        // Fora da barra principal, alcançável pelo sino do cabeçalho ou pela
+        // gaveta (PRD §255: "não ocupa vaga na barra principal"). Empilha por
+        // cima da aba atual — o back volta para onde a pessoa estava.
+        parentNavigatorKey: _rootKey,
+        path: '/notifications',
+        builder: (_, _) => const NotificationsScreen(),
+      ),
+      GoRoute(
+        // Mesma razão: item de CONTA na gaveta, não destino de trabalho.
+        parentNavigatorKey: _rootKey,
+        path: '/settings',
+        builder: (_, _) => const SettingsScreen(),
       ),
       GoRoute(
         // Detalhe fora do shell: em campo ele ocupa a tela inteira, e a barra
@@ -89,22 +95,22 @@ final routerProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(
             navigatorKey: _shellKey,
             routes: [
+              GoRoute(
+                path: '/inicio',
+                builder: (_, _) => const DashboardScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
               GoRoute(path: '/orders', builder: (_, _) => const OrdersScreen()),
             ],
           ),
           StatefulShellBranch(
             routes: [
               GoRoute(
-                path: '/notifications',
-                builder: (_, _) => const NotificationsScreen(),
-              ),
-            ],
-          ),
-          StatefulShellBranch(
-            routes: [
-              GoRoute(
-                path: '/settings',
-                builder: (_, _) => const SettingsScreen(),
+                path: '/jornada',
+                builder: (_, _) => const TimeClockScreen(),
               ),
             ],
           ),

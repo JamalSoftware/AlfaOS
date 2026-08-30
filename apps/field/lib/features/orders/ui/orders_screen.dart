@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/providers.dart';
 import '../../../app/theme/tokens.dart';
+import '../../../app/widgets/notifications_bell.dart';
+import '../../../app/widgets/shell_drawer_button.dart';
 import '../../../core/widgets/state_views.dart';
 import '../domain/service_order.dart';
 import '../state/orders_controller.dart';
@@ -60,6 +62,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: const ShellDrawerButton(),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -73,6 +76,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
               ),
           ],
         ),
+        actions: const [NotificationsBell()],
       ),
       body: RefreshIndicator(
         onRefresh: () =>

@@ -107,3 +107,16 @@ final themeControllerProvider =
     StateNotifierProvider<ThemeController, ThemeMode>((ref) {
       return ThemeController();
     });
+
+/// A chave do `Scaffold` do App Shell — o único que possui a gaveta global.
+///
+/// Cada tela da barra principal (Início, OS, Jornada) tem o PRÓPRIO `Scaffold`
+/// para manter AppBar e título independentes. Se cada uma também possuísse a
+/// própria `Drawer`, ela nasceria aninhada dentro do `Scaffold` do shell — que
+/// já reserva a faixa inferior para a `NavigationBar` — e a gaveta herdaria
+/// essa altura reduzida, colidindo com a barra bem no item de baixo. A gaveta
+/// mora só aqui; cada tela abre ESTA, por referência, no toque do próprio
+/// hambúrguer.
+final shellScaffoldKeyProvider = Provider<GlobalKey<ScaffoldState>>((ref) {
+  return GlobalKey<ScaffoldState>();
+});

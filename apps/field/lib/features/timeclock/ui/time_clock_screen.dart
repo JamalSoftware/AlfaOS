@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme/tokens.dart';
+import '../../../app/widgets/notifications_bell.dart';
+import '../../../app/widgets/shell_drawer_button.dart';
 import '../../../core/widgets/state_views.dart';
 import '../domain/workday.dart';
 import '../state/time_clock_controller.dart';
@@ -52,7 +54,11 @@ class _TimeClockScreenState extends ConsumerState<TimeClockScreen> {
     });
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Minha jornada')),
+      appBar: AppBar(
+        leading: const ShellDrawerButton(),
+        title: const Text('Minha jornada'),
+        actions: const [NotificationsBell()],
+      ),
       body: state.loading && state.workday.date.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
@@ -127,7 +133,7 @@ class _TodayCard extends StatelessWidget {
             const SizedBox(height: AlfaSpacing.md),
             Text(
               'Última marcação: ${timeEntryLabel(last.type)} às '
-              '${_hhmm(last.occurredAt, workday.utcOffset)}',
+              '${hhmmInCompanyTime(last.occurredAt, workday.utcOffset)}',
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ],
@@ -153,7 +159,7 @@ class _TodayCard extends StatelessWidget {
                         width: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Icon(_iconFor(action)),
+                    : Icon(timeEntryIcon(action)),
                 label: Text(timeEntryAction(action)),
               ),
             ),
@@ -262,7 +268,7 @@ class _EntriesCard extends StatelessWidget {
                   ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(_iconFor(entry.type), size: 18),
+                    leading: Icon(timeEntryIcon(entry.type), size: 18),
                     title: Text(timeEntryLabel(entry.type)),
                     subtitle: entry.fromAdjustment
                         // A correção aprovada é visível, não silenciosa: quem
@@ -271,7 +277,7 @@ class _EntriesCard extends StatelessWidget {
                         ? const Text('Correção aprovada')
                         : null,
                     trailing: Text(
-                      _hhmm(entry.occurredAt, workday.utcOffset),
+                      hhmmInCompanyTime(entry.occurredAt, workday.utcOffset),
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -373,7 +379,7 @@ class _AdjustmentsCard extends StatelessWidget {
                       // gravado. O horário que o servidor guarda continua
                       // sendo o montado na folha, com o deslocamento certo.
                       '${timeEntryLabel(pedido.requestedEntryType)} às '
-                      '${_hhmm(pedido.requestedOccurredAt, state.workday.utcOffset)}'
+                      '${hhmmInCompanyTime(pedido.requestedOccurredAt, state.workday.utcOffset)}'
                       ' · ${pedido.workdayDate}',
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
@@ -584,7 +590,7 @@ class _AdjustmentSheetState extends State<_AdjustmentSheet> {
                     value: entry.id,
                     child: Text(
                       '${timeEntryLabel(entry.type)} às '
-                      '${_hhmm(entry.occurredAt, widget.workday.utcOffset)}',
+                      '${hhmmInCompanyTime(entry.occurredAt, widget.workday.utcOffset)}',
                     ),
                   ),
               ],
@@ -777,32 +783,6 @@ class _ErrorBanner extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-/// `HH:MM` no relógio da EMPRESA.
-///
-/// O deslocamento é obrigatório no parâmetro de propósito: sem ele a função
-/// voltaria a ler o relógio do aparelho, e a tela mostraria um horário
-/// enquanto o servidor guarda outro (§253, LOW-3).
-String _hhmm(DateTime value, String utcOffset) {
-  final local = inCompanyTime(value, utcOffset);
-  return '${local.hour.toString().padLeft(2, '0')}:'
-      '${local.minute.toString().padLeft(2, '0')}';
-}
-
-IconData _iconFor(TimeEntryType type) {
-  switch (type) {
-    case TimeEntryType.clockIn:
-      return Icons.login;
-    case TimeEntryType.breakStart:
-      return Icons.free_breakfast_outlined;
-    case TimeEntryType.breakEnd:
-      return Icons.work_outline;
-    case TimeEntryType.clockOut:
-      return Icons.logout;
-    case TimeEntryType.unknown:
-      return Icons.schedule;
   }
 }
 

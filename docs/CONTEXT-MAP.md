@@ -235,19 +235,22 @@ Quatro regras que serão fáceis de desfazer sem perceber:
 * **`ScheduleRule` gera `ScheduleOccurrence`; a exceção altera a ocorrência, nunca a regra** (§290, §293) — a mesma separação fato/correção que a Jornada já fez entre `TimeEntry` e `TimeAdjustmentRequest`.
 * **O Attendance Report não pode implementar cálculo de horas próprio.** PDF, CSV, dashboard, Field e painel web consomem o MESMO motor — hoje `resolveEffectiveTimeEntries` e `src/lib/time-clock.ts` (§302). O bloqueio por `JOR-A1` foi **levantado** na v0.11.1 (§303), o que não promove o relatório a implementado: ele continua `P1`/`PLANNED`, sem gerador, rota, tela nem CSV.
 
-## Field Workspace, App Shell e Dashboard — PLANNED
+## Field Workspace, App Shell e Dashboard — FASE 1 ENTREGUE, RELEASE PENDENTE
 
-**Carregar:** `docs/PRD.md` §254–§258 — a visão do Field como **workspace do técnico** (e não como app de OS), a navegação híbrida, a gaveta categorizada, o dashboard `Início` e a decisão de porta única para a correção de jornada.
-**Quando:** a tarefa muda a navegação do aplicativo, adiciona destino novo, cria a tela inicial ou mexe na tela de jornada do Field.
-**Quando NÃO:** backend sem superfície no aplicativo, painel web, ou uma tela isolada do Field que não altera a navegação.
+**Carregar:** `docs/PRD.md` §254–§258 — a visão do Field como **workspace do técnico** (e não como app de OS), a navegação híbrida, a gaveta categorizada, o dashboard `Início` e a decisão de porta única para a correção de jornada. Código: `apps/field/lib/app/router.dart`, `home_shell.dart`, `widgets/app_drawer.dart`, `widgets/notifications_bell.dart`, `widgets/shell_drawer_button.dart`, `features/dashboard/ui/dashboard_screen.dart`.
+**Quando:** a tarefa muda a navegação do aplicativo, adiciona destino novo, mexe no dashboard `Início`, na gaveta ou no cabeçalho.
+**Quando NÃO:** backend sem superfície no aplicativo, painel web, ou uma tela isolada do Field que não altera a navegação — essas continuam sem carregar esta entrada.
 
-**Nada disso existe.** A navegação atual é a da v0.10. Três decisões que não devem ser desfeitas ao implementar:
+**Estado do release: entregue, sem tag e sem push** — igual ao padrão da Jornada Fase 1 antes do checkpoint. Quatro decisões que são fáceis de desfazer sem perceber:
 
-* **OS e Jornada não podem viver só na gaveta** (§255). São as duas ações mais frequentes do dia.
-* **Item planejado não vira item cinza** (§256). Menu com linhas desabilitadas ensina o técnico a ignorar o menu.
-* **O dashboard não decide o que é permitido** (§257). Ele apresenta `allowedActions`, que já vem do servidor derivado da sequência efetiva — recalcular no cliente faz o aplicativo discordar do domínio na primeira correção aprovada.
+* **OS e Jornada não podem viver só na gaveta** (§255). São as duas ações mais frequentes do dia — e por isso são abas da barra, não itens de menu.
+* **Item planejado não vira item cinza** (§256). A gaveta desta fase mostra só OPERACIONAL (Início, OS, Minha Jornada, Notificações) e CONTA (Configurações, Sair) — nada de Escala, Contratos, Estoque, Ferramentas ou Rede como placeholder.
+* **O dashboard não decide o que é permitido** (§257). O card de Jornada apresenta `allowedActions`, que já vem do servidor derivado da sequência efetiva — recalcular no cliente faz o aplicativo discordar do domínio na primeira correção aprovada. Tocar a ação **navega** para `/jornada`; não bate ponto inline, porque duplicar o diálogo de confirmação ali criaria um segundo lugar para a mesma proteção divergir.
+* **A gaveta pertence a UM `Scaffold` só — o do shell.** Cada tela da barra abre essa MESMA instância por referência (`shellScaffoldKeyProvider`), nunca a própria: uma `Drawer` por tela nasceria aninhada no espaço que o `Scaffold` do shell já reduziu para a `NavigationBar`, e colidiria com ela. Achado corrigido nesta fase, por falha real de teste.
 
-A porta única da correção (§258) **já foi aplicada** no endurecimento final da Fase 1: a tela de jornada do Field oferecia "SOLICITAR CORREÇÃO" em dois lugares, e ficou só o da seção `Correções` — que é onde o pedido vive depois de aberto. O cartão de hoje responde estado, trabalhado, última marcação e correções pendentes, e mais nada. O teste que segura isso conta o RÓTULO, não a chave: um segundo botão com outra `Key` foi exatamente o caso anterior.
+A porta única da correção (§258) **já foi aplicada** no endurecimento final da Fase 1 da Jornada: a tela de jornada do Field oferecia "SOLICITAR CORREÇÃO" em dois lugares, e ficou só o da seção `Correções`. O cartão de hoje responde estado, trabalhado, última marcação e correções pendentes, e mais nada. O teste que segura isso conta o RÓTULO, não a chave.
+
+**Mapa NÃO é destino da barra nesta fase.** O §255 já prescrevia isso: "fica vago ou traz Agenda" enquanto o módulo não existe — nenhum dos dois tem código, e a barra fica com três destinos (Início, OS, Jornada), não quatro com um placeholder.
 
 **"Minha Escala" é destino separado de "Minha Jornada"** (§298, Parte XI) — mesma gaveta, mesmo App Shell, entidades diferentes. O dashboard `Início` ganha um card de próximo plantão/folga sem reordenar os blocos já especificados no §257.
 

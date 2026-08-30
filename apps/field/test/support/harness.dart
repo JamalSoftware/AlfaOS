@@ -1,4 +1,6 @@
+import 'package:alfaos_field/app/app.dart';
 import 'package:alfaos_field/app/providers.dart';
+import 'package:alfaos_field/app/router.dart';
 import 'package:alfaos_field/app/theme/app_theme.dart';
 import 'package:alfaos_field/features/auth/data/auth_repository.dart';
 import 'package:flutter/material.dart';
@@ -68,4 +70,38 @@ class Harness {
       ),
     );
   }
+
+  /// Pump do APLICATIVO inteiro, com o `GoRouter` real.
+  ///
+  /// Diferente de [pump]: aqui a navegação é a verdadeira — `redirect` por
+  /// fase de sessão, App Shell, abas, deep link. É o único jeito de testar que
+  /// a barra principal leva à tela certa e que uma sessão sem login nunca
+  /// chega ao shell, porque `pump` isola uma tela e nunca exercita
+  /// `routerProvider`.
+  ///
+  /// Não navega para lugar nenhum sozinho: `bootstrap()` dispara no primeiro
+  /// frame e é ASSÍNCRONO, então navegar daqui correria contra uma sessão
+  /// ainda em `bootstrapping` — e o `redirect` desfaria a navegação. Quem
+  /// precisa ir a uma rota específica usa [goTo] DEPOIS de assentar a sessão.
+  Future<ProviderContainer> pumpApp(
+    WidgetTester tester, {
+    List<Override> extraOverrides = const [],
+  }) async {
+    container = ProviderContainer(overrides: [...overrides, ...extraOverrides]);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const AlfaOsFieldApp(),
+      ),
+    );
+
+    return container;
+  }
+
+  /// Navega dentro do app já pumpado — para testar uma rota alcançada de fora
+  /// da barra principal (notificação, link salvo), sem correr contra o
+  /// `redirect` de sessão.
+  void goTo(String location) => container.read(routerProvider).go(location);
 }

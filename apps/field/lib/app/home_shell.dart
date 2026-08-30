@@ -2,14 +2,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../features/notifications/state/notifications_controller.dart';
+import 'providers.dart';
+import 'widgets/app_drawer.dart';
 
-/// Casca do aplicativo: três destinos e nada mais.
+/// Casca do App Shell: três destinos, sempre visíveis (PRD §255).
 ///
-/// Três, e não oito. O técnico abre o app para ver o trabalho de agora; cada
-/// aba a mais é uma decisão a mais entre ele e a próxima OS. Evidências,
-/// materiais e ferramentas entram quando existirem, e provavelmente **dentro**
-/// da OS, não como aba própria.
+/// **Início, OS e Jornada** — as duas ações mais frequentes do dia (OS,
+/// Jornada) mais a tela que responde "o que eu faço agora" (Início). Um
+/// quarto destino "Mapa" foi cogitado, mas o PRD §255 proíbe destino morto na
+/// barra enquanto o módulo não existe: "fica vago ou traz Agenda". Nenhum dos
+/// dois substitutos tem código nesta fase, então a barra fica com três — o
+/// próprio §255 antecipou esse caso.
+///
+/// Notificações e Configurações não são mais abas: a §255 já as descrevia como
+/// superfície de cabeçalho (sino) e item de gaveta, não destino de trabalho —
+/// e cada tela alcança as duas por ali, não por uma quarta posição na barra.
+///
+/// ## A gaveta é DESTE `Scaffold`, e só dele
+///
+/// Cada branch (Início, OS, Jornada) tem o próprio `Scaffold` para manter
+/// AppBar e título independentes — mas só UM `Scaffold` possui a `Drawer`
+/// de verdade: este. Se cada branch também a possuísse, ela nasceria aninhada
+/// dentro do espaço que este `Scaffold` já reduziu para caber a
+/// `NavigationBar`, e o último item da gaveta colidiria com a barra. As telas
+/// abrem ESTA gaveta por referência (`shellScaffoldKeyProvider`), no toque do
+/// próprio hambúrguer.
 class HomeShell extends ConsumerWidget {
   const HomeShell({super.key, required this.navigationShell});
 
@@ -17,11 +34,9 @@ class HomeShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final unread = ref.watch(
-      notificationsControllerProvider.select((s) => s.unreadCount),
-    );
-
     return Scaffold(
+      key: ref.watch(shellScaffoldKeyProvider),
+      drawer: const AppDrawer(),
       body: navigationShell,
       bottomNavigationBar: NavigationBar(
         selectedIndex: navigationShell.currentIndex,
@@ -30,28 +45,21 @@ class HomeShell extends ConsumerWidget {
           // Tocar na aba já ativa volta ao topo dela, em vez de não fazer nada.
           initialLocation: index == navigationShell.currentIndex,
         ),
-        destinations: [
-          const NavigationDestination(
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Início',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.assignment_outlined),
             selectedIcon: Icon(Icons.assignment),
             label: 'OS',
           ),
           NavigationDestination(
-            icon: Badge(
-              // Contador simples, alimentado pela própria listagem. Sem
-              // sincronização em background: gastar bateria e dados do técnico
-              // por um número seria um mau negócio antes de o push existir.
-              isLabelVisible: unread > 0,
-              label: Text('$unread'),
-              child: const Icon(Icons.notifications_outlined),
-            ),
-            selectedIcon: const Icon(Icons.notifications),
-            label: 'Notificações',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.more_horiz_outlined),
-            selectedIcon: Icon(Icons.more_horiz),
-            label: 'Mais',
+            icon: Icon(Icons.schedule_outlined),
+            selectedIcon: Icon(Icons.schedule),
+            label: 'Jornada',
           ),
         ],
       ),

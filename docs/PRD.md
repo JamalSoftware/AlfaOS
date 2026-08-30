@@ -7668,7 +7668,8 @@ discordar sobre o mesmo fato.
 
 # 255. APP SHELL — NAVEGAÇÃO HÍBRIDA
 
-**Classificação: `P0` da trilha Field.**
+**Classificação: `DONE` — Fase 1 do App Shell entregue, release pendente.**
+Sem tag, sem checkpoint — ver `CLAUDE.md`.
 
 Dez pilares não cabem numa barra inferior, e esconder todos num menu lateral
 transformaria as duas ações mais frequentes do dia em dois toques cada.
@@ -7679,21 +7680,36 @@ gaveta para o resto.
 ## Navegação principal — sempre visível
 
 ```text
-Início   ·   OS   ·   Jornada   ·   Mapa
+Início   ·   OS   ·   Jornada
 ```
 
-Quatro destinos, e a razão de cada um estar ali:
+**Três destinos nesta fase, não quatro.** O desenho original previa um quarto
+lugar para o Mapa — mas o próprio parágrafo abaixo já dizia o que fazer
+enquanto ele não existisse: *"fica vago ou traz Agenda; não se coloca destino
+morto na barra"*. Nenhum dos dois substitutos (Mapa real, Agenda real) tem
+código nesta fase — os dois continuam `P1`/`PLANNED` (§259, §262) —, e a barra
+segue a própria regra que já havia fixado: fica com três.
 
 * **Início** — o painel que responde "o que eu faço agora" (§257).
 * **OS** — a lista de atendimentos. É o trabalho.
 * **Jornada** — quatro toques por dia, em horários em que o técnico tem pressa.
-  Ponto que exige navegar por menu é ponto batido atrasado.
-* **Mapa** — a visão espacial do dia (§259). Enquanto o mapa não existir, o
-  quarto lugar **fica vago ou traz Agenda**; não se coloca destino morto na
-  barra.
+  Ponto que exige navegar por menu é ponto batido atrasado. **Saiu de dentro de
+  "Mais" e virou destino próprio** — a decisão anterior ("a jornada mora na
+  terceira aba, não numa quarta") foi revista nesta fase: o §255 sempre previu
+  Jornada na barra principal, e o código só ainda não tinha chegado lá.
 
 > **OS e Jornada não podem viver só na gaveta.** São as duas ações mais
 > frequentes do dia, e a gaveta cobra um toque a mais em cada uma.
+
+## Implementado — `apps/field/lib/app/`
+
+`router.dart` (branches do `StatefulShellRoute`), `home_shell.dart` (a barra),
+`widgets/app_drawer.dart` (a gaveta), `widgets/notifications_bell.dart` (o sino
+do cabeçalho), `widgets/shell_drawer_button.dart` (o hambúrguer de cada tela,
+abrindo a gaveta do SHELL por referência — nunca uma própria, ver §256).
+Notificações e Configurações saíram da barra e viraram rotas fora do shell,
+alcançáveis pelo sino e pela gaveta — exatamente como este parágrafo já
+descrevia antes de existir código.
 
 ## Notificações no header
 
@@ -7718,8 +7734,9 @@ ação dentro da mesma tela é defeito** (§258).
 
 # 256. MENU LATERAL — CATEGORIAS E ESTADO
 
-**Classificação: `P0` da trilha Field** — a estrutura. Cada item traz o próprio
-estado, e **a maioria não existe**.
+**Classificação: `DONE` — só OPERACIONAL e CONTA, e só o que já existe.** A
+tabela abaixo continua sendo o ALVO da gaveta madura; a Fase 1 implementou
+exatamente a regra que a própria seção já fixava, aplicada ao pé da letra.
 
 ```text
 OPERACIONAL
@@ -7759,6 +7776,12 @@ Um menu com quinze linhas desabilitadas ensina o técnico a ignorar o menu.
 tela. Quando o técnico precisar saber o que vem, isso é assunto de nota de
 versão, não de navegação.
 
+**A Fase 1 mostra só OPERACIONAL (Início, Ordens de Serviço, Minha Jornada,
+Notificações) e CONTA (Configurações, Sair).** CLIENTES, MEU TRABALHO e REDE
+inteiras ficam de fora — todo item delas é `P1`/`P2`, sem uma linha de código.
+"Perfil" também não aparece: não existe tela própria para ele ainda, o que já
+está em `Configurações` cobre o que a sessão expõe hoje.
+
 ## As categorias respondem a perguntas, não a módulos
 
 `OPERACIONAL` é "o meu dia". `CLIENTES` é "sobre quem eu estou trabalhando".
@@ -7778,7 +7801,7 @@ botão é UX; recusar comando é segurança.
 
 # 257. INÍCIO — DASHBOARD DO TÉCNICO
 
-**Classificação: `P0` da trilha Field.**
+**Classificação: `DONE` em parte — Fase 1 do App Shell.**
 
 A primeira tela responde a uma pergunta só: **o que eu faço agora**. Tudo o que
 não ajuda a respondê-la desce ou sai.
@@ -7786,14 +7809,24 @@ não ajuda a respondê-la desce ou sai.
 ## Blocos, em ordem de prioridade
 
 ```text
-JORNADA        estado · horário da última marcação · ação contextual
-HOJE           total · pendentes · em andamento · concluídas · críticas
-PRÓXIMA OS     cliente · tipo · horário · distância · [abrir] [navegar]
-LEMBRETES      reuniões · tarefas · compromissos
-ESTOQUE        alertas e itens em nível baixo
-ATALHOS        Ping · Wi-Fi · Speed Test · Meu IP · Roteador
-MAPA           resumo — opcional, P2
+JORNADA        estado · horário da última marcação · ação contextual        DONE
+ORDENS         total · pendentes · em andamento · PRÓXIMA OS quando há dado DONE
+  PRÓXIMA OS   cliente · tipo · horário · [abrir]                           DONE (sem distância/navegar)
+HOJE           concluídas hoje · críticas                                   PLANNED
+LEMBRETES      reuniões · tarefas · compromissos                            PLANNED
+ESTOQUE        alertas e itens em nível baixo                               PLANNED
+ATALHOS        Ping · Wi-Fi · Speed Test · Meu IP · Roteador                PLANNED
+MAPA           resumo — opcional, P2                                        PLANNED
 ```
+
+**"PRÓXIMA OS" usa `scheduledAt` — campo real do contrato — e não aparece
+quando nenhuma OS aberta tem horário.** Sem isso, o card cai para um link
+simples para a lista, em vez de inventar qual OS é "a próxima" sem critério
+(§16 da tarefa que entregou esta fase). Distância e navegação direta não
+entraram: dependem de localização, fora do escopo desta fase (§261).
+
+Os blocos `PLANNED` desta lista não existem no Dashboard hoje — nem como
+placeholder, pela mesma regra do §256: item que não existe não aparece.
 
 ## O bloco JORNADA é contextual, e é uma ação só
 
