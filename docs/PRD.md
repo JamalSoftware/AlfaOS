@@ -7418,24 +7418,49 @@ bloqueou o `RELEASE GO`. `JOR-05` continua pendente e continua não bloqueando.
 | **LOW-1** | um `ADMIN` podia abrir uma correção e **aprovar a própria correção** | **RESOLVIDO** — abrir continua permitido; decidir o que se abriu para a própria jornada, não |
 | **LOW-2** | a criação administrativa pela web **não tinha idempotência equivalente à do Field** | **RESOLVIDO** — `Idempotency-Key` obrigatória, na mesma infraestrutura do Field |
 | **LOW-3** | o Field montava o horário solicitado a partir do **fuso do aparelho** | **RESOLVIDO** — o `WorkdayView` carrega o deslocamento da empresa, e é ele que vale |
-| **JOR-A1** | dia histórico deixado `WORKING` acumula `workedMinutes` até `now()` a cada leitura, mesmo em dias antigos | **PENDENTE**, `LOW` — não corrigido nesta fase; **bloqueia o Attendance Report** (§303) |
-| **JOR-A2** | `inconsistencies` (`Jornada em aberto`, `Intervalo em aberto`) já são calculadas no servidor e ainda não aparecem no Field nem no painel web | **PENDENTE**, `INFO` |
+| **JOR-A1** | dia histórico deixado `WORKING` acumula `workedMinutes` até `now()` a cada leitura, mesmo em dias antigos | **RESOLVIDO** (v0.11.1) — só conta intervalo com as duas pontas provadas; o parcial até agora vale só para o dia corrente |
+| **JOR-A2** | `inconsistencies` (`Jornada em aberto`, `Intervalo em aberto`) já são calculadas no servidor e ainda não aparecem no Field nem no painel web | **RESOLVIDO** (v0.11.1) — exibidas no Field (dia e histórico) e no painel web, e o sinal passou a ser acionável |
 | **JOR-A3** | `pendingAdjustments` no painel do gestor (§231) não é limitado ao dia consultado | **PENDENTE**, `INFO` |
 | **JOR-A4** | `$executeRawUnsafe` existe só no reset de banco de teste, protegido pelo guard de ambiente | **PENDENTE**, `INFO` — comportamento aceito, não é achado sobre produção |
 | **JOR-05** | `Company.timezone` existe no modelo e **só tem o valor padrão**: não há superfície administrativa para configurá-lo | **PENDENTE**, `P1` — não bloqueia a Fase 1 |
 
-## JOR-A1 — por que ficou para depois, e o que ele trava
+## JOR-A1 — a regra que a correção fixou
 
 Não foi corrigido no checkpoint de publicação por decisão explícita de escopo:
 o achado é de código, o checkpoint era de release, e misturar os dois arriscava
-auditar um alvo que continuava mudando. Ele **trava** especificamente a
-liberação do Attendance Report (Parte XI, §301–§304) como fonte confiável de
-total de horas — um relatório que soma um dia aberto usando o instante da
-própria geração produziria um número que muda a cada reemissão do mesmo
-período, sem nenhuma correção nova ter acontecido. Não trava o resto da
-Jornada: o espelho do dia corrente já mostra "em aberto" corretamente, porque
-somar até `now()` é o comportamento certo para um dia que ainda está
-acontecendo — o defeito é só em dia **histórico**.
+auditar um alvo que continuava mudando. Foi fechado logo depois, no patch focal
+**v0.11.1**.
+
+> **Só conta o intervalo com as duas pontas provadas.** A única exceção é o dia
+> operacional CORRENTE, onde o período aberto ainda é progresso.
+
+Quem responde "este dia ainda está acontecendo?" é o **fuso da empresa**, nunca
+o relógio da máquina que lê. Um dia passado deixado em jornada devolve o tempo
+confirmado e a inconsistência — e não fabrica o resto: **não** se assume saída
+às 23h59, **não** se cria `CLOCK_OUT`, **não** se toca a `TimeEntry`. Quem fecha
+o dia é uma correção aprovada, e aí o total volta ao certo sozinho, porque a
+conta continua saindo de `resolveEffectiveTimeEntries` (§302).
+
+A função de resumo passou a ser **pura**: `Date.now()` saiu de dentro dela. Era
+justamente essa consulta escondida ao relógio que produzia o defeito — e um
+resumo que consulta o relógio por dentro não pode ser testado sem esperar o
+tempo passar.
+
+## JOR-A2 — o sinal que existia e ninguém via
+
+`inconsistencies` existia desde a Fase 1 e nunca foi exibido, e a razão era
+substantiva: ele disparava para **toda pessoa em jornada naquele instante**. Um
+alerta que aparece sempre não é alerta.
+
+O sinal passou a valer só quando o dia já virou — aí ele é acionável, porque a
+única saída para um dia incompleto é a correção. Com isso ele ganhou tela: no
+Field, no cartão do dia e no histórico; no painel web, na lista da equipe e no
+espelho por funcionário. **Sem CTA novo** — a porta única da correção continua
+sendo a da seção `Correções` (§258).
+
+O texto é **literal do domínio**, não conteúdo de usuário: não há interpolação
+de dado nenhum nessas mensagens, e é o que mantém as duas telas livres de
+injeção por esse caminho.
 
 ## LOW-1 — a regra que a Fase 1 tomou
 
@@ -9118,9 +9143,9 @@ A Fase 1 da Jornada foi publicada como `v0.11-employee-time-clock`
 tag. Empilhar trabalho novo sobre um módulo sem checkpoint teria significado
 auditar depois um alvo que já mudou — e é exatamente essa ordem que preservou a
 auditoria independente feita por quem não implementou (`CLAUDE.md`). Os riscos
-residuais dessa auditoria (`JOR-A1`–`JOR-A4`) estão na §253, e um deles —
-`JOR-A1` — agora governa quando a Parte XI (§301) pode liberar o Attendance
-Report.
+residuais dessa auditoria (`JOR-A1`–`JOR-A4`) estão na §253; `JOR-A1` e
+`JOR-A2` foram fechados no patch focal v0.11.1, e com isso a Parte XI (§303)
+deixou de estar bloqueada — sem que o Attendance Report saia de PLANNED.
 
 ## Por que B e C vêm antes de D
 
@@ -9646,35 +9671,43 @@ depois — um relatório impresso.
 
 ---
 
-# 303. JOR-A1 E JOR-A2 BLOQUEIAM O ESPELHO CONFIÁVEL
+# 303. JOR-A1 E JOR-A2 — O BLOQUEIO DO ESPELHO, JÁ LEVANTADO
 
-**Classificação: dependência de release, registrada aqui para não ser
-esquecida no roadmap.**
+**Classificação: dependência de release, RESOLVIDA. Registrada aqui porque a
+razão do bloqueio continua sendo a regra do módulo.**
 
-## JOR-A1 — bloqueador do total de horas
+## JOR-A1 — o bloqueio foi levantado
 
 Achado da auditoria clean-room final da Jornada Fase 1 (§253): um dia histórico
-deixado `WORKING` (sem `CLOCK_OUT`, sem correção) continua acumulando
-`workedMinutes` até `now()` toda vez que é recalculado — inclusive dias
+deixado `WORKING` (sem `CLOCK_OUT`, sem correção) continuava acumulando
+`workedMinutes` até `now()` toda vez que era recalculado — inclusive dias
 antigos, que deveriam estar congelados.
 
-> **`Attendance Report` release está `BLOCKED BY JOR-A1`.** Um PDF que soma
-> horas de um dia aberto há semanas usando o instante da GERAÇÃO do relatório,
-> em vez do fim daquele dia, produz um número que muda toda vez que o relatório
-> é reemitido — para o mesmo período, sem nenhuma correção nova. Isso é
-> inaceitável num documento que a empresa entrega como prova de jornada.
+Era isto que travava o relatório: um PDF que somasse horas de um dia aberto há
+semanas usando o instante da GERAÇÃO produziria um número diferente a cada
+reemissão do mesmo período, sem nenhuma correção nova. Inaceitável num
+documento que a empresa entrega como prova de jornada.
 
-**Não corrigir nesta tarefa** — é item de código, e esta Parte é só
-documentação (§119). O registro aqui existe para que ninguém libere o PDF como
-fonte confiável de horas antes de JOR-A1 fechar.
+> **`BLOCKED BY JOR-A1` está LEVANTADO** — corrigido no patch focal v0.11.1
+> (§253). Um dia passado deixado em aberto devolve o tempo confirmado, estável
+> entre leituras.
 
-## JOR-A2 — sinais que já existem e ainda não aparecem
+**Isto não promove o Attendance Report a implementado.** Ele continua `P1` e
+`PLANNED`: não existe gerador de PDF, rota, tela nem CSV. O que mudou é que a
+fonte de horas parou de ser instável — a condição que faltava, não o trabalho.
 
-O servidor já calcula `inconsistencies` (`Jornada em aberto`, `Intervalo em
-aberto` — `src/lib/time-clock.ts`), mas nada no Field ou no painel web exibe
-isso hoje. Antes ou junto da liberação do Attendance Report, esses sinais devem
-aparecer na UI — um relatório que aponta um dia com intervalo em aberto sem que
-ninguém tenha visto isso antes é auditoria tardia demais.
+## JOR-A2 — os sinais passaram a aparecer
+
+O servidor já calculava `inconsistencies` (`Jornada em aberto`, `Intervalo em
+aberto` — `src/lib/time-clock.ts`) e nada exibia. Resolvido no mesmo patch: o
+Field mostra no cartão do dia e no histórico, e o painel web mostra na lista da
+equipe e no espelho por funcionário (§253).
+
+O que tornou o sinal exibível foi torná-lo **acionável**: ele deixou de disparar
+para quem está simplesmente trabalhando agora e passou a marcar só o dia que já
+virou incompleto. Um relatório que aponta um intervalo em aberto que ninguém
+tinha visto antes continua sendo auditoria tardia demais — agora o gestor e o
+técnico veem antes.
 
 ---
 
@@ -9802,10 +9835,11 @@ P2 / FUTURE
 
 ## Por que Attendance Report não é P0
 
-Porque depende de JOR-A1 (§303), um achado de código na Jornada Fase 1 — e
-porque um relatório exportável errado é pior que a ausência dele: uma vez que a
-empresa começa a entregar PDFs de jornada, corrigir a confiança perdida custa
-mais do que atrasar a liberação.
+Porque dependia de JOR-A1 (§303) — hoje corrigido — e porque um relatório
+exportável errado é pior que a ausência dele: uma vez que a empresa começa a
+entregar PDFs de jornada, corrigir a confiança perdida custa mais do que
+atrasar a liberação. Levantado o bloqueio, o trabalho em si (gerador, rota,
+tela, CSV) continua inteiro pela frente, e continua P1.
 
 ## Por que escala básica é P0 apesar do módulo inteiro ser novo
 

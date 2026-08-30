@@ -168,6 +168,31 @@ export default async function MemberWorkdayPage({
           </span>
         </div>
 
+        {/*
+          O que não fecha neste dia, dito pelo SERVIDOR (JOR-A2).
+
+          Aparece só quando o dia já virou com marcação incompleta — estar em
+          jornada agora é normal e não vem sinalizado. É também a explicação do
+          total ao lado: o período sem fim provado não entra na conta, então um
+          dia esquecido mostra menos horas do que a pessoa trabalhou.
+
+          É AVISO, não acusação: o AlfaOS registra e apresenta, não julga
+          (§219, §230). A saída oferecida é a correção, não uma penalidade.
+        */}
+        {workday.inconsistencies.length > 0 && (
+          <div
+            data-testid="member-workday-inconsistencies"
+            className="mt-4 rounded-md border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-fg"
+          >
+            {/* Texto do servidor renderizado como TEXTO — nunca HTML. */}
+            <p className="font-medium">{workday.inconsistencies.join(" ")}</p>
+            <p className="mt-1 text-xs">
+              Há marcação incompleta neste dia. O total considera apenas os
+              períodos com início e fim registrados.
+            </p>
+          </div>
+        )}
+
         {workday.entries.length === 0 ? (
           <p className="mt-4 text-sm text-fg-muted">
             Nenhuma marcação neste dia.

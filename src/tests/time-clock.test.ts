@@ -503,13 +503,26 @@ describe("Espelho", () => {
     expect(view.inconsistencies).toEqual([]);
   });
 
-  it("jornada em aberto é sinalizada como inconsistência", async () => {
+  it("jornada em aberto no dia CORRENTE não é inconsistência", async () => {
+    /*
+      Este teste já afirmou o contrário — e a asserção antiga era parte do
+      defeito `JOR-A2`.
+
+      Sinalizar "jornada em aberto" enquanto o dia acontece marcaria toda pessoa
+      que está trabalhando neste instante. Um alerta que aparece sempre não é
+      alerta, e foi por isso que o campo existiu desde a Fase 1 sem nunca ser
+      exibido em tela nenhuma: não havia o que mostrar que fizesse sentido.
+
+      O sinal passa a valer quando o dia vira — aí ele é acionável, porque só
+      uma correção aprovada fecha aquele dia. A cobertura do dia passado está em
+      `time-clock-open-days.test.ts`.
+    */
     const ctx = A();
     await punchTimeClock(ctx.companyId, ctx.userId, { type: "CLOCK_IN" });
 
     const view = await getWorkdayView(ctx.companyId, ctx.userId);
     expect(view.state).toBe("WORKING");
-    expect(view.inconsistencies).toContain("Jornada em aberto.");
+    expect(view.inconsistencies).toEqual([]);
   });
 
   it("dia sem marcação nenhuma não inventa jornada", async () => {

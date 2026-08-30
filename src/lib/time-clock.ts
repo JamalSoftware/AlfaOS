@@ -464,7 +464,14 @@ export async function getWorkdayView(
     }),
   ]);
 
-  const totals = summarize(entries);
+  /*
+    "Ainda é hoje?" é decidido pelo relógio REAL, não pelo `instant` recebido.
+
+    `instant` escolhe QUAL dia ler — e uma leitura de um dia antigo o traz no
+    passado. Comparar o dia contra o próprio `instant` faria todo dia parecer o
+    corrente, e o período aberto voltaria a somar em qualquer data.
+  */
+  const totals = summarize(entries, openPeriodEnd(date, timezone, new Date()));
 
   return {
     workdayId: workday.id,
@@ -484,14 +491,55 @@ export async function getWorkdayView(
 }
 
 /**
+ * Até que instante um período aberto ainda pode ser contado — ou `null`.
+ *
+ * A pergunta é uma só: **este dia ainda está acontecendo?** Se está, o período
+ * sem fim é progresso, e contar até agora é o que a tela do técnico e o painel
+ * do gestor precisam mostrar. Se o dia já passou, o mesmo período é um buraco:
+ * a pessoa esqueceu de bater a saída, e o fim nunca foi provado.
+ *
+ * Quem responde é o **fuso da empresa**, nunca o relógio da máquina que está
+ * lendo — `toISOString()` viraria o dia à meia-noite UTC, que é 21h em São
+ * Paulo: uma jornada em andamento seria declarada encerrada três horas antes,
+ * todos os dias.
+ */
+function openPeriodEnd(
+  workdayDate: Date,
+  timezone: string,
+  now: Date,
+): Date | null {
+  return workdayDateOf(now, timezone).getTime() === workdayDate.getTime()
+    ? now
+    : null;
+}
+
+/**
  * Percorre a sequência uma vez e devolve estado, totais e o que não fecha.
  *
- * Jornada aberta conta até AGORA — é o que o painel do gestor precisa mostrar
- * de quem ainda está trabalhando. Intervalo aberto não é somado a nada: ele
- * ainda não tem duração.
+ * ## Só conta o intervalo com as DUAS pontas provadas
+ *
+ * `openEndsAt` é a única exceção, e vale só para o dia corrente
+ * (`openPeriodEnd`). Sem ela, um dia histórico deixado em jornada somava até
+ * `Date.now()` **a cada leitura** — dez dias esquecidos viravam 241 horas, e o
+ * número crescia sozinho entre duas consultas do mesmo período (`JOR-A1`).
+ *
+ * Fabricar o fim seria pior que não contar: assumir saída às 23h59, ou criar um
+ * `CLOCK_OUT`, inventaria um fato que ninguém registrou — exatamente o que o
+ * §229 proíbe. O dia fica com o tempo confirmado e a inconsistência à vista, e
+ * quem fecha é uma correção aprovada.
+ *
+ * Intervalo aberto não é somado a nada, em dia nenhum: ele ainda não tem
+ * duração.
+ *
+ * ## A função é pura
+ *
+ * `Date.now()` saiu daqui de propósito. Um resumo que consulta o relógio por
+ * dentro não pode ser testado sem esperar o tempo passar — e era justamente
+ * essa consulta escondida que produzia o defeito.
  */
 function summarize(
   entries: readonly Pick<TimeEntry, "type" | "occurredAt">[],
+  openEndsAt: Date | null,
 ): {
   state: WorkdayState;
   workedMinutes: number;
@@ -534,14 +582,34 @@ function summarize(
 
   const state = deriveWorkdayState(entries.map((e) => e.type));
 
-  if (state === "WORKING" && workingSince) {
-    workedMs += Date.now() - workingSince.getTime();
-  }
-  if (state === "ON_BREAK") {
-    inconsistencies.push("Intervalo em aberto.");
-  }
-  if (state === "WORKING") {
-    inconsistencies.push("Jornada em aberto.");
+  if (openEndsAt) {
+    /*
+      Dia corrente: o período aberto é progresso, e conta até agora.
+
+      O termo é conferido antes de entrar. `openEndsAt` vem de fora, e um
+      relógio recuado faria uma parcela negativa apagar tempo que já estava
+      provado — o total é o que menos pode encolher sozinho.
+    */
+    if (state === "WORKING" && workingSince) {
+      const abertoMs = openEndsAt.getTime() - workingSince.getTime();
+      if (abertoMs > 0) workedMs += abertoMs;
+    }
+  } else {
+    /*
+      Dia encerrado com período em aberto: aqui o sinal significa alguma coisa.
+
+      Num dia em andamento, "jornada em aberto" valeria para toda pessoa que
+      está trabalhando neste instante — um alerta que aparece sempre é um alerta
+      que se aprende a ignorar, e era por isso que o sinal existia sem nunca ser
+      exibido (`JOR-A2`). Depois que o dia vira, ele é acionável: só uma
+      correção aprovada fecha aquele dia.
+    */
+    if (state === "ON_BREAK") {
+      inconsistencies.push("Intervalo em aberto.");
+    }
+    if (state === "WORKING") {
+      inconsistencies.push("Jornada em aberto.");
+    }
   }
 
   return {
@@ -559,6 +627,8 @@ export interface WorkdaySummary {
   breakMinutes: number;
   entryCount: number;
   pendingAdjustments: number;
+  /** O que não fecha naquele dia. Vazio no caso normal e no dia corrente. */
+  inconsistencies: string[];
 }
 
 /** Histórico do próprio funcionário, por intervalo de datas. */
@@ -568,6 +638,14 @@ export async function getWorkdayHistory(
   from: Date,
   to: Date,
 ): Promise<WorkdaySummary[]> {
+  // O fuso da empresa é quem sabe qual desses dias ainda está acontecendo.
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { timezone: true },
+  });
+  const timezone = resolveTimezone(company?.timezone);
+  const agora = new Date();
+
   const workdays = await prisma.workday.findMany({
     where: { companyId, userId, date: { gte: from, lte: to } },
     orderBy: { date: "desc" },
@@ -603,7 +681,10 @@ export async function getWorkdayHistory(
 
   return workdays.map((workday) => {
     const efetivas = resolveEffectiveTimeEntries(workday.entries, superadas);
-    const totals = summarize(efetivas);
+    const totals = summarize(
+      efetivas,
+      openPeriodEnd(workday.date, timezone, agora),
+    );
     return {
       date: workday.date.toISOString().slice(0, 10),
       state: totals.state,
@@ -611,6 +692,7 @@ export async function getWorkdayHistory(
       breakMinutes: totals.breakMinutes,
       entryCount: efetivas.length,
       pendingAdjustments: pendingByWorkday.get(workday.id) ?? 0,
+      inconsistencies: totals.inconsistencies,
     };
   });
 }
@@ -1179,6 +1261,8 @@ export interface TeamMemberWorkday {
   lastEntryAt: Date | null;
   workedMinutes: number;
   pendingAdjustments: number;
+  /** O que não fecha no dia consultado. Vazio no dia corrente e no caso normal. */
+  inconsistencies: string[];
 }
 
 /**
@@ -1235,13 +1319,17 @@ export async function getTeamWorkday(
   });
   const pendingByUser = new Map(pending.map((p) => [p.userId, p._count._all]));
 
+  // O painel também aceita um instante e pode olhar um dia passado — a mesma
+  // pergunta, respondida uma vez para o dia inteiro da consulta.
+  const abertoAte = openPeriodEnd(date, timezone, new Date());
+
   const members = users.map((user) => {
     const workday = byUser.get(user.id);
     const entries = resolveEffectiveTimeEntries(
       workday?.entries ?? [],
       superadas,
     );
-    const totals = summarize(entries);
+    const totals = summarize(entries, abertoAte);
     const last = entries.at(-1) ?? null;
 
     return {
@@ -1253,6 +1341,7 @@ export async function getTeamWorkday(
       lastEntryAt: last?.occurredAt ?? null,
       workedMinutes: totals.workedMinutes,
       pendingAdjustments: pendingByUser.get(user.id) ?? 0,
+      inconsistencies: totals.inconsistencies,
     };
   });
 

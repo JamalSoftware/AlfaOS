@@ -189,6 +189,20 @@ class _TodayCard extends StatelessWidget {
               style: const TextStyle(fontSize: 12),
             ),
           ],
+          /*
+            O que o SERVIDOR diz que não fecha neste dia (JOR-A2).
+
+            A tela apresenta a lista; não a deduz de `state`. Estar em jornada
+            agora é normal e não vem sinalizado — o que chega aqui é um dia que
+            já virou com marcação incompleta, e aí a única saída é a correção.
+
+            SEM botão: a porta única continua sendo a da seção Correções
+            (§258). O texto aponta para lá em vez de abrir um segundo caminho.
+          */
+          if (workday.inconsistencies.isNotEmpty) ...[
+            const SizedBox(height: AlfaSpacing.md),
+            _InconsistencyBanner(messages: workday.inconsistencies),
+          ],
         ],
       ),
     );
@@ -286,7 +300,21 @@ class _HistoryCard extends StatelessWidget {
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                     title: Text(day.date),
-                    subtitle: Text(workdayStateLabel(day.state)),
+                    /*
+                      O dia passado em aberto mostra o que NÃO fecha, junto do
+                      estado.
+
+                      O total ao lado é só o tempo confirmado — o período sem
+                      fim provado não entra nele (JOR-A1). Sem esta linha, o
+                      técnico veria um dia com menos horas do que trabalhou e
+                      nenhuma pista do porquê.
+                    */
+                    subtitle: Text(
+                      day.inconsistencies.isEmpty
+                          ? workdayStateLabel(day.state)
+                          : '${workdayStateLabel(day.state)} · '
+                                '${day.inconsistencies.join(' ')}',
+                    ),
                     trailing: Text(minutesLabel(day.workedMinutes)),
                   ),
               ],
@@ -647,6 +675,70 @@ class _AdjustmentSheetState extends State<_AdjustmentSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// O que não fecha no dia, como o servidor o descreve.
+///
+/// Aviso, não erro: nada falhou, e a pessoa não fez nada de errado que a tela
+/// possa afirmar. A cor é a de atenção, e o ícone acompanha o texto — cor
+/// sozinha não é sinal (PRD §149).
+///
+/// **Não tem botão.** A porta única da correção é a seção `Correções` (§258),
+/// e um CTA aqui seria a segunda porta que o piloto físico já mostrou custar
+/// caro.
+class _InconsistencyBanner extends StatelessWidget {
+  const _InconsistencyBanner({required this.messages});
+
+  final List<String> messages;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      key: const Key('workday-inconsistencies'),
+      padding: const EdgeInsets.all(AlfaSpacing.md),
+      decoration: BoxDecoration(
+        color: scheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(AlfaRadius.md),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.warning_amber_outlined,
+            color: scheme.onTertiaryContainer,
+            size: 20,
+          ),
+          const SizedBox(width: AlfaSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // O texto vem do servidor e é apresentado como TEXTO.
+                for (final message in messages)
+                  Text(
+                    message,
+                    style: TextStyle(
+                      color: scheme.onTertiaryContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                const SizedBox(height: AlfaSpacing.xs),
+                Text(
+                  'Existe uma marcação incompleta neste dia. '
+                  'Solicite uma correção se necessário.',
+                  style: TextStyle(
+                    color: scheme.onTertiaryContainer,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

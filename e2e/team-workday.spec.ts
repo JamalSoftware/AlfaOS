@@ -1,4 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
+import { PrismaClient } from "@prisma/client";
+import { assertTestDatabase } from "./test-db-guard";
 
 /**
  * Jornada da equipe, pelo navegador.
@@ -25,6 +27,66 @@ async function login(page: Page, email: string) {
   await page.getByRole("button", { name: "Entrar" }).click();
   await page.waitForURL(/\/(dashboard|minhas-os)/);
 }
+
+const E2E_DATABASE_URL =
+  process.env.E2E_DATABASE_URL ??
+  "postgresql://alfaos:alfaos_dev_password@localhost:5432/alfaos_test?schema=public";
+
+const prisma = new PrismaClient({
+  datasources: { db: { url: E2E_DATABASE_URL } },
+});
+
+/** O dia esquecido, semeado no passado. Preenchido no `beforeAll`. */
+let diaEsquecido = "";
+let techUserId = "";
+
+test.beforeAll(async () => {
+  // Mesmo guard de todo caminho destrutivo da suíte: nunca um banco que não
+  // termine em `_test`.
+  await assertTestDatabase(E2E_DATABASE_URL, "E2E_DATABASE_URL");
+
+  const tech = await prisma.user.findUniqueOrThrow({
+    where: { email: TECH_EMAIL },
+    select: { id: true, companyId: true },
+  });
+  techUserId = tech.id;
+
+  /*
+    Um dia de 12 dias atrás com ENTRADA e sem SAÍDA.
+
+    É o caso do JOR-A1: antes da correção, este dia devolvia centenas de horas.
+    Depois dela, devolve o tempo confirmado — zero, porque nenhum período
+    fechou — e a inconsistência que explica o número.
+
+    11h UTC cai no mesmo dia civil em qualquer fuso brasileiro, então a
+    fixture não muda de dia conforme a hora em que a suíte roda.
+  */
+  const alvo = new Date(Date.now() - 12 * 24 * 3_600_000);
+  diaEsquecido = alvo.toISOString().slice(0, 10);
+
+  const workday = await prisma.workday.create({
+    data: {
+      companyId: tech.companyId,
+      userId: tech.id,
+      date: new Date(`${diaEsquecido}T00:00:00.000Z`),
+      timezone: "America/Sao_Paulo",
+    },
+  });
+  await prisma.timeEntry.create({
+    data: {
+      companyId: tech.companyId,
+      userId: tech.id,
+      workdayId: workday.id,
+      type: "CLOCK_IN",
+      source: "FIELD_APP",
+      occurredAt: new Date(`${diaEsquecido}T11:00:00.000Z`),
+    },
+  });
+});
+
+test.afterAll(async () => {
+  await prisma.$disconnect();
+});
 
 test.describe("jornada da equipe", () => {
   test("ADMIN abre pelo menu e vê a lista e a fila de correções", async ({
@@ -272,5 +334,39 @@ test.describe("correção administrativa", () => {
 
     // Esconder o link é UX; a página recusa por conta própria.
     await expect(page.getByTestId("open-member-adjustment")).toHaveCount(0);
+  });
+
+  test("o dia esquecido mostra a inconsistência e NÃO centenas de horas", async ({
+    page,
+  }) => {
+    /*
+      JOR-A1 e JOR-A2, pelo navegador.
+
+      Antes da correção esta página mostrava ~288 horas para um dia de 12 dias
+      atrás, e nenhuma explicação: o número simplesmente crescia entre duas
+      visitas. Agora mostra o tempo confirmado e o motivo de ele ser esse.
+    */
+    await login(page, ADMIN_EMAIL);
+    await page.goto(`/jornada/${techUserId}?date=${diaEsquecido}`);
+
+    await expect(page.getByTestId("member-workday-state")).toHaveText(
+      "Trabalhando",
+    );
+
+    // A inconsistência aparece — é o sinal que existia no servidor e nunca era
+    // exibido em tela nenhuma.
+    const aviso = page.getByTestId("member-workday-inconsistencies");
+    await expect(aviso).toBeVisible();
+    await expect(aviso).toContainText("Jornada em aberto.");
+
+    /*
+      E o total NÃO explodiu.
+
+      Doze dias de relógio corrido seriam 288h. A asserção proíbe o desfecho
+      ruim em vez de tolerá-lo: nada de três dígitos antes do "h".
+    */
+    const resumo = page.getByText(/Trabalhado .* · Intervalo/);
+    await expect(resumo).toBeVisible();
+    await expect(resumo).not.toContainText(/\d{3,}h/);
   });
 });

@@ -41,6 +41,7 @@ Map<String, dynamic> _workday({
   int workedMinutes = 0,
   int breakMinutes = 0,
   int pendingAdjustments = 0,
+  List<String> inconsistencies = const [],
 }) => {
   'workdayId': 'wd-1',
   'date': '2026-08-29',
@@ -53,7 +54,7 @@ Map<String, dynamic> _workday({
   'entries': entries,
   'workedMinutes': workedMinutes,
   'breakMinutes': breakMinutes,
-  'inconsistencies': <String>[],
+  'inconsistencies': inconsistencies,
   'pendingAdjustments': pendingAdjustments,
 };
 
@@ -81,6 +82,7 @@ Future<({Harness harness, _FakeGps gps})> _abrir(
   WidgetTester tester, {
   required Map<String, dynamic> workday,
   LocationReading location = _comGps,
+  List<Map<String, dynamic>> history = const [],
 }) async {
   tester.view.physicalSize = const Size(1200, 3000);
   tester.view.devicePixelRatio = 1.0;
@@ -97,7 +99,7 @@ Future<({Harness harness, _FakeGps gps})> _abrir(
   harness.transport.onJson(
     'GET',
     '/time-clock/history',
-    data: {'from': '2026-08-01', 'to': '2026-08-29', 'workdays': <dynamic>[]},
+    data: {'from': '2026-08-01', 'to': '2026-08-29', 'workdays': history},
   );
 
   await harness.pump(
@@ -502,6 +504,105 @@ void _regressaoFusoNaBatida() {
 
       // 11:02Z em -03:00 é 08:02, e continua sendo depois da falha.
       expect(find.textContaining('Entrada às 08:02'), findsOneWidget);
+    });
+  });
+
+  group('inconsistências vêm do servidor (JOR-A2)', () {
+    testWidgets('o alerta aparece quando o servidor manda', (tester) async {
+      /*
+        O campo existia desde a Fase 1 e nunca era exibido.
+
+        A tela APRESENTA a lista; não a deduz de `state`. Quem sabe se um dia em
+        jornada é progresso ou buraco é o servidor, que conhece o fuso da
+        empresa — o aplicativo não tem como decidir isso sozinho.
+      */
+      await _abrir(
+        tester,
+        workday: _workday(
+          state: 'WORKING',
+          allowedActions: ['BREAK_START', 'CLOCK_OUT'],
+          entries: [_entry('CLOCK_IN', '11:00')],
+          workedMinutes: 240,
+          inconsistencies: ['Jornada em aberto.'],
+        ),
+      );
+
+      expect(find.byKey(const Key('workday-inconsistencies')), findsOneWidget);
+      expect(find.text('Jornada em aberto.'), findsOneWidget);
+      expect(
+        find.textContaining('Existe uma marcação incompleta neste dia'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('sem inconsistência, nenhum alerta na tela', (tester) async {
+      // Controle negativo: sem ele, o teste acima passaria com um alerta fixo.
+      await _abrir(
+        tester,
+        workday: _workday(
+          state: 'WORKING',
+          allowedActions: ['BREAK_START', 'CLOCK_OUT'],
+          entries: [_entry('CLOCK_IN', '11:00')],
+        ),
+      );
+
+      expect(find.byKey(const Key('workday-inconsistencies')), findsNothing);
+      expect(
+        find.textContaining('Existe uma marcação incompleta'),
+        findsNothing,
+      );
+    });
+
+    testWidgets('o alerta NÃO cria uma segunda porta de correção', (
+      tester,
+    ) async {
+      /*
+        A porta única do §258 é a seção Correções.
+
+        O teste conta o RÓTULO, não a chave: um segundo botão com outra `Key`
+        foi exatamente o caso que o piloto físico encontrou.
+      */
+      await _abrir(
+        tester,
+        workday: _workday(
+          state: 'WORKING',
+          allowedActions: ['BREAK_START', 'CLOCK_OUT'],
+          inconsistencies: ['Jornada em aberto.'],
+        ),
+      );
+
+      expect(find.byKey(const Key('workday-inconsistencies')), findsOneWidget);
+      expect(find.text('SOLICITAR CORREÇÃO'), findsOneWidget);
+    });
+
+    testWidgets('o histórico mostra a inconsistência do dia passado', (
+      tester,
+    ) async {
+      /*
+        A superfície REAL do sinal.
+
+        Um dia passado em aberto mostra o tempo CONFIRMADO (4h, não as centenas
+        de horas que o defeito produzia) ao lado do motivo de ele parecer curto.
+      */
+      await _abrir(
+        tester,
+        workday: _workday(state: 'NOT_STARTED', allowedActions: ['CLOCK_IN']),
+        history: [
+          {
+            'date': '2026-08-20',
+            'state': 'WORKING',
+            'workedMinutes': 240,
+            'breakMinutes': 60,
+            'entryCount': 3,
+            'pendingAdjustments': 0,
+            'inconsistencies': ['Jornada em aberto.'],
+          },
+        ],
+      );
+
+      expect(find.text('2026-08-20'), findsOneWidget);
+      expect(find.textContaining('Jornada em aberto.'), findsOneWidget);
+      expect(find.text('4h'), findsOneWidget);
     });
   });
 }

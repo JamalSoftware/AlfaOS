@@ -214,8 +214,8 @@ Quatro regras que serão fáceis de desfazer sem perceber:
 
 **Quatro achados da auditoria clean-room final, todos residuais e aceitos** (não corrigir sem tarefa própria):
 
-* **JOR-A1 (`LOW`)** — dia histórico deixado `WORKING` acumula `workedMinutes` até `now()` a cada leitura, mesmo em dias antigos. **Bloqueia o Attendance Report** (`docs/PRD.md` §303) até ser corrigido — não bloqueia o resto da Jornada.
-* **JOR-A2 (`INFO`)** — `inconsistencies` já calculadas no servidor, ainda não exibidas no Field nem no painel.
+* **JOR-A1 (`LOW`) — RESOLVIDO** (v0.11.1). Só conta intervalo com as **duas pontas provadas**; o parcial até agora vale só para o **dia corrente**, e quem decide se o dia ainda está acontecendo é o fuso da empresa. `summarize` recebe `openEndsAt` e virou função **pura** — `Date.now()` por dentro dela era o defeito. Nada de assumir saída às 23h59, criar `CLOCK_OUT` ou tocar `TimeEntry`.
+* **JOR-A2 (`INFO`) — RESOLVIDO** (v0.11.1). As inconsistências aparecem no Field (cartão do dia e histórico) e no painel web (lista da equipe e espelho por funcionário), **sem CTA novo** — a porta única continua na seção `Correções` (§258). O sinal deixou de disparar para quem está trabalhando agora: um alerta que aparece sempre não é alerta.
 * **JOR-A3 (`INFO`)** — `pendingAdjustments` do painel do gestor não é limitado ao dia consultado.
 * **JOR-A4 (`INFO`)** — `$executeRawUnsafe` só no reset de banco de teste, protegido pelo guard de ambiente.
 
@@ -231,7 +231,7 @@ Quatro regras que serão fáceis de desfazer sem perceber:
 
 * **Escala é planejado; Jornada/Ponto é realizado.** `PLANTAO` nunca cria `CLOCK_IN`; `FOLGA` e `DSR` nunca criam `TimeEntry` (§288, §300). Um despacho ou uma tela "inteligente" que abrisse ponto a partir da escala violaria a mesma garantia que sustenta o módulo inteiro.
 * **`ScheduleRule` gera `ScheduleOccurrence`; a exceção altera a ocorrência, nunca a regra** (§290, §293) — a mesma separação fato/correção que a Jornada já fez entre `TimeEntry` e `TimeAdjustmentRequest`.
-* **O Attendance Report não pode implementar cálculo de horas próprio.** PDF, CSV, dashboard, Field e painel web consomem o MESMO motor — hoje `resolveEffectiveTimeEntries` e `src/lib/time-clock.ts` (§302). E está **`BLOCKED BY JOR-A1`** (§303) enquanto esse achado não for corrigido.
+* **O Attendance Report não pode implementar cálculo de horas próprio.** PDF, CSV, dashboard, Field e painel web consomem o MESMO motor — hoje `resolveEffectiveTimeEntries` e `src/lib/time-clock.ts` (§302). O bloqueio por `JOR-A1` foi **levantado** na v0.11.1 (§303), o que não promove o relatório a implementado: ele continua `P1`/`PLANNED`, sem gerador, rota, tela nem CSV.
 
 ## Field Workspace, App Shell e Dashboard — PLANNED
 

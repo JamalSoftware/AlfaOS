@@ -148,6 +148,19 @@ export default async function TeamWorkdayPage() {
                     {member.pendingAdjustments > 0
                       ? `${member.pendingAdjustments} pendente(s)`
                       : "—"}
+                    {/*
+                      Marcação incompleta num dia que já virou (JOR-A2).
+
+                      Não aparece para quem está em jornada agora — nesse caso
+                      "em aberto" é o estado normal, e um aviso que marca todo
+                      mundo deixa de ser aviso. O texto vem do servidor e é
+                      renderizado como texto.
+                    */}
+                    {member.inconsistencies.length > 0 && (
+                      <span className="ml-2 rounded-full bg-warning-bg px-2 py-1 text-xs font-medium text-warning-fg">
+                        {member.inconsistencies.join(" ")}
+                      </span>
+                    )}
                   </td>
                   {isAdmin && (
                     <td className="px-4 py-3">

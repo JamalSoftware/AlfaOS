@@ -307,6 +307,7 @@ class WorkdaySummary {
     required this.breakMinutes,
     required this.entryCount,
     required this.pendingAdjustments,
+    required this.inconsistencies,
   });
 
   final String date;
@@ -316,14 +317,27 @@ class WorkdaySummary {
   final int entryCount;
   final int pendingAdjustments;
 
-  factory WorkdaySummary.fromJson(Map<String, dynamic> json) => WorkdaySummary(
-    date: json['date'] as String? ?? '',
-    state: workdayStateFrom(json['state'] as String?),
-    workedMinutes: (json['workedMinutes'] as num?)?.toInt() ?? 0,
-    breakMinutes: (json['breakMinutes'] as num?)?.toInt() ?? 0,
-    entryCount: (json['entryCount'] as num?)?.toInt() ?? 0,
-    pendingAdjustments: (json['pendingAdjustments'] as num?)?.toInt() ?? 0,
-  );
+  /// O que não fecha naquele dia, decidido pelo SERVIDOR.
+  ///
+  /// O aplicativo não deduz isso de `state`: um dia em `WORKING` é normal
+  /// enquanto está acontecendo e é buraco depois que virou, e quem sabe a
+  /// diferença é o fuso da empresa, que mora no servidor.
+  final List<String> inconsistencies;
+
+  factory WorkdaySummary.fromJson(Map<String, dynamic> json) {
+    final raw = json['inconsistencies'];
+    return WorkdaySummary(
+      date: json['date'] as String? ?? '',
+      state: workdayStateFrom(json['state'] as String?),
+      workedMinutes: (json['workedMinutes'] as num?)?.toInt() ?? 0,
+      breakMinutes: (json['breakMinutes'] as num?)?.toInt() ?? 0,
+      entryCount: (json['entryCount'] as num?)?.toInt() ?? 0,
+      pendingAdjustments: (json['pendingAdjustments'] as num?)?.toInt() ?? 0,
+      inconsistencies: raw is List
+          ? raw.map((e) => e as String).toList(growable: false)
+          : const [],
+    );
+  }
 }
 
 /// Um pedido de correção, do ponto de vista de quem pediu.
