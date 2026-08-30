@@ -7411,7 +7411,8 @@ A §119 se aplica a todos: estão especificados, não autorizados.
 **Classificação: registro.** Três achados do endurecimento final foram
 **resolvidos** antes do checkpoint. A auditoria clean-room que liberou a
 publicação (§252) encontrou mais quatro, todos residuais e aceitos — nenhum
-bloqueou o `RELEASE GO`. `JOR-05` continua pendente e continua não bloqueando.
+bloqueou o `RELEASE GO`. A auditoria focal sobre o patch v0.11.1 encontrou mais
+cinco, também residuais. `JOR-05` continua pendente e continua não bloqueando.
 
 | Item | O que é | Estado |
 |---|---|---|
@@ -7419,10 +7420,32 @@ bloqueou o `RELEASE GO`. `JOR-05` continua pendente e continua não bloqueando.
 | **LOW-2** | a criação administrativa pela web **não tinha idempotência equivalente à do Field** | **RESOLVIDO** — `Idempotency-Key` obrigatória, na mesma infraestrutura do Field |
 | **LOW-3** | o Field montava o horário solicitado a partir do **fuso do aparelho** | **RESOLVIDO** — o `WorkdayView` carrega o deslocamento da empresa, e é ele que vale |
 | **JOR-A1** | dia histórico deixado `WORKING` acumula `workedMinutes` até `now()` a cada leitura, mesmo em dias antigos | **RESOLVIDO** (v0.11.1) — só conta intervalo com as duas pontas provadas; o parcial até agora vale só para o dia corrente |
-| **JOR-A2** | `inconsistencies` (`Jornada em aberto`, `Intervalo em aberto`) já são calculadas no servidor e ainda não aparecem no Field nem no painel web | **RESOLVIDO** (v0.11.1) — exibidas no Field (dia e histórico) e no painel web, e o sinal passou a ser acionável |
+| **JOR-A2** | `inconsistencies` (`Jornada em aberto`, `Intervalo em aberto`) já são calculadas no servidor e ainda não aparecem em tela nenhuma | **RESOLVIDO** (v0.11.1) — exibidas no Field (dia e histórico) e no espelho web individual; a lista da equipe não, e é o `JOR-B1` abaixo |
 | **JOR-A3** | `pendingAdjustments` no painel do gestor (§231) não é limitado ao dia consultado | **PENDENTE**, `INFO` |
 | **JOR-A4** | `$executeRawUnsafe` existe só no reset de banco de teste, protegido pelo guard de ambiente | **PENDENTE**, `INFO` — comportamento aceito, não é achado sobre produção |
-| **JOR-05** | `Company.timezone` existe no modelo e **só tem o valor padrão**: não há superfície administrativa para configurá-lo | **PENDENTE**, `P1` — não bloqueia a Fase 1 |
+| **JOR-B1** | a lista da equipe (`/jornada`) tem o campo e o JSX de `inconsistencies`, mas a página nunca passa um instante além do corrente — o ramo não renderiza em produção | **PENDENTE**, `INFO` — código morto, não removido; documentação corrigida |
+| **JOR-B2** | o parcial do dia corrente (o ramo que soma até agora) não tinha asserção própria travando o valor aproximado | **RESOLVIDO** — teste permanente com tolerância curta, sem `sleep` |
+| **JOR-B3** | `openPeriodEnd` decide "é hoje?" pelo fuso **atual** de `Company.timezone`, não pelo fuso sob o qual o dia foi vivido | **PENDENTE**, `INFO` |
+| **JOR-B4** | o lookup de `Workday` por instante usa `Company.timezone` ATUAL — uma mudança de fuso pode fazer um dia histórico "desaparecer" ou um `CLOCK_OUT` cair em `Workday` errado | **PENDENTE**, `INFO` — **bloqueia JOR-05**: ver nota abaixo |
+| **JOR-B5** | duas rodadas Flutter em paralelo tinham falhado por contenção de CPU (~72s vs ~30s), teste diferente a cada vez | **PENDENTE**, `INFO` — não reproduzido nesta auditoria; ambiente, não código |
+| **JOR-05** | `Company.timezone` existe no modelo e **só tem o valor padrão**: não há superfície administrativa para configurá-lo | **PENDENTE**, `P1` — **`BLOCKED BY JOR-B4`** (não bloqueia a Fase 1) |
+
+## JOR-05 — bloqueada por JOR-B4
+
+Uma UI/admin para editar `Company.timezone` (JOR-05) não pode nascer antes de
+`JOR-B4` estar resolvido. O lookup de `Workday` por instante (`getWorkdayView`,
+`getTeamWorkday`, `getWorkdayHistory`) resolve o dia usando o fuso **atual** da
+empresa — não o fuso sob o qual cada dia foi vivido. Uma empresa que mudasse de
+fuso hoje faria a busca por "ontem" apontar para uma data diferente da que o
+`Workday` tem gravada, e três coisas ruins podem acontecer sem aviso: um dia
+histórico deixa de ser encontrado (`workdayId: null`, espelho vazio como se
+nada tivesse sido batido), um `Workday` é localizado no dia vizinho errado, ou
+um `CLOCK_OUT` legítimo é recusado por cair, aos olhos do lookup, num
+`Workday` que não é o dele. Enquanto `Company.timezone` só tem o padrão
+(`America/Sao_Paulo`, nunca escrito), o risco é teórico — é por isso que
+`JOR-B4` é `INFO` e não bloqueia esta fase. Vira concreto no dia em que alguém
+puder trocar o fuso pela UI, e por isso `JOR-05` não deve ser implementado
+antes de `JOR-B4` ser resolvido.
 
 ## JOR-A1 — a regra que a correção fixou
 
@@ -7454,9 +7477,19 @@ alerta que aparece sempre não é alerta.
 
 O sinal passou a valer só quando o dia já virou — aí ele é acionável, porque a
 única saída para um dia incompleto é a correção. Com isso ele ganhou tela: no
-Field, no cartão do dia e no histórico; no painel web, na lista da equipe e no
-espelho por funcionário. **Sem CTA novo** — a porta única da correção continua
-sendo a da seção `Correções` (§258).
+Field, no cartão do dia e no histórico; no **espelho web individual**
+(`/jornada/[userId]`), que aceita `?date=` e por isso consegue mostrar um dia
+passado. **Sem CTA novo** — a porta única da correção continua sendo a da
+seção `Correções` (§258).
+
+**A lista da equipe (`/jornada`) não mostra a inconsistência histórica** — não
+porque falte código, mas porque a página nunca pede um dia diferente do
+corrente: `getTeamWorkday(session.companyId)` é chamada sem instante, e o
+próprio dia corrente nunca carrega a inconsistência (§298, o caso A). O campo
+`inconsistencies` existe em `TeamMemberWorkday` e o JSX que o exibe está no
+arquivo, mas em produção esse ramo nunca renderiza — é achado registrado
+separadamente como `JOR-B1` (§253). Corrigir isso é dar à lista da equipe
+navegação por dia, o que esta tarefa **não** faz.
 
 O texto é **literal do domínio**, não conteúdo de usuário: não há interpolação
 de dado nenhum nessas mensagens, e é o que mantém as duas telas livres de
@@ -9700,8 +9733,11 @@ fonte de horas parou de ser instável — a condição que faltava, não o traba
 
 O servidor já calculava `inconsistencies` (`Jornada em aberto`, `Intervalo em
 aberto` — `src/lib/time-clock.ts`) e nada exibia. Resolvido no mesmo patch: o
-Field mostra no cartão do dia e no histórico, e o painel web mostra na lista da
-equipe e no espelho por funcionário (§253).
+Field mostra no cartão do dia e no histórico, e o **espelho web individual**
+(`/jornada/[userId]`, que navega por dia) mostra no dia consultado. A **lista
+da equipe** carrega o campo mas nunca renderiza o alerta em produção — ela
+nunca pede um dia diferente do corrente, e o dia corrente nunca é sinalizado
+por desenho (§288). É o achado `JOR-B1` (§253), não corrigido nesta fase.
 
 O que tornou o sinal exibível foi torná-lo **acionável**: ele deixou de disparar
 para quem está simplesmente trabalhando agora e passou a marcar só o dia que já

@@ -215,11 +215,13 @@ Quatro regras que serão fáceis de desfazer sem perceber:
 **Quatro achados da auditoria clean-room final, todos residuais e aceitos** (não corrigir sem tarefa própria):
 
 * **JOR-A1 (`LOW`) — RESOLVIDO** (v0.11.1). Só conta intervalo com as **duas pontas provadas**; o parcial até agora vale só para o **dia corrente**, e quem decide se o dia ainda está acontecendo é o fuso da empresa. `summarize` recebe `openEndsAt` e virou função **pura** — `Date.now()` por dentro dela era o defeito. Nada de assumir saída às 23h59, criar `CLOCK_OUT` ou tocar `TimeEntry`.
-* **JOR-A2 (`INFO`) — RESOLVIDO** (v0.11.1). As inconsistências aparecem no Field (cartão do dia e histórico) e no painel web (lista da equipe e espelho por funcionário), **sem CTA novo** — a porta única continua na seção `Correções` (§258). O sinal deixou de disparar para quem está trabalhando agora: um alerta que aparece sempre não é alerta.
+* **JOR-A2 (`INFO`) — RESOLVIDO** (v0.11.1). As inconsistências aparecem no Field (cartão do dia e histórico) e no **espelho web individual** (`/jornada/[userId]`, que navega por dia), **sem CTA novo** — a porta única continua na seção `Correções` (§258). O sinal deixou de disparar para quem está trabalhando agora: um alerta que aparece sempre não é alerta.
+* **JOR-B1 (`INFO`) — pendente.** A **lista da equipe** (`/jornada`) tem o campo `inconsistencies` e o JSX que o exibiria, mas a página chama `getTeamWorkday(session.companyId)` sem instante — sempre lê o dia corrente, que nunca é sinalizado por desenho. O ramo é código morto em produção, não removido; ver `docs/PRD.md` §253.
+* **JOR-B4 (`INFO`) — bloqueia JOR-05.** O lookup de `Workday` por instante (`getWorkdayView`, `getTeamWorkday`, `getWorkdayHistory`) usa o fuso **atual** de `Company.timezone`, não o fuso sob o qual o dia foi vivido. Uma UI de configuração de fuso (JOR-05) não deve nascer antes disso ser resolvido — troca de fuso pode fazer dia histórico "sumir", localizar `Workday` no dia vizinho, ou recusar `CLOCK_OUT` por `Workday` errado. Risco teórico hoje porque `Company.timezone` só tem o padrão.
 * **JOR-A3 (`INFO`)** — `pendingAdjustments` do painel do gestor não é limitado ao dia consultado.
 * **JOR-A4 (`INFO`)** — `$executeRawUnsafe` só no reset de banco de teste, protegido pelo guard de ambiente.
 
-**Continua pendente: JOR-05** — `Company.timezone` não tem superfície administrativa. Não bloqueia: o padrão `America/Sao_Paulo` atende, e o campo já cai no padrão quando o valor gravado é inválido.
+**Continua pendente: JOR-05** — `Company.timezone` não tem superfície administrativa. Não bloqueia: o padrão `America/Sao_Paulo` atende, e o campo já cai no padrão quando o valor gravado é inválido. **`BLOCKED BY JOR-B4`**: antes de dar à empresa como trocar o fuso, o lookup de `Workday` por instante precisa parar de depender do fuso ATUAL para achar dias históricos.
 
 ## Escala de trabalho e espelho de jornada — PLANNED
 

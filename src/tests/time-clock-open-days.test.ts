@@ -41,6 +41,30 @@ beforeEach(async () => {
 type Tipo = "CLOCK_IN" | "BREAK_START" | "BREAK_END" | "CLOCK_OUT";
 
 /**
+ * Milissegundos decorridos desde a meia-noite civil da empresa.
+ *
+ * Mesmo helper de `time-clock-effective.test.ts` — existe aqui em separado
+ * porque é só isso que este arquivo precisa dele, para calcular até onde um
+ * deslocamento "há 2 horas" pode ir sem cruzar a virada do dia.
+ */
+function decorridoHoje(agora: Date, timezone: string): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(agora);
+  const get = (type: string) =>
+    Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const hora = get("hour") % 24;
+  return (
+    ((hora * 60 + get("minute")) * 60 + get("second")) * 1000 +
+    agora.getMilliseconds()
+  );
+}
+
+/**
  * Semeia uma jornada `diasAtras` dias no passado, com horas UTC fixas.
  *
  * 11h–21h UTC caem no mesmo dia civil em qualquer fuso brasileiro, então a
@@ -119,6 +143,67 @@ describe("JOR-A1 — dia histórico em aberto não fabrica tempo", () => {
     expect(view.workedMinutes).toBeLessThan(5);
 
     // E não é sinalizado: estar trabalhando agora não é inconsistência.
+    expect(view.inconsistencies).toEqual([]);
+  });
+
+  it("A2. o parcial do dia CORRENTE soma o tempo real decorrido, com tolerância curta", async () => {
+    /*
+      JOR-B2: a acumulação até agora tem o comportamento certo (teste A), mas
+      nada travava o VALOR. Este teste ancora numa entrada de verdade, batida
+      há ~2h, e confere que o parcial reflete esse tempo — não um valor
+      arbitrário, não zero, não o dia inteiro.
+
+      Sem `sleep`: o deslocamento vem de subtrair minutos do relógio real, não
+      de esperar o relógio andar.
+
+      Sem depender do fuso da MÁQUINA: a data usada para abrir o `Workday` é a
+      mesma `civilDateIn(agora, timezone)` que o domínio usa — se o teste
+      rodasse perto da meia-noite da empresa, um deslocamento fixo de 120min
+      poderia cair no dia civil ANTERIOR, e por isso o deslocamento é reduzido
+      (`Math.min`) para nunca cruzar a virada. A tolerância da asserção usa o
+      deslocamento REAL, não a constante 120 — o que trava é a regra ("soma o
+      que passou"), não um número mágico.
+    */
+    const ctx = { companyId: fixture.companyA.id, userId: fixture.techA.id };
+    const company = await prisma.company.findUniqueOrThrow({
+      where: { id: ctx.companyId },
+      select: { timezone: true },
+    });
+
+    const agora = new Date();
+    const dia = civilDateIn(agora, company.timezone);
+    const decorridoDesdeMeiaNoite = decorridoHoje(agora, company.timezone) / 60_000;
+    // 5min de margem de segurança antes da meia-noite civil da empresa.
+    const deslocamentoMin = Math.min(120, Math.max(1, decorridoDesdeMeiaNoite - 5));
+
+    const workday = await prisma.workday.create({
+      data: {
+        companyId: ctx.companyId,
+        userId: ctx.userId,
+        date: new Date(`${dia}T00:00:00.000Z`),
+        timezone: company.timezone,
+      },
+    });
+    await prisma.timeEntry.create({
+      data: {
+        companyId: ctx.companyId,
+        userId: ctx.userId,
+        workdayId: workday.id,
+        type: "CLOCK_IN",
+        source: "FIELD_APP",
+        occurredAt: new Date(agora.getTime() - deslocamentoMin * 60_000),
+      },
+    });
+
+    const view = await getWorkdayView(ctx.companyId, ctx.userId);
+    expect(view.state).toBe("WORKING");
+    // Tolerância curta: o tempo real de execução do teste, não um sleep.
+    expect(view.workedMinutes).toBeGreaterThanOrEqual(
+      Math.floor(deslocamentoMin) - 1,
+    );
+    expect(view.workedMinutes).toBeLessThanOrEqual(
+      Math.ceil(deslocamentoMin) + 1,
+    );
     expect(view.inconsistencies).toEqual([]);
   });
 
