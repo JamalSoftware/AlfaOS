@@ -698,6 +698,14 @@ Alta
 Urgente
 ```
 
+> **Prioridade é gravada na criação e hoje não tem caminho de alteração.** A
+> §310 audita o que existe de fato, e a §315 especifica a mudança de prioridade
+> como ação explícita — ainda não implementada.
+>
+> **Prioridade não é ordem de atendimento.** A sequência em que o técnico
+> executa é a Fila Operacional (Parte XII, §308–§332); as duas propriedades são
+> distintas e não se substituem (§309).
+
 ---
 
 # 19. ESTADOS DA OS
@@ -4720,7 +4728,10 @@ Estende a §110.
 Hoje · Próximas · Atrasadas · Urgentes · Concluídas recentemente
 ```
 
-Ordenação por **prioridade · agendamento · SLA · rota futura**.
+Ordenação por **prioridade · agendamento · SLA · rota futura** — enquanto não
+houver fila autoritativa. Com a Fila Operacional (Parte XII), a ordem passa a
+ser a que o servidor entrega, e "próxima na fila" não se confunde com "próxima
+agendada" (§323).
 
 "Atrasadas" e "Urgentes" existem como recortes próprios porque são as duas
 listas em que estar no fim da rolagem equivale a não existir.
@@ -5740,6 +5751,11 @@ o FiberMap, não copiando-o. Cada sistema mantém a sua responsabilidade.
 
 # 203. CENTRAL DE DESPACHO — O QUADRO
 
+> **O quadro responde "quem atende". Ele não responde "em que ordem".** A
+> sequência de execução dentro da coluna de cada técnico é a Fila Operacional
+> (Parte XII), e a §325 explica como as duas se encaixam: a fila é a
+> profundidade da coluna, não uma segunda tela concorrente.
+
 Capability futura do **AlfaOS Web / Dispatcher**. Quadro no estilo Kanban
 operacional:
 
@@ -5968,6 +5984,10 @@ palavras se parecem e as fontes são opostas.
 | Geocodificação (§199) | **P1/P2** — depende de provider |
 | Agenda integrada (§207) | **P1/P2** — conforme complexidade |
 | Smart Dispatch (§208) | **P2** |
+
+> **A Fila Operacional (Parte XII) é anterior a tudo isto.** Ela não depende de
+> mapa, de geocodificação nem de habilidades cadastradas: precisa de prioridade
+> mutável e de posição explícita. Roadmap próprio na §332.
 
 ## O primeiro APK do Field não depende de nada disto
 
@@ -7937,6 +7957,11 @@ leituras da mesma fila pintem o mesmo painel:
 **Em atendimento vem antes de urgente**, de propósito: uma OS já iniciada é
 trabalho aberto sob o nome do técnico, e trocá-la por outra produz duas OS
 pela metade em vez de uma concluída. Concluída e cancelada nunca entram.
+
+> **Este ranking é local e TEMPORÁRIO.** Ele existe porque não há fila
+> autoritativa: quando a Fila Operacional (Parte XII) existir, o bloco passa a
+> refletir a ordem que o servidor entrega, e o ranking local sai de cena
+> (§314, §323). O aplicativo nunca contradiz a ordem do backend.
 
 Limite de três cards e um `VER TODAS AS OS` — o Início não é a lista de OS, ou
 a aba `OS` perde a razão de existir. Sem OS aberta, o bloco não aparece: card
@@ -10043,3 +10068,1080 @@ Porque o painel do gestor já tem um buraco esperando por ela: `NÃO INICIOU`
 (§231) não distingue folga de ausência hoje, e essa distinção só existe quando
 há escala prevista para comparar. A trilha Field já registrava isso como
 dependência (§194) antes desta Parte existir.
+
+---
+
+# PARTE XII — FILA OPERACIONAL DE ORDENS DE SERVIÇO
+
+> **Addendum aprovado em 2026-08-30.** Documentação de produto e arquitetura.
+> **Nada desta Parte existe em código.** Nenhuma migration, nenhuma rota,
+> nenhuma tela e nenhuma alteração no Flutter foi feita por ela.
+>
+> Ela não substitui a Parte VI: a **Central de Despacho** (§203–§209) decide
+> **quem** atende; esta Parte decide **em que ordem**. São perguntas
+> diferentes, e hoje o AlfaOS só responde a primeira.
+
+---
+
+# 308. FILA OPERACIONAL DE OS — CAPABILITY OFICIAL
+
+**Classificação: `IMPORTANTE`. Nada implementado.**
+
+O gestor precisa determinar não apenas a criticidade de cada OS, mas a
+**sequência** em que cada técnico deve atendê-las.
+
+## O que existe hoje, e por que não basta
+
+A ordem que o técnico vê é **derivada**, nunca declarada. A fila do técnico na
+Web e a lista do Field ordenam por `priority` decrescente e `scheduledAt`
+crescente — regra fixa em código, igual para todas as empresas, que ninguém na
+operação consegue alterar.
+
+O resultado é que um despachante que sabe que a OS Nº 145 tem de vir antes da
+OS Nº 152 — as duas urgentes, as duas do mesmo técnico — não tem como dizer
+isso. Sobram dois atalhos, e **os dois corrompem dado para expressar ordem**:
+
+```text
+subir a prioridade da 145     → mente sobre a criticidade
+inventar um scheduledAt       → mente sobre o agendamento
+```
+
+O segundo é o pior, porque `scheduledAt` é compromisso com o cliente (§142):
+uma hora inventada para forçar posição vira, três telas adiante, um horário
+que alguém acha que foi prometido.
+
+> **Ordem operacional é informação de primeira classe. Enquanto não tiver
+> campo próprio, será escrita em cima de algum campo que significa outra
+> coisa.**
+
+## Objetivos
+
+```text
+o despachante define a sequência de cada técnico, explicitamente
+o técnico abre o aplicativo e sabe qual é a próxima, sem interpretar
+a ordem é a mesma na Web e no Field, porque vem do mesmo lugar
+mudar a ordem é ação auditada, não efeito colateral
+```
+
+## O que esta Parte NÃO é
+
+```text
+roteirização por distância/trânsito    §137, §187 — permanece FUTURO
+despacho assistido / Smart Dispatch    §208 — permanece P2
+escala de trabalho                     Parte XI — planejado, não fila
+agenda / scheduling engine             §207 — sem motor nesta fase
+```
+
+---
+
+# 309. PRIORIDADE ≠ POSIÇÃO NA FILA
+
+As duas propriedades respondem perguntas diferentes e **não se substituem**:
+
+| | Pergunta | Escopo |
+|---|---|---|
+| **Prioridade** | Qual a criticidade operacional desta OS? | A OS, sozinha |
+| **Posição** | Em qual ordem este técnico deve executar? | O par (técnico, OS) |
+
+Uma OS pode ser urgente **e ainda existir outra urgente antes dela**. Duas OS
+igualmente críticas continuam precisando de sequência, e nenhuma quantidade de
+níveis de prioridade a produz: um quinto nível acima de `URGENT` só empurra o
+problema para o dia em que houver duas OS nesse quinto nível.
+
+## A consequência que decide o modelo de dados
+
+**Prioridade pertence à OS. Posição pertence ao vínculo com o técnico.**
+
+Uma OS reatribuída de A para B leva a prioridade junto — a criticidade não
+mudou porque quem vai atender mudou. A posição, não: "terceira da fila" não
+significa nada fora de uma fila específica, e a posição 3 de A não tem relação
+alguma com a posição 3 de B.
+
+Isso não fecha o schema (§329), mas descarta a leitura ingênua de que posição
+é "mais um campo da OS como qualquer outro".
+
+---
+
+# 310. O MODELO DE PRIORIDADE QUE JÁ EXISTE — AUDITORIA
+
+Levantamento feito no código, não no PRD, antes de escrever qualquer regra
+nova.
+
+## Os valores
+
+`ServiceOrderPriority` tem **quatro** valores, com `@default(NORMAL)`, e a §18
+já os documenta com os rótulos de interface:
+
+```text
+LOW      Baixa
+NORMAL   Normal
+HIGH     Alta
+URGENT   Urgente
+```
+
+São persistidos, aparecem na Web (filtro da listagem e selo da OS), viajam no
+DTO do Field (lista e detalhe) e têm índice próprio (`[companyId, priority]`).
+
+## Prioridade é gravada uma vez e nunca mais muda
+
+**Não existe caminho de alteração.** `priority` é escrita na criação — manual
+e importada — e a rota de detalhe expõe apenas `GET`. Não há `PATCH`, e a
+máquina de estados (§20) proíbe por princípio uma rota genérica que aceite
+campo arbitrário.
+
+> Marcar como urgente uma OS que já nasceu **é impossível hoje**. Isso não é
+> limitação da fila: é lacuna do módulo de OS que a fila torna visível.
+
+## A ordenação atual depende da ordem de declaração do enum
+
+A fila ordena por `priority: "desc"`. Em Postgres um `enum` ordena pela **ordem
+de declaração** — `LOW < NORMAL < HIGH < URGENT` —, então o resultado hoje está
+certo por coincidência estrutural, não por regra escrita.
+
+```text
+consequência: reordenar as linhas do enum no schema reordenaria, em
+silêncio, a fila de todos os técnicos de todas as empresas
+```
+
+Existe uma constante que resolveria isso — `SERVICE_ORDER_PRIORITY_ORDER`, em
+`src/lib/service-orders.ts` — e ela **não é usada em lugar nenhum**. É código
+morto. A implementação deve decidir se a ordem passa a ser explícita por ela ou
+se a dependência do enum é assumida por escrito.
+
+> **Nenhuma das duas coisas é corrigida nesta tarefa.** São achados
+> registrados, não pendências abertas em silêncio.
+
+## O aplicativo já colapsa os quatro em três
+
+O ranking local do Field (§257) trata `LOW` e `NORMAL` como o mesmo nível:
+
+```text
+0  IN_PROGRESS     1  URGENT     2  HIGH     3  o resto
+```
+
+## IMPLEMENTATION DECISION REQUIRED
+
+A visão de produto desta Parte descreve a fila em **dois blocos** — urgentes e
+normais. O domínio tem **quatro** valores. A incompatibilidade é real e não é
+resolvida aqui:
+
+```text
+D-01  onde ficam LOW e HIGH numa fila de dois blocos?
+      HIGH acompanha URGENT, ou acompanha NORMAL?
+
+D-02  o colapso é de APRESENTAÇÃO (quatro persistidos, dois blocos na
+      tela) ou de DOMÍNIO (reduzir o enum)?
+
+D-03  se for de apresentação, onde mora a regra de colapso — para que
+      Web, Field e cálculo da fila não deem três respostas diferentes?
+```
+
+Restrições que valem para qualquer resposta: **não remover `HIGH` nem `LOW`**,
+não improvisar migration destrutiva, não criar um segundo enum paralelo. A
+recomendação registrada é `D-02 = apresentação` — reduzir o domínio joga fora
+informação já gravada em OS reais —, mas a decisão é da fase de implementação.
+
+---
+
+# 311. A FILA PERTENCE A (EMPRESA, TÉCNICO)
+
+Cada técnico tem **uma** fila operacional autoritativa, no contexto:
+
+```text
+companyId  +  technicianId
+```
+
+`companyId` vem sempre da sessão, nunca do cliente. Vale integralmente a regra
+permanente do `CLAUDE.md` e a §221: empresa A nunca lê, altera, ordena nem
+**infere** a fila da empresa B.
+
+> **Não existe fila global entre empresas, e não existe fila global dentro de
+> uma empresa.** Um "backlog geral ordenado" seria uma segunda autoridade de
+> ordem competindo com a fila do técnico.
+
+## OS sem técnico não tem posição
+
+Uma OS `PENDING` sem técnico não está em fila nenhuma — está na coluna `NÃO
+ATRIBUÍDAS` do quadro (§203). **Posição só passa a existir na atribuição**, e é
+isso que impede a pergunta sem resposta "qual é a posição 3 da fila de
+ninguém?".
+
+---
+
+# 312. COMPOSIÇÃO DA FILA
+
+A fila que o despachante monta e o técnico lê:
+
+```text
+EM ATENDIMENTO
+   OS Nº 101
+
+PRÓXIMAS
+   1   URGENTE   OS Nº 145
+   2   URGENTE   OS Nº 152
+   3   NORMAL    OS Nº 133
+   4   NORMAL    OS Nº 161
+```
+
+Três camadas, nesta ordem:
+
+```text
+1. IN_PROGRESS      destacada no topo, fora da disputa
+2. bloco urgente    ordenado pelo despachante
+3. bloco normal     ordenado pelo despachante
+```
+
+## Isto não toca a máquina de estados
+
+> **Urgente não significa em atendimento.**
+
+Uma OS urgente e primeira da fila continua `ASSIGNED` até o técnico
+efetivamente iniciar (§19, §20). Posição e prioridade **não são transições de
+estado** e não podem iniciar, concluir nem cancelar coisa alguma. A fila
+descreve intenção; o status descreve fato.
+
+---
+
+# 313. POSIÇÃO EXPLÍCITA — O BACKEND É AUTORIDADE
+
+O conceito precisa existir como dado, não como cálculo repetido em cada
+cliente. Nome conceitual: **`dispatchPosition`** (alternativa considerada:
+`executionOrder`). O nome físico da coluna ou do campo **não é fechado aqui** —
+depende da escolha da §329.
+
+```text
+a posição é explícita, não derivada de outro campo
+o backend é a única autoridade sobre ela
+o Flutter não calcula posição
+o navegador não calcula posição
+a saída é determinística: duas leituras dão a mesma ordem
+```
+
+## Determinismo exige mais que um número
+
+Posição sozinha não garante ordem total: um número repetido — por falha
+parcial, por corrida, por backfill malfeito — produziria empate, e empate
+significa que a fila muda de forma entre duas leituras.
+
+> **A leitura autoritativa precisa terminar num critério que nunca empata.**
+
+A convenção já usada nas listas de OS (`{ id: "asc" }` como último critério)
+resolve isso e deve ser preservada. Determinismo aqui não é preciosismo: é o
+que impede o técnico de ver a fila numa ordem, atualizar a tela e vê-la em
+outra, sem que nada tenha mudado.
+
+## O backend decide, mas o cliente apresenta
+
+A ordem autoritativa é entregue pronta. O que o cliente pode fazer é
+**apresentar** — agrupar, rotular, numerar —, nunca reordenar.
+
+---
+
+# 314. RANKING LOCAL DO FIELD — TEMPORÁRIO, E POR QUÊ
+
+**CURRENT.** O aplicativo hoje reordena localmente. O bloco `ATENÇÃO AGORA`
+(§257) classifica por `status`, depois `priority`, e desempata por `number`; a
+lista `Minhas Ordens` agrupa em `Em atendimento` e `Atribuídas`.
+
+Isso foi correto: sem fila autoritativa, os únicos campos disponíveis eram os
+do DTO, e o piloto físico exigia que uma OS sem `scheduledAt` aparecesse no
+Início.
+
+**Mas cliente e servidor já divergem hoje**, e vale registrar antes que alguém
+descubra em campo: o servidor desempata por `scheduledAt` e depois `id`; o
+aplicativo desempata por `number`. Duas OS urgentes sem agendamento podem
+aparecer numa ordem na Web e noutra no Field — sem que nenhum dos dois esteja
+errado, porque nenhum dos dois é autoridade.
+
+**FUTURE.** Quando a fila existir, o Field **consome a ordem autoritativa** e o
+ranking local sai de cena.
+
+> **O ranking local não é removido nesta tarefa** — remover a única ordenação
+> existente antes de haver outra deixaria o técnico sem ordem nenhuma.
+
+A transição precisa de convivência: um APK antigo continuará ordenando
+localmente contra um servidor que já tem fila. A §192 (versão no caminho) e a
+regra de que APKs antigos convivem em campo cobrem isso; o campo novo é aditivo
+e um cliente que o ignora continua funcionando.
+
+---
+
+# 315. ALTERAÇÃO DE PRIORIDADE
+
+Perfis autorizados — os que existem de fato em `AccessProfile`:
+
+```text
+ADMIN        pode
+DISPATCHER   pode
+TECHNICIAN   NÃO pode
+```
+
+Não existe perfil "Gestor" no AlfaOS (a §133 o cita como hipótese futura). Até
+que exista, "gestor" nesta Parte lê-se **ADMIN ou DISPATCHER**.
+
+> **RBAC é server-side, sempre.** Esconder o botão não é controle de acesso.
+
+## É ação explícita, não campo editável
+
+A alteração segue a forma das operações que já existem (§20): comando próprio,
+payload por whitelist estrita, `companyId` da sessão, proteção de origem,
+validação e registro. **Não** um `PATCH` genérico que aceite `{ priority }`
+junto de qualquer outro campo — é assim que `status` ou `companyId` entram de
+carona.
+
+## Alterar prioridade mexe na fila
+
+Marcar como urgente uma OS que estava em quarto lugar entre as normais **tem
+efeito de posição**, e esse efeito precisa ser escolhido, não descoberto:
+
+```text
+D-04  a OS promovida entra em que ponto do bloco urgente?
+      fim do bloco (recomendado) · início · posição relativa preservada
+
+D-05  ao rebaixar de urgente para normal, ela entra onde?
+```
+
+A recomendação registrada é **fim do bloco de destino**: é a única que não
+altera a ordem relativa de nenhuma outra OS, e o despachante que quiser outra
+posição já tem a reordenação (§316) para dizê-lo.
+
+---
+
+# 316. REORDENAÇÃO
+
+Operações previstas:
+
+```text
+subir uma posição
+descer uma posição
+mover para posição específica
+arrastar e soltar (desktop)
+```
+
+## Arrastar é UX. A operação é do servidor
+
+Vale integralmente a §204, escrita para o quadro de despacho e igualmente
+verdadeira aqui:
+
+> **Drag-and-drop é UI. O frontend nunca altera a `ServiceOrder`.**
+
+```text
+arrastar → soltar
+         → comando de reordenação (API)
+         → autenticação · perfil · tenant
+         → validação da regra de prioridade
+         → controle de concorrência
+         → TRANSAÇÃO   posições + evento + auditoria
+```
+
+## SUBIR e DESCER não são plano B
+
+Botões explícitos de subir e descer são **o caminho principal** em tablet e
+celular, e o caminho acessível em qualquer lugar. Arrastar exige precisão
+motora, visão do alvo e um ponteiro — três coisas que faltam justamente na tela
+pequena onde o despachante às vezes precisa reordenar.
+
+A ordem de implementação recomendada é **subir/descer primeiro**: é a operação
+completa, e o arrastar é uma segunda casca sobre o mesmo comando.
+
+---
+
+# 317. ENTRADA E SAÍDA DA FILA
+
+## Nova OS atribuída
+
+A política de inserção é **do servidor**, explícita e única. O Flutter não
+escolhe onde a OS entra.
+
+```text
+direção recomendada
+   URGENTE   fim do bloco de urgentes
+   NORMAL    fim da fila normal
+   salvo ação explícita do despachante
+```
+
+Recomendada, não imutável: se `D-01` colocar `HIGH` num bloco próprio, a
+política acompanha.
+
+## Reatribuição de técnico
+
+Sai da fila de A e entra na de B, **atomicamente**. Nunca em duas requisições,
+nunca com estado intermediário em que a OS não está em fila nenhuma ou está nas
+duas.
+
+```text
+remover da fila de A
+inserir na fila de B pela política de inserção
+normalizar as posições de A, se necessário
+preservar histórico dos dois lados
+tenant verificado nas duas pontas
+nenhuma posição duplicada em nenhuma das duas filas
+```
+
+A reatribuição já é comando existente e auditado (§205). **A fila não ganha um
+caminho próprio de atribuição** — ela estende o que já existe, pela mesma razão
+que a §205 dá ao quadro: um segundo caminho é um segundo lugar para esquecer o
+evento, a elegibilidade e a notificação.
+
+## Saída por conclusão, cancelamento ou desatribuição
+
+```text
+COMPLETED     sai da fila de próximas
+CANCELLED     sai da fila de próximas
+desatribuída  volta a não ter fila (§311)
+```
+
+`D-06` — a posição de uma OS que saiu é **liberada e a fila renormalizada**, ou
+preservada como histórico? A resposta depende da §329: numa coluna da OS o
+valor simplesmente fica para trás; numa entidade própria a entrada é removida.
+Registrar a intenção antes de escolher o schema evita descobrir a semântica
+depois da migration.
+
+---
+
+# 318. CONCORRÊNCIA E IDEMPOTÊNCIA
+
+Esta é a superfície mais sensível da capability, e a razão é estrutural.
+
+## O `expectedVersion` da OS não protege a fila
+
+O AlfaOS já tem compare-and-set por `version` na OS (§23), e ele resolve o caso
+clássico: dois despachantes atribuindo a mesma OS a partir da mesma leitura — o
+segundo leva 409.
+
+**Uma reordenação não é uma escrita numa OS: é uma escrita em N.**
+
+```text
+Despachante A move a OS X para a posição 1
+Despachante B move a OS Y para a posição 1
+
+as duas requisições carregam a version CORRETA da própria OS
+as duas passam no compare-and-set
+```
+
+O resultado é uma fila com duas OS na posição 1 — e nenhum dos dois CAS falhou,
+porque cada um respondeu por uma linha e ninguém respondeu **pela fila**.
+
+> **O CAS da OS protege a OS. A fila precisa da própria unidade de
+> concorrência.**
+
+Caminhos possíveis, nenhum decidido aqui:
+
+```text
+D-07  serializar pela fila do técnico — lock explícito na linha âncora,
+      o mesmo padrão que a Jornada já usa para o Workday
+      OU  contador de versão próprio da fila, com CAS sobre ele
+      OU  unique (companyId, technicianId, position), deixando o banco
+          arbitrar — ao custo de reordenações precisarem de posições
+          intermediárias ou de duas fases
+```
+
+Last-write-wins silencioso está **proibido** em qualquer das três. Conflito é
+explícito: 409, a tela recarrega e mostra o que mudou. Vale a §204 — "falhar
+precisa ser visível": um cartão que volta sozinho para o lugar é lido como
+travamento da interface.
+
+## Idempotência: a operação relativa não é idempotente
+
+```text
+"subir uma posição" aplicada duas vezes  →  sobe DUAS posições
+```
+
+Retry de rede, duplo clique e reenvio transformariam uma correção em duas.
+**Delta não é idempotente por natureza.** Duas saídas:
+
+```text
+expressar a operação em ALVO ABSOLUTO — "mover para a posição 3" —,
+que aplicada duas vezes produz o mesmo estado
+
+e/ou usar Idempotency-Key, que já existe no AlfaOS desde a v0.9 —
+escopada por empresa, usuário, operação e chave, memorizando só o sucesso
+```
+
+A recomendação registrada é **as duas**: alvo absoluto no contrato e chave de
+idempotência na superfície que retenta. Alvo absoluto sozinho ainda duplicaria
+evento de timeline e linha de auditoria quando a mesma requisição chega duas
+vezes.
+
+---
+
+# 319. INVARIANTES
+
+Mínimas, e todas verificáveis:
+
+```text
+I-01  companyId é sempre derivado da sessão, nunca do cliente
+I-02  a OS pertence à mesma empresa da sessão
+I-03  o técnico pertence à mesma empresa da sessão
+I-04  posição enviada pelo cliente é ENTRADA de comando, nunca verdade
+I-05  nenhuma OS aparece na fila de outro tenant, nem por inferência
+I-06  o estado da OS continua governado pela máquina de estados (§20)
+I-07  a fila não inicia, não conclui e não cancela OS
+I-08  reordenar não altera origin, externalId nem externalNumber
+I-09  alterar prioridade não altera origin nem identidade externa
+I-10  identidade externa permanece imutável (§142)
+I-11  duas OS da mesma fila nunca ocupam a mesma posição efetiva
+I-12  URGENTE precede NORMAL, e posição não subverte isso (§320)
+I-13  a leitura autoritativa é determinística
+I-14  técnico não altera prioridade e não reordena a própria fila
+```
+
+`I-12` merece nota: é **invariante de saída**, e é preciso decidir se será
+garantida por estrutura (posição dentro do grupo) ou por validação a cada
+escrita (posição global). A §329 trata disso.
+
+---
+
+# 320. A REGRA DE URGÊNCIA
+
+```text
+uma OS URGENTE aparece antes das NORMAIS
+entre duas URGENTES, a ordem do despachante prevalece
+```
+
+> **Uma OS normal não ultrapassa uma urgente só por manipulação de posição.**
+
+Não existe, nesta fase, operação que fure a regra. Quem quiser uma OS normal na
+frente de uma urgente tem um caminho, e é o honesto: **mudar a prioridade dela**
+(§315), o que fica registrado, auditado e visível — em vez de produzir uma fila
+cuja ordem contradiz os selos que ela mesma exibe.
+
+**Não criar exceção agora.** Se um dia existir, será operação administrativa
+explícita, nomeada, autorizada e auditada — nunca efeito colateral do arrastar.
+
+---
+
+# 321. OS EM ATENDIMENTO
+
+Uma OS `IN_PROGRESS` **não disputa** o lugar de "qual será a próxima". Ela ocupa
+o topo, com rótulo próprio:
+
+```text
+EM ATENDIMENTO AGORA
+   OS Nº 101
+
+PRÓXIMAS
+   1 ...
+```
+
+É a mesma decisão que o Field já tomou no `ATENÇÃO AGORA` (§257), e pela mesma
+razão: **trabalho já começado sob o nome do técnico vem antes de trabalho
+novo**, ou o dia termina com duas OS pela metade em vez de uma concluída.
+
+## Mais de uma IN_PROGRESS não é estado legado
+
+Vale corrigir uma suposição comum antes que ela vire regra: **o AlfaOS permite
+hoje que um técnico tenha mais de uma OS `IN_PROGRESS`**. A validação de início
+confere a transição *daquela* OS; não existe trava de "uma por técnico".
+
+Ou seja, duas OS em atendimento não indicam corrupção de dado — indicam um
+técnico que iniciou duas. A fila deve **apresentá-las todas** no bloco do topo,
+em ordem determinística, e não eleger uma como "a verdadeira".
+
+`D-08` — se a operação quiser limitar a uma por técnico, isso é regra da máquina
+de estados da OS, decidida na §20, **não** efeito colateral da fila.
+
+---
+
+# 322. EVENTOS, AUDITORIA E HISTÓRICO
+
+## O que já existe, antes de propor nome
+
+Há **três registros distintos**, com convenções distintas, e propor nome sem
+olhar produziria um quarto vocabulário:
+
+```text
+ServiceOrderEvent.event   String livre, timeline operacional
+                          convenção MISTA:
+                          SERVICE_ORDER_CREATED · SERVICE_ORDER_IMPORTED
+                          TECHNICIAN_ASSIGNED · TECHNICIAN_CHANGED
+                          OS_STARTED · OS_COMPLETED · CHECKED_IN
+
+AuditLog.action           convenção UNIFORME, pontuada:
+                          SERVICE_ORDER.STARTED · SERVICE_ORDER.IMPORTED
+                          TECHNICIAN.UPDATED · FIELD.DEVICE_REVOKED
+
+NOTIFICATION_TYPES        SERVICE_ORDER_ASSIGNED (único hoje)
+OUTBOX_EVENTS             SERVICE_ORDER_ASSIGNED (único hoje)
+```
+
+## Nomes propostos
+
+Coerentes com a convenção de **cada** registro, não com uma média entre elas:
+
+```text
+AuditLog          SERVICE_ORDER.PRIORITY_CHANGED
+                  SERVICE_ORDER.DISPATCH_POSITION_CHANGED
+                  SERVICE_ORDER.DISPATCH_QUEUE_REORDERED
+
+Timeline          PRIORITY_CHANGED
+                  DISPATCH_POSITION_CHANGED
+```
+
+`D-09` — a timeline aceita as duas formas hoje. Recomenda-se a forma curta, que
+é a maioria dos eventos operacionais recentes, **e registrar a escolha**: a
+convenção mista é dívida existente, e a fila não deve aprofundá-la em silêncio.
+
+## Uma reordenação não escreve N eventos de timeline
+
+Mover uma OS para a posição 1 desloca todas as outras. Escrever um evento na
+timeline de cada uma **inundaria o histórico de OS que ninguém tocou** — e a
+timeline da OS é lida por técnico e por atendimento, não por auditor.
+
+```text
+Timeline    evento apenas na OS que o humano nomeou
+AuditLog    a operação inteira, com o antes e o depois da fila
+```
+
+A separação já é regra do projeto: `AuditLog` é trilha administrativa,
+`ServiceOrderEvent` é a timeline operacional, e uma não substitui a outra.
+
+## Conteúdo do registro
+
+```text
+companyId · serviceOrderId · technicianId · actor (userId)
+timestamp do SERVIDOR
+before / after   (prioridade, ou posição)
+reason           opcional
+correlação / chave de idempotência quando houver
+```
+
+Sem PII além do necessário e sem segredo — vale a §206: identificador
+correlaciona; nome, telefone e coordenada transformam log em cadastro paralelo.
+
+## Histórico visual da OS
+
+O que a tela da OS deve conseguir contar, com ator e horário:
+
+```text
+"Prioridade alterada de Normal para Urgente"
+"Movida da posição 4 para a posição 1"
+"Reatribuída do Técnico A para o Técnico B"
+```
+
+---
+
+# 323. FILA NO FIELD
+
+## Início — o bloco ATENÇÃO AGORA passa a refletir a fila
+
+```text
+EM ATENDIMENTO
+   OS Nº 101
+
+PRÓXIMAS
+   1ª  URGENTE  OS Nº 145
+   2ª  URGENTE  OS Nº 152
+   3ª  NORMAL   OS Nº 133
+```
+
+> **O ranking local nunca contradiz a ordem do backend.**
+
+O limite de três cards e o `VER TODAS AS OS` permanecem (§257): o Início não
+vira a lista de OS.
+
+## Minhas Ordens
+
+```text
+EM ATENDIMENTO
+PRÓXIMAS NA FILA    1ª  2ª  3ª ...
+```
+
+A tela pode manter outras seções quando fizerem sentido, mas **a posição
+operacional fica explícita** — um número, não uma ordem implícita que o técnico
+precisa deduzir da rolagem.
+
+## PRÓXIMA NA FILA ≠ PRÓXIMA AGENDADA
+
+Os dois conceitos convivem e **não podem ser fundidos**:
+
+```text
+próxima na fila      ordem operacional definida pelo despacho
+próxima agendada     scheduledAt, compromisso com o cliente
+```
+
+Uma OS pode ser **1ª da fila sem ter `scheduledAt` nenhum** — foi exatamente o
+caso que o primeiro piloto físico encontrou (§257). E uma OS agendada para as
+14h pode estar em terceiro na fila sem contradição alguma: uma frase é sobre
+sequência, a outra sobre relógio.
+
+Se as duas aparecerem na mesma tela, aparecem **rotuladas**, nunca as duas
+chamadas de "próxima".
+
+---
+
+# 324. SCHEDULED AT
+
+A semântica atual é preservada, sem alteração: `scheduledAt` é agendamento
+real, combinado com o cliente (§142).
+
+```text
+posição na fila NÃO substitui scheduledAt
+posição na fila NÃO deriva de scheduledAt
+scheduledAt NÃO é inventado a partir da posição
+```
+
+> **Nunca fabricar data e hora a partir de uma posição.**
+
+É a mesma regra que a Jornada fixou para tempo trabalhado (§303): dado que a
+operação não afirmou não é preenchido por conveniência de tela. Uma OS "primeira
+da fila" à qual o sistema atribuísse 08:00 viraria, no dia seguinte, um horário
+que alguém acha que foi prometido ao cliente.
+
+---
+
+# 325. DESPACHO WEB — A FILA POR TÉCNICO
+
+Superfície administrativa futura, para ADMIN e DISPATCHER:
+
+```text
+TÉCNICO: João
+
+EM ATENDIMENTO
+   OS Nº 101
+
+PRÓXIMAS
+   1   URGENTE   OS Nº 145      ↑ ↓
+   2   URGENTE   OS Nº 152      ↑ ↓
+   3   NORMAL    OS Nº 133      ↑ ↓
+   4   NORMAL    OS Nº 161      ↑ ↓
+```
+
+## Não é um segundo quadro
+
+A **Central de Despacho** (§203) já está especificada e resolve outra pergunta.
+As duas se encaixam assim:
+
+```text
+§203  colunas por técnico     QUEM está com o quê
+§325  fila de um técnico      EM QUE ORDEM ele executa
+```
+
+A coluna do quadro mostra quantidade e carga; a fila mostra sequência. A
+implementação natural é a fila ser **a profundidade da coluna** — o que a coluna
+do §203 exibe quando se olha um técnico de perto —, e não uma tela concorrente
+com estado próprio.
+
+Vale a §207 sem alteração: **três visões, um motor**. Quadro, mapa e agenda não
+guardam estado; a fila é a quarta leitura do mesmo dado, não um quinto lugar
+onde a ordem é decidida.
+
+## Visão multi-técnico — futuro
+
+```text
+Técnico A   em atendimento · próximas 1/2/3
+Técnico B   em atendimento · próximas 1/2/3
+Técnico C   ...
+```
+
+Evolução direta, `FUTURE`, que futuramente cruza mapa (§136), geolocalização,
+proximidade, disponibilidade (§185), SLA (§184) e roteirização (§187).
+
+## A fila não é roteirização
+
+```text
+Fila Operacional     ordem MANUAL e autoritativa, decidida por gente
+Route Optimization   distância, trânsito, janela — problema FUTURO (§137)
+```
+
+Nenhum algoritmo de roteirização nesta fase. No futuro, sugestão automática pode
+auxiliar, e o princípio da §137 continua valendo: **o sistema sugere, a pessoa
+decide** — o despachante mantém controle explícito.
+
+## A fila não é escala
+
+```text
+Escala (Parte XI)     o PLANEJADO do técnico — plantão, folga, DSR
+Fila (Parte XII)      a ORDEM das OS já atribuídas a ele
+```
+
+Domínios diferentes. Reordenar fila **não** cria `TimeEntry`, não altera Jornada
+e não altera escala. A regra que atravessa a Parte XI (§288, §300) continua
+intacta.
+
+---
+
+# 326. RECEITANET / ERP
+
+Uma OS importada do ReceitaNet participa da fila **normalmente**. É o mesmo
+princípio da §257: uma OS importada tem de funcionar como uma interna.
+
+```text
+origin           permanece imutável
+externalId       permanece identidade externa
+externalNumber   permanece o número do provedor
+```
+
+> **A Fila Operacional é conceito interno do AlfaOS.**
+
+O ERP externo **não** passa a controlar a ordem de atendimento. E não há como
+ele controlar: o ReceitaNet não expõe API de ordenação nem de prioridade, e a
+§141 já registrou, confirmado pelo suporte do provedor, que **não existe
+descoberta global de OS**. Nada nesta Parte autoriza inventar endpoint, adivinhar
+rota ou fuzzar o provedor.
+
+O AlfaOS continua sendo **source of truth operacional**. Integração futura que
+mudasse isso seria contratada explicitamente, e estaria escrita.
+
+---
+
+# 327. NOTIFICAÇÕES DA FILA — FUTURO
+
+Conecta-se à fundação de notificação já implementada na v0.9 (§153–§157):
+`Notification` e `OutboxEvent` na mesma transação, worker por comando, push como
+abstração inerte. **FCM real não existe e não é implementado aqui.**
+
+Gatilhos úteis:
+
+```text
+nova OS atribuída                       (já existe hoje)
+OS tornou-se urgente
+OS passou a ser a 1ª da fila
+a ordem da fila mudou de forma significativa
+OS reatribuída
+```
+
+UX futura, apenas como registro:
+
+```text
+"Nova OS urgente"
+"A OS Nº 145 agora é a 1ª da sua fila."
+
+"Prioridade alterada"
+"A OS Nº 152 foi marcada como urgente."
+```
+
+## Reordenar seis OS não são seis avisos
+
+Uma reordenação desloca várias OS de uma vez. Notificar cada deslocamento
+transformaria a fila em fonte de ruído, e o técnico aprenderia a ignorar o aviso
+— inclusive o que importa.
+
+`D-10` — o critério de "mudança significativa" precisa ser decidido e escrito
+(candidato: só a OS que passou a ser a 1ª, e só quando ela mudou). Sem PII na
+prévia: vale integralmente a §153 e a `SECURITY.md` §8.9.
+
+---
+
+# 328. OFFLINE
+
+```text
+o Field PODE exibir a última fila conhecida, marcada como tal
+o Field NÃO reordena offline
+o Field NÃO altera prioridade offline
+```
+
+> **Fila é decisão de despacho. O aparelho nunca assume essa autoridade.**
+
+Enfileirar localmente um "mover para 1" e sincronizar depois produziria uma
+reordenação aplicada sobre uma fila que já mudou — e o técnico não é quem decide
+a ordem (§315). Mudança de prioridade e de posição exigem confirmação do
+servidor.
+
+Isso não conflita com o offline-first da execução (§158–§161): o que o
+aplicativo pode fazer offline é **executar** a OS — check-in, evidências,
+materiais —, não redistribuir o trabalho.
+
+---
+
+# 329. MODELO DE DADOS — DUAS OPÇÕES, DECISÃO ADIADA
+
+Proposta **conceitual**. `NÃO criar migration.` A escolha física é da fase de
+implementação, depois de analisar o modelo atual em detalhe.
+
+## Opção A — campo em `ServiceOrder`
+
+```text
+ServiceOrder.priority          já existe
+ServiceOrder.dispatchPosition  novo
+```
+
+```text
++  migration mínima, aditiva
++  uma leitura só; ordenação direta, sem junção nova
++  nenhuma mudança estrutural nas telas nem no DTO do Field
+
+−  posição é propriedade do PAR (técnico, OS), guardada na OS (§309)
+−  a OS sem técnico carrega um campo sem significado
+−  unique parcial (companyId, technicianId, dispatchPosition) precisa
+   conviver com linhas de technicianId nulo
+−  o valor sobrevive à saída da fila e vira lixo silencioso (D-06)
+```
+
+## Opção B — entidade própria
+
+```text
+TechnicianDispatchQueueEntry
+   companyId · technicianId · serviceOrderId · position
+```
+
+```text
++  modela o que a coisa é: um vínculo ordenado, não atributo da OS
++  unique (companyId, technicianId, position) é natural e total
++  sair da fila é apagar a entrada — sem valor órfão
++  dá lugar natural à unidade de concorrência da fila (D-07)
+
+−  migration maior e junção em toda listagem ordenada
+−  dois lugares podem divergir: OS sem entrada, entrada sem OS
+−  exige backfill de todas as OS ativas já atribuídas
+```
+
+## Posição global ou dentro do grupo
+
+A **experiência** mostra uma fila única — 1, 2, 3, 4 — mesmo que internamente
+existam grupos de prioridade. Isso é requisito de saída, não de armazenamento.
+
+```text
+posição global       um inteiro por fila
+                     I-12 (urgente antes de normal) vira validação a cada
+                     escrita, e uma mudança de prioridade pode quebrá-la
+                     sem que ninguém tenha reordenado nada
+
+posição dentro do    um inteiro por (fila, grupo)
+grupo                I-12 passa a ser estrutural: a numeração única de
+                     1..N é COMPUTADA na leitura
+                     o custo é que o número exibido não existe guardado
+                     em lugar nenhum
+```
+
+> **Qualquer das duas serve, desde que a saída autoritativa seja
+> determinística.** O que não serve é a terceira via tentadora: guardar posição
+> global e *confiar* que ela respeita a prioridade porque a interface
+> normalmente respeita.
+
+`D-11` — a escolha entre global e por grupo deve ser feita **junto** com A/B,
+porque a Opção B com posição por grupo é a única combinação em que `I-11` e
+`I-12` são garantidas pelo banco em vez de por código de aplicação.
+
+## Ordenação e paginação
+
+Detalhe que só aparece na implementação e custa caro depois: a lista do Field é
+paginada por cursor sobre a ordenação atual. **Trocar a chave de ordenação troca
+a semântica do cursor**, e uma reordenação no meio de uma paginação pode fazer
+uma OS aparecer duas vezes ou nenhuma. Decidir isso antes, e não depois do
+primeiro relato de "sumiu uma OS da lista".
+
+---
+
+# 330. CRITÉRIOS DE ACEITE
+
+Para a implementação futura. Cada um é verificável.
+
+```text
+AC-01  ADMIN ou DISPATCHER marca uma OS Normal como Urgente, e a
+       alteração é aceita, registrada e visível.
+
+AC-02  o Field passa a exibi-la antes das Normais.
+
+AC-03  o despachante move uma Urgente da posição 3 para a 1, e a fila
+       resultante é 1,2,3 sem buraco e sem repetição.
+
+AC-04  o Field recebe a ordem autoritativa e não a reordena.
+
+AC-05  dois despachantes reordenando ao mesmo tempo não produzem
+       posição duplicada nem sobrescrita silenciosa: um dos dois
+       recebe conflito explícito.
+
+AC-06  reatribuir de A para B transfere a OS entre as filas, sem estado
+       intermediário observável e sem duplicar posição em nenhuma das
+       duas.
+
+AC-07  o histórico mostra ator, horário, e o antes e o depois.
+
+AC-08  o tenant A nunca vê nem modifica a fila do tenant B, mesmo
+       enviando identificadores válidos do tenant B.
+
+AC-09  scheduledAt permanece independente: reordenar não o cria, não o
+       altera e não o apaga.
+
+AC-10  origin, externalId e externalNumber não mudam em nenhuma
+       operação de fila ou de prioridade.
+
+AC-11  a mesma requisição de reordenação entregue duas vezes produz um
+       efeito só — uma posição, um evento, uma linha de auditoria.
+
+AC-12  TECHNICIAN recebe negação ao tentar alterar prioridade ou
+       reordenar, e a negação é do servidor, não da ausência do botão.
+```
+
+---
+
+# 331. CASOS DE BORDA, MIGRATION E BACKFILL
+
+## Casos de borda a resolver na implementação
+
+```text
+OS cancelada durante a reordenação
+OS concluída durante a reordenação
+OS desatribuída enquanto o quadro está aberto
+OS reatribuída por outra pessoa entre a leitura e o arrastar
+duas OS IN_PROGRESS no mesmo técnico          (§321 — permitido hoje)
+duas urgentes empatadas
+mudança urgente → normal e normal → urgente
+duas sessões de despachante simultâneas
+técnico desativado com fila não vazia
+OS importada do ERP entrando na fila
+fila vazia
+posição inválida: zero, negativa, maior que o tamanho da fila
+retry duplicado da mesma operação
+APK antigo, sem conhecimento de posição, contra servidor novo
+```
+
+Nenhum deles é resolvido por código agora. O que esta seção fixa é que **nenhum
+pode ser descoberto em produção**.
+
+O caso do técnico desativado tem precedente e deve segui-lo: desativação **não
+apaga histórico** — o que já foi gravado permanece, e a fila de um técnico
+desativado não é destruída silenciosamente.
+
+## Migration e backfill
+
+**NÃO criar migration nesta tarefa.** O que a implementação terá de decidir:
+
+```text
+como inicializar a posição das OS ativas já atribuídas
+   candidato determinístico: a ordem que o sistema já produz hoje
+   (prioridade desc, scheduledAt asc, id asc) — o backfill preserva o
+   que os técnicos já viam, em vez de embaralhar o dia da virada
+
+quais OS entram no backfill
+   ASSIGNED e IN_PROGRESS; terminais não têm fila
+
+zero downtime, quando aplicável
+   campo aditivo e nulo tolerado durante a transição
+
+compatibilidade com as prioridades existentes (D-01, D-02)
+   o backfill não pode ser escrito antes dessa decisão
+```
+
+> Migrations históricas **nunca** são editadas (`CLAUDE.md`).
+
+---
+
+# 332. ROADMAP — FILA OPERACIONAL
+
+```text
+1.  Field Workspace Visual Polish       local, aguardando publicação
+2.  Fila Operacional — PRD              DONE nesta tarefa   §308–§331
+3.  Fila Operacional — backend + Web    PLANNED
+4.  Field consome a fila autoritativa   PLANNED
+5.  Piloto em dispositivo e Web         PLANNED
+6.  Field Notification Foundation + FCM PLANNED
+7.  Notificações de fila e prioridade   PLANNED
+```
+
+**Nenhuma etapa de 3 a 7 está feita.** O item 2 é a única coisa que esta tarefa
+entregou, e ela é documentação.
+
+## Onde isto entra nas escalas existentes
+
+Continuam valendo as duas escalas (§117, §194), e esta Parte não as substitui.
+Na trilha do mapa e do despacho (§209), a Fila Operacional é **anterior** à
+Central de Despacho completa: ela não precisa de mapa, de geocodificação nem de
+habilidades cadastradas — precisa de prioridade mutável e de posição.
+
+## As decisões que bloqueiam o começo
+
+O item 3 não pode começar antes de `D-01`, `D-02` e `D-11`: são as três que
+determinam o schema. As demais (`D-04` a `D-10`) podem ser fechadas durante a
+implementação, mas todas antes da primeira rota.

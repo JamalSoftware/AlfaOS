@@ -164,6 +164,35 @@ Três regras que a Parte VI fixou e são fáceis de desfazer sem perceber:
 **Quando:** a tarefa envolve coordenadas, GPS, mapa, rota, proximidade de técnicos, quadro de despacho ou agenda.
 **Quando NÃO:** qualquer outra coisa. Nada disso está implementado — é arquitetura registrada, e a seção 119 se aplica: estar no PRD não autoriza implementar. Para a fronteira com o FiberMap (o AlfaOS **consulta** topologia de rede, não a copia), o ponto é a §202.
 
+O quadro (§203) decide **quem** atende. A ordem de execução dentro da fila de cada técnico é outra Parte — ver abaixo.
+
+## Fila Operacional de OS — PLANNED
+
+**Carregar:** PRD §308–§332 (Parte XII). Para entender o modelo que já existe, também `prisma/schema.prisma` (`ServiceOrderPriority`, `ServiceOrder`) e `src/lib/service-orders.ts` (rótulos, ordenação da fila do técnico, `assignTechnician`).
+
+| Assunto | Seções |
+|---|---|
+| Capability, prioridade × posição | §308, §309 |
+| Auditoria do modelo de prioridade atual e as decisões pendentes | §310 |
+| Fila por `(empresa, técnico)`, composição, posição explícita | §311–§313 |
+| Ranking local do Field como estado temporário | §314 |
+| Alteração de prioridade, reordenação, entrada e saída da fila | §315–§317 |
+| Concorrência, idempotência e invariantes | §318–§320 |
+| OS em atendimento, eventos, auditoria e histórico | §321, §322 |
+| Fila no Field e no despacho Web | §323–§325 |
+| ReceitaNet, notificações, offline | §326–§328 |
+| Opções de schema, aceite, casos de borda, roadmap | §329–§332 |
+
+Quatro regras que a Parte XII fixou e são fáceis de desfazer sem perceber:
+
+* **Prioridade responde criticidade; posição responde sequência** (§309). Não são a mesma coisa, e nenhum número de níveis de prioridade produz uma sequência.
+* **O `expectedVersion` da OS não protege uma reordenação** (§318). Ela escreve N linhas; o CAS responde por uma. A fila precisa da própria unidade de concorrência.
+* **Delta não é idempotente** (§318). "Subir uma posição" aplicada duas vezes sobe duas. O contrato usa alvo absoluto, mais `Idempotency-Key`.
+* **Posição nunca vira `scheduledAt`** (§324). Fabricar horário a partir de ordem produz, um dia depois, um horário que alguém acha que foi prometido ao cliente.
+
+**Quando:** a tarefa envolve ordem de atendimento, prioridade de OS, reordenação de fila ou o painel de despacho por técnico.
+**Quando NÃO:** qualquer outra coisa. **Nada disso existe em código** — nenhuma migration, nenhuma rota, nenhuma tela. A §119 se aplica, e três decisões de schema (`D-01`, `D-02`, `D-11`) precisam ser fechadas antes da primeira rota.
+
 ## Experiência do técnico na OS
 
 **Carregar:** `src/app/(app)/ordens/[id]/page.tsx` (a tela, com as diferenças por perfil), `src/components/CustomerContactCard.tsx` (contato, endereço e navegação), `src/lib/map-links.ts` (Google Maps/Waze e validação de coordenada) e `src/lib/return-to.ts` (allowlist do destino de volta).
