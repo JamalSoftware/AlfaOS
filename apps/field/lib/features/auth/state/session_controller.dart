@@ -97,7 +97,23 @@ class SessionController extends StateNotifier<SessionState> {
   }
 
   Future<void> login({required String email, required String password}) async {
-    state = const SessionState.bootstrapping();
+    /*
+      A fase NÃO vai para bootstrapping aqui, e a razão é a tela.
+
+      bootstrapping é uma PORTA de navegação: o redirect troca /login por
+      /splash assim que a vê. Ao voltar para unauthenticated, o GoRouter
+      constrói um LoginScreen NOVO — e o estado do antigo, que carregava a
+      mensagem de erro e o e-mail digitado, some junto.
+
+      Era exatamente isso que o piloto em aparelho real via: senha errada
+      fazia a tela piscar e voltar limpa, sem dizer nada. Quem espera
+      resposta e não recebe nenhuma conclui que o aplicativo está quebrado
+      — ou digita a senha de novo até a proteção contra força bruta
+      bloquear a conta.
+
+      A tela é dona do próprio 'enviando': ela desabilita o botão e mostra
+      o indicador sem ajuda da navegação.
+    */
     try {
       await _auth.login(email: email, password: password);
     } on FieldException catch (error) {

@@ -69,6 +69,32 @@ export function resolveTimezone(value: string | null | undefined): string {
   return value;
 }
 
+/**
+ * Deslocamento do fuso naquele instante, como `+HH:MM`.
+ *
+ * Existe para o painel: o gestor digita "08:30 daquele dia", e esse horário é
+ * do fuso da EMPRESA — não do navegador dele. Montar o instante com o
+ * deslocamento do próprio navegador faria um gestor em outro fuso abrir uma
+ * correção para uma hora diferente da que digitou, sem nada na tela denunciar.
+ *
+ * Fica aqui, junto de `civilDateIn`, porque é a mesma autoridade: um segundo
+ * lugar no projeto que soubesse converter fuso seria o lugar que diverge.
+ *
+ * O deslocamento é do INSTANTE, não do fuso: onde há horário de verão ele muda
+ * ao longo do ano, e é por isso que a função recebe uma data.
+ */
+export function utcOffsetIn(instant: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    timeZoneName: "longOffset",
+  }).formatToParts(instant);
+  const raw = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+  // `longOffset` devolve "GMT-03:00", e "GMT" cravado quando o deslocamento é
+  // zero — o segundo caso não traz o "+00:00" que um ISO precisa.
+  const offset = raw.replace("GMT", "");
+  return offset.length === 0 ? "+00:00" : offset;
+}
+
 // ---------------------------------------------------------------------------
 // A sequência efetiva
 // ---------------------------------------------------------------------------

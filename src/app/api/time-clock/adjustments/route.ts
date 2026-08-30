@@ -49,6 +49,10 @@ export async function GET(request: Request) {
       adjustments: adjustments.map((a) => ({
         id: a.id,
         status: a.status,
+        // De QUEM e a jornada. Distinto de `requestedByName` desde que o gestor
+        // tambem abre correcao: sem isto a fila mostraria o nome de quem
+        // digitou o pedido no lugar do funcionario julgado.
+        userName: a.userName,
         requestedType: a.requestedType,
         requestedEntryType: a.requestedEntryType,
         requestedOccurredAt: a.requestedOccurredAt.toISOString(),

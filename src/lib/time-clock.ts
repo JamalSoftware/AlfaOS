@@ -596,6 +596,14 @@ export interface AdjustmentInput {
 export interface PublicAdjustment {
   id: string;
   status: TimeAdjustmentStatus;
+  /**
+   * De QUEM e a jornada.
+   *
+   * Distinto de `requestedByName` desde que o gestor tambem pode abrir o
+   * pedido: sem este campo, a fila mostraria o nome do ADMIN no lugar do
+   * funcionario, e quem decide nao saberia sobre qual jornada esta decidindo.
+   */
+  userName: string;
   requestedType: TimeAdjustmentType;
   requestedEntryType: TimeEntryType;
   requestedOccurredAt: Date;
@@ -627,7 +635,22 @@ export async function requestTimeAdjustment(
   companyId: string,
   userId: string,
   input: AdjustmentInput,
+  requestedById?: string,
 ): Promise<PublicAdjustment> {
+  /*
+    Quem PEDE nem sempre é a pessoa da jornada.
+
+    O técnico abre o pedido pelo Field, e aí os dois são o mesmo. O gestor abre
+    pelo painel, em nome de quem esqueceu de bater — e aí o autor é ele. Um
+    campo só para os dois casos mantém UMA fila e UM caminho de aprovação: o
+    pedido do painel entra no mesmo `decideTimeAdjustment`, com a mesma
+    validação de sequência e o mesmo lock. Um segundo caminho "administrativo"
+    seria justamente o atalho que o §229 existe para não ter.
+
+    O gestor continua não editando marcação nenhuma: ele PEDE, e a decisão é
+    fato separado e auditável.
+  */
+  const author = requestedById ?? userId;
   const reason = trimTo(input.reason, ADJUSTMENT_REASON_MAX);
   if (!reason) {
     throw badRequest("Descreva o motivo da correção.");
@@ -658,6 +681,23 @@ export async function requestTimeAdjustment(
     });
     if (!member) {
       throw notFound("Funcionário não encontrado.");
+    }
+
+    /*
+      E o AUTOR também é conferido, pelo mesmo motivo.
+
+      Sem isto, um pedido da empresa A poderia nascer assinado por alguém da
+      empresa B — dado cross-tenant gravado numa FK, que nenhuma leitura
+      posterior desfaz.
+    */
+    if (author !== userId) {
+      const requester = await tx.user.findFirst({
+        where: { id: author, companyId },
+        select: { id: true },
+      });
+      if (!requester) {
+        throw notFound("Funcionário não encontrado.");
+      }
     }
 
     const timezone = await companyTimezone(tx, companyId);
@@ -713,10 +753,11 @@ export async function requestTimeAdjustment(
         requestedOccurredAt: input.requestedOccurredAt,
         reason,
         notes: trimTo(input.notes, ADJUSTMENT_NOTES_MAX),
-        requestedById: userId,
+        requestedById: author,
       },
       include: {
         workday: { select: { date: true } },
+        user: { select: { name: true } },
         requestedBy: { select: { name: true } },
         decidedBy: { select: { name: true } },
       },
@@ -729,6 +770,7 @@ export async function requestTimeAdjustment(
 function toPublicAdjustment(row: {
   id: string;
   status: TimeAdjustmentStatus;
+  user: { name: string };
   requestedType: TimeAdjustmentType;
   requestedEntryType: TimeEntryType;
   requestedOccurredAt: Date;
@@ -745,6 +787,7 @@ function toPublicAdjustment(row: {
   return {
     id: row.id,
     status: row.status,
+    userName: row.user.name,
     requestedType: row.requestedType,
     requestedEntryType: row.requestedEntryType,
     requestedOccurredAt: row.requestedOccurredAt,
@@ -772,6 +815,7 @@ export async function listOwnAdjustments(
     take: limit,
     include: {
       workday: { select: { date: true } },
+      user: { select: { name: true } },
       requestedBy: { select: { name: true } },
       decidedBy: { select: { name: true } },
     },
@@ -791,6 +835,7 @@ export async function listCompanyAdjustments(
     take: limit,
     include: {
       workday: { select: { date: true } },
+      user: { select: { name: true } },
       requestedBy: { select: { name: true } },
       decidedBy: { select: { name: true } },
     },
@@ -818,6 +863,28 @@ export async function decideTimeAdjustment(
   decisionReason?: string | null,
 ): Promise<PublicAdjustment> {
   const decided = await prisma.$transaction(async (tx) => {
+    /*
+      Quem DECIDE tem de ser da empresa — a mesma defesa em profundidade que
+      `punchTimeClock` e `requestTimeAdjustment` já fazem.
+
+      Nenhuma rota consegue desalinhar o par hoje: a rota de decisão tira
+      empresa e decisor da MESMA sessão. Sem esta conferência, porém, a função
+      aceita (empresa A, decisor da B) e grava um `decidedById` atravessado na
+      linha da A — mais um `AuditLog` com o par trocado. Autoridade sobre o
+      registro de jornada de outra pessoa é exatamente onde essa lacuna não
+      pode ficar aberta esperando a primeira rota nova.
+
+      404, e não 403: a resposta é indistinguível de "pedido inexistente", e um
+      id sondado não aprende nada com ela.
+    */
+    const decider = await tx.user.findFirst({
+      where: { id: deciderUserId, companyId },
+      select: { id: true },
+    });
+    if (!decider) {
+      throw notFound("Solicitação não encontrada.");
+    }
+
     const head = await tx.timeAdjustmentRequest.findFirst({
       where: { id: requestId, companyId },
       select: { workdayId: true },
@@ -977,6 +1044,7 @@ export async function decideTimeAdjustment(
       where: { id: request.id, companyId },
       include: {
         workday: { select: { date: true } },
+        user: { select: { name: true } },
         requestedBy: { select: { name: true } },
         decidedBy: { select: { name: true } },
       },

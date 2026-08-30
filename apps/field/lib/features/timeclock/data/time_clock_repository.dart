@@ -72,6 +72,20 @@ class TimeClockRepository {
         .toList(growable: false);
   }
 
+  /// Os pedidos de correção do próprio funcionário, com o desfecho de cada um.
+  ///
+  /// A rota já existia e o aplicativo nunca a chamava — o técnico abria o
+  /// pedido e não tinha onde ver o que aconteceu com ele.
+  Future<List<TimeAdjustment>> adjustments() async {
+    final data = await _api.get('/time-clock/adjustments');
+    final raw = data['adjustments'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => TimeAdjustment.fromJson(Map<String, dynamic>.from(e)))
+        .toList(growable: false);
+  }
+
   /// Abre um pedido de correção.
   ///
   /// O funcionário **não edita** a marcação (PRD §229). Ele descreve o que

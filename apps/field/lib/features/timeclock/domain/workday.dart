@@ -232,6 +232,70 @@ class WorkdaySummary {
   );
 }
 
+/// Um pedido de correção, do ponto de vista de quem pediu.
+///
+/// O técnico precisa ver TRÊS coisas: o que pediu, para quando, e no que deu.
+/// Sem a terceira, um pedido rejeitado é indistinguível de um pedido esquecido
+/// — e quem pediu fica esperando por algo que já foi decidido (PRD §229).
+@immutable
+class TimeAdjustment {
+  const TimeAdjustment({
+    required this.id,
+    required this.status,
+    required this.requestedEntryType,
+    required this.requestedOccurredAt,
+    required this.reason,
+    required this.workdayDate,
+    this.decisionReason,
+  });
+
+  final String id;
+
+  /// `PENDING`, `APPROVED` ou `REJECTED`, como o servidor os nomeia.
+  ///
+  /// String crua, e não enum: um status novo do servidor precisa aparecer como
+  /// texto num APK antigo, não sumir da lista por não ter case.
+  final String status;
+
+  final TimeEntryType requestedEntryType;
+  final DateTime requestedOccurredAt;
+  final String reason;
+  final String workdayDate;
+
+  /// Por que foi recusado. Sem isto a recusa chega sem contraditório.
+  final String? decisionReason;
+
+  bool get isPending => status == 'PENDING';
+
+  factory TimeAdjustment.fromJson(Map<String, dynamic> json) => TimeAdjustment(
+    id: json['id'] as String? ?? '',
+    status: json['status'] as String? ?? 'PENDING',
+    requestedEntryType: timeEntryTypeFrom(
+      json['requestedEntryType'] as String?,
+    ),
+    requestedOccurredAt:
+        DateTime.tryParse(json['requestedOccurredAt'] as String? ?? '')
+            ?.toLocal() ??
+        DateTime.fromMillisecondsSinceEpoch(0),
+    reason: json['reason'] as String? ?? '',
+    workdayDate: json['workdayDate'] as String? ?? '',
+    decisionReason: json['decisionReason'] as String?,
+  );
+}
+
+String adjustmentStatusLabel(String status) {
+  switch (status) {
+    case 'PENDING':
+      return 'Aguardando aprovação';
+    case 'APPROVED':
+      return 'Aprovada';
+    case 'REJECTED':
+      return 'Rejeitada';
+    default:
+      return status;
+  }
+}
+
 /// Estado de sincronização de uma marcação.
 ///
 /// Os três valores existem desde já para a UI não precisar ser redesenhada

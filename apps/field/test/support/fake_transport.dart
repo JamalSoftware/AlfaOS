@@ -24,6 +24,13 @@ class FakeTransport implements HttpClientAdapter {
   /// Quando true, toda chamada falha como se não houvesse rede.
   bool offline = false;
 
+  /// Quando true, toda chamada estoura o prazo de resposta.
+  ///
+  /// Distinto de [offline] porque o desfecho para quem LÊ é outro: sem rede
+  /// manda checar o sinal, e um servidor lento com sinal cheio mandaria a
+  /// pessoa procurar um problema que não existe.
+  bool timeout = false;
+
   void on(String method, String path, FakeReply reply) {
     replies['$method $path'] = reply;
   }
@@ -101,6 +108,13 @@ class FakeTransport implements HttpClientAdapter {
       throw DioException.connectionError(
         requestOptions: options,
         reason: 'transporte falso offline',
+      );
+    }
+
+    if (timeout) {
+      throw DioException.receiveTimeout(
+        timeout: const Duration(seconds: 20),
+        requestOptions: options,
       );
     }
 

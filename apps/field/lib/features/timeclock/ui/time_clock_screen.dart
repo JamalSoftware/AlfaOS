@@ -28,6 +28,7 @@ class _TimeClockScreenState extends ConsumerState<TimeClockScreen> {
       final notifier = ref.read(timeClockControllerProvider.notifier);
       notifier.load();
       notifier.loadHistory();
+      notifier.loadAdjustments();
     });
   }
 
@@ -55,7 +56,14 @@ class _TimeClockScreenState extends ConsumerState<TimeClockScreen> {
       body: state.loading && state.workday.date.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: notifier.load,
+              onRefresh: () async {
+                // Puxar para atualizar traz o dia, o histórico e os
+                // pedidos: recarregar só um deixaria a tela meio velha
+                // sem dizer qual metade.
+                await notifier.load();
+                await notifier.loadHistory();
+                await notifier.loadAdjustments();
+              },
               child: ListView(
                 padding: const EdgeInsets.all(AlfaSpacing.lg),
                 children: [
@@ -70,7 +78,11 @@ class _TimeClockScreenState extends ConsumerState<TimeClockScreen> {
                   const SizedBox(height: AlfaSpacing.lg),
                   _EntriesCard(workday: state.workday),
                   const SizedBox(height: AlfaSpacing.lg),
-                  _HistoryCard(history: state.history),
+                  _AdjustmentsCard(state: state, notifier: notifier),
+                  const SizedBox(height: AlfaSpacing.lg),
+                  // previousDays, e não history: o dia de hoje já está no
+                  // cartão do topo, e a rota devolve os dois.
+                  _HistoryCard(history: state.previousDays),
                 ],
               ),
             ),
@@ -152,6 +164,26 @@ class _TodayCard extends StatelessWidget {
               'Jornada encerrada. Para corrigir, solicite um ajuste.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
+          /*
+            A orientação vinha SEM a ação.
+
+            A tela dizia 'solicite um ajuste' e não havia onde solicitar: o
+            caminho existia no repositório e no servidor, e nenhum toque
+            chegava até ele. Instrução sem botão é pior que a ausência da
+            funcionalidade — manda a pessoa procurar o que não está lá.
+
+            O botão fica aqui, colado na frase que o pede, e também na seção
+            Correções logo abaixo. Nada disso mora atrás de gesto ou menu.
+          */
+          if (workday.entries.isNotEmpty || workday.allowedActions.isEmpty) ...[
+            const SizedBox(height: AlfaSpacing.md),
+            OutlinedButton.icon(
+              key: const Key('request-adjustment-today'),
+              onPressed: () => openAdjustmentSheet(context, state, notifier),
+              icon: const Icon(Icons.edit_calendar_outlined),
+              label: const Text('SOLICITAR CORREÇÃO'),
+            ),
+          ],
           if (workday.pendingAdjustments > 0) ...[
             const SizedBox(height: AlfaSpacing.sm),
             Text(
@@ -247,6 +279,7 @@ class _HistoryCard extends StatelessWidget {
     return SectionCard(
       title: 'Histórico',
       child: history.isEmpty
+          // 'anteriores' é literal: o dia corrente é o cartão do topo.
           ? const Text('Sem jornadas anteriores.')
           : Column(
               children: [
@@ -260,6 +293,345 @@ class _HistoryCard extends StatelessWidget {
                   ),
               ],
             ),
+    );
+  }
+}
+
+/// As correções: a porta de entrada e o desfecho de cada pedido.
+///
+/// Seção própria porque o pedido tem VIDA: ele é aberto, espera e é decidido.
+/// Sem esta lista, quem pediu não sabia se o gestor tinha visto, aprovado ou
+/// recusado — e a recusa, que é justamente a que precisa de contraditório,
+/// desaparecia em silêncio (PRD §229).
+class _AdjustmentsCard extends StatelessWidget {
+  const _AdjustmentsCard({required this.state, required this.notifier});
+
+  final TimeClockState state;
+  final TimeClockController notifier;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SectionCard(
+      title: 'Correções',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              key: const Key('request-adjustment'),
+              onPressed: () => openAdjustmentSheet(context, state, notifier),
+              icon: const Icon(Icons.edit_calendar_outlined),
+              label: const Text('SOLICITAR CORREÇÃO'),
+            ),
+          ),
+          const SizedBox(height: AlfaSpacing.md),
+          if (state.adjustments.isEmpty)
+            Text(
+              'Nenhuma correção solicitada.',
+              style: theme.textTheme.bodyMedium,
+            )
+          else
+            for (final pedido in state.adjustments.take(10))
+              Padding(
+                padding: const EdgeInsets.only(bottom: AlfaSpacing.sm),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${timeEntryLabel(pedido.requestedEntryType)} às '
+                      '${_hhmm(pedido.requestedOccurredAt)} · ${pedido.workdayDate}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    Text(
+                      adjustmentStatusLabel(pedido.status),
+                      key: Key('adjustment-status-${pedido.id}'),
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    /*
+                      O horário pedido NÃO é aplicado na jornada enquanto o
+                      pedido espera. A lista mostra o que foi PEDIDO; o cartão
+                      de cima continua mostrando o que VALE — e os dois só
+                      passam a coincidir depois da aprovação.
+                    */
+                    if (pedido.decisionReason != null &&
+                        pedido.decisionReason!.isNotEmpty)
+                      Text(
+                        pedido.decisionReason!,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                  ],
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Abre o formulário de correção.
+///
+/// Folha modal, e não tela nova: o técnico está olhando a jornada e precisa
+/// continuar olhando enquanto descreve o que houve nela.
+Future<void> openAdjustmentSheet(
+  BuildContext context,
+  TimeClockState state,
+  TimeClockController notifier,
+) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: _AdjustmentSheet(workday: state.workday, notifier: notifier),
+    ),
+  );
+}
+
+class _AdjustmentSheet extends StatefulWidget {
+  const _AdjustmentSheet({required this.workday, required this.notifier});
+
+  final Workday workday;
+  final TimeClockController notifier;
+
+  @override
+  State<_AdjustmentSheet> createState() => _AdjustmentSheetState();
+}
+
+class _AdjustmentSheetState extends State<_AdjustmentSheet> {
+  String? _targetEntryId;
+  TimeEntryType _type = TimeEntryType.clockIn;
+  TimeOfDay? _hora;
+  final _reason = TextEditingController();
+
+  bool _enviando = false;
+  String? _erro;
+
+  @override
+  void initState() {
+    super.initState();
+    // Com marcação no dia, a primeira é o palpite mais provável de correção.
+    // Sem nenhuma, o caso é inclusão do que faltou — e o alvo fica nulo.
+    final primeira = widget.workday.entries.isEmpty
+        ? null
+        : widget.workday.entries.first;
+    if (primeira != null) {
+      _targetEntryId = primeira.id;
+      _type = primeira.type;
+      _hora = TimeOfDay.fromDateTime(primeira.occurredAt);
+    }
+  }
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  void _selecionarAlvo(String? id) {
+    setState(() {
+      _targetEntryId = id;
+      final alvo = widget.workday.entries.where((e) => e.id == id).firstOrNull;
+      if (alvo != null) {
+        _type = alvo.type;
+        _hora = TimeOfDay.fromDateTime(alvo.occurredAt);
+      }
+    });
+  }
+
+  /// O instante pedido, ancorado no DIA OPERACIONAL que o servidor informou.
+  ///
+  /// A data vem do workday, nunca de DateTime.now(): perto da meia-noite os
+  /// dois discordam, e ancorar no relógio do aparelho mandaria a correção
+  /// para o dia seguinte.
+  DateTime? _instante() {
+    final hora = _hora;
+    if (hora == null) return null;
+    final partes = widget.workday.date.split('-');
+    if (partes.length != 3) return null;
+    final ano = int.tryParse(partes[0]);
+    final mes = int.tryParse(partes[1]);
+    final dia = int.tryParse(partes[2]);
+    if (ano == null || mes == null || dia == null) return null;
+    return DateTime(ano, mes, dia, hora.hour, hora.minute);
+  }
+
+  Future<void> _enviar() async {
+    if (_enviando) return;
+
+    final instante = _instante();
+    if (instante == null) {
+      setState(() => _erro = 'Informe o horário correto.');
+      return;
+    }
+    if (_reason.text.trim().isEmpty) {
+      setState(() => _erro = 'Descreva o que aconteceu.');
+      return;
+    }
+    if (instante.isAfter(DateTime.now())) {
+      // O servidor também recusa. Recusar aqui poupa a ida e dá a razão certa.
+      setState(() => _erro = 'O horário não pode estar no futuro.');
+      return;
+    }
+
+    setState(() {
+      _enviando = true;
+      _erro = null;
+    });
+
+    final falha = await widget.notifier.requestAdjustment(
+      entryType: _type,
+      occurredAt: instante,
+      reason: _reason.text,
+      targetEntryId: _targetEntryId,
+    );
+
+    if (!mounted) return;
+    if (falha == null) {
+      Navigator.of(context).pop();
+      return;
+    }
+    /*
+      A recusa do servidor FICA na folha.
+
+      Fechar aqui diria 'enviado' para um pedido que não existe — e o técnico
+      só descobriria ao não ver a correção na lista, ou pior, ao não vê-la
+      aplicada no fim do mês.
+    */
+    setState(() {
+      _enviando = false;
+      _erro = falha;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final entries = widget.workday.entries;
+
+    return Padding(
+      padding: const EdgeInsets.all(AlfaSpacing.lg),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Solicitar correção', style: theme.textTheme.titleLarge),
+            const SizedBox(height: AlfaSpacing.xs),
+            Text(
+              'Você não altera a marcação. O pedido vai para aprovação, e o '
+              'registro original continua no histórico.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: AlfaSpacing.lg),
+            DropdownButtonFormField<String?>(
+              key: const Key('adjustment-target'),
+              initialValue: _targetEntryId,
+              decoration: const InputDecoration(labelText: 'Marcação'),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('Marcação que faltou'),
+                ),
+                for (final entry in entries)
+                  DropdownMenuItem<String?>(
+                    value: entry.id,
+                    child: Text(
+                      '${timeEntryLabel(entry.type)} às ${_hhmm(entry.occurredAt)}',
+                    ),
+                  ),
+              ],
+              onChanged: _enviando ? null : _selecionarAlvo,
+            ),
+            const SizedBox(height: AlfaSpacing.lg),
+            DropdownButtonFormField<TimeEntryType>(
+              key: const Key('adjustment-type'),
+              initialValue: _type,
+              decoration: const InputDecoration(labelText: 'Deveria ser'),
+              items: [
+                for (final tipo in const [
+                  TimeEntryType.clockIn,
+                  TimeEntryType.breakStart,
+                  TimeEntryType.breakEnd,
+                  TimeEntryType.clockOut,
+                ])
+                  DropdownMenuItem(
+                    value: tipo,
+                    child: Text(timeEntryLabel(tipo)),
+                  ),
+              ],
+              onChanged: _enviando
+                  ? null
+                  : (valor) => setState(() => _type = valor ?? _type),
+            ),
+            const SizedBox(height: AlfaSpacing.lg),
+            InputDecorator(
+              decoration: const InputDecoration(labelText: 'Horário correto'),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _hora == null
+                          ? 'Escolher horário'
+                          : '${_hora!.hour.toString().padLeft(2, '0')}:'
+                                '${_hora!.minute.toString().padLeft(2, '0')}',
+                    ),
+                  ),
+                  TextButton(
+                    key: const Key('adjustment-pick-time'),
+                    onPressed: _enviando
+                        ? null
+                        : () async {
+                            final escolhido = await showTimePicker(
+                              context: context,
+                              initialTime: _hora ?? TimeOfDay.now(),
+                            );
+                            if (escolhido != null) {
+                              setState(() => _hora = escolhido);
+                            }
+                          },
+                    child: const Text('ALTERAR'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AlfaSpacing.lg),
+            TextField(
+              key: const Key('adjustment-reason'),
+              controller: _reason,
+              enabled: !_enviando,
+              maxLength: 500,
+              decoration: const InputDecoration(
+                labelText: 'Motivo',
+                hintText: 'O que aconteceu',
+              ),
+            ),
+            if (_erro != null) ...[
+              const SizedBox(height: AlfaSpacing.sm),
+              Text(
+                _erro!,
+                key: const Key('adjustment-error'),
+                style: TextStyle(color: context.statusColors.danger),
+              ),
+            ],
+            const SizedBox(height: AlfaSpacing.lg),
+            FilledButton(
+              key: const Key('adjustment-submit'),
+              onPressed: _enviando ? null : _enviar,
+              child: _enviando
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('ENVIAR PEDIDO'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

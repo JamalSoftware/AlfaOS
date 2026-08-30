@@ -81,3 +81,104 @@ test.describe("jornada da equipe", () => {
     await expect(page.getByRole("link", { name: "Jornada" })).toHaveCount(0);
   });
 });
+
+test.describe("correção administrativa", () => {
+  /*
+    Um dia bem no passado, e um horário de manhã.
+
+    O servidor recusa horário no futuro, e a suíte roda a qualquer hora: dois
+    dias atrás às 08:30 é passado em qualquer fuso brasileiro, em qualquer
+    execução.
+  */
+  const DIA = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+
+  test("ADMIN abre a correção pela tabela e ela cai na fila", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await page.goto("/jornada");
+
+    // Pela TABELA, não por URL direta: prova que a ação existe para a pessoa.
+    await page.getByRole("link", { name: "Ver / corrigir" }).first().click();
+    await page.waitForURL(new RegExp("/jornada/"));
+
+    // O dia é escolhido na própria tela.
+    await page.getByLabel("Dia").fill(DIA);
+    await page.getByRole("button", { name: "Ver dia" }).click();
+    await page.waitForURL(new RegExp(`date=${DIA}`));
+
+    await page.getByTestId("open-member-adjustment").click();
+    await expect(page.getByTestId("member-adjustment-form")).toBeVisible();
+
+    await page.getByLabel("Horário correto").fill("08:30");
+    await page
+      .getByLabel("Motivo")
+      .fill("Celular sem bateria; ele trabalhou o dia inteiro.");
+    await page.getByTestId("submit-member-adjustment").click();
+
+    /*
+      O que aparece é um PEDIDO, não uma marcação.
+
+      O gestor não edita `TimeEntry` em lugar nenhum: a tela cria o mesmo
+      `TimeAdjustmentRequest` que o aplicativo cria, e ele espera decisão.
+    */
+    await expect(page.getByTestId("member-adjustment-list")).toBeVisible();
+    await expect(page.getByText("Aguardando decisão")).toBeVisible();
+
+    // E cai na MESMA fila do painel — não existe uma segunda fila.
+    await page.goto("/jornada");
+    await expect(
+      page.getByText("Celular sem bateria; ele trabalhou o dia inteiro."),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Aprovar" })).toBeVisible();
+  });
+
+  test("o formulário recusa envio sem motivo, e a recusa fica na tela", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await page.goto("/jornada");
+    await page.getByRole("link", { name: "Ver / corrigir" }).first().click();
+    await page.waitForURL(new RegExp("/jornada/"));
+
+    await page.getByTestId("open-member-adjustment").click();
+    await page.getByLabel("Horário correto").fill("08:30");
+    await page.getByTestId("submit-member-adjustment").click();
+
+    // O formulário continua aberto, dizendo o que falta.
+    await expect(page.getByTestId("member-adjustment-error")).toBeVisible();
+    await expect(page.getByTestId("member-adjustment-form")).toBeVisible();
+  });
+
+  test("DISPATCHER não recebe a ação de corrigir", async ({ page }) => {
+    await login(page, DISPATCHER_EMAIL);
+    await page.goto("/jornada");
+
+    await expect(
+      page.getByRole("heading", { name: "Jornada da equipe" }),
+    ).toBeVisible();
+    // Corrigir a jornada de outra pessoa é da família de decidi-la (§231).
+    await expect(page.getByRole("link", { name: "Ver / corrigir" })).toHaveCount(
+      0,
+    );
+  });
+
+  test("DISPATCHER não abre o espelho de um funcionário por URL", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await page.goto("/jornada");
+    await page.getByRole("link", { name: "Ver / corrigir" }).first().click();
+    await page.waitForURL(new RegExp("/jornada/"));
+    const url = page.url();
+
+    await page.context().clearCookies();
+    await login(page, DISPATCHER_EMAIL);
+    await page.goto(url);
+
+    // Esconder o link é UX; a página recusa por conta própria.
+    await expect(page.getByTestId("open-member-adjustment")).toHaveCount(0);
+  });
+});

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { requirePageProfile } from "@/lib/guards";
 import { getTeamWorkday, listCompanyAdjustments } from "@/lib/time-clock";
 import { EmptyState } from "@/components/EmptyState";
@@ -53,23 +54,39 @@ function minutes(total: number): string {
   return `${h}h ${m}min`;
 }
 
-function time(value: Date | null): string {
+/*
+  A hora e formatada no fuso da EMPRESA, nao no do servidor.
+
+  Sem o `timeZone`, um servidor em UTC mostraria 11:30 para uma marcacao feita
+  as 08:30 em Sao Paulo — e o gestor decidiria a correcao sobre um horario que
+  nunca existiu. O mesmo fuso que abriu o dia governa a leitura dele.
+*/
+function time(value: Date | null, timeZone: string): string {
   if (!value) return "—";
   return new Intl.DateTimeFormat("pt-BR", {
+    timeZone,
     hour: "2-digit",
     minute: "2-digit",
   }).format(value);
 }
 
+const ENTRY_LABEL: Record<string, string> = {
+  CLOCK_IN: "entrada",
+  BREAK_START: "inicio do intervalo",
+  BREAK_END: "retorno do intervalo",
+  CLOCK_OUT: "saida",
+};
+
 export default async function TeamWorkdayPage() {
   const session = await requirePageProfile(["ADMIN", "DISPATCHER"]);
 
+  const isAdmin = session.profile === "ADMIN";
+
   const team = await getTeamWorkday(session.companyId);
   // A fila de correções só é carregada para quem pode decidi-la.
-  const adjustments =
-    session.profile === "ADMIN"
-      ? await listCompanyAdjustments(session.companyId, "PENDING")
-      : [];
+  const adjustments = isAdmin
+    ? await listCompanyAdjustments(session.companyId, "PENDING")
+    : [];
 
   return (
     <div className="space-y-6">
@@ -97,6 +114,15 @@ export default async function TeamWorkdayPage() {
                 <th className="px-4 py-3 font-medium">Última marcação</th>
                 <th className="px-4 py-3 font-medium">Trabalhado</th>
                 <th className="px-4 py-3 font-medium">Correções</th>
+                {/*
+                  A coluna de ação só existe para o ADMIN.
+
+                  O DISPATCHER vê a situação da equipe porque isso é insumo de
+                  despacho; abrir o espelho minuto a minuto de outra pessoa, e
+                  poder pedir correção nele, é autoridade sobre o registro
+                  alheio — mesma família de decidir o pedido (§233).
+                */}
+                {isAdmin && <th className="px-4 py-3 font-medium">Ações</th>}
               </tr>
             </thead>
             <tbody>
@@ -113,7 +139,7 @@ export default async function TeamWorkdayPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-fg-muted">
-                    {time(member.lastEntryAt)}
+                    {time(member.lastEntryAt, team.timezone)}
                   </td>
                   <td className="px-4 py-3 text-fg-muted">
                     {minutes(member.workedMinutes)}
@@ -123,6 +149,17 @@ export default async function TeamWorkdayPage() {
                       ? `${member.pendingAdjustments} pendente(s)`
                       : "—"}
                   </td>
+                  {isAdmin && (
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/jornada/${member.userId}`}
+                        data-testid={`member-link-${member.userId}`}
+                        className="font-medium text-primary-text hover:text-primary-text-hover"
+                      >
+                        Ver / corrigir
+                      </Link>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -130,7 +167,7 @@ export default async function TeamWorkdayPage() {
         </div>
       )}
 
-      {session.profile === "ADMIN" && (
+      {isAdmin && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold text-fg">
             Correções aguardando decisão
@@ -138,7 +175,7 @@ export default async function TeamWorkdayPage() {
           {adjustments.length === 0 ? (
             <EmptyState
               title="Nenhuma correção pendente"
-              description="Pedidos abertos pelo aplicativo do técnico aparecem aqui."
+              description="Pedidos abertos pelo aplicativo do técnico, ou pelo gestor em Ver / corrigir, aparecem aqui."
             />
           ) : (
             <ul className="space-y-3">
@@ -149,12 +186,23 @@ export default async function TeamWorkdayPage() {
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
+                      {/*
+                        O nome do FUNCIONARIO encabeca, nao o de quem pediu.
+
+                        Desde que o gestor tambem abre correcao, os dois podem
+                        ser pessoas diferentes — e quem decide precisa saber
+                        sobre qual jornada esta decidindo antes de saber quem
+                        digitou o pedido.
+                      */}
                       <p className="font-medium text-fg">
-                        {adjustment.requestedByName} · {adjustment.workdayDate}
+                        {adjustment.userName} · {adjustment.workdayDate}
                       </p>
                       <p className="mt-1 text-sm text-fg-muted">
-                        Pede {adjustment.requestedEntryType} às{" "}
-                        {time(adjustment.requestedOccurredAt)}
+                        Pede{" "}
+                        {ENTRY_LABEL[adjustment.requestedEntryType] ??
+                          adjustment.requestedEntryType}{" "}
+                        às {time(adjustment.requestedOccurredAt, team.timezone)}{" "}
+                        · pedido por {adjustment.requestedByName}
                       </p>
                       {/*
                         O motivo é do funcionário e aparece como TEXTO.

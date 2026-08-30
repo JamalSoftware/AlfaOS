@@ -118,7 +118,27 @@ class FieldException implements Exception {
 
   const FieldException.network()
     : code = FieldErrorCode.network,
-      message = 'Sem conexão com o AlfaOS.',
+      message = 'Não foi possível conectar ao AlfaOS.',
+      retryable = true,
+      conflict = false,
+      retryAfterSeconds = null,
+      status = null,
+      pendencies = const [];
+
+  /// O servidor não respondeu a tempo.
+  ///
+  /// Mesmo `code` de `network`, mensagem diferente — e as duas coisas são
+  /// deliberadas. O código é o contrato que o app usa para DECIDIR, e decidir é
+  /// igual nos dois casos: dá para tentar de novo. A frase é o que a pessoa lê,
+  /// e aí a diferença importa: "sem conexão" manda checar o sinal, enquanto uma
+  /// resposta lenta com sinal cheio deixaria alguém procurando um problema de
+  /// rede que não existe.
+  ///
+  /// Um código novo obrigaria o backend a aprender a emiti-lo — e ele nunca
+  /// poderia: o timeout acontece justamente quando não houve resposta.
+  const FieldException.timeout()
+    : code = FieldErrorCode.network,
+      message = 'O AlfaOS demorou para responder. Tente de novo.',
       retryable = true,
       conflict = false,
       retryAfterSeconds = null,

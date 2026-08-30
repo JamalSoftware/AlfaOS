@@ -4,6 +4,67 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/providers.dart';
 import '../../../app/theme/tokens.dart';
 import '../../../core/errors/field_error.dart';
+import '../state/session_controller.dart';
+
+/// A frase que a pessoa lê quando o login falha.
+///
+/// ## Por que o APP decide o texto, e não o servidor
+///
+/// Em toda recusa por credencial o backend já devolve uma frase única — conta
+/// inexistente, senha errada, usuário inativo, perfil sem acesso e técnico
+/// inativo saem iguais, com o mesmo código e o mesmo custo de bcrypt. Repetir
+/// a decisão aqui não é desconfiança do servidor: é fechar a porta pelos dois
+/// lados. No dia em que alguém 'melhorar' a mensagem do backend para ajudar o
+/// suporte, o aplicativo continua sem entregar a diferença — e a diferença é
+/// o que permitiria descobrir quem trabalha na empresa testando e-mails.
+///
+/// ## E por que ela não é uma frase só
+///
+/// 'Usuário ou senha inválidos' diante de um servidor fora do ar faria o
+/// técnico digitar a senha certa cinco vezes e concluir que perdeu o acesso —
+/// até o bloqueio por tentativas, que é o pior desfecho possível para um
+/// problema de rede. O que não pode vazar é QUAL PARTE da credencial estava
+/// errada; se o problema foi credencial ou conexão, pode e deve ser dito.
+///
+/// Nada técnico atravessa: sem status, sem endpoint, sem exceção, sem corpo
+/// de resposta.
+String loginErrorMessage(FieldException error) {
+  switch (error.code) {
+    case FieldErrorCode.unauthenticated:
+    case FieldErrorCode.forbidden:
+    case FieldErrorCode.notFound:
+      return 'Usuário ou senha inválidos.';
+
+    // network cobre ausência de rede e timeout, e as duas frases são do
+    // próprio app (FieldException.network e .timeout) — nunca do servidor,
+    // que por definição não respondeu.
+    case FieldErrorCode.network:
+      return error.message;
+
+    // O servidor respondeu, e respondeu que falhou. Para quem está na porta o
+    // desfecho é o mesmo de não alcançá-lo.
+    case FieldErrorCode.internal:
+    case FieldErrorCode.upstreamUnavailable:
+      return 'Não foi possível conectar ao AlfaOS. Tente de novo em instantes.';
+
+    // Quantas tentativas restam é informação sobre o RITMO, não sobre a conta:
+    // vale mostrar, porque sem ela a pessoa insiste e piora o bloqueio.
+    case FieldErrorCode.rateLimited:
+      return error.message;
+
+    // Recusa do formato antes de qualquer consulta — 'E-mail inválido.' não
+    // afirma nada sobre existir ou não uma conta.
+    case FieldErrorCode.validationError:
+      return error.message;
+
+    case FieldErrorCode.deviceRevoked:
+    case FieldErrorCode.conflict:
+    case FieldErrorCode.idempotencyConflict:
+    case FieldErrorCode.labelExpired:
+    case FieldErrorCode.unknown:
+      return 'Não foi possível entrar. Tente de novo.';
+  }
+}
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -48,24 +109,51 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     } on FieldException catch (error) {
       if (!mounted) return;
       setState(() {
-        /*
-          A mensagem vem do servidor e é a MESMA para conta inexistente, senha
-          errada, usuário inativo e perfil sem acesso. O app não acrescenta
-          detalhe: distinguir aqui entregaria, a quem baixasse o aplicativo,
-          uma forma de descobrir quem trabalha na empresa.
-        */
         _error = error.code == FieldErrorCode.deviceRevoked
             ? null // Vira tela própria; a rota reage ao estado.
-            : error.message;
+            : loginErrorMessage(error);
       });
     } finally {
-      if (mounted) setState(() => _submitting = false);
+      /*
+        O botão SEMPRE volta, e a senha SEMPRE some.
+
+        Reabilitar é o que permite a segunda tentativa — sem isso a tela
+        fica com o indicador girando para sempre depois de um erro. Limpar
+        a senha, e só ela, é a outra metade: o e-mail continua digitado
+        porque redigitá-lo é atrito puro, enquanto uma senha errada deixada
+        no campo convida a reenviar exatamente a mesma coisa.
+      */
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          if (_error != null) _passwordController.clear();
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    /*
+      A mensagem do CONTROLADOR também é exibida.
+
+      É por ela que chega 'sua sessão expirou': o token venceu enquanto o
+      aplicativo estava fechado, e a pessoa reabre já na tela de login. Sem
+      isto, essa frase era montada e nunca aparecia em lugar nenhum — a tela
+      voltava muda, e o técnico não tinha como saber por que precisava
+      entrar de novo.
+
+      O erro local vem primeiro: ele é a resposta à tentativa que a pessoa
+      acabou de fazer.
+    */
+    final mensagemDaSessao = ref.watch(
+      sessionControllerProvider.select(
+        (s) => s.phase == SessionPhase.unauthenticated ? s.message : null,
+      ),
+    );
+    final erro = _error ?? mensagemDaSessao;
 
     return Scaffold(
       body: SafeArea(
@@ -143,9 +231,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           ? 'Informe sua senha.'
                           : null,
                     ),
-                    if (_error != null) ...[
+                    if (erro != null) ...[
                       const SizedBox(height: AlfaSpacing.lg),
-                      _ErrorBanner(message: _error!),
+                      _ErrorBanner(message: erro),
                     ],
                     const SizedBox(height: AlfaSpacing.xl),
                     FilledButton(
@@ -283,7 +371,7 @@ class OfflineBootstrapScreen extends ConsumerWidget {
     return Scaffold(
       body: SafeArea(
         child: ErrorViewScaffold(
-          message: message ?? 'Sem conexão com o AlfaOS.',
+          message: message ?? 'Não foi possível conectar ao AlfaOS.',
           onRetry: () =>
               ref.read(sessionControllerProvider.notifier).retryBootstrap(),
         ),

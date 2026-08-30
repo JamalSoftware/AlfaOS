@@ -13,6 +13,7 @@ class TimeClockState {
   const TimeClockState({
     this.workday = Workday.empty,
     this.history = const [],
+    this.adjustments = const [],
     this.loading = true,
     this.busy = false,
     this.error,
@@ -22,7 +23,17 @@ class TimeClockState {
   });
 
   final Workday workday;
+
+  /// O que o SERVIDOR devolveu em `/history` — inclusive o dia de hoje.
+  ///
+  /// Guardado cru de propósito. Quem quer a lista da seção "Histórico" usa
+  /// [previousDays]: filtrar na origem esconderia do próximo leitor que a rota
+  /// devolve hoje também, e a mesma confusão voltaria.
   final List<WorkdaySummary> history;
+
+  /// Os pedidos de correção do próprio técnico, com o desfecho de cada um.
+  final List<TimeAdjustment> adjustments;
+
   final bool loading;
 
   /// Um comando em voo. Trava o botão — a proteção real é a chave de
@@ -39,9 +50,30 @@ class TimeClockState {
   /// O campo existe para a tela não precisar ser redesenhada quando existir.
   final PunchSyncStatus syncStatus;
 
+  /// O histórico SEM o dia corrente.
+  ///
+  /// `GET /time-clock/history` vai até hoje, e é o certo: é a mesma rota que
+  /// serve um recorte de datas qualquer, e recortá-la no servidor tiraria de
+  /// quem consulta "de 1 a 31" o último dia do mês.
+  ///
+  /// Mas a tela já mostra hoje inteiro, com marcações e botões, no cartão de
+  /// cima. Repetir a mesma data logo abaixo, como se fosse jornada passada,
+  /// fazia o técnico ver o próprio dia duas vezes e duvidar de qual valia — foi
+  /// o que o piloto em aparelho real encontrou.
+  ///
+  /// O corte usa a data que o SERVIDOR chamou de hoje (`workday.date`), nunca o
+  /// relógio do aparelho: o dia operacional é o dia civil no fuso da EMPRESA, e
+  /// um celular em outro fuso — ou com a data adiantada — cortaria o dia errado.
+  List<WorkdaySummary> get previousDays {
+    final hoje = workday.date;
+    if (hoje.isEmpty) return history;
+    return history.where((day) => day.date != hoje).toList(growable: false);
+  }
+
   TimeClockState copyWith({
     Workday? workday,
     List<WorkdaySummary>? history,
+    List<TimeAdjustment>? adjustments,
     bool? loading,
     bool? busy,
     String? error,
@@ -53,6 +85,7 @@ class TimeClockState {
   }) => TimeClockState(
     workday: workday ?? this.workday,
     history: history ?? this.history,
+    adjustments: adjustments ?? this.adjustments,
     loading: loading ?? this.loading,
     busy: busy ?? this.busy,
     error: clearError ? null : (error ?? this.error),
@@ -94,6 +127,23 @@ class TimeClockController extends StateNotifier<TimeClockState> {
         'time-clock-${timeEntryTypeWire(type)}',
       );
 
+  /// Chaves de intenção dos PEDIDOS DE CORREÇÃO, pela mesma regra das batidas.
+  ///
+  /// Antes a chave era criada dentro do envio, então cada tentativa era um
+  /// comando novo aos olhos do servidor: um timeout seguido de "tentar de novo"
+  /// abria DOIS pedidos idênticos, e o gestor recebia a mesma correção duas
+  /// vezes na fila.
+  ///
+  /// A chave é indexada pelo CONTEÚDO do pedido. Reenviar o mesmo pedido
+  /// reapresenta a mesma chave — que é o que torna a retentativa segura. Mudar
+  /// qualquer campo depois de uma recusa produz outra assinatura e, portanto,
+  /// outra chave: sem isso o segundo envio bateria em `IDEMPOTENCY_CONFLICT`
+  /// por reusar a chave de um corpo diferente.
+  final Map<String, String> _adjustmentKeys = {};
+
+  String _adjustmentKey(String assinatura) => _adjustmentKeys[assinatura] ??=
+      IdempotencyKey.forOperation('time-clock-adjustment');
+
   Future<void> load() async {
     state = state.copyWith(loading: true, clearError: true);
     try {
@@ -122,6 +172,18 @@ class TimeClockController extends StateNotifier<TimeClockState> {
       state = state.copyWith(history: history);
     } on FieldException {
       // Histórico é consulta: falhar aqui não pode derrubar a batida de hoje.
+    }
+  }
+
+  /// Os próprios pedidos de correção.
+  ///
+  /// Consulta, como o histórico: falhar aqui não pode derrubar a batida de hoje.
+  Future<void> loadAdjustments() async {
+    try {
+      final adjustments = await _repository.adjustments();
+      state = state.copyWith(adjustments: adjustments);
+    } on FieldException {
+      // Silencioso de propósito — ver `loadHistory`.
     }
   }
 
@@ -180,20 +242,44 @@ class TimeClockController extends StateNotifier<TimeClockState> {
   }
 
   /// Abre um pedido de correção. `null` em caso de sucesso; a mensagem, se não.
+  ///
+  /// O horário novo **não é aplicado aqui**. O que sai daqui é um pedido; a
+  /// marcação só muda quando alguém aprovar, e mesmo então a original continua
+  /// no histórico (PRD §229). Por isso o retorno é uma mensagem de erro ou
+  /// nada — nunca uma jornada "já corrigida".
   Future<String?> requestAdjustment({
     required TimeEntryType entryType,
     required DateTime occurredAt,
     required String reason,
+    String? targetEntryId,
   }) async {
+    // A assinatura da INTENÇÃO. Mesmo pedido, mesma chave, quantas tentativas
+    // forem precisas.
+    final assinatura = [
+      targetEntryId ?? '',
+      timeEntryTypeWire(entryType),
+      occurredAt.toUtc().toIso8601String(),
+      reason.trim(),
+    ].join('|');
+
     try {
       await _repository.requestAdjustment(
+        // Apontar para uma marcação existente é CORRIGIR; sem alvo, é INCLUIR
+        // o que faltou. O servidor confere que o alvo é da pessoa e do dia.
+        requestedType: targetEntryId == null ? 'MISSING_ENTRY' : 'WRONG_TIME',
         requestedEntryType: entryType,
         requestedOccurredAt: occurredAt,
         reason: reason,
-        idempotencyKey: IdempotencyKey.forOperation('time-clock-adjustment'),
+        targetEntryId: targetEntryId,
+        idempotencyKey: _adjustmentKey(assinatura),
       );
-      state = state.copyWith(message: 'Correção solicitada.');
+
+      // Intenção cumprida: um pedido igual, depois disto, é outro comando.
+      _adjustmentKeys.remove(assinatura);
+
+      state = state.copyWith(message: 'Correção enviada para aprovação.');
       await load();
+      await loadAdjustments();
       return null;
     } on FieldException catch (error) {
       return error.message;
