@@ -189,11 +189,11 @@ Três decisões que são fáceis de desfazer sem perceber:
 
 Nada disso está implementado — é especificação, e a §119 se aplica.
 
-## Jornada / Ponto do funcionário — FASE 1 ENTREGUE, RELEASE PENDENTE
+## Jornada / Ponto do funcionário — FASE 1 PUBLICADA (v0.11-employee-time-clock)
 
 **Carregar:** `docs/PRD.md` §226–§233 — marcações, evidência da batida, histórico imutável e pedido de ajuste, espelho, painel do gestor, ponto offline e LGPD. Se a tarefa toca autorização, quem decide ou fuso, leia junto `docs/SECURITY.md` **§8.15**. Código: `src/lib/workday.ts` (dia, estado e **sequência efetiva**) e `src/lib/time-clock.ts` (domínio).
 **Quando:** a tarefa envolve jornada de trabalho, batida de ponto, espelho, banco de horas ou aprovação de ajuste.
-**Quando NÃO:** check-in de OS — **não é a mesma coisa** (§226). Check-in é `docs/TECHNICIAN-EXECUTION.md` e a §167.
+**Quando NÃO:** check-in de OS — **não é a mesma coisa** (§226). Check-in é `docs/TECHNICIAN-EXECUTION.md` e a §167. Escala/plantão/folga/DSR é módulo **separado**, ainda `PLANNED` — ver a entrada logo abaixo.
 
 Quatro regras que serão fáceis de desfazer sem perceber:
 
@@ -202,17 +202,36 @@ Quatro regras que serão fáceis de desfazer sem perceber:
 * **A marcação original nunca é editada.** Correção é pedido com aprovação, e o registro derivado aponta para ele (§229).
 * **Só existe UMA noção de "marcação atual".** A correção aprovada **supera** a original sem apagá-la, e as duas linhas convivem na tabela. Quem lê o histórico bruto lê um dia que não existe: estado, ação permitida, validação de sequência e espelho passam todos por `resolveEffectiveTimeEntries`. Ler `timeEntry.findMany` direto para decidir qualquer coisa é o defeito, não o atalho.
 
-**Estado do release: `PILOT PASSED / RELEASE PENDING`.** A Fase 1 está em `main` local, homologada em piloto físico, e **não tem tag e não foi publicada**. O inventário do que entrou, o registro do piloto e o que ficou de fora estão em `docs/PRD.md` **§252**; os riscos pendentes, na **§253**. Não descrever a Jornada como publicada em nenhum documento até o checkpoint acontecer.
+**Estado do release: `PUBLISHED`.** Tag anotada `v0.11-employee-time-clock`, no commit `f057ee1`, publicada no remoto. Auditoria clean-room final: `APPROVED WITH RISKS`, `RELEASE GO` — 0 CRITICAL, 0 HIGH, 0 MEDIUM, 1 LOW, 3 INFO. O inventário do que entrou, o registro do piloto e os riscos residuais estão em `docs/PRD.md` **§252** e **§253**.
 
 **O que JÁ existe:** `Workday`, `TimeEntry`, `TimeAdjustmentRequest` e `Company.timezone`; as rotas `/api/field/v1/time-clock/*` e `/api/time-clock/*`; a tela `/jornada`, a página por funcionário e a tela do Field. **Não existe** banco de horas, escala prevista, folha, engine offline no cliente nem tela de configuração de fuso — `Company.timezone` só tem o default. A §119 se aplica ao que falta.
 
-**Das quatro pendências registradas (§253), três foram fechadas no endurecimento final** — e as três viraram regra que dá para desfazer sem perceber:
+**Das pendências registradas (§253), três foram fechadas no endurecimento final** — e as três viraram regra que dá para desfazer sem perceber:
 
 * **Quem abre não decide, quando a jornada é a própria** (LOW-1). Abrir continua permitido; a recusa é 403, vem **depois do lock e antes de qualquer escrita**, e não deixa `TimeEntry`, `updateMany` nem `AuditLog`. A tela esconder o botão é UX — a autoridade é `decideTimeAdjustment`.
 * **A criação administrativa exige `Idempotency-Key`** (LOW-2), na **mesma** infraestrutura do Field, com nome de operação próprio (`time-clock.admin-adjustment`). Criar uma segunda idempotência para a web é o defeito, não o atalho.
 * **O fuso do horário solicitado é o da EMPRESA** (LOW-3). `WorkdayView.utcOffset` vai no DTO e o Field o usa para ler e montar horário. O relógio do aparelho não é autoridade sobre jornada, e uma tabela de fusos dentro do APK envelhece na primeira mudança de lei.
 
+**Quatro achados da auditoria clean-room final, todos residuais e aceitos** (não corrigir sem tarefa própria):
+
+* **JOR-A1 (`LOW`)** — dia histórico deixado `WORKING` acumula `workedMinutes` até `now()` a cada leitura, mesmo em dias antigos. **Bloqueia o Attendance Report** (`docs/PRD.md` §303) até ser corrigido — não bloqueia o resto da Jornada.
+* **JOR-A2 (`INFO`)** — `inconsistencies` já calculadas no servidor, ainda não exibidas no Field nem no painel.
+* **JOR-A3 (`INFO`)** — `pendingAdjustments` do painel do gestor não é limitado ao dia consultado.
+* **JOR-A4 (`INFO`)** — `$executeRawUnsafe` só no reset de banco de teste, protegido pelo guard de ambiente.
+
 **Continua pendente: JOR-05** — `Company.timezone` não tem superfície administrativa. Não bloqueia: o padrão `America/Sao_Paulo` atende, e o campo já cai no padrão quando o valor gravado é inválido.
+
+## Escala de trabalho e espelho de jornada — PLANNED
+
+**Carregar:** `docs/PRD.md` **Parte XI (§288–§307)** — escala, plantão, folga, DSR, sábado alternado, troca de plantão, planejado × realizado e o Attendance Report (PDF/CSV).
+**Quando:** a tarefa envolve escala de trabalho, plantão, folga, DSR, recorrência de escala, troca entre técnicos, "Minha Escala" no Field, ou exportação de espelho de jornada em PDF/CSV.
+**Quando NÃO:** jornada/ponto em si — isso é a entrada **acima**, e as duas nunca se fundem (§288). Contrato assinado é a Parte X (§266–§287); o Attendance Report **não é** `SignedContract` (§304).
+
+**Nada disso existe.** A regra que não pode ser desfeita ao implementar:
+
+* **Escala é planejado; Jornada/Ponto é realizado.** `PLANTAO` nunca cria `CLOCK_IN`; `FOLGA` e `DSR` nunca criam `TimeEntry` (§288, §300). Um despacho ou uma tela "inteligente" que abrisse ponto a partir da escala violaria a mesma garantia que sustenta o módulo inteiro.
+* **`ScheduleRule` gera `ScheduleOccurrence`; a exceção altera a ocorrência, nunca a regra** (§290, §293) — a mesma separação fato/correção que a Jornada já fez entre `TimeEntry` e `TimeAdjustmentRequest`.
+* **O Attendance Report não pode implementar cálculo de horas próprio.** PDF, CSV, dashboard, Field e painel web consomem o MESMO motor — hoje `resolveEffectiveTimeEntries` e `src/lib/time-clock.ts` (§302). E está **`BLOCKED BY JOR-A1`** (§303) enquanto esse achado não for corrigido.
 
 ## Field Workspace, App Shell e Dashboard — PLANNED
 
@@ -228,6 +247,8 @@ Quatro regras que serão fáceis de desfazer sem perceber:
 
 A porta única da correção (§258) **já foi aplicada** no endurecimento final da Fase 1: a tela de jornada do Field oferecia "SOLICITAR CORREÇÃO" em dois lugares, e ficou só o da seção `Correções` — que é onde o pedido vive depois de aberto. O cartão de hoje responde estado, trabalhado, última marcação e correções pendentes, e mais nada. O teste que segura isso conta o RÓTULO, não a chave: um segundo botão com outra `Key` foi exatamente o caso anterior.
 
+**"Minha Escala" é destino separado de "Minha Jornada"** (§298, Parte XI) — mesma gaveta, mesmo App Shell, entidades diferentes. O dashboard `Início` ganha um card de próximo plantão/folga sem reordenar os blocos já especificados no §257.
+
 ## Mapa operacional no Field, agenda e estoque do técnico — PLANNED
 
 **Carregar:** `docs/PRD.md` §259–§263 — mapa do técnico, ação no pin, privacidade/GPS, agenda de compromissos e "Meu Estoque". Leia junto o bloco correspondente já existente: mapa é a Parte VI (§196–§209), agenda estende a §171, estoque estende a §181.
@@ -239,6 +260,8 @@ A porta única da correção (§258) **já foi aplicada** no endurecimento final
 * **Não é um segundo mapa** (§259). É a mesma `CustomerLocation` e a mesma precedência da §197.
 * **GPS `while-in-use`, evento é um ponto** (§261). Tracking durante a jornada só existe se a política da empresa habilitar, e nunca fora dela.
 * **A OS na agenda é projeção, não cópia** (§262). Guardar horário próprio criaria duas respostas para "quando é o atendimento".
+
+O plantão da Escala (§298, Parte XI) entra na agenda pela mesma regra de projeção — nunca com horário próprio guardado ali.
 
 ## Ferramentas do técnico e configuração de roteador — PLANNED
 

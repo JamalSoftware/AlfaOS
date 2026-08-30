@@ -7345,14 +7345,17 @@ está na **§287**; as duas tabelas se leem juntas.
 
 ---
 
-# 252. JORNADA / PONTO — FASE 1 ENTREGUE, RELEASE PENDENTE
+# 252. JORNADA / PONTO — FASE 1 PUBLICADA
 
-**Classificação: Fase 1 `DONE` — `PILOT PASSED / RELEASE PENDING`.**
+**Classificação: Fase 1 `DONE` — `PUBLISHED`.**
 
-**Não há tag e não houve push.** A Fase 1 está em `main` local, homologada em
-piloto físico, e **aguarda checkpoint final, tag e publicação**. Enquanto isso
-não acontecer, nenhum documento deste projeto deve descrever a Jornada como
-publicada.
+**Tag anotada `v0.11-employee-time-clock`, apontando para o commit `f057ee1`,
+publicada no remoto.** A Fase 1 foi homologada em piloto físico, endurecida
+contra três achados `LOW` (§253), auditada em clean-room de forma independente
+— `APPROVED WITH RISKS`, `RELEASE GO`, 0 CRITICAL, 0 HIGH, 0 MEDIUM, 1 LOW, 3
+INFO — e publicada. Os riscos residuais dessa auditoria final estão registrados
+na §253, e continuam valendo depois da publicação: uma tag não fecha achado
+nenhum sozinha.
 
 ## O que a Fase 1 entregou
 
@@ -7405,16 +7408,34 @@ A §119 se aplica a todos: estão especificados, não autorizados.
 
 # 253. RISCOS E PENDÊNCIAS DA JORNADA FASE 1
 
-**Classificação: registro.** Três dos quatro itens foram **fechados no
-endurecimento final da Fase 1**, depois do piloto físico e antes do checkpoint.
-O que sobra é `JOR-05`, que continua não sendo bloqueador.
+**Classificação: registro.** Três achados do endurecimento final foram
+**resolvidos** antes do checkpoint. A auditoria clean-room que liberou a
+publicação (§252) encontrou mais quatro, todos residuais e aceitos — nenhum
+bloqueou o `RELEASE GO`. `JOR-05` continua pendente e continua não bloqueando.
 
 | Item | O que é | Estado |
 |---|---|---|
 | **LOW-1** | um `ADMIN` podia abrir uma correção e **aprovar a própria correção** | **RESOLVIDO** — abrir continua permitido; decidir o que se abriu para a própria jornada, não |
 | **LOW-2** | a criação administrativa pela web **não tinha idempotência equivalente à do Field** | **RESOLVIDO** — `Idempotency-Key` obrigatória, na mesma infraestrutura do Field |
 | **LOW-3** | o Field montava o horário solicitado a partir do **fuso do aparelho** | **RESOLVIDO** — o `WorkdayView` carrega o deslocamento da empresa, e é ele que vale |
+| **JOR-A1** | dia histórico deixado `WORKING` acumula `workedMinutes` até `now()` a cada leitura, mesmo em dias antigos | **PENDENTE**, `LOW` — não corrigido nesta fase; **bloqueia o Attendance Report** (§303) |
+| **JOR-A2** | `inconsistencies` (`Jornada em aberto`, `Intervalo em aberto`) já são calculadas no servidor e ainda não aparecem no Field nem no painel web | **PENDENTE**, `INFO` |
+| **JOR-A3** | `pendingAdjustments` no painel do gestor (§231) não é limitado ao dia consultado | **PENDENTE**, `INFO` |
+| **JOR-A4** | `$executeRawUnsafe` existe só no reset de banco de teste, protegido pelo guard de ambiente | **PENDENTE**, `INFO` — comportamento aceito, não é achado sobre produção |
 | **JOR-05** | `Company.timezone` existe no modelo e **só tem o valor padrão**: não há superfície administrativa para configurá-lo | **PENDENTE**, `P1` — não bloqueia a Fase 1 |
+
+## JOR-A1 — por que ficou para depois, e o que ele trava
+
+Não foi corrigido no checkpoint de publicação por decisão explícita de escopo:
+o achado é de código, o checkpoint era de release, e misturar os dois arriscava
+auditar um alvo que continuava mudando. Ele **trava** especificamente a
+liberação do Attendance Report (Parte XI, §301–§304) como fonte confiável de
+total de horas — um relatório que soma um dia aberto usando o instante da
+própria geração produziria um número que muda a cada reemissão do mesmo
+período, sem nenhuma correção nova ter acontecido. Não trava o resto da
+Jornada: o espelho do dia corrente já mostra "em aberto" corretamente, porque
+somar até `now()` é o comportamento certo para um dia que ainda está
+acontecendo — o defeito é só em dia **histórico**.
 
 ## LOW-1 — a regra que a Fase 1 tomou
 
@@ -9076,7 +9097,8 @@ versão** — isso é escopo aprovado à parte, pela §119. Versões históricas
 renumeradas.
 
 ```text
-A.  Fechar Jornada / Ponto Fase 1        checkpoint · tag · push   §252, §253
+A.  Fechar Jornada / Ponto Fase 1        DONE — v0.11-employee-  §252, §253
+                                          time-clock, f057ee1
 B.  Field App Shell / Navegação                                    §255, §256
 C.  Technician Dashboard                                           §257, §258
 D.  Operational Map no Field                                       §259–§261
@@ -9089,12 +9111,16 @@ J.  Router / Wi-Fi automation                                      §265, §178
 K.  ACS / OLT / RADIUS / MikroTik                                  FUTURE
 ```
 
-## Por que A vem antes de tudo
+## Por que A vinha antes de tudo — e agora está feito
 
-Porque a Fase 1 da Jornada está **entregue e não publicada**. Empilhar trabalho
-novo sobre um módulo sem checkpoint significa auditar depois um alvo que já
-mudou — e a auditoria independente da versão é feita por quem não implementou
-(`CLAUDE.md`).
+A Fase 1 da Jornada foi publicada como `v0.11-employee-time-clock`
+(commit `f057ee1`), depois de checkpoint, auditoria clean-room independente e
+tag. Empilhar trabalho novo sobre um módulo sem checkpoint teria significado
+auditar depois um alvo que já mudou — e é exatamente essa ordem que preservou a
+auditoria independente feita por quem não implementou (`CLAUDE.md`). Os riscos
+residuais dessa auditoria (`JOR-A1`–`JOR-A4`) estão na §253, e um deles —
+`JOR-A1` — agora governa quando a Parte XI (§301) pode liberar o Attendance
+Report.
 
 ## Por que B e C vêm antes de D
 
@@ -9120,3 +9146,670 @@ Quando divergirem, a §194 decide o que entra no aplicativo.
 A §251 continua sendo o roadmap pós-v0.10 do produto inteiro — rede interna do
 cliente, contatos, custódia, despacho, equipamentos. A §287 detalha a trilha do
 **workspace do técnico e dos contratos**, e as duas se leem juntas.
+
+---
+
+# PARTE XI — ESCALA DE TRABALHO E ESPELHO DE JORNADA
+
+> **Nada nesta Parte está implementado.** A §119 se aplica integralmente: não
+> existe modelo, rota, tela, PDF nem notificação. O que existe é a Jornada/Ponto
+> Fase 1, publicada como `v0.11-employee-time-clock` (commit `f057ee1`) — o
+> registro está na §252, atualizado.
+>
+> A Parte nasceu **integrada** à Jornada, e não a substitui nem a reabre: onde
+> toca algo já decidido — a sequência efetiva do §229, o painel do §231, o
+> dashboard do §257, a agenda do §262 —, ela **referencia e estende**.
+
+---
+
+# 288. ESCALA DE TRABALHO — CAPABILITY OFICIAL
+
+**Classificação: `P0`/`P1` da trilha Field, conforme a seção — ver o roadmap na
+§307.** Nada implementado.
+
+O AlfaOS passa a registrar também o **trabalho planejado**: quem deveria estar
+de plantão, de folga ou em descanso semanal remunerado (DSR) em cada dia, com
+recorrência, exceção auditada, troca entre técnicos e aviso.
+
+## A regra que governa a Parte inteira
+
+> **ESCALA é o que foi planejado. JORNADA/PONTO é o que foi realizado.**
+> **Nunca inferir `TimeEntry` a partir da escala, e nunca inferir a escala a
+> partir de uma batida.**
+
+É a mesma disciplina que já separou Ponto de check-in de OS (§226) e check-in de
+confirmação de localização (§167): dois fatos parecidos, proveniências
+diferentes, e a tentação de fundir os dois sempre aparece disfarçada de
+economia.
+
+| | Escala | Jornada / Ponto |
+|---|---|---|
+| Pergunta que responde | "quem deveria trabalhar hoje?" | "esta pessoa trabalhou?" |
+| Natureza | planejamento, publicado com antecedência | fato, carimbado pelo servidor no instante |
+| Quem escreve | gestor autorizado | o próprio funcionário, batendo ponto |
+| Consequência de errar | comunicação ruim, cobertura furada | jornada, horas, histórico legal |
+| Muda depois do fato? | sim — republicar, trocar, corrigir escala futura | não — `TimeEntry` é imutável (§229) |
+
+**Um `PLANTAO` não cria `CLOCK_IN`. Uma `FOLGA` não cria `TimeEntry` nenhuma.**
+Detalhado na §300, porque é a regra mais fácil de violar por atalho — "já que
+sei que ele está de plantão, por que não abrir a jornada por ele" é exatamente
+o caminho que o §229 fechou para a correção manual, e abri-lo aqui pela porta
+dos fundos destruiria a mesma garantia.
+
+## Objetivos
+
+```text
+jornada planejada · plantões · folgas · DSR
+recorrência · distribuição por equipe · exceção auditada
+histórico de mudança · notificação · planejado × realizado
+relatório exportável · futura integração com despacho
+```
+
+## Quem tem escala
+
+Funcionário — a mesma base da Jornada (§226). `Technician` é caso particular,
+não a regra: um atendente de call center pode ter escala sem nunca abrir OS.
+
+---
+
+# 289. TIPOS DE DIA
+
+**Classificação: `P0`.**
+
+```text
+NORMAL          jornada comum, sem plantão nem regime especial
+PLANTAO         turno especial, com horário previsto
+FOLGA           dia de descanso NÃO remunerado como DSR — política da empresa
+DSR             descanso semanal remunerado
+FERIADO         data configurada pela empresa ou calendário nacional
+FERIAS          período de férias (§295)
+AFASTAMENTO     licença, atestado — representado, não gerido (§295)
+TREINAMENTO     capacitação prevista na escala
+```
+
+`SOBREAVISO` (technician de prontidão, sem estar no local) é **FUTURE** — exige
+regra de acionamento e compensação que este documento não decide agora.
+
+## FOLGA e DSR não são o mesmo conceito
+
+**FOLGA** é um dia sem trabalho por decisão de escala — o par do plantão no
+rodízio (§290). **DSR** é o descanso semanal remunerado, com peso legal
+diferente. Tratar os dois como um enum só faria o painel do gestor (§231)
+enxergar "não trabalha hoje" onde a lei enxerga duas coisas distintas — e a
+distinção é exatamente o que o módulo existe para preservar, mesmo sem calcular
+nada sobre ela (§296).
+
+---
+
+# 290. REGRA RECORRENTE E OCORRÊNCIA — O CASO DO SÁBADO ALTERNADO
+
+**Classificação: `P0`.**
+
+## Regra × ocorrência — a mesma separação que a Jornada já fez
+
+`ScheduleRule` descreve o **padrão recorrente**. `ScheduleOccurrence` é o **dia
+concreto**, gerado a partir da regra, e é ela — nunca a regra — que uma exceção
+altera (§293). É a mesma arquitetura da Jornada: `TimeEntry` é o fato, o pedido
+de ajuste não reescreve o fato, cria uma versão nova por cima (§229). Aqui,
+alterar uma ocorrência não reescreve a regra, e a regra continua gerando as
+ocorrências seguintes sem saber que uma delas foi desviada.
+
+## Caso de uso oficial: sábado alternado
+
+```text
+Escala Campo — Sábado Alternado
+Periodicidade:    quinzenal
+Data inicial:     configurável, por empresa
+
+Semana A · sábado    PLANTÃO   08:00–18:00
+Semana B · sábado    FOLGA
+Todo domingo         DSR
+Timezone:            Company.timezone
+```
+
+**Isto é política operacional configurável da empresa — não é regra jurídica
+universal.** O AlfaOS não afirma que todo sábado alternado é a forma correta de
+compensar plantão; ele registra a política que a empresa escolheu, do mesmo jeito
+que não decide se uma correção de ponto "deveria" ter sido aprovada (§219).
+
+## Técnicos em ciclos opostos
+
+A mesma regra, aplicada com fase deslocada, mantém cobertura:
+
+```text
+Técnico A:   05/09 PLANTÃO  ·  12/09 FOLGA    ·  19/09 PLANTÃO
+Técnico B:   05/09 FOLGA    ·  12/09 PLANTÃO  ·  19/09 FOLGA
+```
+
+Duas `ScheduleRule` com o mesmo período e fase invertida — não uma regra
+especial de "cobertura". Combinar automaticamente pares em rodízio garantido é
+`FUTURE` (§300); a `P0` é o gestor montar os dois ciclos manualmente e o sistema
+sustentar os dois sem colidir.
+
+---
+
+# 291. ESCALA POR EQUIPE
+
+**Classificação: `P1`.**
+
+Agrupamento leve de técnicos para fins de escala e cobertura — **não** uma
+reestruturação organizacional, não um segundo cadastro de hierarquia:
+
+```text
+Equipe Campo A · Equipe Campo B · Equipe NOC · Equipe Instalação
+```
+
+O gestor enxerga, por equipe e por dia: quem está de plantão, quem está de
+folga, quem está disponível. É leitura sobre `ScheduleOccurrence` filtrada por
+equipe, não um motor de escalonamento — otimizar distribuição automática é
+`FUTURE` e vive perto do despacho inteligente (§300).
+
+---
+
+# 292. CALENDÁRIO WEB, CRIAÇÃO MANUAL E RECORRÊNCIA
+
+**Classificação: `P0`.**
+
+## Onde vive
+
+```text
+JORNADA → ESCALA
+```
+
+Aba nova dentro do que já é `/jornada` (§252), não uma seção solta: as duas
+respondem perguntas sobre a mesma pessoa e o mesmo dia, só que planejado e
+realizado (§288).
+
+## Visões e filtros
+
+```text
+Visão:     DIA · SEMANA · MÊS
+Filtros:   equipe · técnico · tipo · status
+```
+
+Cada tipo de dia (§289) com cor e rótulo próprios — nunca só cor, a mesma regra
+do `StatusPill` (§149) e do mapa (§259).
+
+## Criação manual
+
+```text
+Técnico · Data · Hora inicial · Hora final
+Tipo · Equipe · Observação · Notificar técnico?
+```
+
+## Recorrência — o gestor não preenche sábado por sábado
+
+`P0`: recorrência quinzenal / sábado alternado (§290), que cobre o caso de uso
+oficial. Ciclos personalizados (semanal, mensal, N-semanas arbitrário) são
+`FUTURE` — o padrão quinzenal resolve o caso real conhecido, e generalizar antes
+de um segundo caso concreto aparecer é desenhar para hipótese.
+
+---
+
+# 293. EXCEÇÕES E PUBLICAÇÃO DA ESCALA
+
+**Classificação: `P0`.**
+
+## Publicação não é rascunho
+
+```text
+DRAFT        o gestor está montando — não notifica, não é oficial
+PUBLISHED    planejamento oficial — é o que o técnico vê e recebe aviso
+ARCHIVED     substituída ou encerrada — histórico, não apagada
+```
+
+`DRAFT` existe para o gestor poder montar o mês inteiro sem cada rascunho
+disparar notificação (§299) ou aparecer como compromisso confirmado no Field
+(§298).
+
+## Escala publicada não é sobrescrita em silêncio
+
+Alterar uma ocorrência já `PUBLISHED` registra, sempre:
+
+```text
+valor original · novo valor · autor · motivo · data/hora
+aprovação, quando aplicável
+```
+
+É a mesma exigência que o §229 fez para a Jornada: um valor publicado que muda
+sem rastro é uma segunda verdade que ninguém consegue auditar depois. A
+ocorrência **retém sua regra de origem** (§290) — a exceção desvia o dia
+concreto, não apaga de onde ele veio.
+
+---
+
+# 294. TROCA DE PLANTÃO
+
+**Classificação: `P1`.**
+
+```text
+[ SOLICITAR TROCA ]
+Técnico A → Técnico B
+Motivo
+```
+
+```text
+PENDING     solicitado — a escala oficial NÃO muda ainda
+APPROVED    aplicada como exceção (§293) sobre as duas ocorrências
+REJECTED    permanece registrada, com motivo — nunca some
+```
+
+**Enquanto pendente, a escala publicada continua valendo.** Um técnico que
+combinou a troca informalmente e não confirma antes do plantão não pode
+descobrir, pela ausência de aviso, que "já estava resolvido" — o sistema só
+reflete o que foi decidido pela autoridade certa.
+
+## Auditoria da troca — nunca um swap silencioso
+
+```text
+quem solicitou · quem aceitou · quem aprovou · data/hora
+escala anterior · escala resultante
+```
+
+Mesmo padrão do §229: a troca não edita as duas ocorrências no lugar, ela
+produz um registro de decisão que explica por que elas mudaram.
+
+---
+
+# 295. CONFLITOS, FÉRIAS E AFASTAMENTO
+
+**Classificação: `P1`** (conflitos) **/ FUTURE** (férias e afastamento como
+módulo).
+
+## Detecção de conflito
+
+```text
+plantões sobrepostos · escalas incompatíveis no mesmo dia
+férias ou afastamento coincidindo com plantão publicado
+ocorrência duplicada · troca impossível (destino já ocupado)
+```
+
+Detectar e avisar — **não** resolver automaticamente. Arbitrar qual dos dois
+plantões prevalece é decisão do gestor, do mesmo jeito que o AlfaOS nunca decide
+qual correção de ponto está certa (§219).
+
+## Férias e afastamento — representados, não geridos
+
+`FERIAS` e `AFASTAMENTO` entram como tipos de dia (§289) para a escala não
+mostrar um vazio inexplicado. O AlfaOS **não** vira um módulo de RH nesta fase:
+sem saldo de férias, sem aprovação de solicitação, sem integração com folha.
+Representar é diferente de administrar — a mesma fronteira que a custódia de
+patrimônio traçou para si (§219).
+
+---
+
+# 296. DSR E TRABALHO EM DIA DE DESCANSO
+
+**Classificação: `P0`** (o tipo de dia e o registro) **/ explicitamente FORA de
+escopo** (qualquer cálculo financeiro).
+
+DSR existe como tipo de dia explícito (§289), nunca fundido com `FOLGA`. O
+AlfaOS **não implementa**:
+
+```text
+cálculo automático de adicional · pagamento · banco de horas
+compensação · qualquer regra de folha
+```
+
+## Batida legítima em dia de FOLGA ou DSR
+
+Se a jornada for batida (§227) num dia marcado como `FOLGA` ou `DSR`, **o
+sistema não impede automaticamente**. Barrar a batida transformaria uma
+divergência operacional real — chamado urgente, plantão emergencial — num
+funcionário sem como registrar o que de fato aconteceu, e a Jornada existe para
+capturar o fato, não a exceção perfeita.
+
+O sistema **registra o sinal**:
+
+```text
+TRABALHO EM DIA DE DESCANSO
+```
+
+Puramente informativo. **Não decide impacto financeiro** — isso é folha, e a
+folha está fora desta fase (§45 do brief que originou esta Parte, preservado
+aqui como decisão).
+
+---
+
+# 297. PLANEJADO × REALIZADO
+
+**Classificação: `P1`.**
+
+```text
+SCHEDULED    o que a ScheduleOccurrence previu
+ACTUAL       o que a sequência efetiva da Jornada registrou (§229)
+```
+
+```text
+Planejado:   08:00–18:00
+Realizado:   07:57–18:11
+Diferença:   +14 min
+```
+
+**"Realizado" usa a visão efetiva da Jornada, nunca o histórico bruto.** Uma
+marcação superada por correção aprovada não pode reaparecer aqui só porque este
+módulo lê a tabela por conta própria — a mesma armadilha que o JOR-01 já expôs
+na Jornada (§253), e que só existe uma resposta para: consumir
+`resolveEffectiveTimeEntries`, nunca reimplementar a leitura.
+
+## Divergências possíveis
+
+```text
+CONFORME                dentro da tolerância combinada
+SEM_MARCACAO             escala previa e não há jornada
+ATRASO                   entrada depois do planejado
+SAIDA_ANTECIPADA          saída antes do planejado
+TEMPO_ADICIONAL           permaneceu além do planejado
+TRABALHO_EM_FOLGA         batida num dia marcado FOLGA
+TRABALHO_EM_DSR           batida num dia marcado DSR
+```
+
+**Somente informativo e operacional.** Não gera punição, não alimenta avaliação
+de desempenho — a mesma régua que já tirou ranking e comparação do dashboard do
+técnico (§257).
+
+---
+
+# 298. ESCALA NO FIELD — MINHA ESCALA, DASHBOARD E AGENDA
+
+**Classificação: `P1`** da trilha Field, estendendo capabilities já
+especificadas (§194, §254–§262).
+
+## Minha Escala — novo destino do Workspace
+
+```text
+hoje · próximos dias · próximo plantão · folgas · DSR · eventos especiais
+```
+
+Entra na gaveta categorizada do App Shell (§256), ao lado — não dentro — de
+`Minha Jornada` (§258): a primeira mostra o que a pessoa **vai** fazer, a
+segunda o que ela **fez** e a porta de correção.
+
+## Card no dashboard — `Início`
+
+Estende os blocos do §257, sem reordenar os que já existem:
+
+```text
+PRÓXIMA ESCALA
+Seu próximo plantão
+Sábado · 08:00 às 18:00
+[ VER ESCALA ]
+```
+
+ou, quando aplicável:
+
+```text
+Você está de folga neste sábado.
+```
+
+## Agenda — projeção, não cópia
+
+Estende a §262 com um tipo de compromisso novo:
+
+```text
+PLANTÃO    projeção da ScheduleOccurrence — não guarda horário próprio
+```
+
+Mesma regra que já vale para a OS na agenda (§262): mover o plantão na agenda
+não muda a escala. A escala é a fonte; a agenda só reflete.
+
+---
+
+# 299. NOTIFICAÇÕES DA ESCALA
+
+**Classificação: `P1`, e depende do push real (§153), que não existe.**
+
+## Triggers planejados
+
+```text
+novo plantão · alteração de escala publicada · plantão próximo
+folga · reunião (via agenda, §262)
+solicitação de troca · troca aprovada · troca rejeitada
+```
+
+## Avisos — configuração futura
+
+```text
+2 dias antes · 1 dia antes · 2 horas antes · no início
+```
+
+```text
+"Plantão amanhã. Você está escalado das 08:00 às 18:00."
+"Seu plantão começa em 2 horas."
+"Escala alterada."
+"Você está de folga neste sábado."
+```
+
+Enquanto o FCM real não estiver ligado (§153, §194), aviso é o que o técnico vê
+ao abrir o aplicativo — não algo que o alcança fora dele. A mesma ressalva que a
+§262 já fez para lembretes da agenda vale aqui, palavra por palavra.
+
+---
+
+# 300. DESPACHO FUTURO — ESCALA + JORNADA + OS + MAPA
+
+**Classificação: `FUTURE`.**
+
+```text
+Técnico A   DISPONÍVEL
+Técnico B   EM OS
+```
+
+Cruzar escala (quem deveria estar de plantão), jornada (quem realmente bateu
+ponto) e OS em andamento (quem está ocupado agora) para o despacho decidir com
+informação real, não com suposição. **Não implementar agora** — depende da
+Central de Despacho (§203, §204), que também é `FUTURE`, e de mapa operacional
+maduro (Parte VI).
+
+## Escala não cria ponto — reafirmado, porque é aqui que o atalho tentaria entrar
+
+Um despacho "inteligente" que decidisse abrir `CLOCK_IN` de um técnico porque a
+escala diz que ele está de plantão violaria a regra central da Parte (§288). O
+despacho **consulta** disponibilidade — nunca escreve jornada por conta própria.
+
+---
+
+# 301. ESPELHO DE JORNADA — ATTENDANCE REPORT
+
+**Classificação: `P1`.** Módulo planejado, exportação em PDF e CSV.
+
+Consolida, por técnico e por período, o que a Jornada (§226–§233) e a Escala
+(§288–§300) já registram — não introduz um terceiro conjunto de fatos.
+
+---
+
+# 302. CONTEÚDO DO PDF E FONTE ÚNICA DE CÁLCULO
+
+**Classificação: `P1`.**
+
+## Estrutura
+
+```text
+Cabeçalho:   Empresa · Técnico · Período
+
+Por dia:     data · escala prevista · entrada · início de intervalo
+             retorno · saída · total trabalhado · situação · correções
+
+Resumo:      total trabalhado · dias normais · plantões · folgas · DSR
+             correções · divergências (§297)
+```
+
+## Uma fonte, nunca um cálculo paralelo
+
+**PDF, CSV, dashboard, Field e painel web consomem o MESMO motor de jornada
+efetiva** — hoje `resolveEffectiveTimeEntries` e as funções de
+`src/lib/time-clock.ts`. **Nunca implementar cálculo de horas dentro do gerador
+de PDF.** É a lição direta do hardening que corrigiu JOR-01/02/03 nesta mesma
+sessão: duas leituras da mesma verdade divergem assim que uma correção é
+aprovada, e a segunda leitura errada tende a ser justamente a que ninguém olha
+depois — um relatório impresso.
+
+---
+
+# 303. JOR-A1 E JOR-A2 BLOQUEIAM O ESPELHO CONFIÁVEL
+
+**Classificação: dependência de release, registrada aqui para não ser
+esquecida no roadmap.**
+
+## JOR-A1 — bloqueador do total de horas
+
+Achado da auditoria clean-room final da Jornada Fase 1 (§253): um dia histórico
+deixado `WORKING` (sem `CLOCK_OUT`, sem correção) continua acumulando
+`workedMinutes` até `now()` toda vez que é recalculado — inclusive dias
+antigos, que deveriam estar congelados.
+
+> **`Attendance Report` release está `BLOCKED BY JOR-A1`.** Um PDF que soma
+> horas de um dia aberto há semanas usando o instante da GERAÇÃO do relatório,
+> em vez do fim daquele dia, produz um número que muda toda vez que o relatório
+> é reemitido — para o mesmo período, sem nenhuma correção nova. Isso é
+> inaceitável num documento que a empresa entrega como prova de jornada.
+
+**Não corrigir nesta tarefa** — é item de código, e esta Parte é só
+documentação (§119). O registro aqui existe para que ninguém libere o PDF como
+fonte confiável de horas antes de JOR-A1 fechar.
+
+## JOR-A2 — sinais que já existem e ainda não aparecem
+
+O servidor já calcula `inconsistencies` (`Jornada em aberto`, `Intervalo em
+aberto` — `src/lib/time-clock.ts`), mas nada no Field ou no painel web exibe
+isso hoje. Antes ou junto da liberação do Attendance Report, esses sinais devem
+aparecer na UI — um relatório que aponta um dia com intervalo em aberto sem que
+ninguém tenha visto isso antes é auditoria tardia demais.
+
+---
+
+# 304. CORREÇÕES, IMUTABILIDADE E HASH DO RELATÓRIO
+
+**Classificação: `P1`.**
+
+## O PDF mostra a marcação efetiva — e sinaliza quando houve correção
+
+O relatório usa a mesma sequência efetiva do §229/§302: a marcação superada não
+aparece como se fosse a vigente. Mas o PDF também **indica que houve correção**
+naquele dia — omitir o sinal esconderia do gestor exatamente o dia que mais
+merece atenção. **A marcação original nunca deixa de existir no histórico** por
+causa do relatório; o PDF é uma leitura, não um novo destino de dado.
+
+## Identidade e integridade — planejadas, sem confundir com contrato assinado
+
+```text
+reportId · generatedAt · period · hash
+validationCode          FUTURE
+```
+
+**Não confundir `Attendance Report` com `SignedContract` (Parte X, §266–§287).**
+O espelho de jornada não é um documento com assinatura eletrônica nem
+consequência contratual — é um relatório operacional com integridade
+verificável. Emprestar o pipeline de hash da Parte X é aceitável; emprestar a
+semântica de "assinado" não é.
+
+## Relatório é imutável depois de emitido
+
+Se um PDF já foi gerado e **depois** uma correção é aprovada para aquele
+período, o PDF antigo **não é alterado silenciosamente**. Uma nova versão — ou
+um novo relatório — é gerada, com seu próprio `reportId` e `generatedAt`. É a
+mesma disciplina do §272 para modelo de contrato publicado: o documento antigo
+continua sendo o que foi entregue naquele instante, e uma correção depois não
+reescreve retroativamente o que já saiu da porta.
+
+---
+
+# 305. ASSINATURA DO ESPELHO — FUTURE
+
+**Classificação: `FUTURE`.**
+
+Confirmação ou assinatura mensal do espelho, pelo técnico e/ou pelo gestor, é
+possibilidade futura — **não obrigatória** sem decisão legal ou operacional
+explícita que a justifique. Tornar isso padrão sem essa decisão criaria um
+compromisso formal (o técnico "assinando" que concorda com o total) que o
+produto não tem base jurídica para exigir por conta própria.
+
+---
+
+# 306. TIMEZONE, MULTI-TENANT, RBAC E LGPD DA ESCALA
+
+**Classificação: `P0`.**
+
+## Timezone
+
+`Schedule`, `Attendance Report` e a comparação planejado × realizado (§297)
+usam **`Company.timezone`** — nunca o fuso do navegador ou do aparelho. Mesma
+autoridade e mesmo motivo da Jornada (§226, §253/LOW-3): o dia operacional não
+pode depender de onde o dispositivo de quem está lendo acha que está.
+
+## Multi-tenant
+
+Todo `Schedule` — regra, ocorrência, troca, relatório — isolado por
+`companyId`, **derivado do principal autenticado**. Nunca aceito do corpo da
+requisição. A mesma regra do `CLAUDE.md` que já vale para todo o resto do
+produto, sem exceção para este módulo.
+
+## RBAC
+
+```text
+TECHNICIAN            ver a própria escala · ver o próprio espelho
+                       receber notificações · solicitar troca
+
+ADMIN / gestor         criar escala · publicar · alterar
+autorizado             aprovar troca · consultar equipe · exportar
+```
+
+**`DISPATCHER` não recebe acesso automaticamente.** Ele já enxerga a jornada da
+equipe hoje (§231) porque despacho precisa saber quem está trabalhando — mas
+autorizar escrita ou exportação de escala para o `DISPATCHER` é decisão
+separada, que esta Parte não toma. Sem regra explícita, o padrão é **não
+conceder**.
+
+## LGPD
+
+Escala é dado de trabalho, com o mesmo tratamento que a §233 já deu à Jornada:
+minimização, RBAC, isolamento de tenant, retenção declarada. **O técnico não
+precisa — e não deve — visualizar a escala completa de toda a empresa**; ele vê
+a própria, e a de quem seu papel autoriza consultar (equipe, quando aplicável).
+
+---
+
+# 307. ROADMAP — ESCALA DE TRABALHO E ESPELHO DE JORNADA
+
+**Classificação: registro.** Ordena capabilities; não decide numeração de
+versão — isso é escopo aprovado à parte (§119). Convive com o roadmap da §287 e
+com as duas escalas de prioridade do produto (§117, §194).
+
+```text
+P0
+  escala básica · plantão · folga · DSR
+  sábado alternado (regra + ocorrência)   §290
+  calendário web (dia/semana/mês)          §292
+  Minha Escala no Field                    §298
+  histórico de alteração publicada         §293
+  timezone, multi-tenant, RBAC             §306
+
+P1
+  notificações                             §299
+  planejado × realizado                    §297
+  Attendance Report — PDF/CSV              §301–§304
+  troca de plantão                         §294
+  escala por equipe                        §291
+  conflitos                                §295
+
+P2 / FUTURE
+  despacho inteligente                     §300
+  férias e afastamento como módulo próprio §295
+  ciclos personalizados de recorrência     §292
+  assinatura do espelho                    §305
+  banco de horas · payroll                 fora de escopo permanente
+```
+
+## Por que Attendance Report não é P0
+
+Porque depende de JOR-A1 (§303), um achado de código na Jornada Fase 1 — e
+porque um relatório exportável errado é pior que a ausência dele: uma vez que a
+empresa começa a entregar PDFs de jornada, corrigir a confiança perdida custa
+mais do que atrasar a liberação.
+
+## Por que escala básica é P0 apesar do módulo inteiro ser novo
+
+Porque o painel do gestor já tem um buraco esperando por ela: `NÃO INICIOU`
+(§231) não distingue folga de ausência hoje, e essa distinção só existe quando
+há escala prevista para comparar. A trilha Field já registrava isso como
+dependência (§194) antes desta Parte existir.
