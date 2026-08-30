@@ -3,7 +3,7 @@
 **Produto:** AlfaOS  
 **Documento:** PRD Mestre 2.0  
 **Objetivo:** Fonte principal de contexto funcional e técnico para desenvolvimento assistido por IA  
-**Status atual:** Baseline `v0.5-receitanet-diagnostics` (commit `e4fc701`), auditada e endurecida. Core operacional fechado ponta a ponta: criação, atribuição, execução, fechamento com evidências e diagnóstico de conectividade.  
+**Status atual:** Baseline publicada `v0.10-field-execution-closing`. Core operacional fechado ponta a ponta e execução em campo publicada no aplicativo Flutter. **A Fase 1 da Jornada/Ponto está entregue e homologada em piloto físico, mas SEM tag e SEM push** — ver §252. O inventário do que já é código está na §225 (v0.10) e na §252 (Jornada Fase 1); o restante deste documento é especificação, e a §119 se aplica.  
 **Arquitetura:** SaaS multiempresa preparado para múltiplos ERPs  
 **Primeiro cliente:** Alfa Telecom  
 **Premissa central:** o AlfaOS é o sistema de execução e gestão operacional das Ordens de Serviço. ERPs são origem, fonte de dados do cliente ou destino de sincronização — nunca o motor operacional. Ver Parte III (seções 121+).  
@@ -6505,11 +6505,15 @@ mapa operacional e Central de Despacho (Parte VI). A §119 se aplica a todos.
 
 # 226. JORNADA / PONTO — CAPABILITY OFICIAL
 
-**Classificação: `P0` da próxima fase.** Nada implementado.
+**Classificação: Fase 1 `DONE`, release pendente.** O inventário do que foi
+entregue, o que ficou de fora, o piloto físico e os riscos pendentes estão na
+**§252** e na **§253**. Esta seção continua sendo a **regra**; a §252 é o
+registro.
 
-O AlfaOS **deverá** registrar a **jornada de trabalho** do funcionário: entrada,
-intervalo e saída, com espelho, correção auditada e visão de gestor. Hoje não
-existe nada disso — nem modelo, nem rota, nem tela.
+O AlfaOS registra a **jornada de trabalho** do funcionário: entrada, intervalo e
+saída, com espelho, correção auditada e visão de gestor. Modelo, rotas e telas
+existem desde a Fase 1 — o que ainda **não** existe está listado na §252, e a
+§119 se aplica a tudo o que estiver lá.
 
 ## Ponto NÃO é check-in — e a confusão seria cara
 
@@ -6543,7 +6547,9 @@ ponto e nunca abre uma OS.
 
 # 227. MARCAÇÕES DA JORNADA
 
-**Classificação: `P0` da próxima fase.**
+**Classificação: `DONE` na Fase 1** (§252). As quatro marcações existem, a
+sequência aceita mais de um intervalo por dia, e o carimbo do servidor é a
+autoridade.
 
 Quatro marcações no MVP:
 
@@ -6577,7 +6583,11 @@ instante — e ela é marcada como tal, nunca apresentada como se fosse online.
 
 # 228. EVIDÊNCIA DA BATIDA
 
-**Classificação: `P0` da próxima fase.**
+**Classificação: Fase 1 `DONE` em parte** (§252). **Já registrados:** carimbo
+do servidor, carimbo do aparelho, `MobileDevice`, `User` e `Technician`,
+`companyId`, coordenada e `accuracy`, e a origem da marcação. **Ainda não
+registrados:** o estado online/offline no instante (depende da §232) e o
+endereço de origem da requisição.
 
 Cada marcação registra, conforme a política da empresa:
 
@@ -6613,7 +6623,11 @@ marcação existe.
 
 # 229. HISTÓRICO IMUTÁVEL E PEDIDO DE AJUSTE
 
-**Classificação: `P0` da próxima fase.**
+**Classificação: `DONE` na Fase 1** (§252). `TimeEntry` não tem caminho de
+`UPDATE` em lugar nenhum do código, e a correção aprovada **supera** a original
+sem apagá-la: quem lê a tabela crua lê um dia que não existe — estado, ação
+permitida, validação de sequência e espelho passam todos pela sequência
+**efetiva**.
 
 **A marcação original nunca é editada.** Esta é a regra que sustenta todas as
 outras: um registro de jornada que pode ser reescrito não prova nada, e a
@@ -6647,7 +6661,11 @@ entre as duas partes, precisa reconstruir.
 
 # 230. ESPELHO DE PONTO
 
-**Classificação: `P0` da próxima fase.**
+**Classificação: Fase 1 `DONE` em parte** (§252). **Já existe:** o dia
+corrente e o histórico por intervalo de datas, com estado, tempo trabalhado,
+tempo de intervalo e correções pendentes, no Field e na web. **Ainda não
+existe:** recortes semanal e mensal formais, atraso, falta, hora extra e banco
+de horas.
 
 Visão do funcionário sobre a própria jornada, em três recortes: **diário**,
 **semanal** e **mensal**.
@@ -6676,7 +6694,12 @@ custódia. Integração com folha é `FUTURE`, e por exportação.
 
 # 231. PAINEL DO GESTOR
 
-**Classificação: `P0` da próxima fase.**
+**Classificação: Fase 1 `DONE` em parte** (§252). **Já existe:** o painel da
+empresa com `NOT_STARTED`, `WORKING`, `ON_BREAK` e `FINISHED`, última marcação
+e contagem de ajustes pendentes, mais a página por funcionário. **Ainda não
+existe:** `MARCAÇÃO PENDENTE` como recorte próprio, os filtros de equipe e
+período, e — por falta de escala prevista — a distinção entre folga e ausência
+dentro de `NÃO INICIOU`.
 
 Visão operacional do dia, respondendo "quem está trabalhando agora":
 
@@ -6699,7 +6722,11 @@ os dois se encontram aqui.
 
 # 232. PONTO OFFLINE
 
-**Classificação: `P0` da próxima fase — arquitetura documentada, nada implementado.**
+**Classificação: `P1` — arquitetura documentada, nada implementado.** A Fase 1
+não entregou nada de offline. As colunas `offlineRecordedAt` e
+`syncReceivedAt` existem em `TimeEntry` e estão **sempre nulas**: nasceram
+junto para não exigir migration futura numa tabela que nunca deve ser
+reescrita. Toda marcação de hoje é online.
 
 Zona rural sem sinal é o caso normal, não a exceção. Um ponto que exige rede
 para registrar entrada faz o técnico bater ponto no lugar errado, na hora
@@ -6735,7 +6762,11 @@ existir, o ponto deve usá-lo em vez de manter fila paralela.
 
 # 233. LGPD E OS LIMITES DA JORNADA
 
-**Classificação: `P0` da próxima fase — requisito, não feature.**
+**Classificação: Fase 1 `DONE` em parte — requisito, não feature.** **Já
+vale:** RBAC (espelho próprio, painel do gestor, isolamento por empresa em toda
+escrita e leitura) e minimização — um ponto por marcação, sem coleta contínua.
+**Ainda falta:** prazo de retenção declarado com expurgo, e auditoria de
+**consulta** a dado de jornada.
 
 Jornada e localização são dado pessoal, e o de localização é sensível pelo que
 revela sobre a vida de quem é observado.
@@ -7252,7 +7283,11 @@ v0.10   Field Execution & Closing          DONE / PUBLISHED
 
 | Capability | Classificação | Seções |
 |---|---|---|
-| Jornada / Ponto | **P0** | §226–§233 |
+| Jornada / Ponto — **Fase 1 entregue, release pendente** | checkpoint · tag · push | §226–§233, §252, §253 |
+| Field App Shell e Dashboard do técnico | **P0** | §255–§258 |
+
+A trilha detalhada do **workspace do técnico** e da **plataforma de contratos**
+está na **§287**; as duas tabelas se leem juntas.
 
 ## Depois
 
@@ -7266,6 +7301,10 @@ v0.10   Field Execution & Closing          DONE / PUBLISHED
 | Gestão administrativa de equipamentos (web) | P1 | §224 |
 | Credencial de acesso ao equipamento | P1 | §243 |
 | Mapa operacional e Central de Despacho | P1 | §196–§209 |
+| Mapa operacional no Field | P1 | §259–§261 |
+| Agenda e lembretes do técnico | P1 | §262 |
+| Meu estoque no Field | P1 | §263 |
+| Contratos e assinatura eletrônica | P1 | §266–§287 |
 | Custódia de patrimônio do técnico | P1 | §210–§223 |
 | Backhaul, local físico, perfil de rede, Wi-Fi | P2 | §239, §240, §244 |
 | Painel de qualidade cadastral | P2 | §249 |
@@ -7286,3 +7325,1699 @@ v0.10   Field Execution & Closing          DONE / PUBLISHED
 > **Duas escalas continuam convivendo** (§117, §194): esta tabela usa a
 > classificação do produto e marca, quando aplicável, a prioridade da trilha
 > Field. Quando as duas divergirem, a §194 decide o que entra no aplicativo.
+
+---
+
+# PARTE IX — JORNADA FASE 1, FIELD WORKSPACE E APP SHELL
+
+> **Duas naturezas convivem nesta Parte.** A §252 e a §253 são **registro**: o
+> que foi entregue na Fase 1 da Jornada e o que ficou pendente nela. Da §254 em
+> diante é **especificação** — a §119 continua valendo, e estar aqui não
+> autoriza implementar.
+>
+> A Parte nasceu depois da Fase 1 da Jornada e não revoga nada. Onde toca algo
+> já decidido — o toolbox da §173, a agenda da §171, o roteador da §178, o mapa
+> da Parte VI, o inventário da §181 —, ela **referencia e estende**, em vez de
+> reescrever.
+>
+> Cada seção traz sua classificação (`DONE` / `P0` / `P1` / `P2` / `FUTURE`) na
+> abertura, justamente para que "aprovado" e "implementado" nunca se confundam.
+
+---
+
+# 252. JORNADA / PONTO — FASE 1 ENTREGUE, RELEASE PENDENTE
+
+**Classificação: Fase 1 `DONE` — `PILOT PASSED / RELEASE PENDING`.**
+
+**Não há tag e não houve push.** A Fase 1 está em `main` local, homologada em
+piloto físico, e **aguarda checkpoint final, tag e publicação**. Enquanto isso
+não acontecer, nenhum documento deste projeto deve descrever a Jornada como
+publicada.
+
+## O que a Fase 1 entregou
+
+| Capability | Onde estava especificada |
+|---|---|
+| `Workday` como âncora de dia operacional e de concorrência | §226, §227 |
+| As quatro marcações, com mais de um intervalo por dia | §227 |
+| Carimbo do **servidor** como autoridade, carimbo do aparelho como metadata | §227 |
+| Coordenada e `accuracy` como evidência que **não bloqueia** a batida | §228 |
+| `TimeEntry` imutável — nenhum caminho de `UPDATE` no código | §229 |
+| Pedido de correção, aprovação, rejeição e marcação derivada | §229 |
+| Sequência **efetiva** — a correção aprovada supera a original sem apagá-la | §229 |
+| Espelho do próprio funcionário: dia corrente e histórico por intervalo | §230 |
+| Painel do gestor: quem está trabalhando agora, na empresa | §231 |
+| Correção aberta pelo gestor **em nome** do funcionário, na mesma fila | §229, §231 |
+| Fuso da empresa (`Company.timezone`) decidindo a que dia pertence a batida | §226 |
+| Jornada no Field: bater ponto, ver o dia, pedir correção, ver o histórico | §230 |
+| Isolamento por `companyId` na batida, no pedido e na decisão | §233 |
+
+Superfícies: `/api/field/v1/time-clock/*` (Field), `/api/time-clock/*` (web),
+`/jornada` e `/jornada/[userId]` no painel, e a tela de jornada no aplicativo.
+Domínio em `src/lib/time-clock.ts` e `src/lib/workday.ts`.
+
+## O piloto físico
+
+Executado com aparelho real contra o backend, pela UI oficial. Confirmou, na
+ordem: recusa de login inválido **com retorno visível**; **Entrada**; **início
+de intervalo**; **retorno**; **saída**; persistência das quatro marcações;
+abertura de **solicitação de correção**; correção aparecendo como **pendente**;
+**aprovação**; **rejeição**; atualização do estado **no Field** depois da
+decisão; o **painel web** refletindo o mesmo dia; e o **histórico sem duplicar
+o dia corrente**.
+
+`PILOT PASSED`. O que o piloto **não** exerceu continua coberto apenas por
+regressão automatizada.
+
+## O que a Fase 1 NÃO entregou
+
+Ponto offline (§232) — as colunas `offlineRecordedAt` e `syncReceivedAt`
+existem e estão sempre nulas, porque nasceram junto para não exigir migration
+futura numa tabela que nunca deve ser reescrita. Banco de horas (§230). Escala
+prevista, e portanto a distinção entre folga e ausência no painel (§231).
+Atraso, falta e hora extra. Recortes semanal e mensal formais do espelho.
+Retenção declarada e auditoria de **consulta** a dado de jornada (§233). Tela
+de configuração de fuso da empresa (§253, JOR-05).
+
+A §119 se aplica a todos: estão especificados, não autorizados.
+
+---
+
+# 253. RISCOS E PENDÊNCIAS DA JORNADA FASE 1
+
+**Classificação: registro.** Nenhum é bloqueador do release da Fase 1. Nenhum é
+funcionalidade implementada — são **decisões pendentes**, registradas aqui para
+não virarem descoberta futura.
+
+| Item | O que é | Encaminhamento |
+|---|---|---|
+| **LOW-1** | um `ADMIN` pode abrir uma correção e **aprovar a própria correção**. Pedido e decisão continuam registrados separadamente, com `requestedById` e `decidedById` distintos — mas nada impede que sejam a mesma pessoa | `P1` — segregação de função é decisão de produto |
+| **LOW-2** | a criação administrativa pela web **não tem idempotência equivalente à do Field**. O Field exige `Idempotency-Key` criada no toque; a rota web aceita o duplo clique | `P1` |
+| **LOW-3** | o Field monta o horário solicitado na correção a partir do **fuso do aparelho**, não do fuso da empresa. Aparelho em fuso divergente pede o instante errado | `P1` — depende de JOR-05 |
+| **JOR-05** | `Company.timezone` existe no modelo e **só tem o valor padrão**: não há superfície administrativa para configurá-lo | `P1` |
+
+## Por que LOW-1 não é MEDIUM
+
+Porque o contraditório que a §229 exige é **rastreabilidade**, e ela existe: o
+pedido tem autor, motivo e instante; a decisão tem decisor, instante e motivo; e
+a marcação original permanece. O que falta é **política** — se a empresa quer
+proibir autoaprovação, e quem aprova a jornada do próprio `ADMIN`. Isso é
+configuração de empresa, e resolvê-lo por hardcode transformaria a regra de um
+provedor em regra do produto.
+
+## Por que LOW-3 e JOR-05 andam juntos
+
+Enquanto o fuso da empresa não tiver superfície de configuração, corrigir o
+Field para usá-lo significa consumir um valor que ninguém consegue ajustar. Os
+dois se resolvem na mesma tarefa: superfície administrativa primeiro, cliente
+depois. **O fuso é do dia operacional, não da apresentação** — é ele que decide
+se a batida das 23h50 pertence a ontem ou a hoje, e essa decisão nunca deve
+depender de onde o aparelho acha que está.
+
+---
+
+# 254. ALFAOS FIELD — TECHNICIAN WORKSPACE
+
+**Classificação: visão oficial.** Cada pilar traz a própria classificação; a
+visão em si não autoriza nada.
+
+O Field **não é um aplicativo de ordens de serviço**. Descrevê-lo assim foi
+correto enquanto ele só executava OS, e deixou de ser na v0.10 — hoje ele já
+carrega jornada, evidência, inventário mínimo e equipamento instalado, e nada
+disso cabe no rótulo antigo.
+
+> **O Field é o workspace operacional do técnico durante a jornada de
+> trabalho.**
+
+A diferença não é de vocabulário. Um "app de OS" só precisa existir quando há
+OS aberta; um workspace precisa existir o dia inteiro — inclusive no dia em que
+o técnico passou a manhã no almoxarifado, a tarde em treinamento e não abriu
+nenhum atendimento. A §226 já tomou essa decisão para a jornada; a §254 a
+estende para o aplicativo inteiro.
+
+## Os dez pilares
+
+| # | Pilar | Estado | Seções |
+|---|---|---|---|
+| 1 | **Ordens de Serviço** | `DONE` (v0.10) | §150–§172, §225 |
+| 2 | **Jornada** | `DONE` Fase 1, release pendente | §226–§233, §252 |
+| 3 | **Mapa Operacional** | `P1` | §259–§261, §196–§209 |
+| 4 | **Clientes / Rede do Cliente** | `P1` | §234–§246 |
+| 5 | **Contratos & Assinaturas** | `P1` | Parte X, §266–§287 |
+| 6 | **Estoque** | `P1` — ledger mínimo `DONE` | §263, §181 |
+| 7 | **Agenda / Lembretes** | `P1` | §262, §171 |
+| 8 | **Ferramentas** | `P1` — trilha já `P0` na §194 | §264, §173–§179 |
+| 9 | **Configuração / Diagnóstico** | `P1` | §265, §175, §178 |
+| 10 | **Notificações / Comunicação** | `DONE` (central), push real `P0` | §153–§155, §188 |
+
+**A tabela não é roadmap.** Ela diz o que existe e onde a regra está escrita. A
+ordem de execução é a §287.
+
+## O que o workspace NÃO passa a ser
+
+Não vira um segundo sistema. **O Field continua sendo outro cliente do MESMO
+AlfaOS** — a regra que governou a v0.9 e a v0.10 não muda porque o aplicativo
+ganhou telas. Máquina de estados, posse, tenancy, elegibilidade, CAS, timeline
+e auditoria continuam sendo serviço do backend; a camada Field autentica,
+projeta e chama.
+
+Cada pilar novo que precisar de regra de negócio a coloca no backend. Um pilar
+que só funcione com lógica de domínio dentro do Flutter está errado por
+construção — e, na primeira vez que isso passar, a web e o aplicativo começam a
+discordar sobre o mesmo fato.
+
+---
+
+# 255. APP SHELL — NAVEGAÇÃO HÍBRIDA
+
+**Classificação: `P0` da trilha Field.**
+
+Dez pilares não cabem numa barra inferior, e esconder todos num menu lateral
+transformaria as duas ações mais frequentes do dia em dois toques cada.
+
+A arquitetura é **híbrida**: barra principal para o que se usa o dia inteiro,
+gaveta para o resto.
+
+## Navegação principal — sempre visível
+
+```text
+Início   ·   OS   ·   Jornada   ·   Mapa
+```
+
+Quatro destinos, e a razão de cada um estar ali:
+
+* **Início** — o painel que responde "o que eu faço agora" (§257).
+* **OS** — a lista de atendimentos. É o trabalho.
+* **Jornada** — quatro toques por dia, em horários em que o técnico tem pressa.
+  Ponto que exige navegar por menu é ponto batido atrasado.
+* **Mapa** — a visão espacial do dia (§259). Enquanto o mapa não existir, o
+  quarto lugar **fica vago ou traz Agenda**; não se coloca destino morto na
+  barra.
+
+> **OS e Jornada não podem viver só na gaveta.** São as duas ações mais
+> frequentes do dia, e a gaveta cobra um toque a mais em cada uma.
+
+## Notificações no header
+
+Ícone no cabeçalho, com **indicador de não lidas**. Não ocupa vaga na barra
+principal: é superfície de interrupção, não destino de trabalho. A central já
+existe (§154).
+
+## Gaveta global — hamburger
+
+Tudo o mais, categorizado (§256), alcançável de qualquer tela. A gaveta é
+**global**, não por tela: o técnico que está dentro de uma OS e precisa de uma
+ferramenta não deve ter que sair do atendimento para chegar nela.
+
+## O que a gaveta NÃO faz
+
+Não vira o único caminho para nada frequente, e não duplica sem necessidade o
+que a barra já oferece. Um destino que aparece nos dois lugares é aceitável
+quando a barra é atalho e a gaveta é índice — mas **duas entradas para a mesma
+ação dentro da mesma tela é defeito** (§258).
+
+---
+
+# 256. MENU LATERAL — CATEGORIAS E ESTADO
+
+**Classificação: `P0` da trilha Field** — a estrutura. Cada item traz o próprio
+estado, e **a maioria não existe**.
+
+```text
+OPERACIONAL
+  Início                    P0
+  Ordens de Serviço         DONE
+  Minha Jornada             DONE (Fase 1)
+  Mapa Operacional          P1
+  Agenda / Lembretes        P1
+  Notificações              DONE
+
+CLIENTES
+  Clientes                  P1
+  Contratos & Assinaturas   P1
+  Rede do Cliente           P1
+  Equipamentos              P1   (equipamento dentro da OS é DONE)
+
+MEU TRABALHO
+  Meu Estoque               P1   (ledger mínimo é DONE)
+  Ferramentas               P1
+  Base de Conhecimento      P2
+
+REDE
+  Configurar Roteador       P1
+  Diagnósticos              P1
+  Wi-Fi                     P1
+  Ferramentas de Fibra      P2
+
+CONTA
+  Perfil                    P1
+  Configurações             DONE
+```
+
+## Item planejado não vira item cinza
+
+Um menu com quinze linhas desabilitadas ensina o técnico a ignorar o menu.
+**Item que não existe não aparece** — a lista acima é o alvo, não o estado da
+tela. Quando o técnico precisar saber o que vem, isso é assunto de nota de
+versão, não de navegação.
+
+## As categorias respondem a perguntas, não a módulos
+
+`OPERACIONAL` é "o meu dia". `CLIENTES` é "sobre quem eu estou trabalhando".
+`MEU TRABALHO` é "o que é meu e eu levo comigo". `REDE` é "o que eu estou
+mexendo na casa do cliente". `CONTA` é "eu".
+
+Agrupar por módulo do backend produziria uma gaveta que só faz sentido para
+quem escreveu o backend — a mesma disciplina que a §173 aplicou ao toolbox.
+
+## Permissão não é decoração
+
+Item que o perfil não pode usar **não aparece**, e a ausência dele na gaveta
+**não é o controle de acesso**: a autorização é do servidor, sempre. Esconder
+botão é UX; recusar comando é segurança.
+
+---
+
+# 257. INÍCIO — DASHBOARD DO TÉCNICO
+
+**Classificação: `P0` da trilha Field.**
+
+A primeira tela responde a uma pergunta só: **o que eu faço agora**. Tudo o que
+não ajuda a respondê-la desce ou sai.
+
+## Blocos, em ordem de prioridade
+
+```text
+JORNADA        estado · horário da última marcação · ação contextual
+HOJE           total · pendentes · em andamento · concluídas · críticas
+PRÓXIMA OS     cliente · tipo · horário · distância · [abrir] [navegar]
+LEMBRETES      reuniões · tarefas · compromissos
+ESTOQUE        alertas e itens em nível baixo
+ATALHOS        Ping · Wi-Fi · Speed Test · Meu IP · Roteador
+MAPA           resumo — opcional, P2
+```
+
+## O bloco JORNADA é contextual, e é uma ação só
+
+O botão muda com o estado derivado (§226): `NOT_STARTED` oferece **Entrada**;
+`WORKING` oferece **Início do intervalo** e **Saída**; `ON_BREAK` oferece
+**Retorno**; `FINISHED` não oferece batida.
+
+**O dashboard não decide o que é permitido.** Ele apresenta `allowedActions`,
+que já vem do servidor derivado da sequência efetiva. Um aplicativo que calcule
+por conta própria quais botões habilitar começa a discordar do domínio na
+primeira correção aprovada.
+
+## PRÓXIMA OS traz distância, não rota
+
+Distância em linha reta é barata e honesta. Rota calculada é a §187, é `P1`, e
+não deve nascer escondida dentro de um card do dashboard.
+
+## O que NÃO entra no Início
+
+Produtividade comparativa entre técnicos, ranking, meta individual e tempo por
+atendimento apresentado como avaliação. O AlfaOS registra e apresenta; não
+julga (§219, §230). Um painel que abre o dia dizendo ao técnico que ele está
+atrás de alguém é um painel que ele aprende a não abrir.
+
+---
+
+# 258. MINHA JORNADA — UMA ÚNICA PORTA PARA A CORREÇÃO
+
+**Classificação: `P0` — decisão de UX sobre o que já existe.**
+
+Hoje a tela de jornada do Field oferece **Solicitar correção** em dois lugares:
+no card do dia e na seção de correções. As duas abrem o mesmo formulário.
+
+> **Uma ação, uma porta.** A entrada fica na seção **CORREÇÕES**.
+
+Duas portas para a mesma ação não dobram a descoberta: elas fazem o técnico
+parar para decidir se são a mesma coisa. Na dúvida ele toca uma, volta e toca a
+outra — e o custo aparece justamente em quem usa o aplicativo pela primeira
+vez.
+
+## O card "Jornada de Hoje" mostra, e não age
+
+```text
+Estado                 TRABALHANDO
+Trabalhado             06h12
+Última marcação        Retorno · 13h04
+Correções pendentes    1
+```
+
+Sem CTA de correção. O número de correções pendentes é o que leva à seção certa
+quando há o que resolver — e já é informação que o técnico quer ver sem tocar
+em nada.
+
+**As batidas continuam no card.** A ação frequente do dia não muda de lugar por
+causa desta decisão: o que sai é a segunda entrada da correção, que é ação
+rara.
+
+---
+
+# 259. MAPA OPERACIONAL NO FIELD
+
+**Classificação: `P1`.** Nada implementado no aplicativo.
+
+A Parte VI já fixou o mapa da carteira, a precedência de origem de coordenada,
+a escalabilidade e a Central de Despacho — tudo para a **web**. Esta seção
+descreve o recorte do técnico, e **não cria um segundo mapa**: é a mesma
+`CustomerLocation`, a mesma precedência da §197 e a mesma fronteira com o
+FiberMap da §202.
+
+## O que o técnico vê
+
+```text
+Minha posição            enquanto o mapa está aberto
+Clientes                 a carteira, com endereço geolocalizado
+Minhas OS                as que estão atribuídas a mim
+OS pendentes             sem técnico, quando a política permitir
+OS urgentes              prioridade alta e SLA em risco
+OS em andamento          as que já têm check-in
+```
+
+Pin diferenciado por **tipo e status**, e nunca por cor sozinha — a mesma regra
+do `StatusPill` (§149): forma, ícone ou rótulo acompanham a cor, porque um mapa
+lido no sol, com luva, por alguém com deficiência de visão de cores, não pode
+depender de matiz.
+
+## Filtros
+
+```text
+Clientes            ·  Minhas OS          ·  Técnicos (quando permitido)
+CTOs (FUTURE)       ·  Rede (FUTURE)
+```
+
+**"Técnicos" é filtro condicionado, não padrão.** Ver a posição do colega é
+`TechnicianLocation` (§135) e privacidade (§138, §261) — só aparece se a
+política da empresa permitir, e nunca como visão sempre ligada.
+
+CTO e rede são **FUTURE** e pertencem ao FiberMap: o AlfaOS **consulta**
+topologia de rede, não a copia (§202). Um mapa que comece a guardar caixa
+óptica passa a manter um cadastro de rede paralelo, e a divergência entre os
+dois aparece no pior momento.
+
+## O que o mapa do Field NÃO faz
+
+Não atribui OS por arrastar — isso é a Central de Despacho (§203, §204), é da
+web e passa pelo mesmo comando de atribuição de sempre. Não roteiriza (§187,
+`P1`). E não mostra carteira de outra empresa: tenancy no mapa é a mesma do
+resto (§196).
+
+---
+
+# 260. AÇÃO NO MAPA
+
+**Classificação: `P1`.**
+
+Pin sem ação é enfeite. Tocar num pin abre um cartão curto, com o que decide o
+próximo passo — e nada além disso.
+
+## Cliente
+
+```text
+Nome
+Plano
+Distância
+OS anteriores (resumo)
+
+[ Abrir cliente ]  [ Navegar ]  [ Abrir/Criar OS ]
+```
+
+**`Abrir/Criar OS` é condicionada ao perfil.** Criar OS é decisão operacional, e
+nem todo técnico a tem. O botão aparece conforme a permissão — e a permissão é
+verificada no servidor, sempre (§256).
+
+## Ordem de serviço
+
+```text
+Número
+Cliente
+Tipo
+Prioridade
+Status
+
+[ Abrir OS ]  [ Navegar ]
+```
+
+**`Navegar` é a mesma navegação da §172**: Google Maps ou Waze, com validação
+de coordenada, sem inventar destino. Coordenada ausente ou inválida não abre
+mapa externo com um ponto errado — ela diz que não há ponto, como já decidiu a
+§172.
+
+## O cartão não é a tela
+
+Ele carrega o mínimo para decidir. Quem precisa do detalhe abre o cliente ou a
+OS, onde a minimização de DTO do contrato Field continua valendo:
+**dado que a tela não usa não desce para o aparelho** (`docs/FIELD-API.md` §7).
+
+---
+
+# 261. PRIVACIDADE E GPS NO FIELD
+
+**Classificação: `P1` — requisito, não feature.**
+
+> **O Field não vira rastreador de 24 horas.** A §139 fixou isso para a
+> localização do técnico, a §233 repetiu para a jornada, e o mapa não abre
+> exceção.
+
+## Três usos, três regras
+
+| Uso | Permissão | Quando coleta |
+|---|---|---|
+| **Mapa** | `while-in-use` | enquanto a tela do mapa está aberta |
+| **Evento** | `while-in-use` | no instante do check-in, da batida, da confirmação de localização |
+| **Tracking operacional** | política futura | **somente durante a jornada**, e só se a empresa habilitar |
+
+**Evento é um ponto, não uma trilha.** A §228 já decidiu isso para a batida: uma
+coordenada por marcação, quatro vezes por dia.
+
+## Tracking operacional é opt-in da empresa e tem janela
+
+Se um dia existir, ele **começa na entrada e termina na saída** — fora da
+jornada não há coleta, e o intervalo é decisão explícita da política, não
+padrão. Um sistema que continue coletando depois da saída está observando a
+vida privada de alguém, e nenhuma finalidade operacional cobre isso.
+
+## LGPD
+
+* **Finalidade declarada e estrita**, informada ao funcionário antes da coleta.
+* **Minimização** — a menor granularidade que resolve o problema.
+* **Retenção com prazo**, e expurgo do que passou dele.
+* **Auditoria de consulta**: quem olhou a localização de quem, e quando.
+* **Negativa não bloqueia trabalho.** GPS negado, sem sinal ou impreciso não
+  impede bater ponto (§228) nem executar OS. Transferir ao funcionário um
+  problema de cobertura seria puni-lo por onde a empresa o mandou trabalhar.
+
+> Se uma funcionalidade só se sustenta acompanhando a pessoa fora do evento e
+> fora da jornada, **ela não entra**.
+
+---
+
+# 262. AGENDA E LEMBRETES DO TÉCNICO
+
+**Classificação: `P1`.** Estende a §171, que é a **lista de OS** por recorte —
+não a mesma coisa.
+
+A §171 organiza atendimentos: hoje, próximas, atrasadas, urgentes. Ela não tem
+onde colocar "reunião às 11h30" nem "passar no almoxarifado buscar ONU", e é
+exatamente isso que hoje vive no WhatsApp — que é um dos problemas que o AlfaOS
+existe para resolver (§2).
+
+## Tipos de compromisso
+
+```text
+REUNIÃO                 encontro com horário
+ORDEM DE SERVIÇO        espelho do agendamento da OS — não é registro novo
+RETIRADA DE MATERIAL    almoxarifado, fornecedor
+TREINAMENTO             capacitação, certificação
+TAREFA                  algo a fazer, com ou sem hora
+LEMBRETE OPERACIONAL    aviso sem execução associada
+```
+
+## O dia, como o técnico o lê
+
+```text
+08:00   Jornada — entrada
+09:00   Instalação · Cliente A
+11:30   Reunião de equipe
+14:00   Manutenção · Cliente B
+16:00   Buscar ONU no almoxarifado
+```
+
+## A OS na agenda é projeção, não cópia
+
+O compromisso do tipo `ORDEM DE SERVIÇO` **reflete** o agendamento da própria
+OS. Ele não guarda horário próprio, não pode ser movido pela agenda e não vira
+uma segunda verdade sobre quando o atendimento está marcado. Reagendar continua
+sendo mudar a OS — pelo comando de sempre, com auditoria.
+
+Guardar horário próprio criaria duas respostas para "quando é o atendimento", e
+a divergência apareceria na frente do cliente.
+
+## Notificação
+
+Prevista, e **depende do push real** (§153), que ainda não existe. Enquanto o
+FCM real não estiver ligado, lembrete é o que o técnico vê ao abrir o
+aplicativo — não algo que o alcança. Prometer alerta que não chega é pior do
+que não prometer.
+
+## Quem cria
+
+O próprio técnico cria os seus. Gestor pode criar para a equipe — e isso é
+compromisso atribuído, com autor registrado. Agenda de outra empresa, nunca
+(tenancy de sempre).
+
+---
+
+# 263. MEU ESTOQUE NO FIELD
+
+**Classificação: `P1`.** O ledger mínimo é `DONE` desde a v0.10 (§181, §225);
+o que não existe é a **visão de saldo do técnico** e os movimentos além da
+baixa de material.
+
+## A tela
+
+```text
+MEU ESTOQUE
+
+ONU / ONT               12 un
+Roteador                 3 un
+Conector                85 un
+Cabo drop              240 m
+Fonte                    5 un
+Outros                   …
+```
+
+Saldo é **do técnico**, dentro da empresa — a mesma regra que a v0.10 já aplica
+na baixa sob lock (`docs/SECURITY.md` §8.14).
+
+## Movimentos
+
+```text
+RECEBI        entrada no saldo do técnico
+USEI          baixa no atendimento — JÁ EXISTE
+DEVOLVI       saída do saldo, de volta ao almoxarifado
+TRANSFERI     do saldo de um técnico para o de outro
+```
+
+**Um ledger só.** Os movimentos novos entram no vocabulário da §181 — não se
+cria enum concorrente, pela mesma razão que a §215 deu para a custódia: dois
+ledgers para o mesmo estoque produzem dois saldos, e nenhum deles é o saldo.
+
+## Imutabilidade
+
+Movimento **não é editado nem apagado**. Erro se corrige com movimento
+contrário, declarado. É a mesma disciplina da §229 para a jornada — histórico
+que pode ser reescrito não prova nada.
+
+## A fronteira que não pode borrar
+
+**Material consumido** no atendimento é inventário (§181). **Ferramenta cedida**
+ao técnico é custódia (§210–§223), e a fronteira entre os dois está na §211.
+**Equipamento instalado** na casa do cliente é patrimônio do cliente ou da
+empresa (§180, §241, §242) e sai do saldo do técnico no instante da instalação.
+
+Misturar os três num "meu estoque" único faria a chave de fenda, a ONU do
+cliente e o rolo de drop dividirem o mesmo saldo — e nenhuma conferência
+fecharia nunca.
+
+---
+
+# 264. FERRAMENTAS DO TÉCNICO — HUB
+
+**Classificação: `P1` — extensão da §173.** As ferramentas já classificadas nas
+§174–§179 **mantêm a classificação delas**; esta seção acrescenta as que
+faltavam e organiza o hub.
+
+A §173 já decidiu o agrupamento por domínio e proibiu a gaveta de atalhos
+desorganizada. O hub abaixo é aquele agrupamento, completo.
+
+## REDE
+
+```text
+Ping                    §175
+DNS (resolução)         novo — P1
+Traceroute              novo — P1
+Meu IP                  §175
+IPv4 / calculadora de sub-rede    novo — P1
+Speed Test              §179 — P0
+Scanner de LAN          novo — P1, CONTROLADO
+```
+
+> **O scanner de LAN é controlado.** Varrer a rede de um cliente é atividade
+> intrusiva: só na rede do atendimento em curso, só com a OS aberta, com
+> registro de quem executou e sob qual OS, e **nunca** como varredura livre de
+> rede arbitrária. Sem esses limites, o AlfaOS distribui uma ferramenta de
+> reconhecimento para o campo.
+
+## WI-FI
+
+```text
+RSSI · canal · largura · interferência        §174 — P0
+Wi-Fi Analyzer                                 §174 — P0
+Sugestão de canal                              §174 / §178
+```
+
+## FIBRA
+
+```text
+Orçamento óptico (link budget)     §182 — P1
+Cálculo de splitter                §182 — P1
+Leitura e registro de dBm          §182 — P1
+Registro de OTDR                   novo — P2
+Calculadoras auxiliares            novo — P2
+```
+
+**Registro de OTDR é registro, não leitura de equipamento.** O AlfaOS guarda o
+valor medido e o contexto; falar com o OTDR é integração de fabricante, e a
+§178 já proibiu fabricante virar dependência de arquitetura.
+
+## INSTALAÇÃO
+
+```text
+QR / código de barras       §180 — P0 (leitura de equipamento)
+Foto                        DONE — evidência da v0.10
+Utilitários permitidos      P2
+```
+
+**A §222 continua estrita:** não há QR para *ferramenta do técnico*. A leitura
+de QR/serial/MAC de **equipamento instalado no cliente** é `P0` e não foi
+revogada.
+
+## Execução de ferramenta gera registro
+
+Quando `ToolExecution` (§176) existir, execução de ferramenta dentro de uma OS
+vira evidência estruturada: o que rodou, quando, sob qual OS, com qual
+resultado — **nunca os segredos usados**. Enquanto ele não existir, ferramenta
+é utilitário local e **não** deve ser apresentada como prova de nada.
+
+---
+
+# 265. CONFIGURAÇÃO DE ROTEADOR — PRIMEIRA FASE
+
+**Classificação: `P1` — extensão da §178.** A §178 já decidiu a arquitetura, a
+ordem de preferência (ACS · TR-069 · USP/TR-369 · API oficial), a proibição de
+scraping como fundação e a política de acesso remoto. **Nada disso muda aqui.**
+
+O que esta seção acrescenta é o conteúdo da **primeira fase**: um assistente
+operacional e documental, sem automação nenhuma.
+
+## O que o assistente registra
+
+```text
+Fabricante          Modelo
+IP de gerência      Modo de operação (roteador · bridge · AP · repetidor)
+SSID 2.4            SSID 5
+Banda               Canal          Largura
+Segurança           (WPA2 · WPA3 · misto)
+```
+
+Esses campos **não nascem soltos**: `IP de gerência`, `modo de operação` e
+`papel na rede` são a §235 e a §238, que já decidiram que tipo físico e papel
+na rede são campos diferentes e que IP de gerência precisa de validação de
+sub-rede e prevenção de duplicidade. O assistente **preenche** aquele modelo —
+não cria um cadastro paralelo de rede do cliente.
+
+## Senha de Wi-Fi
+
+Vale a política da empresa (§178, Router Profile) e a revelação segura do §132.
+**A senha do Wi-Fi não entra em contrato automaticamente** — a decisão está na
+§268.
+
+## Futuro — e onde o Flutter não entra
+
+`ACS · TR-069 · TR-369/USP · API de fabricante · MikroTik · ONU/ONT · RADIUS`
+são `FUTURE`, na ordem da §178.
+
+> **O Flutter nunca fala direto com integração crítica quando o backend pode
+> mediar.**
+
+Credencial de ACS, token de fabricante e segredo de RADIUS num APK são
+credenciais publicadas: o pacote é extraível, e o aparelho pode ser do técnico
+que saiu da empresa ontem. Além disso, integração feita pelo aplicativo não tem
+auditoria única, não tem rate limit central e não tem revogação — três coisas
+que a v0.9 construiu justamente para não faltarem. A mesma regra da §191: **o
+Field nunca fala com o ERP**, e a fronteira aqui é a mesma.
+
+---
+
+# PARTE X — CONTRATOS E ASSINATURA ELETRÔNICA
+
+> **Tudo nesta Parte é ESPECIFICAÇÃO. Nada existe em código.** Não há modelo,
+> não há rota, não há tela, não há gerador de PDF, não há motor de assinatura,
+> não há QR e não há validador. A §119 se aplica integralmente: estar aqui não
+> autoriza implementar.
+>
+> A Parte descreve um módulo de **primeira classe** — não um anexo do
+> fechamento de OS. Onde toca algo já decidido — a assinatura do fechamento da
+> v0.10, o termo de cautela da §213, a política de conclusão da §166 —, ela
+> referencia em vez de reescrever.
+>
+> **Nenhuma afirmação desta Parte é parecer jurídico.** Ela descreve um
+> mecanismo de integridade e evidência eletrônica; o valor probatório de um
+> documento em cada situação concreta é assunto de quem tem competência para
+> dizê-lo. A §281 fecha esse ponto.
+
+---
+
+# 266. CONTRATOS E ASSINATURAS — CAPABILITY OFICIAL
+
+**Classificação: `P1`.** Nada implementado.
+
+O AlfaOS **deverá** gerar, assinar eletronicamente, entregar e validar
+documentos contratuais da empresa — com modelo próprio por empresa,
+preenchimento automático a partir do cadastro, PDF multipágina, assinatura
+vinculada ao documento e verificação posterior.
+
+## O problema
+
+Hoje o contrato do provedor é papel: impresso antes de sair, assinado na porta
+do cliente, fotografado ou arquivado numa pasta, e frequentemente perdido. Quem
+precisa dele meses depois não sabe qual versão foi assinada, nem se o que está
+no arquivo é o que o cliente assinou.
+
+## O que a capability entrega
+
+```text
+Modelo próprio por empresa
+   ↓
+Preenchimento automático a partir do cadastro
+   ↓
+PDF multipágina
+   ↓
+Assinatura eletrônica vinculada ao documento
+   ↓
+Documento imutável, com código de validação
+   ↓
+Verificação pública de integridade
+   ↓
+Entrega ao cliente
+```
+
+## Duas regras que valem para a Parte inteira
+
+**O documento assinado é imutável.** Não há `UPDATE`, não há sobrescrita, não
+há regeneração no mesmo lugar. É a mesma disciplina da §229 para a jornada e da
+§213 para o termo de cautela: um documento que pode ser reescrito não prova
+nada, e a primeira reescrita silenciosa destrói o valor de todo o acervo.
+
+**A versão do modelo acompanha o documento para sempre.** Publicar a `v3` de um
+contrato não alcança quem assinou a `v2` (§272).
+
+---
+
+# 267. DADOS CONTRATUAIS DA EMPRESA
+
+**Classificação: `P1` — pré-requisito de tudo o mais nesta Parte.**
+
+Sem os dados da contratada não existe contrato. Eles vivem na web, em
+
+```text
+CONFIGURAÇÕES → DADOS CONTRATUAIS
+```
+
+## Campos
+
+| Campo | Conteúdo |
+|---|---|
+| `emp_nome` | razão social ou nome usado no contrato |
+| `emp_endereco` | logradouro e número |
+| `emp_bairro` | bairro |
+| `emp_cidade` | cidade |
+| `emp_estado` | UF |
+| `emp_cep` | CEP |
+| `emp_cnpj` | CNPJ |
+| `emp_fone` | telefone de contato |
+
+Esses valores alimentam as **System Variables** da §268 — não são digitados de
+novo em cada modelo.
+
+## Por que campos próprios, e não o cadastro genérico da empresa
+
+Porque o nome que aparece no contrato nem sempre é o nome que aparece no painel,
+e o endereço fiscal nem sempre é o endereço operacional. Reaproveitar o cadastro
+de exibição faria o documento jurídico herdar um dado escolhido para outro fim —
+e a divergência só apareceria depois de assinado.
+
+## Quem edita
+
+**Só `ADMIN`.** Alterar dado contratual da empresa muda o que sai em todo
+documento gerado a partir dali, e é ação auditável: quem mudou, quando, e de que
+valor para qual.
+
+**Alteração não alcança documento já assinado** — o documento carrega o
+*snapshot* do que valia no instante da geração (§275).
+
+---
+
+# 268. VARIÁVEIS DO SISTEMA — DICIONÁRIO OFICIAL
+
+**Classificação: `P1`.**
+
+## Compatibilidade inicial oficial
+
+Estas variáveis são o contrato mínimo. Elas existem porque os modelos que a
+empresa já usa hoje as usam — trocar a grafia obrigaria a reescrever documento
+em produção, e ninguém reescreve contrato para agradar um sistema novo.
+
+**EMPRESA**
+
+```text
+${emp_nome}       ${emp_endereco}   ${emp_bairro}
+${emp_cidade}     ${emp_estado}     ${emp_cep}
+${emp_cnpj}       ${emp_fone}
+```
+
+**CLIENTE**
+
+```text
+${cli_nome}       ${cli_endereco}   ${cli_bairro}
+${cli_cidade}     ${cli_estado}     ${cli_cnpjcpf}
+```
+
+**DATA**
+
+```text
+${dia}    ${mm}    ${ano}
+```
+
+## Novas variáveis de data
+
+```text
+${mes}            nome do mês por extenso            agosto
+${data}           data curta                         29/08/2026
+${data_extenso}   data por extenso                   29 de agosto de 2026
+${hora}           hora                               14:32
+${data_hora}      data e hora                        29/08/2026 14:32
+```
+
+**Fuso: o da empresa** (`Company.timezone`, §226). Um contrato que carimbe a
+data em UTC assina "30 de agosto" um contrato fechado às 21h30 do dia 29 — e a
+correção depende da mesma superfície administrativa que a JOR-05 pede (§253).
+
+## Variáveis futuras do provedor
+
+**Classificação: `P2`** — dependem de dado que o AlfaOS ainda não modela.
+
+```text
+${plano_nome}          ${plano_velocidade}   ${plano_valor}
+${plano_vencimento}    ${plano_fidelidade}
+
+${os_numero}           ${tecnico_nome}       ${data_instalacao}
+
+${equipamento_modelo}  ${equipamento_serial} ${equipamento_mac}
+
+${wifi_ssid}
+```
+
+`${os_numero}` é o `number` da OS — identidade operacional local, **nunca** o
+`externalNumber` do provedor (§142, `docs/SERVICE-ORDERS.md` §1.3).
+
+`${equipamento_serial}` e `${equipamento_mac}` são **opcionais desde a v0.10**
+(§225): a identificação do equipamento é a foto da etiqueta. Um modelo que
+dependa deles resolve para vazio no caso normal — e a §276 recusa a geração com
+placeholder não resolvido, então isso é decisão de modelo, não acidente.
+
+## Não existe `${wifi_senha}`
+
+> **A senha do Wi-Fi não entra em contrato automaticamente.**
+
+Um documento que o cliente encaminha por WhatsApp, imprime e guarda numa gaveta
+não é lugar de segredo operacional. Se uma empresa quiser entregar a senha por
+escrito, isso é um **termo de entrega** próprio, decidido explicitamente — não
+um campo que qualquer modelo pode invocar sem pensar.
+
+---
+
+# 269. SYSTEM VARIABLES × CUSTOM VARIABLES
+
+**Classificação: `P1`.**
+
+| | System Variable | Custom Variable |
+|---|---|---|
+| Quem define | o AlfaOS | a empresa |
+| De onde vem o valor | cadastro do sistema | preenchimento ou configuração da empresa |
+| Pode mudar de significado | não | sim, é da empresa |
+| Escopo | produto | empresa |
+
+## Custom não sobrescreve System
+
+> **Uma `CUSTOM` não pode redefinir o significado de uma `SYSTEM`.**
+
+Se `${cli_nome}` pudesse ser redefinida por empresa, a mesma variável passaria a
+significar coisas diferentes em contratos diferentes, e nenhuma leitura do
+acervo seria confiável — nem a de quem for auditar, nem a do próprio sistema ao
+validar um modelo.
+
+A tentativa de criar uma `CUSTOM` com nome de `SYSTEM` **é recusada na criação**,
+com a mensagem dizendo qual variável oficial ocupou o nome. Recusar depois, na
+publicação, deixaria a empresa descobrir tarde.
+
+## Namespace
+
+Recomendado prefixar as da empresa (`${cus_...}` ou equivalente aprovado na
+implementação), justamente para que a fronteira seja visível na leitura do
+modelo e para que o AlfaOS possa acrescentar variáveis oficiais no futuro sem
+colidir com o que a empresa já criou.
+
+---
+
+# 270. DICIONÁRIO DE VARIÁVEIS — UX
+
+**Classificação: `P1`.**
+
+Uma lista de variáveis num manual é uma lista que ninguém lê no momento em que
+precisa. O dicionário vive **dentro do editor**.
+
+```text
+DICIONÁRIO DE VARIÁVEIS                        [ buscar… ]
+
+Chave              Origem   Descrição                Exemplo
+${cli_nome}        SYSTEM   Nome do cliente          João da Silva    [INSERIR]
+${emp_cnpj}        SYSTEM   CNPJ da contratada       12.345.678/…     [INSERIR]
+${data_extenso}    SYSTEM   Data por extenso         29 de agosto…    [INSERIR]
+${cus_vendedor}    CUSTOM   Vendedor responsável     —                [INSERIR]
+```
+
+* **Busca** por chave e por descrição — quem procura "CPF" precisa achar
+  `${cli_cnpjcpf}` sem saber a grafia.
+* **`INSERIR` insere na posição atual do cursor.** Copiar e colar à mão é
+  exatamente como nasce `${cli_nom}` (§276).
+* **Exemplo real de renderização**, não a descrição do campo. A pessoa precisa
+  ver o que vai sair no papel.
+
+---
+
+# 271. EDITOR E MODELO DE CONTRATO
+
+**Classificação: `P1`.**
+
+```text
+CONTRATOS → MODELOS
+```
+
+## O modelo
+
+| Campo | Papel |
+|---|---|
+| `nome` | como a empresa chama o documento |
+| `tipo` | categoria (§284) |
+| `versão` | inteiro crescente por modelo (§272) |
+| `status` | `DRAFT` · `PUBLISHED` · `ARCHIVED` |
+| `conteúdo` | o texto com variáveis e componentes |
+| `páginas` | quantidade e quebras |
+| `requisitos de assinatura` | `SIGNATURE_MODE` e signatários (§273) |
+| `criado por` / `publicado por` | autoria de cada transição |
+| `timestamps` | criação, publicação, arquivamento |
+
+## Estados
+
+```text
+DRAFT       editável, não gera documento final
+PUBLISHED   utilizável, IMUTÁVEL (§272)
+ARCHIVED    não gera documento novo; o já assinado continua válido
+```
+
+`ARCHIVED` **não apaga nada**. Arquivar um modelo cujo contrato está assinado e
+em vigor não pode invalidar o que foi assinado — a versão continua existindo
+para leitura e validação, apenas não nasce documento novo a partir dela.
+
+## Isolamento
+
+Modelo é da empresa. **Empresa A não lê, não copia e não deduz modelo da
+empresa B** — a mesma regra de tenant de todo o resto, e aqui ela protege o
+texto comercial da empresa, não só um registro operacional.
+
+---
+
+# 272. VERSIONAMENTO DE MODELO
+
+**Classificação: `P1` — a regra crítica desta Parte.**
+
+> **Publicar uma versão nova NUNCA altera contrato já assinado.**
+
+```text
+Contrato Residencial
+  v1   ARCHIVED    3 contratos assinados
+  v2   PUBLISHED  47 contratos assinados
+  v3   DRAFT
+```
+
+Quem assinou na `v2` fica ligado à `v2` **permanentemente**. Publicar a `v3` não
+toca em nada do acervo.
+
+## Versão publicada é imutável
+
+Para mudar um modelo publicado, cria-se uma **nova versão em `DRAFT`**. Não há
+edição no lugar.
+
+Editar uma `PUBLISHED` alteraria, em silêncio, o texto que já foi apresentado a
+alguém — e a diferença entre o que o cliente leu e o que o sistema diz que ele
+leu é justamente o que uma discussão entre as duas partes precisa reconstruir.
+É o mesmo raciocínio da §229: o histórico só vale enquanto ninguém pode
+reescrevê-lo.
+
+## O documento carrega a versão
+
+Todo documento gerado grava `templateId` **e** `templateVersion` (§277), e o
+*snapshot* dos dados resolvidos (§275). Reconstruir o documento anos depois não
+depende de o modelo ainda existir no estado em que estava.
+
+---
+
+# 273. CONTRATO MULTIPÁGINA E MODO DE ASSINATURA
+
+**Classificação: `P1`.**
+
+O contrato em uso na Alfa Telecom hoje tem **quatro folhas**. O modelo precisa
+suportar quantidade variável — não quatro.
+
+## Regra padrão aprovada
+
+> **UMA assinatura eletrônica na última página representa o documento
+> integral**, desde que esteja vinculada ao **PDF completo e imutável**.
+
+A vinculação é o que sustenta a afirmação: a assinatura não é uma imagem colada
+numa página, é uma assinatura sobre **o hash do documento inteiro** (§275).
+Trocar qualquer página depois muda o hash, e a verificação acusa (§280).
+
+## Consentimento explícito
+
+Junto da assinatura, texto visível:
+
+> "Li e concordo com o conteúdo integral das páginas 1 a N deste contrato."
+
+`N` é resolvido na geração. O consentimento é registrado como evidência (§278),
+com o instante e a versão do texto apresentado.
+
+## `SIGNATURE_MODE`
+
+Configurável **por modelo**:
+
+```text
+FINAL_ONLY                    uma assinatura, na última página     ← PADRÃO
+INITIAL_EACH_PAGE_AND_FINAL   rubrica por página + assinatura final
+CUSTOM_FIELDS                 posições definidas no modelo
+```
+
+**Padrão `FINAL_ONLY`.** Não se obriga o cliente a quatro assinaturas quando uma
+resolve: cada rubrica extra é mais um toque na porta de alguém, com o técnico
+esperando, e nenhuma delas acrescenta integridade — o hash do documento inteiro
+já faz esse trabalho.
+
+`INITIAL_EACH_PAGE_AND_FINAL` existe porque algumas empresas e alguns contextos
+exigem rubrica, e essa é uma decisão delas. **É opção, não obrigação.**
+
+---
+
+# 274. COMPONENTES DE ASSINATURA NO EDITOR
+
+**Classificação: `P1`.**
+
+Assinatura não pode ser uma string no meio do texto. Se `[ASSINATURA]` fosse
+apenas mais um marcador, ela seria copiável, movível para o meio de um
+parágrafo e indistinguível de texto — e o gerador não teria como saber onde
+colocar o traço, nem quantos signatários existem.
+
+O editor oferece **componentes**, com posição e semântica próprias:
+
+```text
+[ ASSINATURA DO CLIENTE ]     bloco de assinatura do contratante
+[ ASSINATURA DA CONTRATADA ]  bloco de assinatura da empresa
+[ QR DE VALIDAÇÃO ]           QR que aponta para o validador (§280)
+[ CÓDIGO DE VALIDAÇÃO ]       o código em texto, para quem não lê QR
+[ DATA DE ASSINATURA ]        instante do SERVIDOR, não da geração
+```
+
+## Três regras dos componentes
+
+**`DATA DE ASSINATURA` é o instante do servidor**, e só existe depois de
+assinado. Na prévia ele aparece vazio ou marcado como pendente — nunca com a
+data da geração, que não é a data em que alguém assinou.
+
+**O código e o QR andam juntos.** Papel amassado, foto com reflexo e leitor que
+não abre são normais em campo; o código legível é o caminho alternativo para o
+mesmo validador.
+
+**Componente ausente é decisão do modelo, não erro.** Um termo interno pode não
+ter QR. O que a publicação recusa é o modelo sem nenhum bloco de assinatura
+quando o `SIGNATURE_MODE` exige um.
+
+---
+
+# 275. PIPELINE DE GERAÇÃO E HASH
+
+**Classificação: `P1`.**
+
+```text
+Versão do modelo (PUBLISHED)
+   ↓
+Snapshot dos dados            empresa · cliente · OS · técnico · data
+   ↓
+Resolução das variáveis
+   ↓
+Validação                     nenhum placeholder sobra  (§276)
+   ↓
+Geração do PDF
+   ↓
+documentHash                  hash do PDF antes da assinatura
+   ↓
+Cliente visualiza o documento COMPLETO
+   ↓
+Consentimento registrado      (§273)
+   ↓
+Assinatura
+   ↓
+Documento final
+   ↓
+signedDocumentHash            hash do PDF assinado
+   ↓
+Código de validação  +  QR
+   ↓
+Documento IMUTÁVEL
+```
+
+## O snapshot é do instante, não uma referência
+
+O documento guarda os **valores resolvidos**, não ponteiros para o cadastro.
+Cliente que muda de endereço amanhã não altera o contrato assinado ontem, e
+reconstruir o documento não depende de o cadastro ainda estar como estava.
+
+Referência viva faria um contrato de dois anos atrás renderizar com o dado de
+hoje — que é precisamente o que ele não pode fazer.
+
+## Hash
+
+**SHA-256, ou algoritmo seguro equivalente aprovado na implementação.** Dois
+hashes, com papéis diferentes:
+
+| Campo | O que cobre |
+|---|---|
+| `documentHash` | o PDF gerado, antes de assinar — o que foi apresentado |
+| `signedDocumentHash` | o PDF final, com a assinatura — o que vale |
+
+Guardar os dois permite responder duas perguntas distintas: *o cliente viu este
+texto?* e *este arquivo é o que foi assinado?*
+
+## O nome do arquivo não prova nada
+
+> **Nunca confiar em filename.** Nem para identidade, nem para integridade, nem
+> para autorização.
+
+Nome de arquivo é editável por qualquer pessoa que receba o PDF, e um sistema
+que o use como chave aceita `contrato-4471-assinado.pdf` como prova de que
+existe um contrato 4471 assinado. Identidade é o `id`; integridade é o hash;
+autorização é RBAC (§285).
+
+## Registro obrigatório
+
+```text
+documentHash          signedDocumentHash
+templateId            templateVersion
+generatedAt           signedAt
+```
+
+---
+
+# 276. PRÉ-VISUALIZAÇÃO E VARIÁVEL INVÁLIDA
+
+**Classificação: `P1`.**
+
+## Pré-visualizar
+
+O editor oferece **PRÉ-VISUALIZAR**, com dados de um cliente real, **quando o
+RBAC permitir** — a prévia lê cadastro de cliente, e isso é dado pessoal, não
+recurso de editor.
+
+> Toda prévia carrega marca d'água visível: **PRÉVIA — NÃO ASSINADO**.
+
+Um PDF de prévia sem marca circula, é impresso e é confundido com o documento
+final — e a diferença entre os dois é justamente o que ninguém percebe olhando
+para o papel. A marca não é enfeite: é o que impede a confusão.
+
+Prévia **não gera** `SignedContract`, não consome numeração, não recebe código
+de validação e não entra no acervo do cliente.
+
+## Variável inválida bloqueia a publicação
+
+Modelo com
+
+```text
+${cli_nom}
+```
+
+quando a variável oficial é `${cli_nome}` **não publica**. A recusa nomeia o
+problema:
+
+```text
+Variável desconhecida: ${cli_nom}
+Você quis dizer ${cli_nome}?
+```
+
+## Placeholder nunca chega ao documento final
+
+> **Nenhum documento final é gerado com placeholder não resolvido.**
+
+O texto errado não some sozinho: ou ele sai literalmente no papel — e o cliente
+assina um contrato onde está escrito `${cli_nom}` —, ou ele resolve para vazio
+e produz uma cláusula sem sujeito, que é pior, porque ninguém repara.
+
+Validar na **publicação** é o que resolve isso cedo, com o autor do modelo na
+frente da tela, em vez de tarde, com o técnico na porta do cliente.
+
+---
+
+# 277. CONTRATO ASSINADO — ENTIDADE CONCEITUAL
+
+**Classificação: `P1`.** **Esta seção não define schema** — modelagem é tarefa
+de implementação, e será decidida quando a capability for autorizada.
+
+Conceitualmente, `SignedContract` guarda:
+
+```text
+id
+companyId
+customerId
+serviceOrderId          opcional — nem todo contrato nasce de OS
+templateId
+templateVersion
+generatedSnapshot       os valores resolvidos (§275)
+documentHash
+signedDocumentHash
+validationCode
+generatedAt
+signedAt
+status
+storage reference       onde o PDF final está
+```
+
+## Por que `serviceOrderId` é opcional
+
+Contrato de instalação nasce de uma OS; aditivo de plano e contrato empresarial
+frequentemente não. Tornar o vínculo obrigatório obrigaria a inventar uma OS
+para emitir um documento — e OS inventada polui a operação inteira.
+
+## `status`
+
+Pelo menos: gerado e pendente de assinatura, assinado, cancelado. **Cancelado
+não apaga**: o documento continua no acervo, marcado, com quem cancelou e
+quando. A §225 já tomou essa decisão para a etiqueta de equipamento, e a razão é
+a mesma — o fato aconteceu.
+
+---
+
+# 278. EVIDÊNCIAS DE ASSINATURA E LGPD
+
+**Classificação: `P1` — requisito.**
+
+O que dá força a uma assinatura eletrônica é o **conjunto de evidências** em
+torno dela, não o traço na tela.
+
+```text
+Identidade do cliente informada no ato
+Documento apresentado                    (número, conforme política)
+Data/hora do SERVIDOR                    nunca a do aparelho
+Técnico responsável
+Dispositivo (MobileDevice, installationId)
+Endereço IP de origem                    quando apropriado
+Versão do aplicativo
+Texto de consentimento e o instante do aceite
+Assinatura manuscrita capturada
+documentHash e signedDocumentHash
+Eventos da sessão de assinatura
+```
+
+## Servidor, sempre
+
+O instante que vale é o do servidor — pela mesma razão da §227: o relógio do
+aparelho é ajustável em dois toques e sem rastro. O carimbo do aparelho pode
+ser guardado como metadata, e é útil por divergir.
+
+## Minimização
+
+* Coletar o que a finalidade exige, **e nada além**. Documento do cliente é
+  coletado conforme a política da empresa, não por reflexo.
+* **O validador público não expõe dado pessoal completo** (§280).
+* **Retenção declarada**, com prazo próprio — contrato tem prazo mais longo que
+  log operacional, e os dois não compartilham política (§233).
+* **Auditoria de consulta**: quem abriu qual contrato, e quando.
+* **Sem geolocalização contínua.** Se coordenada for coletada no ato da
+  assinatura, é um ponto, no evento — a regra da §261.
+
+---
+
+# 279. OTP — OPCIONAL, FUTURO
+
+**Classificação: `FUTURE`.**
+
+Segundo fator de confirmação do signatário, por **SMS**, **WhatsApp** ou
+**e-mail**: o cliente recebe um código e o informa antes de assinar.
+
+> **Não é obrigatório no MVP, e não vira obrigatório sem decisão de produto.**
+
+Duas razões práticas. Primeira: OTP no local da instalação depende de o cliente
+ter sinal e o telefone à mão — exatamente o que costuma faltar no dia em que o
+técnico está lá para instalar internet. Segunda: OTP que falha e bloqueia a
+assinatura transforma um problema de operadora num atendimento não concluído.
+
+Quando existir, é **configurável por empresa e por tipo de documento** — e cada
+tentativa entra nas evidências (§278).
+
+---
+
+# 280. VALIDADOR DE DOCUMENTO
+
+**Classificação: `P1`.**
+
+Todo documento final recebe um **`validationCode`** e um **QR** que aponta para
+uma página pública:
+
+```text
+/validar/<codigo>
+```
+
+## O que a página mostra
+
+```text
+Empresa emissora
+Tipo de documento
+Data de assinatura
+Status                      assinado · cancelado
+Hash do documento
+Integridade                 confere / não confere
+```
+
+## O que a página NÃO mostra
+
+> **CPF completo, endereço, telefone, valor e o conteúdo do contrato não
+> aparecem.**
+
+A página é **pública por construção** — o código está impresso num papel que
+circula. Uma página que exiba o cadastro do cliente transforma cada contrato
+entregue num vazamento de dado pessoal, e o código em papel não é segredo
+suficiente para proteger nada. Mostrar o mínimo que responde "este documento é
+verdadeiro?" é a finalidade inteira.
+
+Código inexistente responde de forma **uniforme**, sem revelar se o formato
+estava certo — sondar códigos não pode ensinar nada a quem sonda.
+
+## Validar um PDF recebido
+
+```text
+[ ENVIAR PDF PARA VALIDAR ]
+```
+
+**Preferência: calcular o hash no navegador**, quando tecnicamente viável, e
+enviar **apenas o hash** para comparação. O documento não sobe de novo.
+
+Isso não é otimização: reenviar o PDF faria o AlfaOS receber contratos
+assinados de quem quer que tenha o arquivo, incluindo quem não deveria tê-lo, e
+criaria um acervo de documentos alheios sem base para existir. O hash responde
+a mesma pergunta sem transportar o conteúdo.
+
+```text
+DOCUMENTO ÍNTEGRO      o hash confere com o registrado
+DOCUMENTO ALTERADO     o hash não confere
+```
+
+**"Alterado" não acusa ninguém.** A página diz que o arquivo difere do
+registrado — reimpressão, recompressão por aplicativo de mensagem e edição
+maliciosa produzem o mesmo resultado, e distinguir os três não é trabalho de
+um validador.
+
+---
+
+# 281. O VALIDADOR NÃO É ICP-BRASIL
+
+**Classificação: registro — e limite explícito.**
+
+> **O validador do AlfaOS não é, e não deve ser apresentado como, certificação
+> ICP-Brasil ou assinatura digital qualificada.**
+
+O que ele é: um mecanismo **próprio** de integridade e evidência eletrônica —
+hash do documento, cadeia de evidências da sessão de assinatura, e verificação
+de que o arquivo em mãos é o que foi assinado.
+
+O que ele não é: emissão ou verificação de certificado digital de autoridade
+certificadora credenciada, nem carimbo de tempo qualificado.
+
+**Nenhuma tela, nenhum PDF e nenhum texto de marketing pode sugerir o
+contrário.** Afirmar equivalência com assinatura qualificada é afirmação
+jurídica que o produto não tem como sustentar, e o custo dela aparece
+exatamente quando o documento é contestado.
+
+Integração futura com **assinatura qualificada** (ICP-Brasil ou provedor
+equivalente) pode existir, **como capability separada** — e, se existir, o
+documento dirá qual das duas foi usada, sem misturar as marcas.
+
+---
+
+# 282. ENTREGA DO CONTRATO
+
+**Classificação: `P1`.** Compartilhamento nativo `P1`; WhatsApp Business API
+`FUTURE`.
+
+## No Field, depois de assinar
+
+```text
+CONTRATO ASSINADO
+
+[ VER CONTRATO ]              [ COMPARTILHAR NO WHATSAPP ]
+[ COMPARTILHAR ]              [ ENVIAR POR E-MAIL ]
+[ BAIXAR PDF ]
+```
+
+## WhatsApp no MVP é compartilhamento nativo
+
+O técnico toca **COMPARTILHAR NO WHATSAPP** e o Android abre o WhatsApp com o
+PDF final e a mensagem preparada. **Não é necessária a WhatsApp Business API**
+para esse fluxo — quem envia é a pessoa, do próprio aparelho.
+
+Exigir a API para o fluxo manual adiaria a entrega inteira por causa de uma
+integração que resolve outro problema (envio automático, em nome da empresa).
+
+## Mensagem de entrega
+
+```text
+Olá, ${cli_nome}.
+
+Segue sua cópia do contrato de prestação de serviços,
+assinado eletronicamente.
+
+Código de validação: XXXX
+
+${emp_nome}
+```
+
+Personalizável por empresa no futuro; o texto acima é o padrão.
+
+## Entrega não é leitura
+
+> No compartilhamento nativo, o único fato que o AlfaOS conhece é
+> **`SHARE_INITIATED`** — o técnico abriu o compartilhamento.
+
+Ele **não sabe** se a mensagem foi enviada, entregue ou lida. Registrar
+`DELIVERED` ou `READ` sem confirmação de API seria inventar prova — e é
+exatamente o tipo de registro que alguém cita meses depois numa discussão.
+
+Quando a **WhatsApp Business API** existir (`FUTURE`), ela traz estados reais:
+
+```text
+SENT   ·   DELIVERED   ·   READ   ·   FAILED
+```
+
+E aí, e só aí, o AlfaOS os registra.
+
+## No web, no cadastro do cliente
+
+```text
+DOCUMENTOS / CONTRATOS
+
+Visualizar   ·   Compartilhar WhatsApp   ·   Enviar e-mail
+Baixar       ·   Validar
+```
+
+**Reenvio é permitido e é registrado** — quem reenviou, quando, por qual canal.
+Cliente que perde o arquivo é o caso normal, e obrigar a emitir documento novo
+para resolver isso criaria um segundo contrato onde só havia um.
+
+---
+
+# 283. CONTRATO POR TIPO DE OS E POLÍTICA DE CONCLUSÃO
+
+**Classificação: `P2`** — depende da capability de contratos existir.
+
+## Configuração no `ServiceOrderType`
+
+O `ServiceOrderType` já é o motor de execução (§125, §164). Ele ganha:
+
+```text
+Contrato obrigatório?        sim · não
+Modelo                       qual template
+Assinatura do cliente?       sim · não
+Assinatura do técnico?       sim · não
+Termo adicional              comodato, devolução, etc.
+```
+
+## Exemplos
+
+| Tipo de OS | Documentos |
+|---|---|
+| **Instalação** | contrato de prestação + termo de comodato |
+| **Troca de equipamento** | termo de substituição |
+| **Retirada** | termo de devolução |
+| **Mudança de endereço** | termo de alteração |
+| **Upgrade de plano** | aditivo |
+
+## Completion policy
+
+> **OS com contrato obrigatório não conclui enquanto o contrato não estiver
+> assinado.**
+
+A regra entra na `ValidationEngine` de conclusão da §166 — que já existe e já
+valida evidência, checklist e assinatura de fechamento. **Não se cria um segundo
+motor de validação.**
+
+**A autoridade é o backend.** O aplicativo pode antecipar o aviso para o técnico
+não descobrir o bloqueio no fim, mas quem recusa a conclusão é o servidor, na
+transação de fechamento (§166, `docs/SECURITY.md` §8.14). Validação apenas no
+cliente é sugestão, não regra.
+
+**Nada disto se implementa junto com o módulo de contratos.** É integração
+posterior, e a §119 se aplica.
+
+---
+
+# 284. TIPOS DE DOCUMENTO
+
+**Classificação: `P1`** — o catálogo. O conteúdo de cada um é da empresa.
+
+```text
+Contrato de Instalação
+Contrato Residencial
+Contrato Rural
+Contrato Empresarial
+Termo de Comodato
+Termo de Troca
+Termo de Retirada
+Aditivo
+Outros
+```
+
+O tipo é **classificação**, não texto: ele organiza o acervo, alimenta a busca,
+decide o que aparece no validador (§280) e liga o documento ao tipo de OS
+(§283). O texto vem do modelo (§271).
+
+`Outros` existe para a empresa não ficar bloqueada por falta de categoria — e
+não deve virar o depósito onde tudo cai. Categoria nova é configuração.
+
+---
+
+# 285. SEGURANÇA DO DOCUMENTO ASSINADO
+
+**Classificação: `P1` — requisito.**
+
+* **Imutável.** Sem `UPDATE`, sem sobrescrita, sem regeneração no lugar.
+* **Sem edição de modelo histórico.** A versão que assinou continua como estava
+  (§272).
+* **RBAC.** Quem pode ver, gerar, publicar modelo, assinar e reenviar são
+  permissões distintas. O técnico gera e coleta assinatura no atendimento dele;
+  não navega no acervo da empresa.
+* **Tenancy.** Documento é da empresa. Empresa A não lê, não lista e não infere
+  documento da empresa B — nem pelo `validationCode`, que é uniforme na recusa
+  (§280).
+* **Hash** registrado na geração e na assinatura (§275).
+* **Auditoria** de geração, assinatura, cancelamento, download, reenvio e
+  **consulta**.
+* **Storage protegido**, sem URL adivinhável e sem acesso público direto ao
+  arquivo — quem serve o PDF é a aplicação, depois de autorizar.
+* **`no-store`** nas superfícies sensíveis, como já vale para revelação de
+  segredo (`docs/SECURITY.md` §8.5).
+* **Retenção definida** — prazo declarado, com expurgo, decidido quando a
+  capability for autorizada.
+
+---
+
+# 286. UX DO TÉCNICO — A OS COM CONTRATO
+
+**Classificação: `P1`.**
+
+O contrato entra na **sequência que já existe** no fechamento da v0.10 — não
+abre um fluxo paralelo.
+
+```text
+Checklist  →  Fotos  →  Materiais  →  Equipamentos
+           →  Contrato  →  Assinatura  →  Conclusão
+```
+
+Como o técnico vê:
+
+```text
+✓  Fibra instalada
+✓  Sinal conferido
+✓  Roteador configurado
+✓  Teste de velocidade
+✓  Equipamentos registrados
+✓  Fotos enviadas
+✓  Contrato gerado
+✓  Assinatura coletada
+✓  PDF entregue
+```
+
+## Duas confusões que não podem acontecer
+
+**A assinatura do contrato não é a assinatura de fechamento da OS.** A da v0.10
+prova que o cliente concordou com o atendimento executado, está vinculada ao
+conteúdo do fechamento e vive na OS. A do contrato prova concordância com um
+documento jurídico e vive no acervo do cliente. Derivar uma da outra faria uma
+assinatura de recebimento de serviço valer como aceite de contrato — e o
+inverso é igualmente errado.
+
+É a mesma disciplina da §214, que já separou a assinatura do recebimento de
+ferramenta da assinatura do cliente.
+
+**O contrato não é evidência de OS.** Ele não conta no teto de evidências, não
+entra na galeria de fotos e não é apagado com elas.
+
+## Falha não pode travar o atendimento
+
+Se a geração do PDF falhar, o técnico precisa de um caminho: repetir, ou
+concluir sem o contrato **quando o tipo de OS não o exigir** (§283). Um
+atendimento que não fecha porque um gerador de documento caiu transfere ao
+técnico um problema de servidor, na porta do cliente — a mesma regra que a §228
+aplicou ao GPS.
+
+---
+
+# 287. ROADMAP — FIELD WORKSPACE E PLATAFORMA DE CONTRATOS
+
+**Classificação: registro.** Ordena capabilities; **não decide numeração de
+versão** — isso é escopo aprovado à parte, pela §119. Versões históricas não são
+renumeradas.
+
+```text
+A.  Fechar Jornada / Ponto Fase 1        checkpoint · tag · push   §252, §253
+B.  Field App Shell / Navegação                                    §255, §256
+C.  Technician Dashboard                                           §257, §258
+D.  Operational Map no Field                                       §259–§261
+E.  Meu Estoque                                                    §263
+F.  Agenda / Lembretes                                             §262
+G.  Contracts & Signatures                                         §266–§278
+H.  Validator / Delivery                                           §280–§282
+I.  Technician Tools                                               §264
+J.  Router / Wi-Fi automation                                      §265, §178
+K.  ACS / OLT / RADIUS / MikroTik                                  FUTURE
+```
+
+## Por que A vem antes de tudo
+
+Porque a Fase 1 da Jornada está **entregue e não publicada**. Empilhar trabalho
+novo sobre um módulo sem checkpoint significa auditar depois um alvo que já
+mudou — e a auditoria independente da versão é feita por quem não implementou
+(`CLAUDE.md`).
+
+## Por que B e C vêm antes de D
+
+Porque mapa, agenda e ferramentas precisam de onde morar. Adicionar destinos a
+uma navegação que ainda é a da v0.10 produz a gaveta desorganizada que a §173 já
+proibiu — e refazer a navegação depois custa mexer em todas as telas novas.
+
+## Por que G vem depois de F, e não antes
+
+Contratos é o módulo mais pesado desta Parte: modelo, versionamento, variáveis,
+PDF, assinatura, hash, validador e entrega. Ele também é o único que produz
+documento com consequência jurídica — e é o que menos tolera ser implementado
+às pressas entre duas outras coisas.
+
+## Convivência das escalas
+
+Continuam valendo as duas escalas (§117, §194): a do produto
+(`MVP`/`IMPORTANTE`/`DIFERENCIAL`/`FUTURO`) e a da trilha Field (`P0`/`P1`/`P2`).
+Quando divergirem, a §194 decide o que entra no aplicativo.
+
+## Este roadmap não substitui a §251
+
+A §251 continua sendo o roadmap pós-v0.10 do produto inteiro — rede interna do
+cliente, contatos, custódia, despacho, equipamentos. A §287 detalha a trilha do
+**workspace do técnico e dos contratos**, e as duas se leem juntas.

@@ -169,8 +169,10 @@ O projeto possui:
 * `v0.6.2-erp-provider-binding`
 * `v0.7.5-audited-checkpoint`
 * `v0.8-receitanet-service-orders`
+* `v0.9-field-backend-foundation`
+* `v0.10-field-execution-closing`
 
-**Baseline tagueada: `v0.8-receitanet-service-orders`** — auditada, reauditada e homologada em piloto real.
+**Baseline tagueada: `v0.10-field-execution-closing`** — auditada e publicada. As anteriores continuam válidas e não são renumeradas.
 
 A trilha v0.6 entregou a integração ReceitaNet **CallCenter read-only**: busca de cliente, detalhe, diagnóstico de conectividade e chamados abertos por cliente, com a credencial de ERP vinculada criptograficamente a `(companyId, provider)`.
 
@@ -253,9 +255,17 @@ Reversão verificada nos dois sentidos para OBX-01, TEST-01 e START-01.
 
 Os cinco INFO aceitos, todos não bloqueantes: o `now` do outbox não governa a escrita do lease (nenhum caller o passa hoje); não há expurgo de outbox `PROCESSED` nem de reserva vencida; `/dispositivos` não tem teste permanente próprio; `DEVICE_REVOKED` acontece antes de `recordLoginAttempt`; e `zod` em `devDependencies` é pré-existente e não afeta o worker.
 
-**Próxima fase: Flutter Android — primeiro APK Alpha.**
+Depois dela, **publicada: `v0.10-field-execution-closing`** — a **v0.10, execução e fechamento em campo**, backend e Flutter. O aplicativo do técnico existe e executa o atendimento inteiro: localização, check-in, relatório, checklist dinâmico como snapshot, evidências categorizadas, materiais sob lock, equipamento instalado, assinatura vinculada ao conteúdo e conclusão validada por tipo de OS. Três regras nasceram nela: **a identificação do equipamento é a FOTO da etiqueta** (série e MAC viraram opcionais), a etiqueta passa por estágio `TEMPORARY` → `COMMITTED` com TTL, e o vínculo foto↔equipamento é 1:1. Inventário do que entrou: PRD **§225**.
 
-**A trilha Flutter não começou.** Nenhum APK, nenhum FCM real, nenhum offline no cliente, nenhuma conclusão de OS pelo Field, nenhuma evidência estruturada, nenhum `ToolExecution`, nenhum item do toolbox — a §119 se aplica ao resto da Parte V: estar no PRD não autoriza implementar. Duas escalas de prioridade convivem e precisam ser conferidas juntas: §117 classifica o produto (MVP/IMPORTANTE/DIFERENCIAL/FUTURO), §194 classifica a trilha Field (P0/P1/P2).
+**Jornada / Ponto — Fase 1 entregue, `PILOT PASSED / RELEASE PENDING`.** Está em `main` local e **não tem tag e não foi publicada**. Entregou `Workday`, `TimeEntry` imutável, `TimeAdjustmentRequest`, `Company.timezone`, as rotas `/api/field/v1/time-clock/*` e `/api/time-clock/*`, a tela `/jornada` com a página por funcionário e a jornada no Field — batida, espelho do dia, histórico e correção com aprovação/rejeição. Homologada em piloto físico. **Aguarda checkpoint final, tag e push**; até lá, nenhum documento deve descrevê-la como publicada. Registro: PRD **§252**.
+
+Quatro pendências registradas na PRD **§253**, nenhuma bloqueadora e **nenhuma implementada**: `ADMIN` pode aprovar a própria correção (LOW-1); a criação administrativa web não tem idempotência equivalente à do Field (LOW-2); o Field monta o horário solicitado no fuso do **aparelho**, não no da empresa (LOW-3); e `Company.timezone` não tem superfície administrativa de configuração (JOR-05).
+
+Também sem tag, **documentação apenas, sem código**: as **Partes IX e X do PRD (§252–§287)** — o Field como **workspace do técnico** e não como app de OS (§254), o App Shell híbrido e a gaveta categorizada (§255, §256), o dashboard `Início` (§257), a porta única da correção de jornada (§258), mapa/agenda/estoque no Field (§259–§263), o hub de ferramentas e o assistente de roteador (§264, §265), e a **plataforma de contratos e assinatura eletrônica** inteira (§266–§287): modelos versionados, dicionário de variáveis, PDF multipágina, assinatura vinculada ao hash, validador público e entrega. **Nada disso existe em código.**
+
+**Próxima fase: fechar a Fase 1 da Jornada — checkpoint, tag e push (PRD §287, item A).**
+
+A §119 continua valendo para tudo o que é só especificação: FCM real, offline no cliente, `ToolExecution`, toolbox, custódia de patrimônio, mapa operacional, Central de Despacho, rede interna do cliente, contratos. Duas escalas de prioridade convivem e precisam ser conferidas juntas: §117 classifica o produto (MVP/IMPORTANTE/DIFERENCIAL/FUTURO), §194 classifica a trilha Field (P0/P1/P2).
 
 ## Princípios
 

@@ -189,7 +189,7 @@ Três decisões que são fáceis de desfazer sem perceber:
 
 Nada disso está implementado — é especificação, e a §119 se aplica.
 
-## Jornada / Ponto do funcionário — FASE 1 IMPLEMENTADA
+## Jornada / Ponto do funcionário — FASE 1 ENTREGUE, RELEASE PENDENTE
 
 **Carregar:** `docs/PRD.md` §226–§233 — marcações, evidência da batida, histórico imutável e pedido de ajuste, espelho, painel do gestor, ponto offline e LGPD. Código: `src/lib/workday.ts` (dia, estado e **sequência efetiva**) e `src/lib/time-clock.ts` (domínio).
 **Quando:** a tarefa envolve jornada de trabalho, batida de ponto, espelho, banco de horas ou aprovação de ajuste.
@@ -202,7 +202,82 @@ Quatro regras que serão fáceis de desfazer sem perceber:
 * **A marcação original nunca é editada.** Correção é pedido com aprovação, e o registro derivado aponta para ele (§229).
 * **Só existe UMA noção de "marcação atual".** A correção aprovada **supera** a original sem apagá-la, e as duas linhas convivem na tabela. Quem lê o histórico bruto lê um dia que não existe: estado, ação permitida, validação de sequência e espelho passam todos por `resolveEffectiveTimeEntries`. Ler `timeEntry.findMany` direto para decidir qualquer coisa é o defeito, não o atalho.
 
-**O que JÁ existe:** `Workday`, `TimeEntry`, `TimeAdjustmentRequest` e `Company.timezone`; as rotas `/api/field/v1/time-clock/*` e `/api/time-clock/*`; a tela `/jornada` e a tela do Field. **Não existe** banco de horas, escala prevista, folha, engine offline no cliente nem tela de configuração de fuso — `Company.timezone` só tem o default. A §119 se aplica ao que falta.
+**Estado do release: `PILOT PASSED / RELEASE PENDING`.** A Fase 1 está em `main` local, homologada em piloto físico, e **não tem tag e não foi publicada**. O inventário do que entrou, o registro do piloto e o que ficou de fora estão em `docs/PRD.md` **§252**; os riscos pendentes, na **§253**. Não descrever a Jornada como publicada em nenhum documento até o checkpoint acontecer.
+
+**O que JÁ existe:** `Workday`, `TimeEntry`, `TimeAdjustmentRequest` e `Company.timezone`; as rotas `/api/field/v1/time-clock/*` e `/api/time-clock/*`; a tela `/jornada`, a página por funcionário e a tela do Field. **Não existe** banco de horas, escala prevista, folha, engine offline no cliente nem tela de configuração de fuso — `Company.timezone` só tem o default. A §119 se aplica ao que falta.
+
+**Quatro pendências registradas (§253), nenhuma bloqueadora e nenhuma implementada:** `ADMIN` pode aprovar a própria correção (LOW-1); a criação administrativa web não tem idempotência equivalente à do Field (LOW-2); o Field monta o horário solicitado no fuso do **aparelho**, não no da empresa (LOW-3); e `Company.timezone` não tem superfície administrativa (JOR-05). LOW-3 depende de JOR-05 — resolver o cliente antes da configuração seria consumir um valor que ninguém consegue ajustar.
+
+## Field Workspace, App Shell e Dashboard — PLANNED
+
+**Carregar:** `docs/PRD.md` §254–§258 — a visão do Field como **workspace do técnico** (e não como app de OS), a navegação híbrida, a gaveta categorizada, o dashboard `Início` e a decisão de porta única para a correção de jornada.
+**Quando:** a tarefa muda a navegação do aplicativo, adiciona destino novo, cria a tela inicial ou mexe na tela de jornada do Field.
+**Quando NÃO:** backend sem superfície no aplicativo, painel web, ou uma tela isolada do Field que não altera a navegação.
+
+**Nada disso existe.** A navegação atual é a da v0.10. Três decisões que não devem ser desfeitas ao implementar:
+
+* **OS e Jornada não podem viver só na gaveta** (§255). São as duas ações mais frequentes do dia.
+* **Item planejado não vira item cinza** (§256). Menu com linhas desabilitadas ensina o técnico a ignorar o menu.
+* **O dashboard não decide o que é permitido** (§257). Ele apresenta `allowedActions`, que já vem do servidor derivado da sequência efetiva — recalcular no cliente faz o aplicativo discordar do domínio na primeira correção aprovada.
+
+A porta única da correção (§258) **corrige o que já existe**: hoje a tela de jornada do Field oferece "Solicitar correção" em dois lugares.
+
+## Mapa operacional no Field, agenda e estoque do técnico — PLANNED
+
+**Carregar:** `docs/PRD.md` §259–§263 — mapa do técnico, ação no pin, privacidade/GPS, agenda de compromissos e "Meu Estoque". Leia junto o bloco correspondente já existente: mapa é a Parte VI (§196–§209), agenda estende a §171, estoque estende a §181.
+**Quando:** a tarefa envolve mapa dentro do aplicativo, compromisso do técnico, lembrete, ou saldo de material do técnico.
+**Quando NÃO:** Central de Despacho — isso é **web** (§203, §204). Ferramenta cedida ao técnico é custódia (§211).
+
+**Nada disso existe.** Três regras que são fáceis de desfazer:
+
+* **Não é um segundo mapa** (§259). É a mesma `CustomerLocation` e a mesma precedência da §197.
+* **GPS `while-in-use`, evento é um ponto** (§261). Tracking durante a jornada só existe se a política da empresa habilitar, e nunca fora dela.
+* **A OS na agenda é projeção, não cópia** (§262). Guardar horário próprio criaria duas respostas para "quando é o atendimento".
+
+## Ferramentas do técnico e configuração de roteador — PLANNED
+
+**Carregar:** `docs/PRD.md` §264 e §265, **junto com** §173–§179 (o toolbox já especificado) e §178 (a arquitetura de roteador, que **não muda**).
+**Quando:** a tarefa adiciona ferramenta ao Field, mexe no hub de ferramentas ou no assistente de roteador.
+**Quando NÃO:** diagnóstico de conectividade via ERP — isso é `docs/ERP-INTEGRATIONS.md`.
+
+**Nada disso existe.** Três limites:
+
+* **O scanner de LAN é controlado** (§264): só na rede do atendimento em curso, com OS aberta e registro de quem executou.
+* **A §222 continua estrita**: não há QR para ferramenta do técnico; QR de equipamento instalado no cliente continua `P0` (§180).
+* **O Flutter não fala direto com integração crítica quando o backend pode mediar** (§265). Credencial de ACS ou de fabricante dentro de um APK é credencial publicada — a mesma fronteira da §191.
+
+## Contratos, assinatura eletrônica, validador e entrega — PLANNED
+
+**Carregar:** `docs/PRD.md` **Parte X (§266–§287)**. Carregue apenas o bloco relevante, não a Parte inteira:
+
+| Assunto | Seções |
+|---|---|
+| Capability, dados contratuais da empresa | §266, §267 |
+| Variáveis: dicionário oficial, system × custom, UX | §268–§270 |
+| Editor, modelo e versionamento | §271, §272 |
+| Multipágina, modo de assinatura, componentes | §273, §274 |
+| Pipeline de geração, hash, prévia e variável inválida | §275, §276 |
+| `SignedContract`, evidências, OTP | §277–§279 |
+| Validador e o limite ICP-Brasil | §280, §281 |
+| Entrega — WhatsApp, e-mail, web | §282 |
+| Contrato por tipo de OS e política de conclusão | §283 |
+| Tipos de documento, segurança, UX do técnico | §284–§286 |
+| Roadmap do workspace e dos contratos | §287 |
+
+**Quando:** a tarefa envolve contrato, termo, modelo de documento, variável de template, assinatura eletrônica do cliente, PDF gerado, validação de documento ou entrega ao cliente.
+**Quando NÃO:** a assinatura de **fechamento da OS** — essa já existe desde a v0.10 e é `docs/SERVICE-ORDER-CLOSING.md`. **Não são a mesma assinatura** (§286). Assinatura de recebimento de ferramenta é a §214.
+
+**Nada disso existe:** não há modelo, rota, tela, gerador de PDF, motor de assinatura, QR nem validador. A §119 se aplica integralmente.
+
+Cinco regras que a Parte X fixou e são fáceis de desfazer sem perceber:
+
+* **Publicar versão nova nunca altera contrato assinado** (§272). Versão `PUBLISHED` é imutável; mudar é criar `DRAFT` novo.
+* **Snapshot, não referência** (§275). O documento guarda os valores resolvidos; cliente que muda de endereço amanhã não altera o contrato de ontem.
+* **Nunca confiar em filename** (§275). Identidade é `id`, integridade é hash, autorização é RBAC.
+* **Placeholder não resolvido nunca chega ao documento final** (§276). A validação é na **publicação** do modelo, não na geração.
+* **O validador não é ICP-Brasil** (§281). É mecanismo próprio de integridade e evidência — nenhuma tela, PDF ou texto pode sugerir equivalência com assinatura qualificada.
+
+E duas de privacidade: o validador público **não expõe dado pessoal completo** (§280), e a senha do Wi-Fi **não entra em contrato automaticamente** (§268).
 
 ## Rede interna do cliente e equipamentos — PLANNED
 
@@ -263,6 +338,6 @@ Context7 deve complementar o projeto, não substituir suas fontes internas.
 
 ---
 
-Atualize este mapa sempre que um documento relevante novo for criado (ex.: quando a auditoria da v0.3 for concluída, quando a integração ReceitaNet ganhar doc próprio, quando Jornada/Ponto, Rede Interna do Cliente ou Contatos saírem de `PLANNED` e ganharem código ou doc próprio).
+Atualize este mapa sempre que um documento relevante novo for criado (ex.: quando a auditoria da v0.3 for concluída, quando a integração ReceitaNet ganhar doc próprio, quando Rede Interna do Cliente, Contatos, Field Workspace, Mapa no Field, Ferramentas ou Contratos saírem de `PLANNED` e ganharem código ou doc próprio, e quando a Jornada receber tag e deixar de estar com release pendente).
 
 **Seções marcadas `PLANNED`** descrevem o que foi aprovado no PRD e **não** existe em código. Nenhuma delas aponta para arquivo de implementação, porque não há. Ao implementar uma, troque a marcação e liste os arquivos reais — um mapa que aponta para o que não existe é pior que um mapa incompleto.
