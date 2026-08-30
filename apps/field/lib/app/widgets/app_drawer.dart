@@ -139,10 +139,9 @@ class _DrawerHeader extends StatelessWidget {
             backgroundColor: scheme.primary,
             child: Text(
               _initials(name),
-              style: TextStyle(
+              style: theme.textTheme.titleMedium?.copyWith(
                 color: scheme.onPrimary,
                 fontWeight: FontWeight.w700,
-                fontSize: 16,
               ),
             ),
           ),
@@ -240,44 +239,58 @@ class _DrawerItem extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AlfaSpacing.sm),
       child: Material(
+        /*
+          O item ativo se distingue por TINT DE FUNDO e peso, não por uma
+          faixa colorida na lateral.
+
+          A faixa é um reflexo comum e um erro: ela desalinha o ícone dos
+          demais itens, some quando o texto é longo, e não sobrevive a uma
+          leitura rápida com o polegar por cima. O preenchimento inteiro é
+          maior, mais óbvio e não desloca nada.
+        */
         color: selected ? scheme.primaryContainer : Colors.transparent,
         borderRadius: BorderRadius.circular(AlfaRadius.md),
         child: InkWell(
           key: Key(item.testKey),
           onTap: onTap,
           borderRadius: BorderRadius.circular(AlfaRadius.md),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AlfaSpacing.md,
-              vertical: AlfaSpacing.md,
+          child: ConstrainedBox(
+            // Altura mínima DECLARADA, não resultado de somar paddings: o
+            // mínimo do Android é 48dp, e a soma muda sozinha quando a fonte
+            // do aparelho cresce ou o selo perde o fundo.
+            constraints: const BoxConstraints(
+              minHeight: AlfaSizing.minTouchTarget,
             ),
-            child: Row(
-              children: [
-                // Faixa lateral: o acento do item ativo, sem o bloco pesado.
-                Container(
-                  width: 3,
-                  height: 20,
-                  margin: const EdgeInsets.only(right: AlfaSpacing.md),
-                  decoration: BoxDecoration(
-                    color: selected ? scheme.primary : Colors.transparent,
-                    borderRadius: BorderRadius.circular(AlfaRadius.pill),
-                  ),
-                ),
-                Icon(item.icon, size: 22, color: foreground),
-                const SizedBox(width: AlfaSpacing.md),
-                Expanded(
-                  child: Text(
-                    item.label,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: foreground,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AlfaSpacing.md,
+                vertical: AlfaSpacing.sm,
+              ),
+              child: Row(
+                children: [
+                  // Sem `size`: o tamanho vem do `IconTheme` do tema, como o
+                  // resto dos ícones do aplicativo.
+                  Icon(item.icon, color: foreground),
+                  const SizedBox(width: AlfaSpacing.lg),
+                  Expanded(
+                    child: Text(
+                      item.label,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: foreground,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                if (item.isPlanned) const _PlannedTag(),
-              ],
+                  if (item.isPlanned) ...[
+                    const SizedBox(width: AlfaSpacing.sm),
+                    const _PlannedTag(),
+                  ],
+                ],
+              ),
             ),
           ),
         ),
@@ -287,29 +300,21 @@ class _DrawerItem extends StatelessWidget {
 }
 
 /// O selo do módulo planejado. **Texto**, não só uma cor mais fraca.
+///
+/// Sem fundo preenchido, e isso é decisão: quinze selos com pílula sólida
+/// viravam a coisa mais chamativa da gaveta — o planejado gritando mais alto
+/// que o que funciona. Aqui ele é uma palavra discreta na margem, legível para
+/// quem procura e ignorável para quem não procura.
 class _PlannedTag extends StatelessWidget {
   const _PlannedTag();
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.statusColors;
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AlfaSpacing.sm,
-        vertical: 2,
-      ),
-      decoration: BoxDecoration(
-        color: colors.neutralContainer,
-        borderRadius: BorderRadius.circular(AlfaRadius.pill),
-      ),
-      child: Text(
-        'EM BREVE',
-        style: TextStyle(
-          color: colors.neutral,
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.4,
-        ),
+    final theme = Theme.of(context);
+    return Text(
+      'EM BREVE',
+      style: theme.textTheme.labelSmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
       ),
     );
   }

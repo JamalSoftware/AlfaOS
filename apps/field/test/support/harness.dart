@@ -2,6 +2,7 @@ import 'package:alfaos_field/app/app.dart';
 import 'package:alfaos_field/app/providers.dart';
 import 'package:alfaos_field/app/router.dart';
 import 'package:alfaos_field/app/theme/app_theme.dart';
+import 'package:alfaos_field/app/theme/theme_controller.dart';
 import 'package:alfaos_field/features/auth/data/auth_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -83,11 +84,26 @@ class Harness {
   /// frame e é ASSÍNCRONO, então navegar daqui correria contra uma sessão
   /// ainda em `bootstrapping` — e o `redirect` desfaria a navegação. Quem
   /// precisa ir a uma rota específica usa [goTo] DEPOIS de assentar a sessão.
+  ///
+  /// `themeMode` sobrescreve o CONTROLADOR de tema, não o `MaterialApp`: o
+  /// teste percorre o mesmo caminho da produção, onde o modo vem da
+  /// preferência guardada. Para trocar o tema com o aplicativo já montado, use
+  /// [setTheme].
   Future<ProviderContainer> pumpApp(
     WidgetTester tester, {
     List<Override> extraOverrides = const [],
+    ThemeMode? themeMode,
   }) async {
-    container = ProviderContainer(overrides: [...overrides, ...extraOverrides]);
+    container = ProviderContainer(
+      overrides: [
+        ...overrides,
+        if (themeMode != null)
+          themeControllerProvider.overrideWith(
+            (ref) => TestThemeController(themeMode),
+          ),
+        ...extraOverrides,
+      ],
+    );
     addTearDown(container.dispose);
 
     await tester.pumpWidget(
@@ -104,4 +120,29 @@ class Harness {
   /// da barra principal (notificação, link salvo), sem correr contra o
   /// `redirect` de sessão.
   void goTo(String location) => container.read(routerProvider).go(location);
+
+  /// Troca o tema com o aplicativo MONTADO — o cenário real do toggle.
+  ///
+  /// Remontar o aplicativo em outro modo não prova nada sobre a troca: uma cor
+  /// resolvida uma vez nasceria certa na segunda montagem. O defeito só
+  /// aparece quando a árvore existente precisa repintar.
+  void setTheme(ThemeMode mode) =>
+      container.read(themeControllerProvider.notifier).setMode(mode);
+}
+
+/// Controlador de tema para teste: escolhe o modo sem depender de
+/// `SharedPreferences`, que num teste de widget não existe.
+///
+/// `setMode` continua funcionando, só não persiste. É o que permite o toggle
+/// test trocar o tema com o aplicativo JÁ montado — o cenário real, em que o
+/// técnico muda a preferência com a tela aberta.
+class TestThemeController extends ThemeController {
+  TestThemeController(ThemeMode mode) {
+    state = mode;
+  }
+
+  @override
+  Future<void> setMode(ThemeMode mode) async {
+    state = mode;
+  }
 }

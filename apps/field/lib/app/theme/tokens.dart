@@ -21,12 +21,21 @@ class AlfaSpacing {
   static const double xxl = 32;
 }
 
+/// Uma família de raio só: cantos suaves, do selo à folha.
+///
+/// Misturar famílias — um cartão reto ao lado de um botão arredondado — é o
+/// tipo de inconsistência que ninguém sabe nomear e todo mundo percebe.
 class AlfaRadius {
   const AlfaRadius._();
 
   static const double sm = 8;
   static const double md = 12;
   static const double lg = 16;
+
+  /// Folhas e superfícies grandes. O Material 3 usa 28 no topo de bottom
+  /// sheets, e destoar disso faz a folha parecer de outro aplicativo.
+  static const double xl = 28;
+
   static const double pill = 999;
 }
 

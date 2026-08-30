@@ -472,11 +472,7 @@ class _JornadaCard extends ConsumerWidget {
                 ),
                 child: Text(
                   workdayStateLabel(workday.state),
-                  style: TextStyle(
-                    color: estadoFg,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: theme.textTheme.labelSmall?.copyWith(color: estadoFg),
                 ),
               ),
               const Spacer(),

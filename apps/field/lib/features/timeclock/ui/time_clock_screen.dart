@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme/tokens.dart';
@@ -246,6 +249,18 @@ class _TodayCard extends StatelessWidget {
       ),
     );
     if (confirmed ?? false) {
+      /*
+        Retorno tátil na batida, e só nela.
+
+        O ponto é registrado com o aparelho já saindo da mão, muitas vezes sem
+        o técnico olhar a tela até o fim. A vibração confirma que o comando
+        saiu sem exigir leitura — e é a diferença entre um aplicativo que
+        "responde" e um que parece página web embrulhada.
+
+        `mediumImpact`, não `heavy`: bater ponto é ação padrão do dia, não
+        destrutiva. Vibração forte demais, quatro vezes por dia, cansa.
+      */
+      unawaited(HapticFeedback.mediumImpact());
       await notifier.punch(action);
     }
   }

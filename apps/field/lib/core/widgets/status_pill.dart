@@ -39,11 +39,10 @@ class StatusPill extends StatelessWidget {
       ),
       child: Text(
         status.label,
-        style: TextStyle(
-          color: fg,
-          fontSize: compact ? 11 : 12,
-          fontWeight: FontWeight.w600,
-        ),
+        // Papel do tema, não tamanho solto: assim o chip acompanha a escala de
+        // texto do aparelho em vez de ficar minúsculo para quem aumentou a
+        // fonte — justamente quem mais precisa lê-lo.
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(color: fg),
       ),
     );
   }
@@ -75,9 +74,11 @@ class PriorityBadge extends StatelessWidget {
       ),
       child: Text(
         priority.label,
-        style: TextStyle(
+        // Mesmo papel do `StatusPill`: os dois selos vivem lado a lado no card
+        // da OS, e tamanhos diferentes fariam um parecer mais importante que o
+        // outro sem que ninguém tivesse decidido isso.
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
           color: urgent ? colors.danger : colors.warning,
-          fontSize: 11,
           fontWeight: FontWeight.w700,
         ),
       ),
