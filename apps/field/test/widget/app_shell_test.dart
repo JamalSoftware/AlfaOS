@@ -1,3 +1,4 @@
+import 'package:alfaos_field/app/widgets/workspace_menu.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -14,6 +15,22 @@ Future<void> _settle(WidgetTester tester) async {
     await tester.pump(const Duration(milliseconds: 60));
   }
   await tester.pumpAndSettle(const Duration(milliseconds: 50));
+}
+
+/// Tela alta o suficiente para a gaveta INTEIRA caber sem rolagem.
+///
+/// O `ListView` só constrói o que está visível: num aparelho comum os últimos
+/// itens da gaveta não existem na árvore, e uma asserção sobre eles falharia
+/// por viewport, não por defeito. Aqui o teste é sobre CONTEÚDO — quais itens
+/// e categorias a gaveta apresenta —, então a tela é esticada para tirar a
+/// rolagem da equação.
+///
+/// Isto não esconde problema de tela pequena: o comportamento em largura real
+/// tem teste próprio ("responsividade"), que usa dimensões de aparelho.
+void _telaAlta(WidgetTester tester) {
+  tester.view.physicalSize = const Size(1200, 3200);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
 }
 
 void main() {
@@ -241,11 +258,12 @@ void main() {
       expect(find.text('REGISTRAR ENTRADA'), findsWidgets);
     });
 
-    testWidgets('F. não existe destino de Mapa nesta fase', (tester) async {
+    testWidgets('F. Mapa NÃO é destino da barra principal', (tester) async {
       /*
-        Prova negativa, complementar ao teste C: nenhuma tela nem rota de mapa
-        foi criada. Não há "placeholder" para verificar porque a decisão foi
-        NÃO criar um — a barra some com o vago em vez de mostrar tela morta.
+        Prova negativa, complementar ao teste C. O Mapa passou a aparecer na
+        GAVETA como planejado (§256, revisada depois do primeiro piloto) — mas
+        continua fora da barra, que é só para o que está implementado e
+        operacional. As duas superfícies têm políticas diferentes de propósito.
       */
       final harness = Harness();
       seedAuthenticated(harness.transport);
@@ -254,8 +272,13 @@ void main() {
       await harness.pumpApp(tester);
       await _settle(tester);
 
-      expect(find.text('Mapa'), findsNothing);
-      expect(find.textContaining('mapa', findRichText: true), findsNothing);
+      final destinations = tester.widgetList<NavigationDestination>(
+        find.byType(NavigationDestination),
+      );
+      expect(
+        destinations.where((d) => d.label.toLowerCase().contains('mapa')),
+        isEmpty,
+      );
     });
   });
 
@@ -274,13 +297,22 @@ void main() {
       expect(find.byType(Drawer), findsOneWidget);
     });
 
-    testWidgets('H. a gaveta mostra só o que existe — nada de item cinza', (
+    testWidgets('H. a gaveta apresenta o Workspace INTEIRO, por categoria', (
       tester,
     ) async {
       /*
-        PRD §256: "item planejado não vira item cinza". Escala, Contratos,
-        Estoque, Ferramentas e Rede são PLANNED, sem tela — e não aparecem.
+        A política do §256 foi REVISTA depois do primeiro piloto físico.
+
+        Antes: "item que não existe não aparece" — e este teste afirmava a
+        ausência de CLIENTES, MEU TRABALHO e REDE. O piloto mostrou o custo: a
+        gaveta com seis linhas não comunicava o produto, e o técnico não tinha
+        como saber o que o AlfaOS pretende cobrir.
+
+        Agora a gaveta é o mapa do Workspace. A honestidade não sumiu — ela
+        mudou de lugar: está no selo EM BREVE e na ausência de rota (testes
+        C/E/F abaixo), não na omissão do item.
       */
+      _telaAlta(tester);
       final harness = Harness();
       seedAuthenticated(harness.transport);
       harness.store.token = 'token-seedado';
@@ -291,46 +323,170 @@ void main() {
       await tester.tap(find.byIcon(Icons.menu));
       await _settle(tester);
 
-      expect(find.text('OPERACIONAL'), findsOneWidget);
-      expect(find.text('CONTA'), findsOneWidget);
-      expect(find.byKey(const Key('drawer-inicio')), findsOneWidget);
-      expect(find.byKey(const Key('drawer-orders')), findsOneWidget);
-      expect(find.byKey(const Key('drawer-jornada')), findsOneWidget);
-      expect(find.byKey(const Key('drawer-notifications')), findsOneWidget);
-      expect(find.byKey(const Key('drawer-settings')), findsOneWidget);
-      expect(find.byKey(const Key('drawer-logout')), findsOneWidget);
+      // A. todas as categorias aprovadas aparecem.
+      for (final categoria in workspaceMenu.map((s) => s.category.label)) {
+        expect(
+          find.text(categoria),
+          findsOneWidget,
+          reason: 'categoria ausente: $categoria',
+        );
+      }
 
-      // Nenhuma categoria ou item PLANNED — a lista negativa é o próprio teste.
-      for (final planejado in [
-        'CLIENTES',
-        'MEU TRABALHO',
-        'REDE',
-        'Escala',
-        'Contratos',
-        'Estoque',
-        'Ferramentas',
-      ]) {
-        expect(find.textContaining(planejado), findsNothing);
+      /*
+        B. TODOS os itens do registry aparecem — implementados e planejados.
+
+        A varredura sai do próprio `workspaceMenu` em vez de uma lista copiada
+        no teste: um item novo passa a ser exigido aqui sem ninguém precisar
+        lembrar de acrescentá-lo, e um item removido do registry não deixa uma
+        asserção órfã afirmando algo que já não existe.
+      */
+      for (final item in workspaceMenu.expand((s) => s.items)) {
+        expect(
+          find.byKey(Key(item.testKey)),
+          findsOneWidget,
+          reason: 'item ausente: ${item.label}',
+        );
       }
     });
-  });
 
-  testWidgets('I. Sair usa o fluxo de logout existente', (tester) async {
-    final harness = Harness();
-    seedAuthenticated(harness.transport);
-    harness.transport.onJson('POST', '/auth/logout', data: {'loggedOut': true});
-    harness.store.token = 'token-seedado';
+    testWidgets('C. item planejado tem indicador visível — não só opacidade', (
+      tester,
+    ) async {
+      _telaAlta(tester);
+      final harness = Harness();
+      seedAuthenticated(harness.transport);
+      harness.store.token = 'token-seedado';
 
-    await harness.pumpApp(tester);
-    await _settle(tester);
+      await harness.pumpApp(tester);
+      await _settle(tester);
 
-    await tester.tap(find.byIcon(Icons.menu));
-    await _settle(tester);
-    await tester.tap(find.byKey(const Key('drawer-logout')));
-    await _settle(tester);
+      await tester.tap(find.byIcon(Icons.menu));
+      await _settle(tester);
 
-    expect(harness.store.token, isNull);
-    expect(find.byKey(const Key('login-email')), findsOneWidget);
+      /*
+        O selo é TEXTO. Cor mais fraca sozinha não distingue um item planejado
+        de um item desabilitado por permissão — e quem não enxerga a diferença
+        de tom fica sem nenhum sinal.
+
+        Um selo por item planejado, nem mais nem menos.
+      */
+      final planejados = workspaceMenu
+          .expand((s) => s.items)
+          .where((i) => i.isPlanned)
+          .length;
+      expect(planejados, greaterThan(0));
+      expect(find.text('EM BREVE'), findsNWidgets(planejados));
+    });
+
+    testWidgets('D. item IMPLEMENTADO navega de verdade', (tester) async {
+      final harness = Harness();
+      seedAuthenticated(harness.transport);
+      harness.store.token = 'token-seedado';
+
+      await harness.pumpApp(tester);
+      await _settle(tester);
+
+      await tester.tap(find.byIcon(Icons.menu));
+      await _settle(tester);
+      await tester.tap(find.byKey(const Key('drawer-orders')));
+      await _settle(tester);
+
+      // Controle positivo do teste E: a gaveta NAVEGA quando há rota.
+      expect(find.text('Minhas Ordens'), findsOneWidget);
+      expect(find.text('Maria da Silva'), findsOneWidget);
+    });
+
+    testWidgets('E/F. item PLANEJADO não navega — abre a folha única', (
+      tester,
+    ) async {
+      _telaAlta(tester);
+      final harness = Harness();
+      seedAuthenticated(harness.transport);
+      harness.store.token = 'token-seedado';
+
+      await harness.pumpApp(tester);
+      await _settle(tester);
+
+      await tester.tap(find.byIcon(Icons.menu));
+      await _settle(tester);
+      await tester.tap(find.byKey(const Key('drawer-escala')));
+      await _settle(tester);
+
+      // F. a superfície genérica, nomeando o módulo.
+      expect(find.byKey(const Key('planned-module-sheet')), findsOneWidget);
+      expect(find.text('Minha Escala'), findsWidgets);
+      expect(find.text('Módulo em preparação.'), findsOneWidget);
+
+      /*
+        E. e NENHUMA rota falsa foi criada.
+
+        O aplicativo continua na aba de origem — o Início, com o seu título.
+        Uma rota placeholder teria trocado a tela, e é exatamente isso que a
+        política revisada proíbe: planejado nunca aparenta estar pronto.
+      */
+      expect(find.text('AlfaOS Field'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('planned-module-ack')));
+      await _settle(tester);
+      expect(find.byKey(const Key('planned-module-sheet')), findsNothing);
+    });
+
+    testWidgets('G. Sair usa o fluxo de logout existente', (tester) async {
+      _telaAlta(tester);
+      final harness = Harness();
+      seedAuthenticated(harness.transport);
+      harness.transport.onJson(
+        'POST',
+        '/auth/logout',
+        data: {'loggedOut': true},
+      );
+      harness.store.token = 'token-seedado';
+
+      await harness.pumpApp(tester);
+      await _settle(tester);
+
+      await tester.tap(find.byIcon(Icons.menu));
+      await _settle(tester);
+      await tester.tap(find.byKey(const Key('drawer-logout')));
+      await _settle(tester);
+
+      expect(harness.store.token, isNull);
+      expect(find.byKey(const Key('login-email')), findsOneWidget);
+    });
+
+    testWidgets('a gaveta rola sem estourar num aparelho comum', (
+      tester,
+    ) async {
+      /*
+        O complemento honesto de `_telaAlta`: aqui a tela é a de um celular
+        real, e a gaveta com 21 itens NÃO cabe. O que se prova é que ela rola
+        em vez de estourar — sem `RenderFlex overflow`, que em Flutter aparece
+        como exceção e como a faixa amarela na tela do técnico.
+      */
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final harness = Harness();
+      seedAuthenticated(harness.transport);
+      harness.store.token = 'token-seedado';
+
+      await harness.pumpApp(tester);
+      await _settle(tester);
+      await tester.tap(find.byIcon(Icons.menu));
+      await _settle(tester);
+
+      expect(tester.takeException(), isNull);
+
+      // O último item existe depois de rolar — a lista é alcançável inteira.
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('drawer-logout')),
+        160,
+        scrollable: find.byType(Scrollable).last,
+      );
+      expect(find.byKey(const Key('drawer-logout')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('J/K — rotas fora da barra continuam funcionando', () {

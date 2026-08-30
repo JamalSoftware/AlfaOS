@@ -4106,6 +4106,33 @@ por minutos — o técnico fica sem enxergar a caixa de emenda que veio conserta
 técnico a abrir o app periodicamente para descobrir se algo mudou — o que
 significa que ele não descobre.
 
+> **`FIELD NOTIFICATION FOUNDATION` — próxima fase, separada.** O primeiro
+> piloto físico do App Shell confirmou o que esta seção já previa: sem push, a
+> OS nova só existe para quem abre o aplicativo. A cadeia a construir é
+> `backend → notification event → device token → provedor push (FCM) →
+> Android → deep link da OS`, e ela é **fase própria** — não entrou no App
+> Shell nem no hardening visual que o sucedeu.
+>
+> Enquanto ela não existir, o sino do cabeçalho leva à central (§154), o
+> contador vem do mesmo estado que a tela já carrega, e **não há badge
+> fabricado**: nada no aplicativo afirma que push está funcionando.
+
+## O inventário do que a fundação terá de atender
+
+Além dos eventos de OS listados abaixo, a fundação precisa comportar — sem que
+nenhum deles esteja implementado hoje:
+
+```text
+nova OS atribuída · OS urgente · alteração de OS      §153
+plantão · escala alterada                             Parte XI, §299
+reunião / lembrete de agenda                          §262
+contrato pronto ou assinado                           Parte X
+estoque em nível baixo                                §263
+```
+
+Registrar isso agora evita o desenho que só serve para OS e precisa ser
+refeito no primeiro evento de escala.
+
 ## Eventos iniciais
 
 ```text
@@ -7711,6 +7738,22 @@ Notificações e Configurações saíram da barra e viraram rotas fora do shell,
 alcançáveis pelo sino e pela gaveta — exatamente como este parágrafo já
 descrevia antes de existir código.
 
+## Primeiro piloto físico — o que aprovou e o que não
+
+**Arquitetura e navegação: aprovadas.** O piloto exercitou App Shell, barra
+inferior, OS, Jornada, gaveta, sino, autenticação e navegação num aparelho
+real, e nada disso precisou mudar.
+
+**Visual: reprovado, e por escrito.** O aplicativo saiu funcional e
+"monocromático, cinza, linear, com pouca identidade". Três coisas concretas:
+a gaveta com seis linhas não comunicava o Workspace (§256, política revisada);
+o topo do Início era uma saudação solta num fundo vazio (o HERO do §257); e
+uma OS real do ReceitaNet sumia do Início (o bloco `ATENÇÃO AGORA`, §257).
+
+O hardening que respondeu a isso está **entregue e não publicado** — sem tag,
+sem push, aguardando **segundo piloto físico**. Um patch visual não se declara
+aprovado por teste de widget: ele existe para ser olhado num aparelho.
+
 ## Notificações no header
 
 Ícone no cabeçalho, com **indicador de não lidas**. Não ocupa vaga na barra
@@ -7734,53 +7777,96 @@ ação dentro da mesma tela é defeito** (§258).
 
 # 256. MENU LATERAL — CATEGORIAS E ESTADO
 
-**Classificação: `DONE` — só OPERACIONAL e CONTA, e só o que já existe.** A
-tabela abaixo continua sendo o ALVO da gaveta madura; a Fase 1 implementou
-exatamente a regra que a própria seção já fixava, aplicada ao pé da letra.
+**Classificação: `DONE` — a gaveta apresenta o Workspace inteiro, com o
+planejado marcado.** A tabela abaixo deixou de ser só o alvo: ela **é** a
+gaveta, e cada item traz o próprio estado na tela.
 
 ```text
 OPERACIONAL
-  Início                    P0
+  Início                    DONE
   Ordens de Serviço         DONE
-  Minha Jornada             DONE (Fase 1)
-  Mapa Operacional          P1
-  Agenda / Lembretes        P1
-  Notificações              DONE
+  Minha Jornada             DONE
+  Mapa Operacional          EM BREVE
 
 CLIENTES
-  Clientes                  P1
-  Contratos & Assinaturas   P1
-  Rede do Cliente           P1
-  Equipamentos              P1   (equipamento dentro da OS é DONE)
+  Clientes                  EM BREVE
+  Contratos & Assinaturas   EM BREVE
+  Rede do Cliente           EM BREVE
+  Equipamentos              EM BREVE   (equipamento dentro da OS é DONE)
 
 MEU TRABALHO
-  Meu Estoque               P1   (ledger mínimo é DONE)
-  Ferramentas               P1
-  Base de Conhecimento      P2
+  Minha Escala              EM BREVE
+  Meu Estoque               EM BREVE   (ledger mínimo é DONE)
+  Agenda e Lembretes        EM BREVE
+  Ferramentas               EM BREVE
+  Base de Conhecimento      EM BREVE
 
 REDE
-  Configurar Roteador       P1
-  Diagnósticos              P1
-  Wi-Fi                     P1
-  Ferramentas de Fibra      P2
+  Configurar Roteador       EM BREVE
+  Diagnósticos              EM BREVE
+  Wi-Fi                     EM BREVE
+  Ferramentas de Fibra      EM BREVE
+
+COMUNICAÇÃO
+  Notificações              DONE
 
 CONTA
-  Perfil                    P1
+  Perfil                    EM BREVE
   Configurações             DONE
+  Sair                      DONE
 ```
 
-## Item planejado não vira item cinza
+## A política foi REVISTA depois do primeiro piloto físico
 
-Um menu com quinze linhas desabilitadas ensina o técnico a ignorar o menu.
-**Item que não existe não aparece** — a lista acima é o alvo, não o estado da
-tela. Quando o técnico precisar saber o que vem, isso é assunto de nota de
-versão, não de navegação.
+A regra original desta seção era **"item que não existe não aparece"**, e o
+argumento era bom: um menu com quinze linhas desabilitadas ensina o técnico a
+ignorar o menu.
 
-**A Fase 1 mostra só OPERACIONAL (Início, Ordens de Serviço, Minha Jornada,
-Notificações) e CONTA (Configurações, Sair).** CLIENTES, MEU TRABALHO e REDE
-inteiras ficam de fora — todo item delas é `P1`/`P2`, sem uma linha de código.
-"Perfil" também não aparece: não existe tela própria para ele ainda, o que já
-está em `Configurações` cobre o que a sessão expõe hoje.
+**O primeiro piloto físico do App Shell mostrou o outro custo.** A gaveta com
+seis linhas não comunicava o produto: o aplicativo parecia um app de OS com
+jornada anexada, e o técnico não tinha como saber que o AlfaOS pretende cobrir
+escala, estoque, contratos e rede. A arquitetura aprovada existia só no PRD —
+e um roadmap que ninguém vê não orienta ninguém.
+
+> **Política nova, aprovada depois do piloto:**
+>
+> * **barra principal** — só funcionalidade implementada e operacional. Nada
+>   de destino morto (§255 continua valendo sem alteração);
+> * **gaveta** — pode apresentar o roadmap do Workspace, com o planejado
+>   **claramente marcado**;
+> * **planejado nunca aparenta estar pronto** — selo `EM BREVE` visível, e
+>   nenhuma rota, API ou dado inventado por trás;
+> * tocar um item planejado abre **uma única** superfície genérica ("Módulo em
+>   preparação"), nunca uma tela específica que finja funcionalidade.
+
+A honestidade não foi abandonada — ela mudou de lugar. Antes morava na
+**omissão** do item; agora mora no **selo** e na **ausência de rota**. A
+segunda é mais forte: a omissão dependia de alguém lembrar de não adicionar o
+item, enquanto a ausência de rota é estrutural — o item planejado não tem para
+onde navegar, e um teste permanente prova que nenhum deles carrega rota.
+
+## As categorias respondem a perguntas, não a módulos
+
+`OPERACIONAL` é "o meu dia". `CLIENTES` é "sobre quem eu estou trabalhando".
+`MEU TRABALHO` é "o que é meu e eu levo comigo". `REDE` é "o que eu estou
+mexendo na casa do cliente". `COMUNICAÇÃO` é "o que me avisam". `CONTA` é "eu".
+
+Agrupar por módulo do backend produziria uma gaveta que só faz sentido para
+quem escreveu o backend — a mesma disciplina que a §173 aplicou ao toolbox.
+
+## Perfil aparece, mas como planejado
+
+Não existe tela de Perfil: o que a sessão expõe hoje já está em
+`Configurações`. Ele entra na gaveta como `EM BREVE`, igual aos outros — não
+como um item que abre outra coisa, o que seria a versão silenciosa de prometer
+o que não existe.
+
+## Implementado — `apps/field/lib/app/widgets/`
+
+`workspace_menu.dart` é o registry: seis categorias, vinte e um itens, cada um
+com id estável, ícone, ação e rota **opcional**. `app_drawer.dart` só desenha.
+`planned_module_sheet.dart` é a superfície única do módulo em preparação — uma
+folha local, sem rota, para os quinze itens planejados.
 
 ## As categorias respondem a perguntas, não a módulos
 
@@ -7809,9 +7895,11 @@ não ajuda a respondê-la desce ou sai.
 ## Blocos, em ordem de prioridade
 
 ```text
-JORNADA        estado · horário da última marcação · ação contextual        DONE
-ORDENS         total · pendentes · em andamento · PRÓXIMA OS quando há dado DONE
-  PRÓXIMA OS   cliente · tipo · horário · [abrir]                           DONE (sem distância/navegar)
+HERO           saudação · empresa · jornada · OS abertas · urgentes         DONE
+ATENÇÃO AGORA  até 3 OS que pedem ação, agendadas OU NÃO                    DONE
+JORNADA        estado · trabalhado · última marcação · ação contextual      DONE
+ORDENS         total · em atendimento · pendentes                          DONE
+  PRÓXIMA OS   cliente · tipo · [abrir] — só com scheduledAt real          DONE (sem distância/navegar)
 HOJE           concluídas hoje · críticas                                   PLANNED
 LEMBRETES      reuniões · tarefas · compromissos                            PLANNED
 ESTOQUE        alertas e itens em nível baixo                               PLANNED
@@ -7819,14 +7907,53 @@ ATALHOS        Ping · Wi-Fi · Speed Test · Meu IP · Roteador                
 MAPA           resumo — opcional, P2                                        PLANNED
 ```
 
-**"PRÓXIMA OS" usa `scheduledAt` — campo real do contrato — e não aparece
-quando nenhuma OS aberta tem horário.** Sem isso, o card cai para um link
-simples para a lista, em vez de inventar qual OS é "a próxima" sem critério
-(§16 da tarefa que entregou esta fase). Distância e navegação direta não
-entraram: dependem de localização, fora do escopo desta fase (§261).
+**Os blocos `PLANNED` desta lista não aparecem no Dashboard.** A política
+revisada do §256 vale para a GAVETA, que é índice do produto; o Início é
+superfície de trabalho, e um card vazio prometendo estoque ocuparia o espaço
+que a próxima OS precisa.
 
-Os blocos `PLANNED` desta lista não existem no Dashboard hoje — nem como
-placeholder, pela mesma regra do §256: item que não existe não aparece.
+## ATENÇÃO AGORA — o bloco que o piloto físico exigiu
+
+O primeiro piloto encontrou uma OS real importada do ReceitaNet, **atribuída,
+visível em "Minhas Ordens" e ausente do Início**. Não era defeito de código: o
+Início só conhecia "Próxima OS", e "próxima" exige `scheduledAt` — que aquela
+OS não tinha.
+
+A proteção estava certa e **continua valendo**: não se chama de "próxima" uma
+OS sem horário. O que faltava era um lugar para as OS **sem agendamento**, que
+são justamente as que ninguém mais lembra.
+
+O ranking usa só campos que o DTO realmente traz (`status`, `priority`), e a
+ordem é determinística — empate desfeito por número crescente, para que duas
+leituras da mesma fila pintem o mesmo painel:
+
+```text
+0  IN_PROGRESS         o atendimento já começado
+1  URGENT   (aberta)
+2  HIGH     (aberta)
+3  demais abertas
+```
+
+**Em atendimento vem antes de urgente**, de propósito: uma OS já iniciada é
+trabalho aberto sob o nome do técnico, e trocá-la por outra produz duas OS
+pela metade em vez de uma concluída. Concluída e cancelada nunca entram.
+
+Limite de três cards e um `VER TODAS AS OS` — o Início não é a lista de OS, ou
+a aba `OS` perde a razão de existir. Sem OS aberta, o bloco não aparece: card
+gigante dizendo "nenhuma" é ruído no topo da tela.
+
+## Origem do provedor NÃO aparece no card — e é deliberado
+
+O card de OS **não** mostra badge "ReceitaNet". O DTO do Field omite `origin`,
+`externalProvider`, `externalId` e `externalNumber` de propósito
+(`src/lib/field/dto.ts`, §254): uma OS importada tem de funcionar no Field
+exatamente como uma interna, e **a ausência do dado é a garantia** de que não
+existe `if (RECEITANET)` possível no aplicativo.
+
+Deduzir a origem do texto do tipo ("Chamado ReceitaNet") seria inventar o dado
+que o servidor decidiu não enviar. Se o badge vier a ser desejado, o caminho é
+o backend passar a enviar um campo autoritativo — decisão de contrato, não de
+tela.
 
 ## O bloco JORNADA é contextual, e é uma ação só
 

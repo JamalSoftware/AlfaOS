@@ -81,6 +81,44 @@ class AppTheme {
       listTileTheme: const ListTileThemeData(
         contentPadding: EdgeInsets.symmetric(horizontal: AlfaSpacing.lg),
       ),
+      /*
+        Barra principal com identidade, sem componente próprio.
+
+        O padrão do Material deixa o destino ativo quase igual ao inativo — o
+        primeiro piloto físico descreveu o app como "linear e cinza", e a barra
+        é onde isso mais aparece, porque ela está em toda tela. Três ajustes,
+        todos derivados do `ColorScheme`:
+
+        * a pílula do indicador usa `primaryContainer` em vez do tom neutro;
+        * o ícone ativo é `primary`, o inativo é `onSurfaceVariant` — diferença
+          de COR e de peso, não só de preenchimento;
+        * o rótulo ativo é semibold.
+
+        Rótulo sempre visível (`alwaysShow`): ícone sozinho obriga o técnico a
+        decodificar desenho, e "Jornada" e "OS" não são universais.
+      */
+      navigationBarTheme: NavigationBarThemeData(
+        height: 68,
+        backgroundColor: scheme.surface,
+        indicatorColor: scheme.primaryContainer,
+        elevation: 0,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        iconTheme: WidgetStateProperty.resolveWith((states) {
+          final active = states.contains(WidgetState.selected);
+          return IconThemeData(
+            size: 24,
+            color: active ? scheme.primary : scheme.onSurfaceVariant,
+          );
+        }),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          final active = states.contains(WidgetState.selected);
+          return TextStyle(
+            fontSize: 12,
+            fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+            color: active ? scheme.primary : scheme.onSurfaceVariant,
+          );
+        }),
+      ),
       dividerTheme: DividerThemeData(
         color: scheme.outlineVariant,
         space: 1,
