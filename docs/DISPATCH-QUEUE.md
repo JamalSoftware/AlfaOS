@@ -7,10 +7,10 @@ sequência de transação, tabela de endpoint e matriz de teste são engenharia.
 As decisões de produto (`D-01`–`D-11`) continuam registradas no PRD, onde
 foram levantadas; aqui está como executá-las.
 
-> **Estado: `DQ-1`, `DQ-2` e `DQ-3` entregues** (schema, serviço, backfill e API
-> administrativa). **Ainda não existe tela nem Field**: o aplicativo segue no
-> ranking local, e o despacho Web é `DQ-4`. A tabela de fases no fim do
-> documento é a fonte de verdade do que está feito.
+> **Estado: `DQ-1` a `DQ-4` entregues** — schema, serviço, backfill, API
+> administrativa e o painel Web `/despacho`. **O Field ainda não consome a
+> fila**: o aplicativo segue no ranking local, e o contrato dele é `DQ-5`. A
+> tabela de fases no fim do documento é a fonte de verdade do que está feito.
 
 ---
 
@@ -570,6 +570,25 @@ Conflito nunca sobrescreve em silêncio:
 Arrastar é UI (PRD §204): o gesto vira comando absoluto, e `↑ ↓` são caminho
 principal em tablet, não plano B.
 
+### O que a implementação de DQ-4 acrescentou
+
+**Arrastar usa HTML5 nativo, sem dependência nova.** O projeto não tem
+biblioteca de drag-and-drop, e acrescentar uma para uma lista vertical de
+poucos itens não se paga. O custo declarado: em **toque** o arrastar não
+funciona — e não precisa, porque `↑ ↓` e `Mover para` são o caminho principal.
+
+**Os rótulos da OS saíram de `service-orders.ts`** para
+`src/lib/service-order-labels.ts`. A razão é de bundle, não de estética: aquele
+módulo importa Prisma e alcança `node:crypto`, e um componente `"use client"`
+que quisesse só o rótulo de uma prioridade arrastava a árvore inteira para o
+navegador. `service-orders.ts` reexporta tudo, então nenhum chamador mudou.
+
+**`/assign` continua sem `Idempotency-Key`** — risco conhecido. A proteção do
+painel é de tela: enquanto a reatribuição corre, nenhuma ação da fila aceita
+clique. Cobre duplo clique; **não** cobre reenvio depois de timeout. Tornar o
+cabeçalho obrigatório quebraria os chamadores atuais e é decisão de fase
+própria.
+
 ---
 
 ## 12. Field
@@ -752,7 +771,7 @@ Cada fase é um commit, com prova de reversão e critério de saída.
 | **DQ-1** ✅ | Schema, migration aditiva, `DISPATCH_BAND`, normalização pura | `prisma/schema.prisma`, migration, `src/lib/dispatch-queue.ts` | **ENTREGUE** — 36 testes novos, gates verdes, nada consome ainda |
 | **DQ-2** ✅ | Serviço de fila + hooks nas 3 chamadas reais + backfill | `dispatch-queue-service.ts`, `dispatch-queue-backfill.ts`, `service-orders.ts`, `service-order-closing.ts` | **ENTREGUE** — 41 testes novos, `T-I*` e `T-C1`–`T-C5` verdes, backfill idempotente provado em banco real |
 | **DQ-3** ✅ | Rotas administrativas | `api/dispatch/**`, `api/service-orders/[id]/priority`, `dispatch-queue-view.ts` | **ENTREGUE** — 45 testes novos, `T-S1`–`T-S8` e `T-C6` verdes, 409 verificado por corrida real pelas ROTAS |
-| **DQ-4** | Web `/despacho` | `src/app/(app)/despacho/**` | `W-1`–`W-5`; Playwright do fluxo |
+| **DQ-4** ✅ | Web `/despacho` | `src/app/(app)/despacho/**`, `DispatchPanel.tsx`, `service-order-labels.ts` | **ENTREGUE** — 17 testes Playwright, `W-1`–`W-5` cobertos, 409 provado com duas sessões |
 | **DQ-5** | Contrato de leitura no Field | `src/lib/field/dto.ts`, `api/field/v1/dispatch-queue` | DTO sem PII nova; sem campo de provider |
 | **DQ-6** | Field consome a ordem | `apps/field/lib/features/**` | `F-1`–`F-6`; fallback provado nos dois ramos |
 | **DQ-7** | Endurecimento, auditoria independente, piloto | — | Auditoria por quem não implementou; piloto físico |

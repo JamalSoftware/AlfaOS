@@ -318,6 +318,20 @@ Três decisões que não podem ser desfeitas: **dois agregados exigem dois CAS**
 
 Gates: 1543 Vitest (era 1498), 99 Playwright, 280 Flutter, lint, tsc, build, **nenhuma migration**. Seis sabotagens, seis detectadas. Nenhuma UI, nenhum Dart, nenhum push.
 
+**`DQ-4` ENTREGUE — commit local, sem tag e sem push.** A tela `/despacho`, sobre as rotas da DQ-3: fila por técnico, `EM ATENDIMENTO` como coleção, posição `1ª/2ª/3ª`, ação rápida `Normal ↔ Urgente`, seletor completo dos quatro valores, `↑ ↓`, `Mover para…`, arrastar e reatribuir. **Nenhuma API nova, nenhum schema, nenhum Dart.**
+
+O princípio: **a tela não é autoridade**. Toda ação substitui o estado local pela resposta — `queueVersion` nunca é incrementada no cliente, e promover não é presumido como "vai para a 1ª": o servidor acomoda dentro da banda e a posição efetiva é a que voltou. Arrastar usa HTML5 nativo, **sem dependência nova**, e não é a única forma de operar — as setas funcionam só com teclado.
+
+**Um defeito real de bundle, achado pelo E2E**: o componente cliente importava os rótulos de `@/lib/service-orders`, que alcança `node:crypto`, e o webpack derrubava a página de **login** inteira. Os rótulos foram para `src/lib/service-order-labels.ts` (só `import type` do Prisma); `service-orders.ts` reexporta, então nada mais mudou.
+
+**Duas sabotagens passaram — porque faltavam os testes.** Reutilizar `queueVersion` velha não falhava (nenhum teste fazia duas mutações seguidas), e o double-submit também não (a proteção é em duas camadas). Os dois testes foram escritos, e só então as sabotagens caíram.
+
+**Três falhas que só a suíte inteira mostra**, todas do meu spec: ele deixava OS `ASSIGNED` e vínculos de `Technician` para trás, quebrando `technician-execution`, `team-workday` e `service-orders` — cuja tela "novo técnico" só lista usuários **não** vinculados. Isolados, os testes passavam. O spec agora devolve o banco como o encontrou.
+
+**Um defeito latente pré-existente, sem relação com a fase**: `time-clock-routes` usava `Date.now() - 30min` como horário de correção, o que cai no dia civil **anterior** entre a meia-noite e as 00:30 no fuso da empresa. A rota devolvia 404 corretamente e o teste falhava por outro motivo. Corrigido com piso no início do dia civil.
+
+Gates: 1543 Vitest, **116 Playwright** (era 99), 280 Flutter, lint, tsc, build, **nenhuma migration**. Risco registrado: **`/assign` continua sem `Idempotency-Key` obrigatória** — a proteção do painel é de tela e cobre duplo clique, não reenvio após timeout.
+
 Mais dois achados do levantamento, fora do escopo da fila e válidos por si: **não existe operação de cancelamento nem de desatribuição de OS** — `status: "CANCELLED"` nunca é escrito em produção e `technicianId: null` só aparece em fixture, de modo que `CANCELLED` é estado declarado e inalcançável —, e **`ServiceOrder` não tem índice em `technicianId`**.
 
 Pendente e **não** pertencente à fila: um último polimento visual do Field — destaque das métricas de OS abertas e urgentes, hierarquia da métrica de urgência, repetição da mesma OS entre `ATENÇÃO AGORA` e `PRÓXIMA OS`, e ajustes da gaveta.

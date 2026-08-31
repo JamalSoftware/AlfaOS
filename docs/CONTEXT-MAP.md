@@ -166,7 +166,7 @@ Três regras que a Parte VI fixou e são fáceis de desfazer sem perceber:
 
 O quadro (§203) decide **quem** atende. A ordem de execução dentro da fila de cada técnico é outra Parte — ver abaixo.
 
-## Fila Operacional de OS — DQ-1 a DQ-3 ENTREGUES, DQ-4 em diante PLANNED
+## Fila Operacional de OS — DQ-1 a DQ-4 ENTREGUES, DQ-5 em diante PLANNED
 
 **Carregar:** `docs/DISPATCH-QUEUE.md` (plano — schema, algoritmo, transações, endpoints, fases `DQ-1`–`DQ-7`) e PRD §308–§332 (Parte XII — o porquê e as regras de produto).
 
@@ -180,9 +180,11 @@ O quadro (§203) decide **quem** atende. A ordem de execução dentro da fila de
 | `src/lib/dispatch-queue-view.ts` | Projeção de leitura do despacho Web. Separada do serviço: acrescentar campo à tela não abre o arquivo que decide lock e CAS |
 | `src/app/api/dispatch/technicians/[technicianId]/queue{,/reorder}` | GET da fila e reordenação por alvo absoluto |
 | `src/app/api/service-orders/[id]/priority` | Mutação de prioridade — a **primeira** forma de alterá-la depois da criação |
-| Testes | `dispatch-queue-{domain,schema,lifecycle,concurrency,api}.test.ts` |
+| `src/app/(app)/despacho/` + `src/components/DispatchPanel.tsx` | O painel Web: fila por técnico, prioridade, `↑ ↓`, mover para, arrastar e reatribuir |
+| `src/lib/service-order-labels.ts` | Rótulos da OS, **client-safe**. Só `import type` do Prisma — `service-orders.ts` reexporta |
+| Testes | `dispatch-queue-{domain,schema,lifecycle,concurrency,api}.test.ts` e `e2e/dispatch-queue.spec.ts` |
 
-**Ainda não há tela nem Field** — o aplicativo continua no ranking local (`attention_ranking.dart`). Isso é DQ-4 em diante.
+**O Field ainda não consome a fila** — o aplicativo continua no ranking local (`attention_ranking.dart`). Isso é DQ-5/DQ-6.
 
 Quatro regras que o código já impõe e são fáceis de desfazer sem perceber:
 
@@ -191,7 +193,10 @@ Quatro regras que o código já impõe e são fáceis de desfazer sem perceber:
 * **A renumeração é em duas fases** (negar todas as posições, depois reescrever 1..N). A unique `(queueId, position)` não é `DEFERRABLE`, e a escrita ingênua colide.
 * **`version` só anda quando houve mudança real.** Releitura idêntica não pode invalidar o CAS de quem está com a tela aberta — por isso o backfill deixa em 0 a fila que ele mesmo criou, e um reorder acomodado para onde a OS já está não consome versão de ninguém.
 * **A API não expõe `moveUp`/`moveDown`.** Alvo absoluto sempre; delta aplicado duas vezes move duas posições. Arrastar e as setas produzem o MESMO comando.
-* **Prioridade toca DOIS agregados**, então exige dois tokens: `expectedVersion` (OS) e `expectedQueueVersion` (fila) — este último só quando a OS está em fila, porque uma OS sem técnico não tem fila a comparar. Para entender o modelo que já existe, também `prisma/schema.prisma` (`ServiceOrderPriority`, `ServiceOrder`) e `src/lib/service-orders.ts` (rótulos, ordenação da fila do técnico, `assignTechnician`).
+* **Prioridade toca DOIS agregados**, então exige dois tokens: `expectedVersion` (OS) e `expectedQueueVersion` (fila) — este último só quando a OS está em fila, porque uma OS sem técnico não tem fila a comparar.
+* **A tela substitui o próprio estado pela resposta.** Nunca `queueVersion + 1` local, nunca "deveria estar na posição 1": o servidor acomoda dentro da banda, e a posição efetiva é a que voltou.
+* **Um componente `"use client"` nunca importa `@/lib/service-orders`** — aquele módulo alcança `node:crypto` e quebra o bundle do navegador. Rótulos vêm de `service-order-labels.ts`.
+* **`e2e/dispatch-queue.spec.ts` limpa o que cria.** A suíte E2E divide um banco só, num worker: OS e vínculos de técnico deixados para trás derrubam `technician-execution`, `team-workday` e `service-orders` — e só na suíte inteira, nunca isolados. Para entender o modelo que já existe, também `prisma/schema.prisma` (`ServiceOrderPriority`, `ServiceOrder`) e `src/lib/service-orders.ts` (rótulos, ordenação da fila do técnico, `assignTechnician`).
 
 **Qual dos dois abrir:** o PRD responde *por que* e *qual é a regra*; o `DISPATCH-QUEUE.md` responde *como executar*. Para implementar, o segundo — as onze decisões (`D-01`–`D-11`) estão fechadas lá, com tabela.
 
