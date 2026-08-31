@@ -1,5 +1,6 @@
 "use client";
 
+import { newIdempotencyKey } from "@/lib/idempotency-key";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
@@ -18,19 +19,6 @@ interface MemberAdjustmentFormProps {
   /** Deslocamento do fuso da EMPRESA naquele dia, como `-03:00`. */
   offset: string;
   entries: EntryOption[];
-}
-
-/**
- * Um identificador aceito pelo servidor (`[A-Za-z0-9._:-]`, 8–200).
- *
- * `randomUUID` não existe em contexto não seguro; o `Math.random` de reserva
- * não precisa ser criptográfico, porque a chave não autoriza nada — ela só
- * distingue submissões, e o escopo dela já é `(empresa, gestor, operação)`.
- */
-function novaChave(): string {
-  const c = globalThis.crypto;
-  if (typeof c?.randomUUID === "function") return c.randomUUID();
-  return `k-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 const ENTRY_TYPES = [
@@ -87,7 +75,7 @@ export function MemberAdjustmentForm({
 
   function chaveDe(assinatura: string): string {
     if (chave.current?.assinatura !== assinatura) {
-      chave.current = { assinatura, valor: novaChave() };
+      chave.current = { assinatura, valor: newIdempotencyKey() };
     }
     return chave.current.valor;
   }

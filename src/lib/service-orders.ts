@@ -12,6 +12,11 @@ import {
   isUniqueConstraintError,
   notFound,
 } from "./errors";
+import {
+  SERVICE_ORDER_PRIORITY_LABELS,
+  SERVICE_ORDER_STATUS_LABELS,
+  formatServiceOrderNumber,
+} from "./service-order-labels";
 import { NOTIFICATION_TYPES } from "./notifications";
 import { OUTBOX_EVENTS, enqueueOutboxEvent } from "./outbox";
 import { prisma } from "./prisma";
@@ -33,46 +38,23 @@ import {
 // Centralized labels (single source of truth for the UI).
 // ---------------------------------------------------------------------------
 
-export const SERVICE_ORDER_STATUS_LABELS: Record<ServiceOrderStatus, string> = {
-  PENDING: "Pendente",
-  ASSIGNED: "Atribuída",
-  IN_PROGRESS: "Em atendimento",
-  COMPLETED: "Concluída",
-  CANCELLED: "Cancelada",
-};
+/*
+  Os RÓTULOS moram em `./service-order-labels`, e são reexportados aqui.
 
-export const SERVICE_ORDER_PRIORITY_LABELS: Record<
-  ServiceOrderPriority,
-  string
-> = {
-  LOW: "Baixa",
-  NORMAL: "Normal",
-  HIGH: "Alta",
-  URGENT: "Urgente",
-};
+  A separação é de BUNDLE, não de estética: este módulo importa Prisma,
+  `checklists` e `service-order-closing`, que puxa `node:crypto`. Um componente
+  `"use client"` que quisesse só o rótulo de uma prioridade arrastava essa
+  árvore inteira para o navegador, e o webpack do dev server quebrava com
+  `UnhandledSchemeError: node:crypto`.
 
-/**
- * Rótulos de ORIGEM — onde a OS nasceu (PRD §122).
- *
- * Não confundir com `externalProvider`: uma OS INTERNAL pode ganhar vínculo
- * externo depois e continua INTERNAL. A origem é gravada na criação e nunca
- * derivada dos campos externos.
- */
-export const SERVICE_ORDER_ORIGIN_LABELS: Record<ServiceOrderOrigin, string> = {
-  INTERNAL: "Interna (AlfaOS)",
-  EXTERNAL: "Externa (ERP)",
-};
-
-/**
- * Rótulo operacional da OS — o único lugar que decide como o número é escrito.
- *
- * Centralizado para que administrativo, tela do técnico e listagem não possam
- * divergir: o operador precisa reconhecer "OS Nº 12" como a mesma coisa em
- * qualquer tela, no telefone e no papel.
- */
-export function formatServiceOrderNumber(order: { number: number }): string {
-  return `OS Nº ${order.number}`;
-}
+  A reexportação mantém todo chamador existente funcionando pelo caminho antigo.
+*/
+export {
+  SERVICE_ORDER_STATUS_LABELS,
+  SERVICE_ORDER_PRIORITY_LABELS,
+  SERVICE_ORDER_ORIGIN_LABELS,
+  formatServiceOrderNumber,
+} from "./service-order-labels";
 
 /*
   A precedência operacional vive em `src/lib/dispatch-queue.ts`.

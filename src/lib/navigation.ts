@@ -10,6 +10,7 @@ export type IconName =
   | "ordertypes"
   | "devices"
   | "workday"
+  | "dispatch"
   | "settings"
   | "myorders"
   | "profile";
@@ -32,6 +33,15 @@ export const NAVIGATION: NavItem[] = [
     href: "/ordens",
     label: "Ordens de Serviço",
     icon: "orders",
+    profiles: [AccessProfile.ADMIN, AccessProfile.DISPATCHER],
+  },
+  {
+    // Despacho: a ORDEM de atendimento por técnico (PRD Parte XII). Fica logo
+    // depois das OS porque é onde a fila delas é decidida — e antes de
+    // Técnicos, que é cadastro, não operação.
+    href: "/despacho",
+    label: "Despacho",
+    icon: "dispatch",
     profiles: [AccessProfile.ADMIN, AccessProfile.DISPATCHER],
   },
   {

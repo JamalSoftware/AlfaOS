@@ -505,6 +505,8 @@ describe("E2E — o dia inteiro e a correção, pelas rotas", () => {
     return payload.data?.workday as {
       state: string;
       allowedActions: string[];
+      /** O dia civil da EMPRESA. É ele que decide a que jornada um instante pertence. */
+      date: string;
       utcOffset: string;
       entries: { id: string; type: string; fromAdjustment: boolean }[];
     };
@@ -579,8 +581,24 @@ describe("E2E — o dia inteiro e a correção, pelas rotas", () => {
     // horário pedido, e não com o relógio do aparelho (§253, LOW-3).
     expect(hoje.utcOffset).toMatch(/^[+-]\d{2}:\d{2}$/);
 
-    // 2. O técnico pede a correção pelo Field.
-    const corrigidoPara = new Date(Date.now() - 30 * 60_000);
+    /*
+      2. O técnico pede a correção pelo Field.
+
+      Trinta minutos antes — mas NUNCA antes do início do dia civil da empresa.
+
+      `Date.now() - 30min` sozinho é uma bomba-relógio: entre a meia-noite e as
+      00:30 no fuso da empresa ele cai no dia ANTERIOR, e a correção passa a
+      apontar para uma jornada que não é a de hoje. A rota devolve 404 — o que é
+      o comportamento certo — e o teste falha por um motivo que não tem nada a
+      ver com o que ele quer provar.
+
+      Encontrado numa execução da suíte às 00:21. O teste passava nas outras
+      23h30 do dia.
+    */
+    const inicioDoDia = Date.parse(`${hoje.date}T00:00:00${hoje.utcOffset}`);
+    const corrigidoPara = new Date(
+      Math.max(Date.now() - 30 * 60_000, inicioDoDia + 60_000),
+    );
     const pedido = await requestAdjustmentRoute(
       fieldRequest("/api/field/v1/time-clock/adjustments", {
         method: "POST",

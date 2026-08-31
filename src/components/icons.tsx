@@ -9,6 +9,14 @@ const paths: Record<IconName, React.ReactNode> = {
       <rect x="3" y="16" width="7" height="5" rx="1" />
     </>
   ),
+  // Lista numerada: o despacho e sobre ORDEM, nao sobre quantidade nem sobre
+  // quem. Tres linhas com marcadores a esquerda leem como "1o, 2o, 3o".
+  dispatch: (
+    <>
+      <path d="M4 7h1M4 12h1M4 17h1" />
+      <path d="M9 7h11M9 12h11M9 17h11" />
+    </>
+  ),
   // Relogio: a jornada e sobre TEMPO, nao sobre pessoas nem sobre OS.
   workday: (
     <>

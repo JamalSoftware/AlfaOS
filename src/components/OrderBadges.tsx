@@ -2,7 +2,7 @@ import type { ServiceOrderPriority, ServiceOrderStatus } from "@prisma/client";
 import {
   SERVICE_ORDER_PRIORITY_LABELS,
   SERVICE_ORDER_STATUS_LABELS,
-} from "@/lib/service-orders";
+} from "@/lib/service-order-labels";
 import { StatusPill, type StatusTone } from "./StatusPill";
 
 /**
