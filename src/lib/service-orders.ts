@@ -16,7 +16,9 @@ import { NOTIFICATION_TYPES } from "./notifications";
 import { OUTBOX_EVENTS, enqueueOutboxEvent } from "./outbox";
 import { prisma } from "./prisma";
 import {
+  moveOrderToPosition,
   placeAssignedOrder,
+  reapplyPriorityToQueue,
   removeOrderFromQueue,
 } from "./dispatch-queue-service";
 import { snapshotChecklistForOrder } from "./checklists";
@@ -914,6 +916,8 @@ export async function assignTechnician(
   orderId: string,
   technicianId: string,
   expectedVersion?: number,
+  /** Posicao absoluta desejada na fila do novo tecnico. Sem ela, fim da banda. */
+  targetPosition?: number,
 ): Promise<PublicServiceOrder> {
   const assigned = await prisma.$transaction(async (tx) => {
     const os = await tx.serviceOrder.findFirst({
@@ -1026,6 +1030,18 @@ export async function assignTechnician(
       serviceOrderId: os.id,
     });
 
+    if (targetPosition !== undefined) {
+      // Atribuir e posicionar numa requisição só. Sem `expectedQueueVersion`:
+      // a chamada acima acabou de incrementá-lo, e comparar contra o valor
+      // anterior recusaria a própria operação.
+      await moveOrderToPosition(tx, {
+        companyId,
+        technicianId: technician.id,
+        serviceOrderId: os.id,
+        targetPosition,
+      });
+    }
+
     const previousTechnician = wasAssigned
       ? os.technicianId
         ? await tx.technician.findFirst({
@@ -1107,6 +1123,150 @@ export async function assignTechnician(
   });
 
   return withRelations(companyId, orderId);
+}
+
+// ---------------------------------------------------------------------------
+// Prioridade — mutação administrativa (PRD §315, DQ-3)
+// ---------------------------------------------------------------------------
+
+export interface ChangePriorityInput {
+  priority: ServiceOrderPriority;
+  /** CAS da OS: a versão que o despachante tinha na tela. */
+  expectedVersion: number;
+  /**
+   * CAS da FILA. Obrigatório **quando a OS está numa fila** — e é o serviço que
+   * decide isso, não o schema da rota: uma OS ainda sem técnico não pertence a
+   * fila nenhuma e não teria versão de fila para o cliente enviar.
+   */
+  expectedQueueVersion?: number;
+  /** Posição absoluta desejada. Sem ela, vale o fim da banda nova. */
+  targetPosition?: number;
+}
+
+/**
+ * Altera a prioridade de uma OS e recoloca a fila.
+ *
+ * ## Dois agregados, dois compare-and-set
+ *
+ * A operação escreve `ServiceOrder.priority` **e** reposiciona a fila. São
+ * agregados distintos, e um `expectedVersion` só não protege os dois: o
+ * despachante pode ter lido a OS agora e a fila há dez minutos, ou o contrário.
+ *
+ * ```text
+ * expectedVersion        a OS mudou desde que você leu?
+ * expectedQueueVersion   a FILA mudou desde que você leu?
+ * ```
+ *
+ * O segundo é exigido **só quando há fila** — uma OS `PENDING` sem técnico
+ * muda de prioridade normalmente, e não haveria versão de fila a comparar.
+ *
+ * ## Sem `targetPosition`, vai para o FIM da banda nova
+ *
+ * `D-04` e `D-05`, a mesma regra nos dois sentidos. É a única política que não
+ * altera a ordem relativa de nenhuma outra OS — promover não é o mesmo que
+ * pedir o primeiro lugar (PRD §315).
+ *
+ * ## Prioridade igual é no-op
+ *
+ * Não escreve, não move `version` de nada, não gera evento nem auditoria. Um
+ * duplo clique no mesmo botão não é um fato a registrar.
+ */
+export async function changeServiceOrderPriority(
+  companyId: string,
+  actorId: string,
+  orderId: string,
+  input: ChangePriorityInput,
+): Promise<{ changed: boolean; technicianId: string | null }> {
+  const outcome = await prisma.$transaction(async (tx) => {
+    const os = await tx.serviceOrder.findFirst({
+      where: { id: orderId, companyId },
+      select: {
+        id: true,
+        number: true,
+        priority: true,
+        status: true,
+        technicianId: true,
+      },
+    });
+    if (!os) {
+      throw notFound("Ordem de serviço não encontrada.");
+    }
+    if (os.status === "COMPLETED" || os.status === "CANCELLED") {
+      throw conflict(
+        `Não é possível alterar a prioridade de uma OS ${SERVICE_ORDER_STATUS_LABELS[os.status]}.`,
+      );
+    }
+    if (os.priority === input.priority) {
+      return { changed: false, technicianId: os.technicianId, before: os.priority };
+    }
+
+    const claim = await tx.serviceOrder.updateMany({
+      where: { id: os.id, companyId, version: input.expectedVersion },
+      data: { priority: input.priority, version: { increment: 1 } },
+    });
+    if (claim.count !== 1) {
+      throw conflict(
+        "A OS foi modificada por outra requisição. Recarregue e tente novamente.",
+      );
+    }
+
+    if (os.technicianId) {
+      /*
+        A prioridade já está gravada, então a primitiva relê do banco e
+        recoloca na banda certa. O CAS da fila é validado aqui dentro: se
+        divergir, a transação inteira volta e a prioridade também.
+      */
+      await reapplyPriorityToQueue(tx, {
+        companyId,
+        technicianId: os.technicianId,
+        serviceOrderId: os.id,
+        expectedQueueVersion: input.expectedQueueVersion,
+        requireExpectedVersion: true,
+      });
+
+      if (input.targetPosition !== undefined) {
+        // Sem `expectedQueueVersion`: a chamada acima acabou de incrementá-lo,
+        // e comparar contra o valor antigo recusaria a própria operação.
+        await moveOrderToPosition(tx, {
+          companyId,
+          technicianId: os.technicianId,
+          serviceOrderId: os.id,
+          targetPosition: input.targetPosition,
+        });
+      }
+    }
+
+    await tx.serviceOrderEvent.create({
+      data: {
+        companyId,
+        serviceOrderId: os.id,
+        userId: actorId,
+        // Forma curta (`D-09`), como a maioria dos eventos operacionais
+        // recentes. UM evento, na OS que o humano nomeou — a renumeração das
+        // outras não polui a timeline de quem ninguém tocou (PRD §322).
+        event: "PRIORITY_CHANGED",
+        metadata: {
+          before: os.priority,
+          after: input.priority,
+        },
+      },
+    });
+
+    return { changed: true, technicianId: os.technicianId, before: os.priority };
+  });
+
+  if (outcome.changed) {
+    await logAudit({
+      companyId,
+      userId: actorId,
+      action: "SERVICE_ORDER.PRIORITY_CHANGED",
+      entity: "ServiceOrder",
+      entityId: orderId,
+      details: `Prioridade alterada de ${SERVICE_ORDER_PRIORITY_LABELS[outcome.before]} para ${SERVICE_ORDER_PRIORITY_LABELS[input.priority]}`,
+    });
+  }
+
+  return { changed: outcome.changed, technicianId: outcome.technicianId };
 }
 
 // ---------------------------------------------------------------------------

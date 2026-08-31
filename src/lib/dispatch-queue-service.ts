@@ -1,5 +1,5 @@
 import type { Prisma, ServiceOrderPriority } from "@prisma/client";
-import { conflict, notFound } from "./errors";
+import { badRequest, conflict, notFound } from "./errors";
 import {
   appendPositionForBand,
   normalizeQueue,
@@ -573,12 +573,26 @@ export async function reapplyPriorityToQueue(
     technicianId: string;
     serviceOrderId: string;
     expectedQueueVersion?: number;
+    /**
+     * Exige que o chamador tenha enviado `expectedQueueVersion`.
+     *
+     * Ligado pela mutação ADMINISTRATIVA (DQ-3): ela nasce de uma leitura de
+     * tela, e omitir o token seria escrever sobre a fila que o despachante viu
+     * dez minutos atrás. Desligado nas chamadas internas do servidor, que não
+     * têm leitura anterior a proteger.
+     */
+    requireExpectedVersion?: boolean;
   },
 ): Promise<QueueMutationResult> {
   const { companyId, technicianId, serviceOrderId, expectedQueueVersion } =
     input;
 
   const queue = await ensureAndLockQueue(tx, companyId, technicianId);
+  if (input.requireExpectedVersion && expectedQueueVersion === undefined) {
+    throw badRequest(
+      "É necessário informar a versão da fila (expectedQueueVersion).",
+    );
+  }
   assertExpectedVersion(queue.version, expectedQueueVersion);
 
   const members = await loadEntries(tx, queue.id);

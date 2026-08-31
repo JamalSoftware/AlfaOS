@@ -20,6 +20,18 @@ const assignSchema = z
      * quebra.
      */
     expectedVersion: expectedVersionSchema.optional(),
+    /**
+     * Onde a OS entra na fila do técnico (PRD Parte XII).
+     *
+     * **Opcional, e a ausência é a regra normal**: sem ela a OS entra no fim da
+     * própria banda de prioridade — chegar depois não é ser mais importante, e
+     * uma `URGENT` nova não ultrapassa as urgentes que o despachante já
+     * ordenou (PRD §317).
+     *
+     * Existe para o caso em que quem atribui já sabe a posição — atribuir e
+     * posicionar numa requisição só, em vez de duas com uma janela no meio.
+     */
+    targetPosition: z.number().int().min(1).max(10_000).optional(),
   })
   .strict();
 
@@ -58,7 +70,16 @@ export async function POST(
       context.params.id,
       parsed.data.technicianId,
       parsed.data.expectedVersion,
+      parsed.data.targetPosition,
     );
+    /*
+      A resposta NÃO muda de forma.
+
+      O efeito de fila já acontece dentro de `assignTechnician`, na transação
+      que sempre existiu (DQ-2). Acrescentar a fila aqui obrigaria quem já
+      consome esta rota — o painel Web e os testes — a lidar com um campo novo
+      para nada: quem precisa da fila lê `GET .../queue`, que é a rota dela.
+    */
     return jsonOk({ serviceOrder: order });
   });
 }
