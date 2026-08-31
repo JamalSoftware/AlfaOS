@@ -36,6 +36,9 @@
   "include": [
     "scripts/outbox-worker.ts",
     "scripts/evidence-cleanup.ts",
+    "scripts/dispatch-queue-backfill.ts",
+    "src/lib/dispatch-queue.ts",
+    "src/lib/dispatch-queue-backfill.ts",
     "src/lib/field/evidence-cleanup.ts",
     "src/lib/storage.ts",
     "src/lib/outbox.ts",

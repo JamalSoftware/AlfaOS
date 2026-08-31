@@ -15,6 +15,10 @@ import {
 import { NOTIFICATION_TYPES } from "./notifications";
 import { OUTBOX_EVENTS, enqueueOutboxEvent } from "./outbox";
 import { prisma } from "./prisma";
+import {
+  placeAssignedOrder,
+  removeOrderFromQueue,
+} from "./dispatch-queue-service";
 import { snapshotChecklistForOrder } from "./checklists";
 import { allocateServiceOrderNumber } from "./service-order-number";
 import { resolveServiceOrderTypeForCreation } from "./service-order-types";
@@ -1004,6 +1008,24 @@ export async function assignTechnician(
       );
     }
 
+    /*
+      Fila operacional (PRD Parte XII), na MESMA transação.
+
+      Atribuir e reatribuir são o mesmo comando aqui, e a fila acompanha: a OS
+      entra no fim da banda de prioridade da fila do novo técnico e, quando é
+      troca, sai da fila do anterior — sem estado intermediário em que ela esteja
+      nas duas ou em nenhuma. `placeAssignedOrder` trava as duas filas em ordem
+      de `id` para que `A→B` e `B→A` simultâneos não se enrosquem.
+
+      A fila NÃO ganha caminho próprio de atribuição (PRD §205): é este comando,
+      com a elegibilidade, o evento e a notificação que ele já faz.
+    */
+    await placeAssignedOrder(tx, {
+      companyId,
+      technicianId: technician.id,
+      serviceOrderId: os.id,
+    });
+
     const previousTechnician = wasAssigned
       ? os.technicianId
         ? await tx.technician.findFirst({
@@ -1451,6 +1473,16 @@ export async function startServiceOrder(
       dela não exige nenhum — é o que mantém toda OS anterior à v0.10
       concluindo como antes.
     */
+    /*
+      A OS saiu da fila de próximas: ela está EM ATENDIMENTO agora.
+
+      Sai da fila em vez de virar uma "fila de trabalho atual" paralela — quem é
+      fonte de verdade de `IN_PROGRESS` continua sendo `ServiceOrder.status`
+      (PRD §321). Um técnico pode ter mais de uma em atendimento, e isso segue
+      permitido: a fila apenas deixa de contá-las entre as próximas.
+    */
+    await removeOrderFromQueue(tx, { companyId, serviceOrderId: os.id });
+
     const snapshot = await snapshotChecklistForOrder(
       tx,
       companyId,

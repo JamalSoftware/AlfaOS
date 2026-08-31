@@ -3,6 +3,7 @@ import type { EvidenceCategory, EvidenceKind, MaterialUnit, Prisma } from "@pris
 import { prisma } from "./prisma";
 import { logAudit } from "./audit";
 import { badRequest, conflict, notFound } from "./errors";
+import { removeOrderFromQueue } from "./dispatch-queue-service";
 import {
   buildCompletionSnapshot,
   closingContentHash,
@@ -988,6 +989,20 @@ export async function completeServiceOrder(
         "A OS foi modificada por outra requisição. Recarregue e tente novamente.",
       );
     }
+
+    /*
+      Limpeza da fila operacional (PRD Parte XII), na MESMA transação.
+
+      Normalmente é NO-OP: a OS saiu da fila lá atrás, ao iniciar o atendimento,
+      e `IN_PROGRESS` não ocupa lugar entre as próximas. Está aqui porque a
+      ausência não pode falhar uma conclusão — e porque uma entrada residual,
+      vinda de estado inconsistente ou de dado anterior à capability, não deve
+      sobreviver ao fechamento e aparecer na fila de amanhã.
+
+      `removeOrderFromQueue` é idempotente por contrato: sem entrada, não
+      escreve e não move `version`.
+    */
+    await removeOrderFromQueue(tx, { companyId, serviceOrderId: order.id });
 
     const [evidenceCount, materialCount, signature] = await Promise.all([
       tx.serviceOrderEvidence.count({

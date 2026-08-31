@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "outbox:work": "node dist/scripts/outbox-worker.js",
     "evidence:cleanup": "node dist/scripts/evidence-cleanup.js",
+    "dispatch:backfill": "node dist/scripts/dispatch-queue-backfill.js",
     "build:worker": "tsc -p tsconfig.worker.json"
   },
   "dependencies": {
