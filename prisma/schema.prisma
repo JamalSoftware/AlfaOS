@@ -246,6 +246,10 @@ model Company {
   completionPolicies        ServiceOrderCompletionPolicy[]
   serviceOrderCompletions   ServiceOrderCompletion[]
 
+  // Fila operacional de OS (PRD Parte XII)
+  dispatchQueues       TechnicianDispatchQueue[]
+  dispatchQueueEntries TechnicianDispatchQueueEntry[]
+
   @@map("companies")
 }
 
@@ -328,20 +332,20 @@ model User {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  auditLogs          AuditLog[]
-  technicians        Technician[]
-  workdays           Workday[]              @relation("WorkdayOwner")
-  timeEntries        TimeEntry[]            @relation("TimeEntryOwner")
-  timeAdjustments    TimeAdjustmentRequest[] @relation("AdjustmentRequester")
-  adjustmentsAuthored TimeAdjustmentRequest[] @relation("AdjustmentAuthor")
-  adjustmentsDecided TimeAdjustmentRequest[] @relation("AdjustmentDecider")
-  serviceOrderEvents ServiceOrderEvent[]
-  uploadedEvidences  ServiceOrderEvidence[]      @relation("EvidenceUploader")
-  createdMaterials   ServiceOrderMaterialUsage[] @relation("MaterialCreator")
-  capturedSignatures ServiceOrderSignature[]     @relation("SignatureCapturer")
-  mobileDevices      MobileDevice[]
-  notifications      Notification[]
-  idempotencyRecords IdempotencyRecord[]
+  auditLogs           AuditLog[]
+  technicians         Technician[]
+  workdays            Workday[]                   @relation("WorkdayOwner")
+  timeEntries         TimeEntry[]                 @relation("TimeEntryOwner")
+  timeAdjustments     TimeAdjustmentRequest[]     @relation("AdjustmentRequester")
+  adjustmentsAuthored TimeAdjustmentRequest[]     @relation("AdjustmentAuthor")
+  adjustmentsDecided  TimeAdjustmentRequest[]     @relation("AdjustmentDecider")
+  serviceOrderEvents  ServiceOrderEvent[]
+  uploadedEvidences   ServiceOrderEvidence[]      @relation("EvidenceUploader")
+  createdMaterials    ServiceOrderMaterialUsage[] @relation("MaterialCreator")
+  capturedSignatures  ServiceOrderSignature[]     @relation("SignatureCapturer")
+  mobileDevices       MobileDevice[]
+  notifications       Notification[]
+  idempotencyRecords  IdempotencyRecord[]
 
   // v0.10 — quem confirmou, respondeu, movimentou e instalou
   verifiedLocations   CustomerLocation[]          @relation("LocationVerifier")
@@ -540,6 +544,9 @@ model Technician {
   impediments        ServiceOrderImpediment[]
   completions        ServiceOrderCompletion[]
 
+  // Fila operacional de OS (PRD Parte XII). Uma por (empresa, técnico).
+  dispatchQueue TechnicianDispatchQueue?
+
   @@unique([userId])
   @@index([companyId])
   @@index([companyId, active])
@@ -614,6 +621,9 @@ model ServiceOrder {
   impediments        ServiceOrderImpediment[]
   locationChanges    CustomerLocationHistory[]
   completion         ServiceOrderCompletion?
+
+  // Fila operacional (PRD Parte XII). Opcional: só OS ASSIGNED entra na fila.
+  dispatchEntry TechnicianDispatchQueueEntry?
 
   @@unique([companyId, externalProvider, externalId])
   @@unique([companyId, number])
@@ -2143,11 +2153,11 @@ enum TimeEntrySource {
 ///    primeira batida e nao muda depois. Recalcular a cada leitura faria a
 ///    jornada de ontem mudar de dia quando a empresa trocasse de fuso.
 model Workday {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   companyId String
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   userId    String
-  user      User     @relation("WorkdayOwner", fields: [userId], references: [id], onDelete: Restrict)
+  user      User    @relation("WorkdayOwner", fields: [userId], references: [id], onDelete: Restrict)
 
   /// Dia civil no fuso da empresa. Sem hora: e uma data, nao um instante.
   date DateTime @db.Date
@@ -2177,13 +2187,13 @@ model Workday {
 /// Correcao nao edita: ela cria OUTRA linha, com `source = ADJUSTMENT`,
 /// apontando para o pedido aprovado que a originou.
 model TimeEntry {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   companyId String
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   userId    String
-  user      User     @relation("TimeEntryOwner", fields: [userId], references: [id], onDelete: Restrict)
+  user      User    @relation("TimeEntryOwner", fields: [userId], references: [id], onDelete: Restrict)
   workdayId String
-  workday   Workday  @relation(fields: [workdayId], references: [id], onDelete: Restrict)
+  workday   Workday @relation(fields: [workdayId], references: [id], onDelete: Restrict)
 
   /// Quem bateu, quando e o tecnico. Nulo para quem nao e tecnico — a jornada e
   /// do FUNCIONARIO, e o tecnico e um caso particular (226).
@@ -2264,13 +2274,13 @@ enum TimeAdjustmentStatus {
 ///
 /// Pedido rejeitado NAO e apagado.
 model TimeAdjustmentRequest {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   companyId String
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   userId    String
-  user      User     @relation("AdjustmentRequester", fields: [userId], references: [id], onDelete: Restrict)
+  user      User    @relation("AdjustmentRequester", fields: [userId], references: [id], onDelete: Restrict)
   workdayId String
-  workday   Workday  @relation(fields: [workdayId], references: [id], onDelete: Restrict)
+  workday   Workday @relation(fields: [workdayId], references: [id], onDelete: Restrict)
 
   /// Marcacao afetada. NULO quando o pedido e de inclusao — o funcionario
   /// esqueceu de bater, e nao existe linha para apontar.
@@ -2303,4 +2313,90 @@ model TimeAdjustmentRequest {
   @@index([companyId, status, createdAt])
   @@index([workdayId])
   @@map("time_adjustment_requests")
+}
+
+/// A fila operacional de um tecnico (PRD Parte XII, docs/DISPATCH-QUEUE.md).
+///
+/// Existe como AGREGADO, e nao como uma coluna `dispatchPosition` na
+/// ServiceOrder, por um motivo estrutural: reordenar escreve N linhas, e
+/// `ServiceOrder.version` responde por uma so. Sem uma linha que represente a
+/// fila inteira nao ha o que travar (`FOR UPDATE`) nem o que comparar (CAS), e
+/// dois despachantes movendo OS DIFERENTES para a posicao 1 passariam os dois
+/// (PRD §318).
+///
+/// O outro motivo e semantico: posicao e propriedade do PAR (tecnico, OS), nao
+/// da OS. Guarda-la na OS obrigaria a inventar o que ela significa numa OS sem
+/// tecnico (PRD §309).
+///
+/// Criada PREGUICOSAMENTE na primeira atribuicao — nunca em massa no cadastro.
+/// Tecnico sem OS nao precisa de linha, e criar uma para cada tecnico faria a
+/// tabela crescer com quem nunca entrou em campo.
+model TechnicianDispatchQueue {
+  id           String     @id @default(cuid())
+  companyId    String
+  company      Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// `@unique` alem da composta abaixo, e nao por redundancia.
+  ///
+  /// A composta `(companyId, technicianId)` sozinha PERMITE duas filas para o
+  /// mesmo tecnico sob companyIds diferentes — o schema nao usa FK composta em
+  /// lugar nenhum, entao nada obriga `queue.companyId` a concordar com
+  /// `technician.companyId`. Esta unique fecha esse caso no banco.
+  technicianId String     @unique
+  technician   Technician @relation(fields: [technicianId], references: [id], onDelete: Restrict)
+
+  /// Token do compare-and-set da FILA, incrementado em toda mutacao que altere
+  /// composicao ou ordem — inclusive quando a OS que mudou nao e a que o
+  /// cliente estava olhando.
+  ///
+  /// Nao substitui `ServiceOrder.version`: aquele responde pela OS, este pela
+  /// fila. Sao agregados diferentes e as duas protecoes convivem.
+  version   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries TechnicianDispatchQueueEntry[]
+
+  /// Chave de busca com o TENANT no predicado: a fila e achada por
+  /// `(companyId, technicianId)`, nunca navegando pela FK do tecnico.
+  @@unique([companyId, technicianId])
+  @@map("technician_dispatch_queues")
+}
+
+/// Uma OS ocupando uma posicao na fila de um tecnico.
+///
+/// `position` e GLOBAL e normalizada: 1..N contiguo, sem buraco. A banda de
+/// prioridade NAO aparece aqui — `priority` continua sendo da ServiceOrder, que
+/// e a dona dela (PRD §309). Duplicar a prioridade nesta linha criaria dois
+/// valores obrigados a concordar para sempre.
+///
+/// A precedencia (URGENT > HIGH > NORMAL > LOW) e regra de DOMINIO e vive em
+/// `src/lib/dispatch-queue.ts`. Nao ha nada aqui que a codifique: schema guarda
+/// estrutura, nao regra de negocio.
+model TechnicianDispatchQueueEntry {
+  id        String  @id @default(cuid())
+  /// Redundante com `queue.companyId` de proposito, como em toda entidade
+  /// satelite do projeto (`ServiceOrderExecution`, `ServiceOrderCheckIn`,
+  /// `TimeEntry`): permite filtrar por tenant em SQL, num predicado, em vez de
+  /// navegar a FK ate a fila para descobrir de quem e a linha.
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  queueId String
+  queue   TechnicianDispatchQueue @relation(fields: [queueId], references: [id], onDelete: Cascade)
+
+  /// Uma OS nao pode estar em duas filas ao mesmo tempo, e a unique e o arbitro
+  /// — nao uma checagem de aplicacao. E ela que torna a reatribuicao segura por
+  /// construcao: inserir em B antes de remover de A falha no banco, em vez de
+  /// produzir uma OS que aparece nas duas filas.
+  serviceOrderId String       @unique
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+
+  position  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// `I-11` garantida pelo BANCO: duas OS da mesma fila nunca ocupam a mesma
+  /// posicao ao fim da transacao. Tambem e o indice de leitura ordenada.
+  @@unique([queueId, position])
+  @@map("technician_dispatch_queue_entries")
 }

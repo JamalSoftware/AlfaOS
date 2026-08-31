@@ -68,15 +68,15 @@ export function formatServiceOrderNumber(order: { number: number }): string {
   return `OS Nº ${order.number}`;
 }
 
-export const SERVICE_ORDER_PRIORITY_ORDER: Record<
-  ServiceOrderPriority,
-  number
-> = {
-  URGENT: 3,
-  HIGH: 2,
-  NORMAL: 1,
-  LOW: 0,
-};
+/*
+  A precedência operacional vive em `src/lib/dispatch-queue.ts`.
+
+  Aqui existia `SERVICE_ORDER_PRIORITY_ORDER`, um mapa de precedência sem
+  nenhum consumidor desde que foi escrito. Ele foi REMOVIDO, e não movido:
+  usava a orientação inversa (`URGENT: 3`), que obriga cada chamador a lembrar
+  de ordenar descendente, e manter os dois lados criaria duas definições da
+  mesma regra — que é exatamente como uma delas fica para trás.
+*/
 
 export const ACTIVE_SERVICE_ORDER_STATUSES: ServiceOrderStatus[] = [
   "PENDING",

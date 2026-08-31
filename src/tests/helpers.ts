@@ -80,6 +80,12 @@ export async function resetDatabase(): Promise<void> {
   await prisma.customerLocation.deleteMany();
   await prisma.serviceOrderExecution.deleteMany();
   await prisma.serviceOrderEvent.deleteMany();
+  // Fila operacional, antes da OS e MUITO antes do técnico: a entrada aponta
+  // para as duas, e `Technician → Queue` é Restrict como toda outra relação do
+  // técnico. Sem esta linha o reset falha ao apagar técnicos — que é a
+  // restrição fazendo o trabalho dela, não um defeito do reset.
+  await prisma.technicianDispatchQueueEntry.deleteMany();
+  await prisma.technicianDispatchQueue.deleteMany();
   await prisma.serviceOrder.deleteMany();
   // Fundação Field. Antes de technician/user/company: as FKs cascateiam, mas
   // apagar explicitamente mantém o reset legível e independente da ordem das
