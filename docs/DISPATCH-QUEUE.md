@@ -306,6 +306,20 @@ referência futura a `TechnicianDispatchQueueEntry.id`.
 
 ## 5. Concorrência
 
+### A ordem dos locks, corrigida em DQ-2
+
+O plano dizia "travar em ordem determinística de `queue.id`" e a primeira
+implementação obedeceu ao pé da letra — **e mesmo assim deu deadlock**, porque
+travava a fila de DESTINO antes de descobrir a de origem, e só então ordenava o
+par.
+
+> **Ordenar depois de travar é o mesmo que não ordenar.** Os dois `id` precisam
+> ser descobertos **antes** de qualquer `FOR UPDATE`.
+
+O teste `T-C5` pegou isso antes de o código sair da fase. Se a OS escapar para
+uma terceira fila entre a descoberta e o lock — o que exige três reatribuições
+concorrentes da mesma OS —, a resposta é **409**, e não um lock fora de ordem.
+
 ### Ordem obrigatória dentro de toda mutação de fila
 
 ```text
@@ -709,7 +723,7 @@ Cada fase é um commit, com prova de reversão e critério de saída.
 | Fase | Escopo | Arquivos prováveis | Saída |
 |---|---|---|---|
 | **DQ-1** ✅ | Schema, migration aditiva, `DISPATCH_BAND`, normalização pura | `prisma/schema.prisma`, migration, `src/lib/dispatch-queue.ts` | **ENTREGUE** — 36 testes novos, gates verdes, nada consome ainda |
-| **DQ-2** | Serviço de fila + hooks nas 3 chamadas reais + backfill | `dispatch-queue.ts`, `service-orders.ts`, `service-order-closing.ts` | `T-I*`, `T-C1`–`T-C5`; backfill idempotente provado |
+| **DQ-2** ✅ | Serviço de fila + hooks nas 3 chamadas reais + backfill | `dispatch-queue-service.ts`, `dispatch-queue-backfill.ts`, `service-orders.ts`, `service-order-closing.ts` | **ENTREGUE** — 41 testes novos, `T-I*` e `T-C1`–`T-C5` verdes, backfill idempotente provado em banco real |
 | **DQ-3** | Rotas administrativas | `api/dispatch/**`, `api/service-orders/[id]/priority` | `T-S*`, `T-C6`; 409 verificado por corrida real |
 | **DQ-4** | Web `/despacho` | `src/app/(app)/despacho/**` | `W-1`–`W-5`; Playwright do fluxo |
 | **DQ-5** | Contrato de leitura no Field | `src/lib/field/dto.ts`, `api/field/v1/dispatch-queue` | DTO sem PII nova; sem campo de provider |

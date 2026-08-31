@@ -296,6 +296,18 @@ Três coisas que o código corrigiu no plano: `Technician → Queue` é **`Restr
 
 Gates: 1459 Vitest (era 1423), 99 Playwright, 280 Flutter, lint, tsc, build, 23 migrations. Três provas de reversão executadas e revertidas, sem drift.
 
+**`DQ-2` ENTREGUE — commit local, sem tag e sem push.** A fila passou a acompanhar as operações de OS: `placeAssignedOrder` no `assignTechnician` (atribuição e reatribuição), `removeOrderFromQueue` no `startServiceOrder` e no `completeServiceOrder`, tudo **dentro das transações que já existiam**. Mais as primitivas de reorder e de mudança de prioridade — **sem rota**, que é DQ-3 — e o backfill idempotente (`npm run dispatch:backfill`), validado contra o banco de dev real: segunda execução devolveu `0/0/0`.
+
+**O teste de deadlock encontrou um defeito real da minha implementação, antes de ele sair da fase.** `placeAssignedOrder` travava a fila de **destino** primeiro e só depois ordenava o par por `id` — e ordenar depois de travar é o mesmo que não ordenar. Agora os dois `id` são descobertos **antes** de qualquer `FOR UPDATE`. Se a OS escapar para uma terceira fila nesse intervalo, a resposta é 409, não um lock fora de ordem.
+
+**E a sabotagem de tenancy expôs um teste meu que passava pelo motivo errado**: sem a validação, `moveOrderToPosition` ainda devolvia 404 por outro caminho e a transação inteira voltava, então a fila cruzada nunca persistia. O ataque que o rollback não esconde é `placeAssignedOrder`, que **concluiria** gravando fila com `companyId` de A e técnico de B. O teste foi reescrito para lá.
+
+Três decisões que não podem ser desfeitas: `version` só anda quando houve **mudança real** (por isso o backfill deixa em 0 a fila que ele mesmo criou — ninguém tinha token de CAS para invalidar); a renumeração é em **duas fases** (negar tudo, depois reescrever 1..N), porque a unique `(queueId, position)` não é `DEFERRABLE`; e o backfill ordena por `assignedAt`, não `createdAt`/`number` — a pergunta da fila é há quanto tempo a OS está **com este técnico**.
+
+**Índice em `ServiceOrder.technicianId` NÃO foi adicionado**: a única consulta nova que filtra por ele é o backfill, que **quer** varredura completa e roda uma vez, offline.
+
+Gates: 1498 Vitest (era 1459), 99 Playwright, 280 Flutter, lint, tsc, build, 23 migrations — **nenhuma nova**. Cinco sabotagens, cinco detectadas.
+
 Mais dois achados do levantamento, fora do escopo da fila e válidos por si: **não existe operação de cancelamento nem de desatribuição de OS** — `status: "CANCELLED"` nunca é escrito em produção e `technicianId: null` só aparece em fixture, de modo que `CANCELLED` é estado declarado e inalcançável —, e **`ServiceOrder` não tem índice em `technicianId`**.
 
 Pendente e **não** pertencente à fila: um último polimento visual do Field — destaque das métricas de OS abertas e urgentes, hierarquia da métrica de urgência, repetição da mesma OS entre `ATENÇÃO AGORA` e `PRÓXIMA OS`, e ajustes da gaveta.
