@@ -7,8 +7,10 @@ sequência de transação, tabela de endpoint e matriz de teste são engenharia.
 As decisões de produto (`D-01`–`D-11`) continuam registradas no PRD, onde
 foram levantadas; aqui está como executá-las.
 
-> **Nada disto existe em código.** Nenhuma migration, nenhuma rota, nenhuma
-> tela. Este documento é o que a fase de implementação executa.
+> **Estado: `DQ-1`, `DQ-2` e `DQ-3` entregues** (schema, serviço, backfill e API
+> administrativa). **Ainda não existe tela nem Field**: o aplicativo segue no
+> ranking local, e o despacho Web é `DQ-4`. A tabela de fases no fim do
+> documento é a fonte de verdade do que está feito.
 
 ---
 
@@ -464,6 +466,31 @@ Convenções seguidas: ação explícita em subcaminho (`/assign`, `/start`),
 | `POST /api/dispatch/technicians/[technicianId]/queue/reorder` | ADMIN, DISPATCHER | `serviceOrderId`, `targetPosition`, `expectedQueueVersion` | `DispatchQueueDto` | **sim** | fila | 400 · 401 · 403 · 404 · 409 |
 | `GET /api/field/v1/dispatch-queue` | técnico do token | — | `FieldDispatchQueueDto` | — | — | `UNAUTHENTICATED` · `FORBIDDEN` |
 
+### `expectedQueueVersion` na prioridade: exigido pelo DOMÍNIO, não pelo schema
+
+Corrigido em DQ-3. A tabela acima o marca `?`, e o zod de fato o aceita ausente
+— mas a regra é mais fina do que "opcional":
+
+```text
+OS EM FILA        expectedQueueVersion obrigatório  → sem ele, 400
+OS SEM técnico    não há fila a comparar            → aceito sem ele
+```
+
+Torná-lo obrigatório no schema bloquearia um caso legítimo: mudar a prioridade
+de uma OS `PENDING` que ainda não é de ninguém. Quem sabe se há fila é o
+domínio, e é lá que a exigência mora.
+
+### Um clique que não muda nada não consome a versão
+
+Um pedido acomodado para a posição em que a OS **já está** é no-op: não escreve
+e não incrementa `version`. A consequência é correta e não é óbvia — um segundo
+despachante com a MESMA versão continua podendo agir, porque de fato nada mudou
+desde a leitura dele.
+
+> Isto apareceu ao montar o teste de corrida da API, que falhou acusando o
+> código quando o errado era o cenário: uma das duas movimentações caía onde a
+> OS já estava. A propriedade virou teste próprio.
+
 ### Reatribuição: evoluir, não duplicar
 
 `POST /api/service-orders/[id]/assign` **já existe** e já tem CSRF, perfil, zod
@@ -724,7 +751,7 @@ Cada fase é um commit, com prova de reversão e critério de saída.
 |---|---|---|---|
 | **DQ-1** ✅ | Schema, migration aditiva, `DISPATCH_BAND`, normalização pura | `prisma/schema.prisma`, migration, `src/lib/dispatch-queue.ts` | **ENTREGUE** — 36 testes novos, gates verdes, nada consome ainda |
 | **DQ-2** ✅ | Serviço de fila + hooks nas 3 chamadas reais + backfill | `dispatch-queue-service.ts`, `dispatch-queue-backfill.ts`, `service-orders.ts`, `service-order-closing.ts` | **ENTREGUE** — 41 testes novos, `T-I*` e `T-C1`–`T-C5` verdes, backfill idempotente provado em banco real |
-| **DQ-3** | Rotas administrativas | `api/dispatch/**`, `api/service-orders/[id]/priority` | `T-S*`, `T-C6`; 409 verificado por corrida real |
+| **DQ-3** ✅ | Rotas administrativas | `api/dispatch/**`, `api/service-orders/[id]/priority`, `dispatch-queue-view.ts` | **ENTREGUE** — 45 testes novos, `T-S1`–`T-S8` e `T-C6` verdes, 409 verificado por corrida real pelas ROTAS |
 | **DQ-4** | Web `/despacho` | `src/app/(app)/despacho/**` | `W-1`–`W-5`; Playwright do fluxo |
 | **DQ-5** | Contrato de leitura no Field | `src/lib/field/dto.ts`, `api/field/v1/dispatch-queue` | DTO sem PII nova; sem campo de provider |
 | **DQ-6** | Field consome a ordem | `apps/field/lib/features/**` | `F-1`–`F-6`; fallback provado nos dois ramos |

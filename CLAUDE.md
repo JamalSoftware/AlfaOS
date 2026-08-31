@@ -308,6 +308,16 @@ Três decisões que não podem ser desfeitas: `version` só anda quando houve **
 
 Gates: 1498 Vitest (era 1459), 99 Playwright, 280 Flutter, lint, tsc, build, 23 migrations — **nenhuma nova**. Cinco sabotagens, cinco detectadas.
 
+**`DQ-3` ENTREGUE — commit local, sem tag e sem push.** Três rotas administrativas: `GET /api/dispatch/technicians/[id]/queue`, `POST .../queue/reorder` e `POST /api/service-orders/[id]/priority`. A quarta do plano — a leitura do Field — é **DQ-5** pela tabela de fases, e não foi antecipada.
+
+**A rota de prioridade fecha uma lacuna que não era da fila**: até aqui `priority` era gravada na criação e nunca mais mudava, porque a rota de detalhe só expunha `GET`. Ela aceita os **quatro** valores do enum, não dois — OS reais já têm `HIGH` e `LOW`, e sem o enum inteiro não haveria como tirar uma delas de um `HIGH` legado. A ação rápida `Normal ↔ Urgente` é atalho de UI, não contrato de API.
+
+Três decisões que não podem ser desfeitas: **dois agregados exigem dois CAS** (`expectedVersion` da OS e `expectedQueueVersion` da fila), e o segundo é exigido **pelo domínio, não pelo schema** — uma OS sem técnico não tem fila a comparar, e torná-lo obrigatório no zod bloquearia esse caso; a API **não expõe `moveUp`/`moveDown`**, só alvo absoluto; e `/assign` foi **evoluída**, não duplicada — ganhou `targetPosition` opcional e manteve a resposta exatamente como era.
+
+**O teste de corrida falhou e a culpa era dele, não do código**: eu havia montado duas reordenações para a posição 1, mas uma caía onde a OS **já estava** depois da acomodação de banda — e no-op não incrementa `version`, então o segundo CAS passava legitimamente. A montagem foi corrigida, e a propriedade descoberta virou teste próprio: um clique que não mexe na fila não invalida o CAS de mais ninguém.
+
+Gates: 1543 Vitest (era 1498), 99 Playwright, 280 Flutter, lint, tsc, build, **nenhuma migration**. Seis sabotagens, seis detectadas. Nenhuma UI, nenhum Dart, nenhum push.
+
 Mais dois achados do levantamento, fora do escopo da fila e válidos por si: **não existe operação de cancelamento nem de desatribuição de OS** — `status: "CANCELLED"` nunca é escrito em produção e `technicianId: null` só aparece em fixture, de modo que `CANCELLED` é estado declarado e inalcançável —, e **`ServiceOrder` não tem índice em `technicianId`**.
 
 Pendente e **não** pertencente à fila: um último polimento visual do Field — destaque das métricas de OS abertas e urgentes, hierarquia da métrica de urgência, repetição da mesma OS entre `ATENÇÃO AGORA` e `PRÓXIMA OS`, e ajustes da gaveta.

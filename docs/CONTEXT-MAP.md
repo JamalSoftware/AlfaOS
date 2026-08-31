@@ -166,7 +166,7 @@ Três regras que a Parte VI fixou e são fáceis de desfazer sem perceber:
 
 O quadro (§203) decide **quem** atende. A ordem de execução dentro da fila de cada técnico é outra Parte — ver abaixo.
 
-## Fila Operacional de OS — DQ-1 e DQ-2 ENTREGUES, DQ-3 em diante PLANNED
+## Fila Operacional de OS — DQ-1 a DQ-3 ENTREGUES, DQ-4 em diante PLANNED
 
 **Carregar:** `docs/DISPATCH-QUEUE.md` (plano — schema, algoritmo, transações, endpoints, fases `DQ-1`–`DQ-7`) e PRD §308–§332 (Parte XII — o porquê e as regras de produto).
 
@@ -177,16 +177,21 @@ O quadro (§203) decide **quem** atende. A ordem de execução dentro da fila de
 | `src/lib/dispatch-queue.ts` | Primitivas **puras**: `DISPATCH_BAND`, `normalizeQueue`, `appendPositionForBand`. Sem Prisma, de propósito |
 | `src/lib/dispatch-queue-service.ts` | Serviço autoritativo: lock, CAS, normalização persistida, `placeAssignedOrder`, `removeOrderFromQueue`, `moveOrderToPosition`, `reapplyPriorityToQueue` |
 | `src/lib/dispatch-queue-backfill.ts` | Backfill idempotente, e `scripts/dispatch-queue-backfill.ts` (`npm run dispatch:backfill`) |
-| Testes | `dispatch-queue-{domain,schema,lifecycle,concurrency}.test.ts` |
+| `src/lib/dispatch-queue-view.ts` | Projeção de leitura do despacho Web. Separada do serviço: acrescentar campo à tela não abre o arquivo que decide lock e CAS |
+| `src/app/api/dispatch/technicians/[technicianId]/queue{,/reorder}` | GET da fila e reordenação por alvo absoluto |
+| `src/app/api/service-orders/[id]/priority` | Mutação de prioridade — a **primeira** forma de alterá-la depois da criação |
+| Testes | `dispatch-queue-{domain,schema,lifecycle,concurrency,api}.test.ts` |
 
-**Ainda não há rota, tela nem Field** — o aplicativo continua no ranking local (`attention_ranking.dart`). Isso é DQ-3 em diante.
+**Ainda não há tela nem Field** — o aplicativo continua no ranking local (`attention_ranking.dart`). Isso é DQ-4 em diante.
 
 Quatro regras que o código já impõe e são fáceis de desfazer sem perceber:
 
 * **Toda função do serviço recebe um `tx`** e nenhuma abre transação própria. A fila é efeito da operação de OS e tem de commitar ou voltar junto com ela.
 * **Os dois `id` de fila são descobertos ANTES de qualquer `FOR UPDATE`** (§ "A ordem dos locks"). Travar primeiro e ordenar depois é o mesmo que não ordenar — foi um deadlock real, achado pelo `T-C5`.
 * **A renumeração é em duas fases** (negar todas as posições, depois reescrever 1..N). A unique `(queueId, position)` não é `DEFERRABLE`, e a escrita ingênua colide.
-* **`version` só anda quando houve mudança real.** Releitura idêntica não pode invalidar o CAS de quem está com a tela aberta — por isso o backfill deixa em 0 a fila que ele mesmo criou. Para entender o modelo que já existe, também `prisma/schema.prisma` (`ServiceOrderPriority`, `ServiceOrder`) e `src/lib/service-orders.ts` (rótulos, ordenação da fila do técnico, `assignTechnician`).
+* **`version` só anda quando houve mudança real.** Releitura idêntica não pode invalidar o CAS de quem está com a tela aberta — por isso o backfill deixa em 0 a fila que ele mesmo criou, e um reorder acomodado para onde a OS já está não consome versão de ninguém.
+* **A API não expõe `moveUp`/`moveDown`.** Alvo absoluto sempre; delta aplicado duas vezes move duas posições. Arrastar e as setas produzem o MESMO comando.
+* **Prioridade toca DOIS agregados**, então exige dois tokens: `expectedVersion` (OS) e `expectedQueueVersion` (fila) — este último só quando a OS está em fila, porque uma OS sem técnico não tem fila a comparar. Para entender o modelo que já existe, também `prisma/schema.prisma` (`ServiceOrderPriority`, `ServiceOrder`) e `src/lib/service-orders.ts` (rótulos, ordenação da fila do técnico, `assignTechnician`).
 
 **Qual dos dois abrir:** o PRD responde *por que* e *qual é a regra*; o `DISPATCH-QUEUE.md` responde *como executar*. Para implementar, o segundo — as onze decisões (`D-01`–`D-11`) estão fechadas lá, com tabela.
 
