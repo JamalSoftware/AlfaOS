@@ -166,9 +166,11 @@ Três regras que a Parte VI fixou e são fáceis de desfazer sem perceber:
 
 O quadro (§203) decide **quem** atende. A ordem de execução dentro da fila de cada técnico é outra Parte — ver abaixo.
 
-## Fila Operacional de OS — PLANNED, plano fechado
+## Fila Operacional de OS — DQ-1 ENTREGUE, DQ-2 em diante PLANNED
 
-**Carregar:** `docs/DISPATCH-QUEUE.md` (plano de implementação — schema, algoritmo, transações, endpoints, fases `DQ-1`–`DQ-7`) e PRD §308–§332 (Parte XII — o porquê e as regras de produto). Para entender o modelo que já existe, também `prisma/schema.prisma` (`ServiceOrderPriority`, `ServiceOrder`) e `src/lib/service-orders.ts` (rótulos, ordenação da fila do técnico, `assignTechnician`).
+**Carregar:** `docs/DISPATCH-QUEUE.md` (plano de implementação — schema, algoritmo, transações, endpoints, fases `DQ-1`–`DQ-7`) e PRD §308–§332 (Parte XII — o porquê e as regras de produto). O que já existe em código: `src/lib/dispatch-queue.ts` (primitivas puras), os modelos `TechnicianDispatchQueue`/`TechnicianDispatchQueueEntry` no schema, e os testes `src/tests/dispatch-queue-domain.test.ts` e `dispatch-queue-schema.test.ts`.
+
+**DQ-1 é só fundação: nada consome a fila ainda.** Não há rota, tela, serviço nem backfill; nenhuma fila é criada por caminho nenhum. A precedência (`DISPATCH_BAND`) é a **única** autoridade sobre `URGENT > HIGH > NORMAL > LOW` — `ORDER BY priority` continua funcionando por coincidência da ordem de declaração do enum, e não é autoridade de nada. Para entender o modelo que já existe, também `prisma/schema.prisma` (`ServiceOrderPriority`, `ServiceOrder`) e `src/lib/service-orders.ts` (rótulos, ordenação da fila do técnico, `assignTechnician`).
 
 **Qual dos dois abrir:** o PRD responde *por que* e *qual é a regra*; o `DISPATCH-QUEUE.md` responde *como executar*. Para implementar, o segundo — as onze decisões (`D-01`–`D-11`) estão fechadas lá, com tabela.
 

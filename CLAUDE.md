@@ -288,6 +288,14 @@ Três achados registrados na auditoria do modelo atual (§310), **nenhum corrigi
 
 Duas coisas do plano que não podem se perder: o `expectedVersion` da OS **não** protege uma reordenação — ela escreve N linhas e o CAS responde por uma —, então a fila tem `version` própria mais `FOR UPDATE`, o mesmo par que a Jornada usa; e a decisão por posição **global** tem um preço declarado: a invariante "urgente precede normal" **deixa de ser garantida pelo banco** e vira invariante de aplicação, reestabelecida pela normalização e sustentada por teste de concorrência com prova de reversão.
 
+**`DQ-1` ENTREGUE — commit local, sem tag e sem push.** A fundação de persistência: `TechnicianDispatchQueue` + `TechnicianDispatchQueueEntry`, migration **aditiva** (`20260830120000`, 2 tabelas, 4 uniques, 5 FKs, zero `DROP`, zero dado tocado), e as primitivas puras em `src/lib/dispatch-queue.ts`. **Nada consome a fila**: sem rota, sem tela, sem serviço, sem backfill — nenhuma fila é criada por caminho nenhum.
+
+Três coisas que o código corrigiu no plano: `Technician → Queue` é **`Restrict`**, não `Cascade` (toda relação do Technician no schema é Restrict, e desativar é a operação suportada); a entrada ganhou **`companyId` próprio**, para filtrar tenant em SQL em vez de navegar a FK; e a unique `(companyId, technicianId)` **sozinha não bastava** — ela aceita duas filas do mesmo técnico sob companyIds diferentes, então entrou também uma unique em `technicianId`.
+
+`SERVICE_ORDER_PRIORITY_ORDER` foi **removida** (grep provou zero consumidores). A precedência agora é `DISPATCH_BAND`, com orientação ascendente (`URGENT: 0`) — a mesma do ranking do Field. `ORDER BY priority` continua acertando por coincidência da ordem de declaração do enum, e deixou de ser autoridade.
+
+Gates: 1459 Vitest (era 1423), 99 Playwright, 280 Flutter, lint, tsc, build, 23 migrations. Três provas de reversão executadas e revertidas, sem drift.
+
 Mais dois achados do levantamento, fora do escopo da fila e válidos por si: **não existe operação de cancelamento nem de desatribuição de OS** — `status: "CANCELLED"` nunca é escrito em produção e `technicianId: null` só aparece em fixture, de modo que `CANCELLED` é estado declarado e inalcançável —, e **`ServiceOrder` não tem índice em `technicianId`**.
 
 Pendente e **não** pertencente à fila: um último polimento visual do Field — destaque das métricas de OS abertas e urgentes, hierarquia da métrica de urgência, repetição da mesma OS entre `ATENÇÃO AGORA` e `PRÓXIMA OS`, e ajustes da gaveta.

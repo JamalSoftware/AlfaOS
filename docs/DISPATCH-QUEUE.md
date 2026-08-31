@@ -110,30 +110,64 @@ model TechnicianDispatchQueueEntry {
 }
 ```
 
-### As três restrições e o que cada uma impede
+### As QUATRO restrições e o que cada uma impede
+
+O plano previa três. A implementação acrescentou a primeira, e o motivo é
+concreto:
 
 ```text
-@@unique([companyId, technicianId])   duas filas para o mesmo técnico
-@@unique  serviceOrderId             a MESMA OS em duas filas ao mesmo tempo
-@@unique([queueId, position])        I-11: duas OS na mesma posição
+@@unique  technicianId                duas filas para o mesmo técnico, sob
+                                      companyIds DIFERENTES
+@@unique([companyId, technicianId])   duas filas do mesmo técnico na empresa,
+                                      e a chave de busca com o tenant no
+                                      predicado
+@@unique  serviceOrderId              a MESMA OS em duas filas ao mesmo tempo
+@@unique([queueId, position])         I-11: duas OS na mesma posição
 ```
+
+> **A composta sozinha não bastava.** `(companyId, technicianId)` aceita duas
+> linhas quando o `companyId` difere — e nada no schema obriga
+> `queue.companyId` a concordar com `technician.companyId`, porque o projeto não
+> usa FK composta em lugar nenhum. A unique em `technicianId` fecha esse caso no
+> banco; sem ela ele ficaria só na validação de aplicação.
 
 A unique em `serviceOrderId` (e não um índice comum) é o que torna a
 reatribuição segura por construção: inserir em B antes de remover de A falha no
 banco, em vez de produzir uma OS que aparece nas duas filas.
 
-### `onDelete` proposto
+### `companyId` também na entrada — acrescentado em DQ-1
+
+A entrada carrega `companyId` próprio, redundante com `queue.companyId`, como
+toda entidade satélite do projeto (`ServiceOrderExecution`,
+`ServiceOrderCheckIn`, `TimeEntry`). É o que permite achar a entrada de uma OS
+**com o tenant num predicado SQL**, em vez de navegar a FK até a fila para
+descobrir de quem é a linha — que é exatamente o que a checklist de segurança
+proíbe.
+
+### `onDelete` — corrigido pela implementação (DQ-1)
 
 ```text
-Company    → Queue     Cascade    empresa apagada leva a fila junto
-Technician → Queue     Cascade    a fila não sobrevive ao dono
-Queue      → Entry     Cascade    entrada não existe sem fila
-ServiceOrder → Entry   Cascade    OS apagada não deixa entrada órfã
+Company      → Queue    Cascade
+Technician   → Queue    RESTRICT    ← corrigido: o plano dizia Cascade
+Company      → Entry    Cascade
+Queue        → Entry    Cascade
+ServiceOrder → Entry    Cascade
 ```
 
+> **`Technician → Queue` é `Restrict`, não `Cascade`.** O plano tinha proposto
+> `Cascade`; o código mostrou que **toda** relação do `Technician` no schema é
+> `Restrict` (`ServiceOrder`, `ServiceOrderCheckIn`, `ServiceOrderCompletion`,
+> `InventoryMovement`), e que a operação suportada é **desativar**
+> (`technicians.active`), não apagar. Uma fila `Cascade` seria o único lugar do
+> projeto onde apagar um técnico levaria estado operacional embora em silêncio.
+
+O efeito apareceu na hora: `resetDatabase()` dos testes passou a falhar ao
+apagar técnicos. Não era defeito do reset — era a restrição funcionando. O reset
+aprendeu as duas tabelas, na ordem certa.
+
 `Cascade` em `ServiceOrder → Entry` é seguro **porque a entrada não guarda
-histórico**: o histórico está no `AuditLog`, que usa `SetNull` no usuário e
-sobrevive. Se a entrada guardasse o "antes/depois", `Cascade` apagaria trilha.
+histórico**: o histórico está no `AuditLog`, que sobrevive. Se a entrada
+guardasse o "antes/depois", `Cascade` apagaria trilha.
 
 ### Por que agregado, e não `ServiceOrder.dispatchPosition`
 
@@ -219,10 +253,11 @@ const DISPATCH_BAND: Record<ServiceOrderPriority, number> = {
 > schema reordenaria a fila de todas as empresas em silêncio. Com o mapa
 > explícito, a precedência é dado do domínio e o schema volta a ser só armazenamento.
 
-Nota: `SERVICE_ORDER_PRIORITY_ORDER` já existe em `src/lib/service-orders.ts` e
-é código morto, com a orientação **invertida** (`URGENT: 3`). `DQ-1` deve
-decidir entre reaproveitá-la invertendo a leitura ou substituí-la — e **não
-deixar as duas coexistirem**, que é como nasce a terceira definição.
+**Decidido em DQ-1: `SERVICE_ORDER_PRIORITY_ORDER` foi REMOVIDA**, não movida.
+Grep em todo o repositório (`.ts`, `.tsx`, `.dart`, `.json`) provou zero
+consumidores, e ela usava a orientação **invertida** (`URGENT: 3`), que
+obrigaria cada chamador a lembrar de ordenar descendente. Manter as duas
+criaria duas definições da mesma regra — que é como uma delas fica para trás.
 
 ### O algoritmo
 
@@ -673,7 +708,7 @@ Cada fase é um commit, com prova de reversão e critério de saída.
 
 | Fase | Escopo | Arquivos prováveis | Saída |
 |---|---|---|---|
-| **DQ-1** | Schema, migration aditiva, `DISPATCH_BAND`, normalização pura | `prisma/schema.prisma`, migration, `src/lib/dispatch-queue.ts` | `T-D1`–`T-D6` verdes; `migrate status` limpo; nada consome ainda |
+| **DQ-1** ✅ | Schema, migration aditiva, `DISPATCH_BAND`, normalização pura | `prisma/schema.prisma`, migration, `src/lib/dispatch-queue.ts` | **ENTREGUE** — 36 testes novos, gates verdes, nada consome ainda |
 | **DQ-2** | Serviço de fila + hooks nas 3 chamadas reais + backfill | `dispatch-queue.ts`, `service-orders.ts`, `service-order-closing.ts` | `T-I*`, `T-C1`–`T-C5`; backfill idempotente provado |
 | **DQ-3** | Rotas administrativas | `api/dispatch/**`, `api/service-orders/[id]/priority` | `T-S*`, `T-C6`; 409 verificado por corrida real |
 | **DQ-4** | Web `/despacho` | `src/app/(app)/despacho/**` | `W-1`–`W-5`; Playwright do fluxo |
@@ -700,7 +735,6 @@ não implementa cancelamento nem desatribuição    não existem; ficam hooks
 não implementa FCM                               PRD §327
 não implementa roteirização                      PRD §137, §187
 não toca escala nem Jornada                      PRD §288, §300
-não remove SERVICE_ORDER_PRIORITY_ORDER agora    DQ-1 decide (§4)
 não acrescenta índice em technicianId            medir em DQ-2 (§16)
 ```
 
