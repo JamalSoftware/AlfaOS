@@ -166,7 +166,7 @@ Três regras que a Parte VI fixou e são fáceis de desfazer sem perceber:
 
 O quadro (§203) decide **quem** atende. A ordem de execução dentro da fila de cada técnico é outra Parte — ver abaixo.
 
-## Fila Operacional de OS — DQ-1 a DQ-4 ENTREGUES, DQ-5 em diante PLANNED
+## Fila Operacional de OS — DQ-1 a DQ-5 ENTREGUES, DQ-6 em diante PLANNED
 
 **Carregar:** `docs/DISPATCH-QUEUE.md` (plano — schema, algoritmo, transações, endpoints, fases `DQ-1`–`DQ-7`) e PRD §308–§332 (Parte XII — o porquê e as regras de produto).
 
@@ -184,7 +184,7 @@ O quadro (§203) decide **quem** atende. A ordem de execução dentro da fila de
 | `src/lib/service-order-labels.ts` | Rótulos da OS, **client-safe**. Só `import type` do Prisma — `service-orders.ts` reexporta |
 | Testes | `dispatch-queue-{domain,schema,lifecycle,concurrency,api}.test.ts` e `e2e/dispatch-queue.spec.ts` |
 
-**O Field ainda não consome a fila** — o aplicativo continua no ranking local (`attention_ranking.dart`). Isso é DQ-5/DQ-6.
+**O contrato de leitura do Field existe** (`GET /api/field/v1/dispatch-queue`), mas **o aplicativo ainda não o consome**: ele continua no ranking local (`attention_ranking.dart`). Passar a obedecer é DQ-6 — junto com o bug do **Android Back**, que fecha o aplicativo em vez de navegar (achado no piloto físico, escopo obrigatório de DQ-6).
 
 Quatro regras que o código já impõe e são fáceis de desfazer sem perceber:
 

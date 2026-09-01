@@ -7,10 +7,11 @@ sequência de transação, tabela de endpoint e matriz de teste são engenharia.
 As decisões de produto (`D-01`–`D-11`) continuam registradas no PRD, onde
 foram levantadas; aqui está como executá-las.
 
-> **Estado: `DQ-1` a `DQ-4` entregues** — schema, serviço, backfill, API
-> administrativa e o painel Web `/despacho`. **O Field ainda não consome a
-> fila**: o aplicativo segue no ranking local, e o contrato dele é `DQ-5`. A
-> tabela de fases no fim do documento é a fonte de verdade do que está feito.
+> **Estado: `DQ-1` a `DQ-5` entregues** — schema, serviço, backfill, API
+> administrativa, painel Web `/despacho` e o contrato de leitura do Field.
+> **O aplicativo ainda não OBEDECE à fila**: ele continua no ranking local, e
+> passar a obedecer é `DQ-6`. A tabela de fases no fim do documento é a fonte
+> de verdade do que está feito.
 
 ---
 
@@ -606,6 +607,37 @@ resposta traz position   → ordena pelo servidor
 resposta não traz        → ranking local (APK novo contra servidor antigo)
 ```
 
+### O fallback é do CLIENTE, e não do servidor (decidido em DQ-5)
+
+`GET /api/field/v1/dispatch-queue` devolve fila **vazia** para um técnico sem
+fila. Ele **não** calcula o ranking local no servidor, e isso é deliberado:
+esconder o fallback atrás do contrato faria o aplicativo achar que está
+obedecendo ao despacho quando o despacho não disse nada. Duas autoridades
+divergem no primeiro dia.
+
+### `no-store`, diferente das demais leituras do Field
+
+As outras rotas de leitura não marcam o cabeçalho; esta marca. A razão não é
+segurança: uma **lista** de OS servida do cache mostra dado velho e a pessoa
+percebe. Uma **fila** servida do cache faz o técnico trabalhar na ordem errada
+e não dá sinal nenhum de que está desatualizada.
+
+### Bug bloqueante encontrado no piloto físico — `ANDROID BACK`
+
+Registrado aqui porque é **escopo obrigatório de DQ-6**, e não de DQ-5, que é
+backend.
+
+O botão/gesto **Voltar** do Android **fecha o aplicativo** em várias telas
+principais, em vez de navegar. Regra aprovada para DQ-6:
+
+```text
+detalhe                        → volta para a anterior
+gaveta aberta                  → fecha a gaveta
+modal/folha aberta             → fecha o modal
+OS ou Jornada sem pilha        → Início
+Início na raiz                 → SÓ AQUI o Android sai do aplicativo
+```
+
 Isso mantém a convivência que a §192 exige e não deixa janela em que Web e
 Field tenham autoridades diferentes **sem comportamento definido**: o
 comportamento está definido nos dois ramos.
@@ -772,7 +804,7 @@ Cada fase é um commit, com prova de reversão e critério de saída.
 | **DQ-2** ✅ | Serviço de fila + hooks nas 3 chamadas reais + backfill | `dispatch-queue-service.ts`, `dispatch-queue-backfill.ts`, `service-orders.ts`, `service-order-closing.ts` | **ENTREGUE** — 41 testes novos, `T-I*` e `T-C1`–`T-C5` verdes, backfill idempotente provado em banco real |
 | **DQ-3** ✅ | Rotas administrativas | `api/dispatch/**`, `api/service-orders/[id]/priority`, `dispatch-queue-view.ts` | **ENTREGUE** — 45 testes novos, `T-S1`–`T-S8` e `T-C6` verdes, 409 verificado por corrida real pelas ROTAS |
 | **DQ-4** ✅ | Web `/despacho` | `src/app/(app)/despacho/**`, `DispatchPanel.tsx`, `service-order-labels.ts` | **ENTREGUE** — 17 testes Playwright, `W-1`–`W-5` cobertos, 409 provado com duas sessões |
-| **DQ-5** | Contrato de leitura no Field | `src/lib/field/dto.ts`, `api/field/v1/dispatch-queue` | DTO sem PII nova; sem campo de provider |
+| **DQ-5** ✅ | Contrato de leitura no Field | `src/lib/field/dto.ts`, `api/field/v1/dispatch-queue` | **ENTREGUE** — 18 testes, `FQ-1`–`FQ-11`, integração Web→Field provada nos dois sentidos |
 | **DQ-6** | Field consome a ordem | `apps/field/lib/features/**` | `F-1`–`F-6`; fallback provado nos dois ramos |
 | **DQ-7** | Endurecimento, auditoria independente, piloto | — | Auditoria por quem não implementou; piloto físico |
 

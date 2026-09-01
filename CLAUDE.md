@@ -332,6 +332,18 @@ O princípio: **a tela não é autoridade**. Toda ação substitui o estado loca
 
 Gates: 1543 Vitest, **116 Playwright** (era 99), 280 Flutter, lint, tsc, build, **nenhuma migration**. Risco registrado: **`/assign` continua sem `Idempotency-Key` obrigatória** — a proteção do painel é de tela e cobre duplo clique, não reenvio após timeout.
 
+**`DQ-5` ENTREGUE — commit local, sem tag e sem push.** `GET /api/field/v1/dispatch-queue`: a fila do técnico autenticado, na ordem que o despachante definiu. **Backend apenas — nenhum arquivo Dart mudou**, e o aplicativo continua no ranking local até DQ-6.
+
+Quatro decisões que não podem ser desfeitas: **não existe `?technicianId=`** (o dono vem do token, e há teste enviando `technicianId` e `companyId` de outro tenant para provar que não são lidos); **somente leitura** (um teste afirma que a rota exporta só `GET` — o técnico recebe a ordem, não a negocia); **sem fallback no servidor** (técnico sem fila devolve **vazio**, porque esconder o fallback no backend faria o aplicativo achar que obedece ao despacho quando ele não disse nada — a decisão é do cliente, pela presença de `position`); e **o Field não reordena** (a fila persistida já nasceu com a precedência aplicada; reaplicá-la na leitura criaria uma segunda autoridade).
+
+`no-store` **explícito**, ao contrário das demais leituras do Field: uma lista servida do cache mostra dado velho e a pessoa percebe; uma **fila** servida do cache faz o técnico trabalhar na **ordem errada** sem nenhum sinal.
+
+O teste central é o de **integração Web → Field**: reordenar pela rota administrativa que o painel usa, commitar, e ler pela rota do Field — nos dois sentidos. É exatamente o que o piloto observou.
+
+Gates: 1561 Vitest (era 1543), 116 Playwright, 280 Flutter, lint, tsc, build, **nenhuma migration**. Cinco sabotagens, cinco detectadas.
+
+**Bug bloqueante do piloto físico, registrado para DQ-6: o `Voltar` do Android FECHA o aplicativo** em várias telas principais, em vez de navegar. Regra aprovada: detalhe → anterior; gaveta aberta → fecha a gaveta; modal → fecha o modal; OS/Jornada sem pilha → Início; **só no Início na raiz** o Android sai. **Não corrigido em DQ-5**, que é backend.
+
 Mais dois achados do levantamento, fora do escopo da fila e válidos por si: **não existe operação de cancelamento nem de desatribuição de OS** — `status: "CANCELLED"` nunca é escrito em produção e `technicianId: null` só aparece em fixture, de modo que `CANCELLED` é estado declarado e inalcançável —, e **`ServiceOrder` não tem índice em `technicianId`**.
 
 Pendente e **não** pertencente à fila: um último polimento visual do Field — destaque das métricas de OS abertas e urgentes, hierarquia da métrica de urgência, repetição da mesma OS entre `ATENÇÃO AGORA` e `PRÓXIMA OS`, e ajustes da gaveta.

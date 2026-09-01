@@ -260,6 +260,44 @@ O corpo é mínimo de propósito: o aplicativo já tem o detalhe, e projetar o
 `PublicServiceOrder` inteiro traria `customer.document` — o CPF — de volta ao
 cache do aparelho.
 
+### `GET /dispatch-queue` — a fila operacional (DQ-5)
+
+A ordem que o **despachante** definiu, e não uma ordem que o aplicativo calcula
+(PRD Parte XII, `docs/DISPATCH-QUEUE.md`).
+
+```json
+{
+  "queueVersion": 7,
+  "inProgress": [{ "...": "item de lista", "position": null }],
+  "queued": [
+    { "...": "item de lista", "position": 1 },
+    { "...": "item de lista", "position": 2 }
+  ]
+}
+```
+
+O item é o **mesmo** `FieldServiceOrderListItem` de `GET /service-orders`,
+acrescido de `position`. As omissões continuam integralmente: sem `origin`,
+sem `externalProvider`, sem `externalId`, sem `externalNumber`.
+
+**Quatro coisas que não podem ser desfeitas:**
+
+* **Não existe `?technicianId=`.** O dono vem do token; um parâmetro com esse
+  nome não é lido. Mesma decisão de `GET /service-orders`.
+* **Somente leitura.** O técnico recebe a ordem; não a negocia. Não há rota de
+  reordenação nem de prioridade nesta superfície — quem decide a sequência é o
+  despacho (PRD §315), e uma segunda porta faria os dois disputarem a fila.
+* **`queued` já vem ordenada** por `position` crescente, 1..N. O aplicativo
+  **nunca** reordena: a fila persistida já nasceu com a precedência aplicada, e
+  reaplicá-la na leitura criaria uma segunda autoridade.
+* **Sem fila devolve vazio**, e não o ranking local calculado no servidor. O
+  fallback é decisão do cliente, pela ausência de `position` — presença de
+  dado, não versão de APK.
+
+`Cache-Control: no-store`, ao contrário das outras leituras. Uma **lista**
+servida do cache mostra dado velho e a pessoa percebe; uma **fila** servida do
+cache faz o técnico trabalhar na ordem errada sem nenhum sinal disso.
+
 ---
 
 ## 4. Contrato de erro
