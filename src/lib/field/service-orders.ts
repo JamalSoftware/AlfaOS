@@ -6,6 +6,8 @@ import { FieldError } from "./errors";
 import {
   toFieldDetail,
   toFieldListItem,
+  toFieldQueueItem,
+  type FieldDispatchQueueDto,
   type FieldServiceOrderDetail,
   type FieldServiceOrderListItem,
 } from "./dto";
@@ -237,4 +239,64 @@ export async function resolveOwnedOrderCustomer(
     throw new FieldError("NOT_FOUND", "Ordem de serviço não encontrada.");
   }
   return { orderId: order.id, customerId: order.customerId };
+}
+
+// ---------------------------------------------------------------------------
+// Fila operacional — leitura autoritativa (DQ-5)
+// ---------------------------------------------------------------------------
+
+/**
+ * A fila operacional do técnico, na ordem que o despacho definiu.
+ *
+ * ## Somente leitura, e sem segunda autoridade
+ *
+ * O técnico **recebe** a ordem; ele não a negocia. Não existe rota de
+ * reordenação nem de prioridade no Field, e esta função não calcula ordem
+ * nenhuma: ela lê `position` da fila persistida, que já nasceu com a
+ * precedência aplicada (`DISPATCH_BAND`, DQ-1). Reordenar aqui criaria uma
+ * segunda autoridade, e duas autoridades divergem no primeiro dia.
+ *
+ * ## Sem fallback
+ *
+ * Técnico sem fila devolve fila **vazia**, e não o ranking local calculado no
+ * servidor. O fallback é decisão do CLIENTE em DQ-6 — por presença do campo
+ * `position` —, e escondê-lo aqui dentro faria o aplicativo achar que está
+ * obedecendo ao despacho quando não está.
+ *
+ * ## `inProgress` não vem da fila
+ *
+ * Vem de `ServiceOrder.status`, que continua sendo a fonte de verdade do que
+ * está em atendimento (PRD §321). É coleção: mais de uma é permitido.
+ */
+export async function getFieldDispatchQueue(
+  companyId: string,
+  technicianId: string,
+): Promise<FieldDispatchQueueDto> {
+  const queue = await prisma.technicianDispatchQueue.findFirst({
+    where: { companyId, technicianId },
+    select: { id: true, version: true },
+  });
+
+  const [entries, inProgress] = await Promise.all([
+    queue
+      ? prisma.technicianDispatchQueueEntry.findMany({
+          // `companyId` no predicado, e não navegando a FK até a fila.
+          where: { queueId: queue.id, companyId },
+          select: { position: true, serviceOrder: { select: LIST_SELECT } },
+          orderBy: { position: "asc" },
+        })
+      : Promise.resolve([]),
+    prisma.serviceOrder.findMany({
+      where: { companyId, technicianId, status: "IN_PROGRESS" },
+      select: LIST_SELECT,
+      // Desempate estável: duas leituras pintam a mesma tela.
+      orderBy: [{ startedAt: "asc" }, { id: "asc" }],
+    }),
+  ]);
+
+  return {
+    queueVersion: queue?.version ?? 0,
+    inProgress: inProgress.map((row) => toFieldQueueItem(row, null)),
+    queued: entries.map((e) => toFieldQueueItem(e.serviceOrder, e.position)),
+  };
 }

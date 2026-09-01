@@ -186,6 +186,70 @@ export function toFieldListItem(row: ListRow): FieldServiceOrderListItem {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Fila operacional — contrato de leitura do Field (DQ-5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Um item da fila do técnico.
+ *
+ * É o **mesmo** `FieldServiceOrderListItem` da lista de OS, acrescido de
+ * `position`. Reusar em vez de criar um shape paralelo é deliberado: um
+ * segundo formato para a mesma OS produziria duas telas do aplicativo com
+ * campos diferentes para a mesma coisa, e a primeira divergência entre eles
+ * apareceria como bug de exibição meses depois.
+ *
+ * As omissões continuam valendo, e são a parte que mais importa: **sem
+ * `origin`, sem `externalProvider`, sem `externalId`, sem `externalNumber`**.
+ * A ausência do dado é o que impede um `if (RECEITANET)` no aplicativo
+ * (PRD §257, `docs/FIELD-API.md`). Uma OS importada tem de funcionar no Field
+ * exatamente como uma interna — inclusive na fila.
+ */
+export interface FieldDispatchQueueItem extends FieldServiceOrderListItem {
+  /**
+   * Posição autoritativa, 1..N contígua. **`null` em `inProgress`**: uma OS em
+   * atendimento não ocupa lugar entre as próximas (PRD §321).
+   *
+   * É por este campo que o Flutter decide, em DQ-6, se obedece ao servidor ou
+   * cai no ranking local: **presença de dado, não versão de APK**.
+   */
+  position: number | null;
+}
+
+/**
+ * A fila operacional do técnico autenticado.
+ *
+ * Não existe `technicianId` na requisição nem na resposta. O dono vem do token
+ * (`token → MobileDevice → User → Technician`), e um parâmetro com esse nome
+ * seria ignorado — a autorização não passa por nada que o cliente escreva.
+ */
+export interface FieldDispatchQueueDto {
+  /**
+   * Token de leitura da FILA. Vale `0` quando o técnico ainda não tem fila —
+   * o mesmo valor com que ela nasce.
+   *
+   * Viaja para o aplicativo poder detectar mudança entre duas leituras. **Não
+   * é permissão de escrita**: o Field é somente leitura nesta superfície, e
+   * não existe rota de reordenação para ele.
+   */
+  queueVersion: number;
+  /**
+   * COLEÇÃO, e não um item. O AlfaOS permite mais de uma OS `IN_PROGRESS` por
+   * técnico (`D-08`), e escolher uma como "a verdadeira" esconderia trabalho.
+   */
+  inProgress: FieldDispatchQueueItem[];
+  /** Já ordenada por `position` crescente. O aplicativo NUNCA reordena. */
+  queued: FieldDispatchQueueItem[];
+}
+
+/** Projeta uma OS da fila. `position` nulo = está em atendimento. */
+export function toFieldQueueItem(
+  row: ListRow,
+  position: number | null,
+): FieldDispatchQueueItem {
+  return { ...toFieldListItem(row), position };
+}
+
 export interface DetailRow extends ListRow {
   description: string;
   assignedAt: Date | null;
