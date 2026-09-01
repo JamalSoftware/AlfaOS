@@ -1,4 +1,6 @@
 import '../../../core/api/field_api_client.dart';
+import '../../../core/errors/field_error.dart';
+import '../domain/dispatch_queue.dart';
 import '../domain/service_order.dart';
 
 /// Resultado de um `start`, como a mutação o devolve.
@@ -90,6 +92,24 @@ class OrdersRepository {
       query: {'limit': limit, 'cursor': ?cursor},
     );
     return OrderPage.fromJson(data);
+  }
+
+  /// A fila operacional — a ordem que o DESPACHANTE definiu (DQ-5).
+  ///
+  /// Devolve `null` quando o servidor não oferece a superfície (rota ausente,
+  /// 404) ou quando o corpo não traz `position`. Nulo é "indisponível", e não
+  /// "vazia": o controller distingue os dois, porque uma fila legitimamente
+  /// vazia NÃO deve cair no ranking local.
+  Future<DispatchQueue?> dispatchQueue() async {
+    try {
+      final data = await _api.get('/dispatch-queue');
+      return DispatchQueue.tryParse(data);
+    } on FieldException catch (error) {
+      // 404 é o servidor anterior à DQ-5: a rota não existe. Qualquer outro
+      // erro sobe — falha de rede não pode virar "use o ranking local".
+      if (error.status == 404) return null;
+      rethrow;
+    }
   }
 
   Future<OrderDetail> detail(String orderId) async {

@@ -281,7 +281,17 @@ class _DrawerItem extends StatelessWidget {
                             ? FontWeight.w700
                             : FontWeight.w500,
                       ),
-                      maxLines: 1,
+                      /*
+                        DUAS linhas, não uma.
+
+                        "Contratos e Assinaturas" e "Base de Conhecimento" são
+                        rótulos reais do menu e vinham cortados em
+                        "Contratos e Assinat…" — o que sobra não identifica o
+                        item, e o técnico precisa adivinhar. A altura mínima do
+                        alvo de toque já é declarada por `ConstrainedBox`, então
+                        a segunda linha não estreita nada.
+                      */
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),

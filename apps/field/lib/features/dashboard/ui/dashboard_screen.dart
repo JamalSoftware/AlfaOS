@@ -6,9 +6,12 @@ import '../../../app/providers.dart';
 import '../../../app/theme/tokens.dart';
 import '../../../app/widgets/notifications_bell.dart';
 import '../../../app/widgets/shell_drawer_button.dart';
+import '../../../core/widgets/local_order_note.dart';
+import '../../../core/widgets/position_badge.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../core/widgets/status_pill.dart';
 import '../../orders/domain/service_order.dart';
+import '../../orders/state/dispatch_queue_controller.dart';
 import '../../orders/state/orders_controller.dart';
 import '../../timeclock/domain/workday.dart';
 import '../../timeclock/state/time_clock_controller.dart';
@@ -52,6 +55,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   void _loadAll() {
     ref.read(timeClockControllerProvider.notifier).load();
     ref.read(ordersControllerProvider.notifier).load();
+    ref.read(dispatchQueueControllerProvider.notifier).load();
   }
 
   @override
@@ -115,6 +119,7 @@ class _HeroCard extends ConsumerWidget {
     final session = ref.watch(sessionControllerProvider).session;
     final clock = ref.watch(timeClockControllerProvider);
     final orders = ref.watch(ordersControllerProvider);
+    final queue = ref.watch(dispatchQueueControllerProvider);
 
     final nome = session?.firstName ?? '';
     final saudacao = nome.isEmpty ? _periodo() : '${_periodo()}, $nome';
@@ -123,14 +128,37 @@ class _HeroCard extends ConsumerWidget {
     final workday = clock.workday;
     final temJornada = workday.date.isNotEmpty;
 
-    final abertas = orders.items.where(
-      (o) =>
-          o.status != OrderStatus.completed &&
-          o.status != OrderStatus.cancelled,
-    );
-    final urgentes = abertas
-        .where((o) => o.priority == OrderPriority.urgent)
-        .length;
+    /*
+      "OS ABERTAS" = em atendimento + na fila.
+
+      Definido aqui e em lugar nenhum mais, porque somar estado errado é o tipo
+      de erro que ninguém percebe: concluída e cancelada NÃO entram — e nem
+      chegam nesta resposta, que só traz `ASSIGNED` e `IN_PROGRESS`.
+
+      A contagem prefere a fila autoritativa. Sem ela (servidor antigo), cai na
+      lista paginada, que responde a mesma pergunta com outra fonte.
+    */
+    final autoridade = queue.queue;
+    final temContagem = autoridade != null || orders.loaded;
+    final abertas =
+        autoridade?.openCount ??
+        orders.items
+            .where(
+              (o) =>
+                  o.status != OrderStatus.completed &&
+                  o.status != OrderStatus.cancelled,
+            )
+            .length;
+    final urgentes =
+        autoridade?.urgentCount ??
+        orders.items
+            .where(
+              (o) =>
+                  o.priority == OrderPriority.urgent &&
+                  o.status != OrderStatus.completed &&
+                  o.status != OrderStatus.cancelled,
+            )
+            .length;
 
     return Container(
       width: double.infinity,
@@ -158,43 +186,114 @@ class _HeroCard extends ConsumerWidget {
               ),
             ),
           ],
-          if (temJornada || orders.loaded) ...[
+          if (temJornada) ...[
             const SizedBox(height: AlfaSpacing.lg),
-            Wrap(
-              spacing: AlfaSpacing.sm,
-              runSpacing: AlfaSpacing.sm,
+            _HeroChip(
+              // Ponto E rótulo: cor sozinha não é sinal.
+              icon: Icons.circle,
+              iconColor: switch (workday.state) {
+                WorkdayState.working => colors.success,
+                WorkdayState.onBreak => colors.warning,
+                WorkdayState.finished => colors.neutral,
+                _ => colors.neutral,
+              },
+              label: workday.state == WorkdayState.notStarted
+                  ? workdayStateLabel(workday.state)
+                  : '${workdayStateLabel(workday.state)} · '
+                        '${minutesLabel(workday.workedMinutes)}',
+            ),
+          ],
+          if (temContagem) ...[
+            const SizedBox(height: AlfaSpacing.lg),
+            /*
+              O NÚMERO é o dado; a palavra é o rótulo.
+
+              Antes as duas contagens eram pílulas de texto corrido, e "3 OS
+              abertas" pesava o mesmo que qualquer outra frase da tela. Aqui o
+              número sobe de tamanho e o rótulo desce — a leitura de relance
+              devolve a quantidade, que é o que a pessoa foi buscar.
+
+              A urgência é forte SEM ser alarme: ela usa a cor de perigo no
+              número e mantém a mesma superfície das demais. Um card vermelho
+              inteiro leria como erro do aplicativo, não como carga de trabalho.
+            */
+            Row(
               children: [
-                if (temJornada)
-                  _HeroChip(
-                    // Ponto E rótulo: cor sozinha não é sinal.
-                    icon: Icons.circle,
-                    iconColor: switch (workday.state) {
-                      WorkdayState.working => colors.success,
-                      WorkdayState.onBreak => colors.warning,
-                      WorkdayState.finished => colors.neutral,
-                      _ => colors.neutral,
-                    },
-                    label: workday.state == WorkdayState.notStarted
-                        ? workdayStateLabel(workday.state)
-                        : '${workdayStateLabel(workday.state)} · '
-                              '${minutesLabel(workday.workedMinutes)}',
+                Expanded(
+                  child: _HeroMetric(
+                    value: abertas,
+                    label: abertas == 1 ? 'OS aberta' : 'OS abertas',
                   ),
-                if (orders.loaded)
-                  _HeroChip(
-                    icon: Icons.assignment_outlined,
-                    label: abertas.length == 1
-                        ? '1 OS aberta'
-                        : '${abertas.length} OS abertas',
+                ),
+                if (urgentes > 0) ...[
+                  const SizedBox(width: AlfaSpacing.sm),
+                  Expanded(
+                    child: _HeroMetric(
+                      value: urgentes,
+                      label: urgentes == 1 ? 'URGENTE' : 'URGENTES',
+                      valueColor: colors.danger,
+                    ),
                   ),
-                if (urgentes > 0)
-                  _HeroChip(
-                    icon: Icons.priority_high,
-                    iconColor: colors.danger,
-                    label: urgentes == 1 ? '1 urgente' : '$urgentes urgentes',
-                  ),
+                ],
               ],
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Uma métrica do Hero: o número grande, o rótulo pequeno.
+///
+/// O par vem do mesmo dado, então vive no mesmo widget — separá-los em duas
+/// linhas soltas faria o alinhamento depender de quem montasse a tela.
+class _HeroMetric extends StatelessWidget {
+  const _HeroMetric({
+    required this.value,
+    required this.label,
+    this.valueColor,
+  });
+
+  final int value;
+  final String label;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Container(
+      key: Key('hero-metric-$label'),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AlfaSpacing.md,
+        vertical: AlfaSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(AlfaRadius.md),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$value',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              color: valueColor ?? scheme.onSurface,
+              fontWeight: FontWeight.w700,
+              height: 1.1,
+            ),
+          ),
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );
@@ -257,15 +356,62 @@ class _AttentionSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final queue = ref.watch(dispatchQueueControllerProvider);
     final state = ref.watch(ordersControllerProvider);
     final theme = Theme.of(context);
 
-    // Sem dado ainda, ou falhou: o card de OS abaixo já reporta o erro. Este
-    // bloco simplesmente não aparece, em vez de repetir a mesma mensagem.
-    if (!state.loaded || state.items.isEmpty) return const SizedBox.shrink();
+    /*
+      A ORDEM VEM DO SERVIDOR (DQ-6).
 
-    final destaques = attentionOrders(state.items);
-    if (destaques.isEmpty) return const SizedBox.shrink();
+      Enquanto a fila autoritativa existir, este bloco não classifica nada: ele
+      mostra `inProgress` e depois `queued` na ordem em que chegaram. O
+      despachante moveu a OS Nº 7 para a 1ª e a Nº 5 para a 2ª — e é isso que
+      o técnico vê, mesmo que a Nº 5 tenha número menor e prioridade igual.
+
+      `attentionOrders` só volta a decidir quando o SERVIDOR não oferece a
+      superfície (`unavailable`), que é o caso de um APK novo contra um
+      servidor anterior à DQ-5. Falha de rede NÃO cai aqui: ordenar por conta
+      própria e apresentar como se fosse do despacho é pior que dizer que não
+      deu para atualizar.
+    */
+    final autoridade = queue.queue;
+    final destaques = <_AttentionEntry>[];
+
+    if (autoridade != null) {
+      for (final os in autoridade.inProgress) {
+        destaques.add(_AttentionEntry(order: os, position: null));
+      }
+      for (final item in autoridade.queued) {
+        if (destaques.length >= attentionLimit) break;
+        destaques.add(
+          _AttentionEntry(order: item.order, position: item.position),
+        );
+      }
+    } else if (queue.unavailable && state.loaded) {
+      for (final os in attentionOrders(state.items)) {
+        destaques.add(_AttentionEntry(order: os, position: null));
+      }
+    }
+
+    if (queue.loading && !queue.loaded) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: AlfaSpacing.lg),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (destaques.isEmpty) {
+      // Erro da FILA não derruba a Jornada nem o resto do Início: ele fica
+      // contido neste bloco, com a saída à mão.
+      if (queue.error != null) {
+        return _QueueErrorCard(
+          message: queue.error!,
+          onRetry: () =>
+              ref.read(dispatchQueueControllerProvider.notifier).load(),
+        );
+      }
+      return const SizedBox.shrink();
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -284,8 +430,11 @@ class _AttentionSection extends ConsumerWidget {
             ),
           ),
         ),
-        for (final order in destaques) ...[
-          _AttentionCard(order: order),
+        // Modo de compatibilidade DECLARADO: a ordem abaixo é do aplicativo,
+        // e o técnico precisa saber disso antes de segui-la.
+        if (queue.unavailable) const LocalOrderNote(),
+        for (final entry in destaques) ...[
+          _AttentionCard(order: entry.order, position: entry.position),
           const SizedBox(height: AlfaSpacing.sm),
         ],
         Align(
@@ -308,10 +457,69 @@ class _AttentionSection extends ConsumerWidget {
 /// idêntica a uma interna, e é essa ausência que impede um `if (RECEITANET)`
 /// no aplicativo (`src/lib/field/dto.ts`, PRD §254). Deduzir a origem do texto
 /// do tipo seria inventar um dado que o servidor decidiu não enviar.
-class _AttentionCard extends StatelessWidget {
-  const _AttentionCard({required this.order});
+/// Uma linha do bloco: a OS e, quando ela está na fila, a posição dela.
+class _AttentionEntry {
+  const _AttentionEntry({required this.order, required this.position});
 
   final OrderSummary order;
+
+  /// `null` para OS em atendimento — elas não ocupam lugar entre as próximas —
+  /// e para o modo de compatibilidade, onde não há posição autoritativa.
+  final int? position;
+}
+
+/// Erro da FILA, contido neste bloco.
+///
+/// Ele não derruba a Jornada nem o resto do Início: uma falha ao atualizar a
+/// ordem das OS não é motivo para o técnico perder o botão de bater o ponto.
+class _QueueErrorCard extends StatelessWidget {
+  const _QueueErrorCard({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      key: const Key('dashboard-queue-error'),
+      padding: const EdgeInsets.all(AlfaSpacing.lg),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AlfaRadius.md),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Não foi possível atualizar sua fila.',
+            style: theme.textTheme.titleMedium,
+          ),
+          const SizedBox(height: AlfaSpacing.xs),
+          Text(message, style: theme.textTheme.bodySmall),
+          const SizedBox(height: AlfaSpacing.sm),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.tonal(
+              key: const Key('dashboard-queue-retry'),
+              onPressed: onRetry,
+              child: const Text('TENTAR NOVAMENTE'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AttentionCard extends StatelessWidget {
+  const _AttentionCard({required this.order, this.position});
+
+  final OrderSummary order;
+
+  /// Posição autoritativa na fila. `null` em atendimento.
+  final int? position;
 
   @override
   Widget build(BuildContext context) {
@@ -359,6 +567,9 @@ class _AttentionCard extends StatelessWidget {
                 runSpacing: AlfaSpacing.xs,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
+                  // A POSIÇÃO primeiro, e forte: é a informação que este bloco
+                  // existe para dar, e ela precisa ser lida sem contar linhas.
+                  if (position != null) PositionBadge(position: position!),
                   Text(
                     'OS Nº ${order.number}',
                     style: theme.textTheme.titleMedium?.copyWith(
@@ -629,18 +840,83 @@ class _OrdersCard extends ConsumerWidget {
           ),
           if (proxima != null) ...[
             const SizedBox(height: AlfaSpacing.lg),
+            /*
+              "PRÓXIMA AGENDADA", e não "PRÓXIMA OS".
+
+              Duas frases diferentes que a tela vinha misturando. A PRÓXIMA NA
+              FILA é a 1ª do bloco `ATENÇÃO AGORA` — ordem operacional, do
+              despacho. Esta aqui é a de horário mais próximo, e uma OS pode
+              ser a 1ª da fila sem ter agendamento nenhum (PRD §324).
+
+              E é uma LINHA, não um card: a mesma OS costuma aparecer nos dois
+              lugares, e repetir o card inteiro fazia a tela parecer ter duas OS
+              onde há uma. A informação continua — o que sai é a duplicação.
+            */
             Text(
-              'PRÓXIMA OS',
+              'PRÓXIMA AGENDADA',
               style: theme.textTheme.labelSmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
                 letterSpacing: 0.8,
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: AlfaSpacing.sm),
-            _AttentionCard(order: proxima),
+            const SizedBox(height: AlfaSpacing.xs),
+            _ScheduledLine(order: proxima),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// A próxima OS **por horário**, em uma linha.
+///
+/// Representação secundária de propósito: ela quase sempre já apareceu como
+/// card no `ATENÇÃO AGORA`, e mostrar o card de novo faria a mesma OS parecer
+/// duas. Aqui ela é o horário e o número — o que este bloco de fato acrescenta.
+class _ScheduledLine extends StatelessWidget {
+  const _ScheduledLine({required this.order});
+
+  final OrderSummary order;
+
+  String get _quando {
+    final at = order.scheduledAt;
+    if (at == null) return '';
+    final dd = at.day.toString().padLeft(2, '0');
+    final mm = at.month.toString().padLeft(2, '0');
+    final hh = at.hour.toString().padLeft(2, '0');
+    final mi = at.minute.toString().padLeft(2, '0');
+    return '$dd/$mm às $hh:$mi';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      key: Key('scheduled-order-${order.id}'),
+      onTap: () => context.push('/orders/${order.id}'),
+      borderRadius: BorderRadius.circular(AlfaRadius.sm),
+      child: ConstrainedBox(
+        // Alvo de toque declarado, não somado de paddings.
+        constraints: const BoxConstraints(minHeight: AlfaSizing.minTouchTarget),
+        child: Row(
+          children: [
+            Icon(
+              Icons.event_outlined,
+              size: 18,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: AlfaSpacing.sm),
+            Expanded(
+              child: Text(
+                'OS Nº ${order.number} · $_quando',
+                style: theme.textTheme.bodyMedium,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -663,6 +939,12 @@ class _Contador extends StatelessWidget {
     final colors = context.statusColors;
     return Expanded(
       child: Column(
+        /*
+          O rótulo também é texto de STATUS no card de OS ("Em atendimento"),
+          então buscar pelo rótulo alcança dois lugares da mesma tela. A chave
+          escopa o contador sem depender de qual deles o finder achar antes.
+        */
+        key: Key('order-metric-$label'),
         children: [
           Text(
             '$value',

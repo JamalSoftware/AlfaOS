@@ -6,8 +6,12 @@ import '../../../app/providers.dart';
 import '../../../app/theme/tokens.dart';
 import '../../../app/widgets/notifications_bell.dart';
 import '../../../app/widgets/shell_drawer_button.dart';
+import '../../../core/widgets/local_order_note.dart';
+import '../../../core/widgets/position_badge.dart';
 import '../../../core/widgets/state_views.dart';
 import '../domain/service_order.dart';
+import '../domain/dispatch_queue.dart';
+import '../state/dispatch_queue_controller.dart';
 import '../state/orders_controller.dart';
 import 'order_card.dart';
 
@@ -32,6 +36,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(ordersControllerProvider.notifier).load();
+      ref.read(dispatchQueueControllerProvider.notifier).load();
     });
   }
 
@@ -79,14 +84,54 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
         actions: const [NotificationsBell()],
       ),
       body: RefreshIndicator(
-        onRefresh: () =>
-            ref.read(ordersControllerProvider.notifier).load(refresh: true),
+        onRefresh: () => Future.wait([
+          ref.read(ordersControllerProvider.notifier).load(refresh: true),
+          ref.read(dispatchQueueControllerProvider.notifier).load(),
+        ]),
         child: _body(state),
       ),
     );
   }
 
   Widget _body(OrdersState state) {
+    /*
+      A FILA AUTORITATIVA manda quando existe (DQ-6).
+
+      A lista paginada de `/service-orders` continua carregada porque ela é o
+      modo de compatibilidade — servidor anterior à DQ-5, sem a rota da fila.
+      Os dois caminhos NUNCA se misturam: ou a tela obedece ao despacho, ou
+      declara que está no modo antigo. Um híbrido seria a segunda autoridade
+      que esta fase existe para eliminar.
+    */
+    final queue = ref.watch(dispatchQueueControllerProvider);
+    if (queue.queue != null) return _authoritative(queue.queue!);
+
+    if (queue.loading && !queue.loaded) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    /*
+      Erro da fila, sem nada a mostrar: a tela não ordena por conta própria.
+
+      Mas quando as DUAS fontes falham a causa é uma só — rede, sessão,
+      servidor fora —, e a mensagem também precisa ser uma só. Falar de "fila"
+      para quem está sem conexão nenhuma descreve o sintoma menor.
+    */
+    final ordensFalharam = state.error != null && state.items.isEmpty;
+    if (queue.error != null && !queue.unavailable && !ordensFalharam) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          SizedBox(height: MediaQuery.sizeOf(context).height * 0.18),
+          ErrorView(
+            message: 'Não foi possível atualizar sua fila.',
+            onRetry: () =>
+                ref.read(dispatchQueueControllerProvider.notifier).load(),
+          ),
+        ],
+      );
+    }
+
     if (state.loading && state.items.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -127,6 +172,15 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(AlfaSpacing.lg),
       children: [
+        /*
+          Daqui para baixo, a ordem é do APLICATIVO.
+
+          O aviso é a fronteira visível entre os dois modos: sem ele, a lista
+          local teria a mesma aparência da fila do despachante, e a diferença
+          existiria só no código. Marcar procedência é o que torna o fallback
+          honesto em vez de silencioso.
+        */
+        if (queue.unavailable) const LocalOrderNote(),
         if (inProgress.isNotEmpty) ...[
           const _GroupLabel('Em atendimento'),
           ...inProgress.map(_card),
@@ -141,6 +195,64 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
             padding: EdgeInsets.all(AlfaSpacing.lg),
             child: Center(child: CircularProgressIndicator()),
           ),
+      ],
+    );
+  }
+
+  /// A tela com a fila autoritativa: EM ATENDIMENTO + PRÓXIMAS NA FILA.
+  ///
+  /// A ordem é a que chegou. **Nada é reordenado aqui** — nem por número, nem
+  /// por prioridade, nem por horário. O despachante decidiu, e a posição
+  /// aparece ao lado de cada card para que a decisão dele seja legível.
+  Widget _authoritative(DispatchQueue queue) {
+    if (queue.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          SizedBox(height: MediaQuery.sizeOf(context).height * 0.18),
+          const EmptyView(
+            title: 'Nenhuma ordem atribuída no momento.',
+            description: 'Puxe para atualizar quando receber uma nova.',
+            icon: Icons.assignment_outlined,
+          ),
+        ],
+      );
+    }
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(AlfaSpacing.lg),
+      children: [
+        if (queue.inProgress.isNotEmpty) ...[
+          const _GroupLabel('Em atendimento'),
+          // Coleção: mais de uma em atendimento é permitido, e esconder as
+          // demais apagaria trabalho que existe.
+          ...queue.inProgress.map(_card),
+          const SizedBox(height: AlfaSpacing.lg),
+        ],
+        if (queue.queued.isNotEmpty) ...[
+          const _GroupLabel('Próximas na fila'),
+          for (final item in queue.queued)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AlfaSpacing.md),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: AlfaSpacing.md),
+                    child: PositionBadge(position: item.position),
+                  ),
+                  const SizedBox(width: AlfaSpacing.sm),
+                  Expanded(
+                    child: OrderCard(
+                      order: item.order,
+                      onTap: () => context.push('/orders/${item.order.id}'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ],
     );
   }

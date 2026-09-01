@@ -171,7 +171,8 @@ void main() {
 
       // A identidade continua; o resumo de OS também. Some só o que falhou.
       expect(find.textContaining('Joana'), findsOneWidget);
-      expect(find.text('1 OS aberta'), findsOneWidget);
+      // A métrica virou NÚMERO + rótulo (DQ-6): o valor pesa mais que a frase.
+      expect(find.byKey(const Key('hero-metric-OS aberta')), findsOneWidget);
       expect(find.text('Não foi possível carregar a jornada.'), findsOneWidget);
     });
 
@@ -387,7 +388,15 @@ void main() {
       await harness.pumpApp(tester);
       await _settle(tester);
 
-      expect(find.text('PRÓXIMA OS'), findsOneWidget);
+      /*
+        O rótulo mudou para PRÓXIMA AGENDADA em DQ-6, e a mudança é o ponto.
+
+        "Próxima na fila" é ordem operacional, do despacho; "próxima agendada"
+        é compromisso de horário. A tela chamava as duas de "PRÓXIMA OS", e uma
+        OS pode ser a 1ª da fila sem ter horário nenhum.
+      */
+      expect(find.text('PRÓXIMA AGENDADA'), findsOneWidget);
+      expect(find.text('PRÓXIMA OS'), findsNothing);
     });
 
     testWidgets('J. o bloco não vira lista: no máximo três cards', (
@@ -480,10 +489,29 @@ void main() {
       await harness.pumpApp(tester);
       await _settle(tester);
 
-      // os-1 ASSIGNED e os-3 PENDING são pendentes (2); os-2 IN_PROGRESS é 1.
-      expect(find.text('3'), findsOneWidget);
-      expect(find.text('1'), findsOneWidget);
-      expect(find.text('2'), findsOneWidget);
+      /*
+        os-1 ASSIGNED e os-3 PENDING são pendentes (2); os-2 IN_PROGRESS é 1.
+
+        A busca é ESCOPADA ao contador, por chave. Desde a DQ-6 o hero também
+        pinta números soltos, e um `find.text('3')` global casava com os dois —
+        o teste passaria a medir a tela errada sem ninguém perceber.
+      */
+      Finder contador(String rotulo) => find.byKey(Key('order-metric-$rotulo'));
+      expect(
+        find.descendant(of: contador('Total'), matching: find.text('3')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: contador('Em atendimento'),
+          matching: find.text('1'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: contador('Pendentes'), matching: find.text('2')),
+        findsOneWidget,
+      );
     });
   });
 

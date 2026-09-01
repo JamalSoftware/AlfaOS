@@ -115,10 +115,23 @@ class _TodayCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
+          /*
+            `Wrap`, e não `Row` com `Spacer`.
+
+            A pílula de estado mais "Trabalhado: 7h 45min" não cabia numa
+            linha de 390dp com "Em intervalo" — o `Spacer` empurrava o texto
+            para fora e a faixa amarela de overflow aparecia no meio do card.
+            Quebrando a linha, o tempo desce em vez de ser cortado.
+
+            Encontrado pelo teste do Voltar, que monta esta tela numa largura
+            real de aparelho.
+          */
+          Wrap(
+            spacing: AlfaSpacing.sm,
+            runSpacing: AlfaSpacing.xs,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               _WorkdayPill(state: workday.state),
-              const Spacer(),
               Text(
                 'Trabalhado: ${minutesLabel(workday.workedMinutes)}',
                 style: Theme.of(context).textTheme.bodyMedium,
