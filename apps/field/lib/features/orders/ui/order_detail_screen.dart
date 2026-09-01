@@ -54,6 +54,37 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
       }
     });
 
+    /*
+      DEEP LINK: esta tela pode ser a PRIMEIRA do aplicativo.
+
+      Aberta por um toque no aplicativo, ela tem pilha e o Voltar devolve à
+      tela anterior — que é o certo, e é por isso que a casca não manda todo
+      mundo para o Início. Aberta direto (uma notificação, um link), não há
+      nada por baixo: o pop escaparia para o sistema e o técnico veria o
+      aplicativo FECHAR ao tentar voltar da OS que acabou de abrir.
+
+      Sem pilha, o Voltar leva a "Minhas Ordens" — a superfície de onde esta
+      tela naturalmente vem —, e não ao Início: quem abriu uma OS estava
+      tratando de OS.
+    */
+    return PopScope(
+      // `Navigator`, e não `context.canPop()` do GoRouter: a pergunta é "há
+      // algo embaixo?", e responder por ela não deveria obrigar esta tela a
+      // existir dentro de um router — ela é montada sozinha em teste.
+      canPop: Navigator.of(context).canPop(),
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) GoRouter.maybeOf(context)?.go('/orders');
+      },
+      child: _scaffold(context, state, provider),
+    );
+  }
+
+  Widget _scaffold(
+    BuildContext context,
+    OrderDetailState state,
+    AutoDisposeStateNotifierProvider<OrderDetailController, OrderDetailState>
+    provider,
+  ) {
     return Scaffold(
       appBar: AppBar(
         title: Text(

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'providers.dart';
+import 'shell_back.dart';
 import 'widgets/app_drawer.dart';
 
 /// Casca do App Shell: três destinos, sempre visíveis (PRD §255).
@@ -34,34 +35,77 @@ class HomeShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Scaffold(
-      key: ref.watch(shellScaffoldKeyProvider),
-      drawer: const AppDrawer(),
-      body: navigationShell,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: navigationShell.currentIndex,
-        onDestinationSelected: (index) => navigationShell.goBranch(
-          index,
-          // Tocar na aba já ativa volta ao topo dela, em vez de não fazer nada.
-          initialLocation: index == navigationShell.currentIndex,
+    final scaffoldKey = ref.watch(shellScaffoldKeyProvider);
+
+    /*
+      O VOLTAR do Android (DQ-6).
+
+      Trocar de aba num `indexedStack` não empilha rota. Sem pilha para
+      desempilhar, o pop chegava ao sistema e o aplicativo FECHAVA — o técnico
+      apertava Voltar em `OS` esperando o `Início` e via o app sumir.
+
+      `canPop` responde a pergunta do sistema ANTES do gesto: só o Início, sem
+      nada aberto por cima, autoriza sair. Nos outros casos interceptamos e
+      navegamos.
+
+      A gaveta é lida do `Scaffold` no momento do gesto, e não de estado
+      próprio: ela abre sem reconstruir esta casca, e um espelho local
+      dessincronizaria na primeira vez que alguém a fechasse arrastando.
+    */
+    bool drawerOpen() => scaffoldKey.currentState?.isDrawerOpen ?? false;
+
+    return PopScope(
+      canPop:
+          resolveShellBack(
+            branchIndex: navigationShell.currentIndex,
+            drawerOpen: drawerOpen(),
+          ) ==
+          ShellBackAction.exitApp,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        switch (resolveShellBack(
+          branchIndex: navigationShell.currentIndex,
+          drawerOpen: drawerOpen(),
+        )) {
+          case ShellBackAction.closeDrawer:
+            scaffoldKey.currentState?.closeDrawer();
+          case ShellBackAction.goHome:
+            navigationShell.goBranch(homeBranchIndex);
+          case ShellBackAction.exitApp:
+            // `canPop` já teria autorizado; chegar aqui significa que o estado
+            // mudou entre o build e o gesto. Não force a saída.
+            break;
+        }
+      },
+      child: Scaffold(
+        key: scaffoldKey,
+        drawer: const AppDrawer(),
+        body: navigationShell,
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: navigationShell.currentIndex,
+          onDestinationSelected: (index) => navigationShell.goBranch(
+            index,
+            // Tocar na aba já ativa volta ao topo dela, em vez de não fazer nada.
+            initialLocation: index == navigationShell.currentIndex,
+          ),
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home),
+              label: 'Início',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.assignment_outlined),
+              selectedIcon: Icon(Icons.assignment),
+              label: 'OS',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.schedule_outlined),
+              selectedIcon: Icon(Icons.schedule),
+              label: 'Jornada',
+            ),
+          ],
         ),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Início',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.assignment_outlined),
-            selectedIcon: Icon(Icons.assignment),
-            label: 'OS',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.schedule_outlined),
-            selectedIcon: Icon(Icons.schedule),
-            label: 'Jornada',
-          ),
-        ],
       ),
     );
   }
