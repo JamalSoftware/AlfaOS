@@ -382,7 +382,7 @@ E duas de privacidade: o validador público **não expõe dado pessoal completo*
 
 **Carregar:** `docs/PRD.md` §234–§246 — papel na rede separado do tipo físico, topologia, política por empresa, IP de gerenciamento, backhaul, local, propriedade, patrimônio, credencial de acesso, perfil de rede e histórico. A ponta administrativa é a §224.
 **Quando:** a tarefa envolve topologia da casa do cliente, repetidor, IP de gerenciamento, propriedade do equipamento ou o painel web de equipamentos.
-**Quando NÃO:** rede do PROVEDOR — CTO, caixa, backbone. Isso é FiberMap, e a fronteira está na §202. Material consumido no atendimento é inventário (§181); ferramenta cedida ao técnico é custódia (Parte VII, §211).
+**Quando NÃO:** **CTO e portas** são outra capability — ver a seção abaixo. Traçado de fibra (cabo, splitter, PON, OLT) é FiberMap. Material consumido no atendimento é inventário (§181); ferramenta cedida ao técnico é custódia (Parte VII, §211).
 
 **O que JÁ existe (v0.10):** `ServiceOrderEquipment` com tipo, fabricante, modelo, série e MAC opcionais, e a foto da etiqueta com estágio e vínculo 1:1. **Não existe** papel na rede, topologia, IP, propriedade, política por empresa nem histórico de troca — tudo isso é `PLANNED`.
 
@@ -390,6 +390,22 @@ Duas decisões que o PRD já fixou e não devem ser desfeitas na implementação
 
 * **`equipmentType` e `networkRole` são campos diferentes** (§235). Nem toda ONT roteia, e o tipo não muda quando o modo de operação muda.
 * **O padrão de repetidor da Alfa Telecom é configuração, não código** (§237). Hardcode transformaria a regra de um provedor em regra do produto.
+
+## CTOs e Rede de Distribuição — PLANNED, nada em código
+
+**Carregar:** `docs/CTO-NETWORK-DISTRIBUTION.md` (especificação técnica — modelo, concorrência de porta, fluxos, fases `CTO-1`–`CTO-7`, aceite, casos de borda) e PRD §333–§341 (visão, invariantes e a revisão da §202). Para entender a fonte de status, também `src/lib/customer-diagnostics.ts` e o modelo `CustomerDiagnosticSnapshot`.
+
+**Leia a §334 antes de qualquer outra coisa: ela REVÊ a §202**, que proibia cadastro de CTO no AlfaOS. O motivo é que a regra prescrevia consultar o FiberMap, que é `FUTURO` sem data — sem integração não há dois cadastros, há nenhum, e o técnico ia ao poste sem saber a caixa. A precedência para o dia em que o FiberMap existir está escrita: ele manda na topologia física, o AlfaOS no vínculo operacional.
+
+Quatro coisas que a especificação fixou e são fáceis de desfazer sem perceber:
+
+* **`Customer.ctoId` não serve** (§335). Responde "onde ele está agora" e destrói "onde ele estava" — e não representa porta livre.
+* **A porta é o ponto de concorrência**, e quem arbitra é o **banco** (unique parcial), não uma checagem de aplicação. Dois técnicos, dois celulares, a mesma porta 4.
+* **Nenhuma integração nova de status** (§336). A CTO lê o `CustomerDiagnosticSnapshot` que a OS já usa. Uma segunda leitura criaria dois estados para o mesmo cliente.
+* **O diagnóstico atual não sustenta tempo real** (§337): refresh é sob demanda com gatilho na OS, e o teto é **10 chamadas por minuto por empresa** — uma CTO de 8 portas consumiria 8. Por isso a CTO mostra o último estado conhecido **com a idade da leitura**.
+
+**Quando:** a tarefa envolve CTO, porta óptica, vínculo do cliente à rede de distribuição ou o status na visão da caixa.
+**Quando NÃO:** qualquer outra coisa. **Nada disso existe em código**, e a §119 se aplica. A próxima fase continua sendo `DQ-6` — escrever a especificação não a promove na ordem.
 
 ## Contatos do cliente — PLANNED
 

@@ -344,6 +344,18 @@ Gates: 1561 Vitest (era 1543), 116 Playwright, 280 Flutter, lint, tsc, build, **
 
 **Bug bloqueante do piloto físico, registrado para DQ-6: o `Voltar` do Android FECHA o aplicativo** em várias telas principais, em vez de navegar. Regra aprovada: detalhe → anterior; gaveta aberta → fecha a gaveta; modal → fecha o modal; OS/Jornada sem pilha → Início; **só no Início na raiz** o Android sai. **Não corrigido em DQ-5**, que é backend.
 
+Também sem código, **documentação apenas**: a **Parte XIII do PRD (§333–§341)** e `docs/CTO-NETWORK-DISTRIBUTION.md` — **CTOs e Rede de Distribuição**: a caixa, suas portas, o vínculo do cliente e o histórico da movimentação, mais a reutilização do status de conectividade que já existe.
+
+**Esta Parte REVÊ a §202**, que proibia cadastro de CTO no AlfaOS ("o AlfaOS não duplica topologia de rede"). A revisão está escrita, não é silenciosa: a regra prescrevia **consultar** o FiberMap, que é `FUTURO` sem código e sem data — e **duplicação exige dois cadastros**. Não havendo integração, não havia dois, havia **nenhum**, e o técnico ia ao poste sem saber a caixa. A fronteira deixou de ser "não cadastrar" e passou a ser **precedência**: com FiberMap integrado, ele manda na topologia **física** (cabo, splitter, PON, OLT) e o AlfaOS no vínculo **operacional** (quem está em qual porta, desde quando, por qual OS). As quatro seções que afirmavam o contrário — §107, §202, §234 e §259 — foram corrigidas na mesma tarefa.
+
+Quatro decisões que não podem ser desfeitas: **`Customer.ctoId` não serve** (responde "onde está agora" e destrói "onde estava", e não representa porta livre); **a porta é o ponto de concorrência e quem arbitra é o banco**, não a aplicação — dois técnicos, dois celulares, a mesma porta 4; **nenhuma integração nova de status** (a CTO lê o `CustomerDiagnosticSnapshot` que a OS já usa); e **movimentação preserva história** — fechar o vínculo antigo e abrir o novo, nunca `UPDATE` destrutivo.
+
+**O limite que decide o escopo de CTO-5 e CTO-6**, levantado no código: o refresh do diagnóstico é **sob demanda com gatilho na OS** (sem cron), e a capability usa o teto padrão de **10 chamadas por minuto por empresa** — uma CTO de 8 portas consumiria 8 delas. Por isso a CTO apresenta o **último estado conhecido com a IDADE da leitura**, e não promete tempo real. "Possível falha coletiva" (CTO-6) é a fase que mais depende de resolver esse frescor.
+
+**QR é OPCIONAL, e o padrão é desligado** — com ele off, nenhuma função principal fica indisponível.
+
+**Isto NÃO muda o próximo passo: continua sendo `DQ-6`** (Field consumindo a fila autoritativa + Android Back). CTO entra depois da sequência da fila estar concluída e publicada.
+
 Mais dois achados do levantamento, fora do escopo da fila e válidos por si: **não existe operação de cancelamento nem de desatribuição de OS** — `status: "CANCELLED"` nunca é escrito em produção e `technicianId: null` só aparece em fixture, de modo que `CANCELLED` é estado declarado e inalcançável —, e **`ServiceOrder` não tem índice em `technicianId`**.
 
 Pendente e **não** pertencente à fila: um último polimento visual do Field — destaque das métricas de OS abertas e urgentes, hierarquia da métrica de urgência, repetição da mesma OS entre `ATENÇÃO AGORA` e `PRÓXIMA OS`, e ajustes da gaveta.

@@ -2474,10 +2474,16 @@ Cliente → CTO → Porta → Splitter → Cabo → Poste → PON → OLT
 
 Permitirá diagnóstico topológico e análise de impacto.
 
-> **Fronteira registrada em 2026-08-26 (§202).** O AlfaOS **consulta** o
-> FiberMap; não copia topologia de rede para dentro de si. Um cadastro de
-> CTO no AlfaOS divergiria do FiberMap na primeira manutenção, e o técnico
-> levaria a informação errada para o poste.
+> **Fronteira registrada em 2026-08-26 (§202) e REVISTA em 2026-08-31 (§334).**
+>
+> O AlfaOS **consulta** o FiberMap para topologia de fibra — cabo, splitter,
+> PON, OLT — e não a copia. Mas o cadastro **operacional** de CTO, porta e
+> vínculo do cliente passou a ser do AlfaOS (Parte XIII), porque esta
+> integração é `FUTURO` sem data e, sem ela, não existia cadastro nenhum: o
+> técnico ia ao poste sem saber a caixa.
+>
+> Quando o FiberMap for integrado, a precedência é a da §334 — ele manda na
+> topologia física, o AlfaOS manda no vínculo operacional.
 
 ---
 
@@ -5747,6 +5753,24 @@ A integração futura da §107 continua válida: o Field mostra o caminho
 `Cliente → CTO → Porta → Splitter → Cabo → Poste → PON → OLT` **consultando**
 o FiberMap, não copiando-o. Cada sistema mantém a sua responsabilidade.
 
+> ## REVISTA em 2026-08-31 pela §334
+>
+> **A regra continua valendo no que protege; mudou o que ela proíbe.**
+>
+> O raciocínio acima pressupõe que o FiberMap está lá para ser consultado — e
+> ele é `FUTURO` (§107): sem integração, sem código, sem data. Duplicação exige
+> **dois** cadastros; não havendo integração, não há dois, há **nenhum**, e o
+> técnico trabalha sem o dado.
+>
+> O AlfaOS passa a manter o cadastro **operacional** de CTO, porta e vínculo
+> (Parte XIII). A fronteira deixa de ser "não cadastrar" e passa a ser
+> **precedência**: com FiberMap integrado, ele é autoridade da topologia
+> FÍSICA e o AlfaOS do vínculo OPERACIONAL — quem está em qual porta, desde
+> quando, por qual OS. A §334 traz a regra inteira.
+>
+> A tabela acima permanece correta para **cabo, splitter, PON e OLT**, que
+> continuam fora do AlfaOS.
+
 ---
 
 # 203. CENTRAL DE DESPACHO — O QUADRO
@@ -6865,10 +6889,15 @@ quarto pendura no roteador principal por Wi-Fi, e é onde o sinal cai".
 
 ## Fronteira
 
-Isto é a rede **dentro** da casa do cliente. A rede **do provedor** — CTO,
-caixa, splitter, backbone — é do FiberMap, e a §202 já fixou que o AlfaOS
-consulta topologia externa sem copiá-la. As duas se encontram na ONU e param
-ali.
+Isto é a rede **dentro** da casa do cliente. A rede **do provedor** — splitter,
+cabo, PON, backbone — é do FiberMap, e o AlfaOS consulta topologia de fibra sem
+copiá-la. As duas se encontram na ONU e param ali.
+
+> **Exceção registrada em 2026-08-31: a CTO.** O ponto de distribuição onde o
+> cliente está conectado passou a ser cadastro operacional do AlfaOS (Parte
+> XIII, §334) — não o caminho da fibra, só a caixa, a porta e o vínculo. A
+> fronteira desta seção não muda: roteador, SSID e LAN continuam sendo rede
+> interna, e a CTO não é `Equipment` (§339).
 
 ---
 
@@ -8075,10 +8104,15 @@ CTOs (FUTURE)       ·  Rede (FUTURE)
 `TechnicianLocation` (§135) e privacidade (§138, §261) — só aparece se a
 política da empresa permitir, e nunca como visão sempre ligada.
 
-CTO e rede são **FUTURE** e pertencem ao FiberMap: o AlfaOS **consulta**
-topologia de rede, não a copia (§202). Um mapa que comece a guardar caixa
-óptica passa a manter um cadastro de rede paralelo, e a divergência entre os
-dois aparece no pior momento.
+**Topologia de fibra** — cabo, splitter, PON, OLT — é `FUTURE` e pertence ao
+FiberMap: o AlfaOS consulta, não copia. Um mapa que comece a guardar traçado de
+fibra mantém um cadastro de rede paralelo, e a divergência aparece no pior
+momento.
+
+> **A CTO é exceção, revista em 2026-08-31 (§334).** A caixa, suas portas e o
+> vínculo do cliente passaram a ser cadastro operacional do AlfaOS (Parte
+> XIII), e por isso a CTO **entra** no mapa — é a fase `CTO-3`, que depende
+> deste mapa existir.
 
 ## O que o mapa do Field NÃO faz
 
@@ -11167,3 +11201,368 @@ uma troca deliberada — a fila que o usuário vê é única, e guardar o que se
 apresenta evita uma numeração que não existiria em lugar nenhum. O preço é que
 essa invariante só é verdade enquanto houver teste, e por isso ela tem teste de
 concorrência dedicado com prova de reversão.
+
+---
+
+# PARTE XIII — CTOs E REDE DE DISTRIBUIÇÃO
+
+> **Addendum aprovado em 2026-08-31.** Documentação de produto e arquitetura.
+> **Nada desta Parte existe em código.**
+>
+> Ela **revê a §202**, que proibia cadastro de CTO no AlfaOS. A revisão está na
+> §334, com o motivo — e não é uma inversão silenciosa.
+>
+> A especificação técnica (modelo, concorrência de porta, fluxos, fases,
+> aceite, casos de borda) vive em `docs/CTO-NETWORK-DISTRIBUTION.md`. Aqui
+> ficam a visão, as invariantes e o roadmap.
+
+---
+
+# 333. CTOs / REDE DE DISTRIBUIÇÃO — CAPABILITY OFICIAL
+
+**Classificação: `IMPORTANTE`. Nada implementado.**
+
+O técnico chega ao poste e precisa saber **em qual caixa e em qual porta** o
+cliente está. Hoje o AlfaOS não sabe: a informação está na cabeça de quem
+instalou, num caderno, ou num sistema que o AlfaOS não consulta.
+
+```text
+CTO A16
+Capacidade 8 · 6 ocupadas · 2 livres
+
+01  Cliente A    ONLINE
+02  Cliente B    OFFLINE
+03  LIVRE
+04  Cliente C    ONLINE
+```
+
+`A16` é **exemplo**, não contrato. Uma empresa nomeia `CTO-001`, outra `CX-45`,
+outra `NAP-12`. Nada nesta Parte depende da nomenclatura da Alfa Telecom — a
+§114 vale aqui como em todo lugar.
+
+## O que ela NÃO é
+
+```text
+não é topologia de fibra        cabo, splitter, PON, OLT continuam fora
+não é rede interna do cliente   Parte VIII — as duas se encontram na ONU
+não é inventário de equipamento CTO não é `Equipment` (§339)
+não é integração nova de status a fonte já existe (§336)
+```
+
+---
+
+# 334. A FRONTEIRA COM O FIBERMAP — A §202 REVISTA
+
+Esta seção existe porque a Parte contraria uma decisão anterior, e contrariar
+em silêncio é pior que contrariar.
+
+## O que a §202 fixou
+
+> **O AlfaOS não duplica topologia de rede.**
+>
+> "Um cadastro de CTO dentro do AlfaOS divergiria do FiberMap na primeira
+> manutenção de rede, e o técnico levaria a informação errada para o poste."
+
+A regra estava certa **sobre o problema que imaginava**: dois cadastros da
+mesma caixa, mantidos por sistemas diferentes, divergem — e o pior momento para
+descobrir isso é com o técnico já no poste.
+
+## Por que ela não se sustenta no estado real do produto
+
+A regra prescreve **consultar** o FiberMap. Só que ele é `FUTURO` (§107, §117):
+não há integração, não há código, não há data.
+
+> **Duplicação exige DOIS cadastros. Não havendo integração, não há dois — há
+> nenhum**, e o técnico trabalha sem o dado. A §202, aplicada ao sistema como
+> ele é, não impede divergência: impede **ter a informação**.
+
+## O que muda, e o que continua
+
+A §202 **continua valendo no que ela protege**. O que muda é o que ela proíbe:
+a fronteira deixa de ser "não cadastrar" e passa a ser **quem manda quando os
+dois existirem**.
+
+```text
+sem FiberMap integrado
+  AlfaOS é autoridade operacional de CTO, porta e vínculo
+
+com FiberMap integrado
+  FiberMap    topologia FÍSICA — caixa, capacidade, splitter, cabo, PON, OLT
+  AlfaOS      vínculo OPERACIONAL — qual cliente, em qual porta, desde quando,
+              por qual OS, instalado por quem
+```
+
+Os dois não competem porque respondem perguntas diferentes. O FiberMap responde
+*por qual fibra o sinal passa*; o AlfaOS responde *quem o técnico instalou ali*.
+E o vínculo nasce numa OS do AlfaOS — é ele que tem o ator, o horário de
+servidor e a evidência.
+
+> **A integração futura não sobrescreve o vínculo operacional em silêncio.**
+> Divergência entre os dois é fato a EXIBIR, não merge automático — a mesma
+> regra que a §197 já fixou para localização: dado de menor confiança não
+> sobrescreve o confirmado em campo.
+
+Se a empresa **já tiver** FiberMap e o integrar antes da fase CTO-1, esta
+capability é reavaliada em vez de implementada.
+
+---
+
+# 335. CTO → PORTA → VÍNCULO → HISTÓRICO
+
+O modelo tem quatro níveis, e nenhum pode ser colapsado.
+
+```text
+CTO           a caixa física, com capacidade própria
+PORTA         uma posição dentro dela, com estado
+VÍNCULO       qual cliente ocupa a porta, desde quando
+HISTÓRICO     o que veio antes, e nunca é apagado
+```
+
+## Por que não `Customer.ctoId`
+
+Um par de campos no cliente responde "onde ele está **agora**" e destrói a
+pergunta seguinte: *onde ele estava*. E não representa a porta livre — uma CTO
+com 2 posições vagas é informação operacional que não existe em campo nenhum
+do cliente.
+
+## Movimentação preserva história
+
+Mover `A16/4 → A18/7` **não** é um `UPDATE` que troca a porta: é fechar o
+vínculo atual e abrir outro, na mesma transação, com ator, OS e horário do
+servidor. O anterior continua legível.
+
+É a mesma escolha que a Jornada fez com `TimeEntry` — correção cria linha nova,
+não edita a original (§229) — e que a §197 fez com localização.
+
+## A porta é o ponto de concorrência
+
+Dois técnicos, dois celulares, a mesma `A16/4`, no mesmo minuto. É o caso
+realista: duas instalações no mesmo condomínio saem juntas.
+
+> **Uma porta tem no máximo um vínculo ativo, e quem arbitra é o BANCO.** O
+> perdedor recebe conflito explícito, nunca silêncio nem "deu certo" para os
+> dois. O Flutter não decide disponibilidade: "livre" na tela é leitura, não
+> reserva.
+
+---
+
+# 336. ONLINE / OFFLINE REUSA A FONTE QUE JÁ EXISTE
+
+**Decisão aprovada: nenhuma integração nova para a CTO.**
+
+O AlfaOS já produz esse estado — `CustomerDiagnosticSnapshot`, alimentado pelo
+adapter de ERP e lido pela tela da OS (§146). A CTO consome o **mesmo**
+snapshot.
+
+```text
+provider (ERP)
+      ↓
+CustomerDiagnosticSnapshot
+      ↓
+OS · CTO · Mapa · Rede do Cliente
+```
+
+Uma fonte só. Uma segunda leitura de conectividade criaria dois estados para o
+mesmo cliente, e a divergência entre eles apareceria como "a OS diz online, a
+CTO diz offline" sem ninguém saber qual acreditar.
+
+## `UNKNOWN` é resposta, não erro
+
+```text
+ONLINE     o provider disse que está no ar
+OFFLINE    o provider disse que está fora
+UNKNOWN    não conseguimos falar, ou não há leitura
+```
+
+> **Nunca inferir `ONLINE` porque o cliente está ativo no cadastro.** "Não
+> conseguimos falar com o ERP" e "o ERP diz que está fora" são fatos
+> diferentes; colapsar o primeiro em `OFFLINE` manda um técnico ao endereço por
+> causa de uma integração instável.
+
+## O Flutter nunca fala com o provider
+
+```text
+ERRADO   Flutter → provider, uma chamada por cliente da CTO
+CERTO    Flutter → AlfaOS → projeção da CTO → clientes + status, agregado
+```
+
+Uma resposta só. É a regra que a Field API já segue em toda superfície (§192).
+
+---
+
+# 337. O QUE O DIAGNÓSTICO ATUAL NÃO SUSTENTA
+
+Levantado no código, e registrado aqui porque **decide o escopo de CTO-5 e
+CTO-6**.
+
+## Três limitações reais
+
+**1. O refresh é sob demanda, e o gatilho é a OS.** Não há cron nem poller: um
+snapshot só existe — e só envelhece menos — quando alguém abre a OS daquele
+cliente. Numa CTO de 8 clientes é normal que as leituras estejam a meses de
+distância entre si, e que quem não teve OS recente **não tenha snapshot**.
+
+**2. O teto de chamadas inviabiliza "atualizar a CTO inteira".** A capability
+de diagnóstico usa o limite padrão: **10 por minuto, por empresa**. Uma CTO de
+8 portas consumiria 8 deles; duas CTOs em sequência estouram o teto, e a
+segunda vem `UNKNOWN` por causa da própria tela.
+
+**3. Não existe consulta em lote.** O diagnóstico é por cliente, e a §141 já
+registrou que o provider não expõe listagem. Um lote seria N chamadas.
+
+## A consequência, e ela é de produto
+
+> **A CTO apresenta o ÚLTIMO ESTADO CONHECIDO, com a IDADE dele. Não promete
+> tempo real e não atualiza a caixa inteira ao abrir.**
+
+```text
+01  Cliente A   ONLINE        há 2 min
+02  Cliente B   OFFLINE       última leitura 22:07
+04  Cliente C   DESCONHECIDO
+```
+
+A idade ao lado do estado não é enfeite: sem ela, um `ONLINE` de três meses
+atrás é indistinguível de um de agora — e alguém sobe num poste por causa
+disso.
+
+Atualizar continua sendo ação explícita, cliente a cliente, pelo caminho que já
+existe. "Atualizar a CTO inteira" é decisão de **capacidade de integração** —
+teto próprio, chamada em lote no provider, ou fila de atualização —, nunca uma
+tela nova.
+
+---
+
+# 338. CAPABILITIES POR EMPRESA, E O QR OPCIONAL
+
+O AlfaOS é SaaS (§114): uma empresa quer CTO com mapa e status, outra só quer o
+cadastro. Conceitualmente:
+
+```text
+CTO_MODULE · CTO_MAP · CTO_PORT_MANAGEMENT
+CTO_LIVE_STATUS · CTO_QR_IDENTIFICATION
+```
+
+Nenhuma flag física é decidida aqui — e o AlfaOS **não tem** infraestrutura de
+feature flag por empresa hoje, o que é pendência registrada.
+
+## QR é OPCIONAL, e o padrão é DESLIGADO
+
+Empresas que identificam a caixa por nome não devem ser obrigadas a colar
+etiqueta em centenas de postes para usar o módulo.
+
+> **`CTO_QR_IDENTIFICATION = OFF` por padrão.** Com ele desligado, **nenhuma**
+> função principal fica indisponível: o técnico acha a CTO pelo nome, pela
+> busca, pelo mapa ou pela proximidade.
+
+É a mesma disciplina da §222, que decidiu **não** ter QR para ferramenta.
+
+---
+
+# 339. CTO NO FIELD E NO MAPA
+
+## Instalação e reparo
+
+Na instalação, o técnico seleciona CTO e porta e confirma a vinculação. A
+proximidade GPS **ordena a lista**; ela não escolhe — duas caixas a 30 m uma da
+outra são indistinguíveis por GPS de celular, e quem confirma a caixa física é
+quem está diante dela.
+
+No reparo, o vínculo existente **aparece pronto**: `CTO A16 · Porta 04`, com
+ver no mapa e abrir a CTO. Não se pede cadastro de novo.
+
+## O vínculo sobrevive à OS
+
+Ele nasce numa OS e **não depende dela**. Concluída a OS, o cliente continua na
+porta 4 — `serviceOrderId` é procedência, não dono.
+
+## No mapa
+
+A CTO é entidade do Mapa Operacional (§136), que **não existe**. CTO-3 depende
+dele; CTO-1, CTO-2 e CTO-4 não.
+
+## CTO não é `Equipment`
+
+A CTO é infraestrutura de distribuição do provedor; ONT, roteador e repetidor
+são equipamentos (§241). Colapsar os dois faria a caixa do poste aparecer na
+mesma listagem do roteador do cliente.
+
+A ONT entra por **vínculo**, quando houver. Sem vínculo autoritativo, a CTO não
+mostra série nem modelo: **não inventa telemetria** — a mesma regra da §174.
+
+**Potência óptica** é evidência de instalação, não campo obrigatório universal.
+Se virar exigência, é por política da empresa, ao lado da política de conclusão
+que já existe (§166).
+
+---
+
+# 340. INVARIANTES
+
+```text
+N-01  companyId sempre da sessão, nunca do cliente
+N-02  CTO, porta, cliente, técnico e OS da MESMA empresa
+N-03  empresa A nunca vê nem altera CTO de B — 404, não 403
+N-04  uma porta tem no máximo UM vínculo ativo, arbitrado pelo banco
+N-05  conflito de porta é explícito; nunca last-write-wins
+N-06  movimentação preserva o vínculo anterior — nunca UPDATE destrutivo
+N-07  fechar o antigo e abrir o novo acontecem na MESMA transação
+N-08  o Flutter não decide disponibilidade de porta
+N-09  o Flutter nunca chama o provider
+N-10  status vem da fonte existente; sem leitura, UNKNOWN
+N-11  status exibido carrega a IDADE da leitura
+N-12  reduzir capacidade abaixo da maior porta ocupada é RECUSADO
+N-13  CTO com histórico é inativada, nunca apagada
+N-14  o vínculo sobrevive à conclusão da OS
+N-15  o ERP origina Customer; não controla a topologia do AlfaOS
+```
+
+`N-04` merece nota: é a única invariante desta capability que **precisa** de
+índice no banco para valer. Uma checagem de aplicação perde a corrida por
+construção — dois técnicos, dois celulares, a mesma porta.
+
+---
+
+# 341. ROADMAP — E A ORDEM COM A FILA OPERACIONAL
+
+```text
+CTO-1  Web: cadastro, capacidade, portas, localização
+CTO-2  Field: vincular cliente a CTO/porta na instalação e no reparo
+CTO-3  CTOs no Mapa Operacional            depende do mapa (§136)
+CTO-4  Detalhe da CTO: ocupação e clientes
+CTO-5  Status reusando a fonte existente, com a IDADE da leitura
+CTO-6  Análise de impacto / possível falha coletiva
+CTO-7  Opcional: QR e inventário avançado
+```
+
+**QR não é requisito de CTO-1 a CTO-6.**
+
+## Possível falha coletiva — o que ela NÃO pode dizer
+
+Seis de sete clientes da mesma CTO `OFFLINE` é **sinal**, não diagnóstico.
+
+> Nunca chamar de "rompimento" sem evidência adicional. E, pela §337, o sinal é
+> mais fraco do que parece: seis leituras velhas e uma recente não são seis
+> clientes fora agora. **CTO-6 é a fase que mais depende de resolver o frescor**,
+> e não deve ser prometida antes disso.
+
+## Esta Parte NÃO muda o próximo passo
+
+> **A próxima fase continua sendo `DQ-6` — o Field consumindo a fila
+> autoritativa**, com 1ª/2ª/3ª, refresh e o endurecimento do **Android Back**
+> (bug bloqueante do piloto físico).
+
+CTO entra **depois** de a sequência da fila estar concluída e publicada, salvo
+decisão explícita em contrário. Escrever a especificação não a promove na
+ordem — a §119 vale aqui como em toda parte: estar no PRD não autoriza
+implementar.
+
+## Onde CTO se encaixa nas escalas existentes
+
+Continuam valendo as duas escalas (§117, §194). A Fila Operacional (Parte XII)
+e a CTO são domínios diferentes e não competem:
+
+```text
+a FILA decide     qual OS o técnico atende primeiro
+a CTO decide      onde o cliente está conectado
+```
+
+---
