@@ -298,6 +298,29 @@ sem `externalProvider`, sem `externalId`, sem `externalNumber`.
 servida do cache mostra dado velho e a pessoa percebe; uma **fila** servida do
 cache faz o técnico trabalhar na ordem errada sem nenhum sinal disso.
 
+#### Como o cliente consome esta rota (DQ-6)
+
+Três desfechos, e o aplicativo **não** os mistura:
+
+```text
+200 com position nos itens   fila autoritativa; a ordem é a que chegou
+404                          servidor anterior à DQ-5: ranking local MARCADO
+demais falhas                nada é ordenado; a tela oferece tentar de novo
+```
+
+A distinção entre os dois últimos é o ponto da fase. Cair no ranking local
+porque a rede falhou apresentaria uma ordem inventada com a mesma cara da
+ordem do despachante. **Fallback é para servidor antigo, nunca para rede
+ruim** — e, quando ele vale, a tela diz isso ao técnico (`LocalOrderNote`).
+
+Um corpo `200` cujos itens de `queued` não tragam `position` cai no mesmo ramo
+de compatibilidade: sem posição não há fila autoritativa, e inventar um índice
+pela posição no array seria a segunda autoridade que a fase existe para
+eliminar.
+
+`queueVersion` chega ao Field e **não** é usada para escrever nada: esta
+superfície é somente leitura, e não existe rota de reordenação para o técnico.
+
 ---
 
 ## 4. Contrato de erro

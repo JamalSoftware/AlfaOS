@@ -356,9 +356,25 @@ Quatro decisões que não podem ser desfeitas: **`Customer.ctoId` não serve** (
 
 **Isto NÃO muda o próximo passo: continua sendo `DQ-6`** (Field consumindo a fila autoritativa + Android Back). CTO entra depois da sequência da fila estar concluída e publicada.
 
+**`DQ-6` ENTREGUE — commits locais, sem tag e sem push. `DEVICE PILOT PENDING`.** O Field passou a obedecer à fila do despacho, e o `Voltar` do Android parou de fechar o aplicativo. **Flutter apenas — nenhum arquivo web, backend, schema ou migration foi tocado**; nenhuma rota nova.
+
+O aplicativo **não decide mais a ordem**. `Início` e `Minhas Ordens` leem a mesma `GET /api/field/v1/dispatch-queue`, mostram `EM ATENDIMENTO` como coleção e `PRÓXIMAS NA FILA` com `1ª/2ª/3ª`, e **nada é reordenado no cliente** — nem por `number`, nem por `priority`, nem por `scheduledAt`. O teste central é o do piloto: o despachante põe a Nº 7 em 1ª e a Nº 5 em 2ª, a tela mostra `7, 5`; ele inverte no servidor, o técnico puxa para atualizar, a tela mostra `5, 7`.
+
+Três desfechos que **não se misturam**, e a distinção entre os dois últimos é o ponto da fase: fila presente → ordem do servidor; **404** (servidor anterior à DQ-5) → ranking local **marcado na tela**; qualquer outra falha → **nada é ordenado**, com opção de tentar de novo. Cair no ranking local porque a rede falhou apresentaria uma ordem inventada com a mesma cara da do despachante.
+
+**A revisão de segurança encontrou o próprio fallback silencioso e ele foi corrigido, não só relatado.** O ranking local estava isolado, documentado e testado — e invisível: sem marcação, a sequência calculada pelo aplicativo tinha exatamente a aparência da sequência do despacho. Nasceu daí o `LocalOrderNote`, com três testes permanentes e prova de reversão.
+
+O **Android Back** virou uma função pura (`resolveShellBack`), testada fora da árvore e pelo pop real do sistema (`handlePopRoute`, o mesmo caminho do botão e do gesto): gaveta fecha, modal fecha, aba sem pilha volta ao Início, e **só o Início na raiz** deixa o Android sair. O deep link do detalhe (`/orders/os-7` sem pilha) usa `Navigator.canPop`, **não** `context.canPop()` do GoRouter — a tela é montada sozinha em teste, e acoplá-la ao router quebrava 26 testes existentes.
+
+**Sabotagem G passou porque faltava o teste**, não porque o código estava certo: remover a métrica de urgência do Hero não falhava nada. Os testes `F-7` foram escritos, e só então a sabotagem caiu. Oito provas de reversão no total (`A`–`H`), todas restauradas.
+
+Duas correções de overflow real, achadas por teste de responsividade: a linha do card de Jornada em 390dp (`Row` + `Spacer` → `Wrap`) e o item longo da gaveta (`maxLines: 2`).
+
+Gates: 1561 Vitest, 116 Playwright, **316 Flutter** (era 280), lint, tsc, build, `dart format`, `flutter analyze`, **nenhuma migration**, APK debug construído. **Widget test não aprova gesto de sistema: a fase só fecha com piloto em aparelho físico** — nem o Voltar nem o visual se aprovam por teste de widget.
+
 Mais dois achados do levantamento, fora do escopo da fila e válidos por si: **não existe operação de cancelamento nem de desatribuição de OS** — `status: "CANCELLED"` nunca é escrito em produção e `technicianId: null` só aparece em fixture, de modo que `CANCELLED` é estado declarado e inalcançável —, e **`ServiceOrder` não tem índice em `technicianId`**.
 
-Pendente e **não** pertencente à fila: um último polimento visual do Field — destaque das métricas de OS abertas e urgentes, hierarquia da métrica de urgência, repetição da mesma OS entre `ATENÇÃO AGORA` e `PRÓXIMA OS`, e ajustes da gaveta.
+O polimento visual que estava pendente **foi feito dentro da DQ-6**, porque as quatro pendências eram das mesmas telas que a fila reescreveu: as métricas de OS abertas e urgentes viraram número grande com rótulo, a urgência ganhou hierarquia própria, a repetição da mesma OS entre `ATENÇÃO AGORA` e a antiga `PRÓXIMA OS` acabou (a segunda virou `PRÓXIMA AGENDADA`, e é uma **linha**, não um card), e a gaveta deixou de cortar item longo. Tudo isso continua **aguardando o piloto físico** junto com o resto da fase.
 
 **Próxima fase separada: `FIELD NOTIFICATION FOUNDATION`** (PRD §153) — `backend → notification event → device token → FCM → Android → deep link da OS`. Nada de push existe hoje, e o sino não fabrica badge. Depois dela existem **duas** trilhas registradas e prontas para começar — **Escala de Trabalho P0** (§307) e **Fila Operacional backend + Web** (§332) —, e **a ordem entre as duas não foi decidida**: são addenda aprovados em momentos diferentes, e escolher agora seria decisão de produto tomada em silêncio.
 

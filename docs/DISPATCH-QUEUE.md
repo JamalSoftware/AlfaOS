@@ -645,6 +645,29 @@ comportamento está definido nos dois ramos.
 Offline exibe a última fila conhecida, marcada como tal, e **nunca** reordena
 (PRD §328).
 
+### O que a implementação de DQ-6 acrescentou
+
+Três decisões que o plano não tinha e que a implementação fechou:
+
+**O fallback ficou VISÍVEL, não só isolado.** O plano exigia que o ranking
+local fosse isolado, documentado e testado — e ele estava. Faltava a única
+parte que o técnico vê: sem marcação na tela, uma sequência calculada pelo
+aplicativo tem exatamente a mesma aparência da sequência que o despachante
+definiu. `LocalOrderNote` é a etiqueta de procedência, e ela aparece no Início
+e em Minhas Ordens sempre que `unavailable` é verdadeiro. Sem ela o fallback
+seria honesto no código e silencioso na mão de quem trabalha.
+
+**Erro de rede e servidor antigo não compartilham mensagem nem caminho.**
+`unavailable` (404, servidor anterior à DQ-5) leva ao ranking local marcado;
+`error` (rede, 5xx) **não ordena nada** e oferece tentar de novo. Quando as
+duas fontes falham ao mesmo tempo, a mensagem é uma só — falar de "fila" para
+quem está sem conexão nenhuma descreve o sintoma menor.
+
+**A contagem do topo passou a vir da fila.** "OS abertas" e "URGENTES" no Hero
+saem de `DispatchQueue.openCount`/`urgentCount` quando há fila, e só caem na
+varredura da lista paginada quando não há. Duas contagens do mesmo número
+divergiriam na primeira reatribuição.
+
 ---
 
 ## 13. Backfill
@@ -805,7 +828,7 @@ Cada fase é um commit, com prova de reversão e critério de saída.
 | **DQ-3** ✅ | Rotas administrativas | `api/dispatch/**`, `api/service-orders/[id]/priority`, `dispatch-queue-view.ts` | **ENTREGUE** — 45 testes novos, `T-S1`–`T-S8` e `T-C6` verdes, 409 verificado por corrida real pelas ROTAS |
 | **DQ-4** ✅ | Web `/despacho` | `src/app/(app)/despacho/**`, `DispatchPanel.tsx`, `service-order-labels.ts` | **ENTREGUE** — 17 testes Playwright, `W-1`–`W-5` cobertos, 409 provado com duas sessões |
 | **DQ-5** ✅ | Contrato de leitura no Field | `src/lib/field/dto.ts`, `api/field/v1/dispatch-queue` | **ENTREGUE** — 18 testes, `FQ-1`–`FQ-11`, integração Web→Field provada nos dois sentidos |
-| **DQ-6** | Field consome a ordem | `apps/field/lib/features/**` | `F-1`–`F-6`; fallback provado nos dois ramos |
+| **DQ-6** ✅ | Field consome a ordem + Voltar do Android | `apps/field/lib/features/**`, `app/shell_back.dart`, `core/widgets/{position_badge,local_order_note}.dart` | **ENTREGUE** — 36 testes novos, `F-1`–`F-8` e `B-1`–`B-8` verdes, 8 provas de reversão. **DEVICE PILOT PENDING** |
 | **DQ-7** | Endurecimento, auditoria independente, piloto | — | Auditoria por quem não implementou; piloto físico |
 
 `DQ-1` e `DQ-2` são separados de propósito: schema sem consumidor é reversível

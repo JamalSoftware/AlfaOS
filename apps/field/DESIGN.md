@@ -123,6 +123,10 @@ Herdadas das skills e válidas aqui:
 | Visual polish | `TextTheme` próprio, `fidelity`, escada de superfície tunada | Piloto: "monocromático, cinza, muito próximo do Material padrão" |
 | Visual polish | Selo `EM BREVE` sem fundo preenchido | Quinze pílulas sólidas faziam o planejado gritar mais alto que o que funciona |
 | Visual polish | Item ativo da gaveta por tint de fundo, sem faixa lateral | Faixa lateral é banida: desalinha e não sobrevive a leitura rápida |
+| DQ-6 | `PositionBadge`: a `1ª` na cor de ação, as demais em superfície neutra | Só a primeira responde "o que eu faço agora"; a diferença é hierarquia, não alarme. O texto (`1ª`, `2ª`) já carrega a informação inteira |
+| DQ-6 | Hero com NÚMERO grande + rótulo, e a métrica de urgência ao lado | Piloto: o topo não respondia "quanto disso é urgente". `0 URGENTES` não aparece: zero com cara de alarme é ruído |
+| DQ-6 | `PRÓXIMA AGENDADA` deixou de se chamar `PRÓXIMA OS`, e virou LINHA | Duas frases diferentes ("na fila" × "com horário") usavam o mesmo rótulo, e a mesma OS aparecia como card duas vezes |
+| DQ-6 | `LocalOrderNote`: etiqueta discreta, não alerta | Modo de compatibilidade precisa de procedência visível; mas nada falhou e não há ação do técnico, então não é erro |
 
 ## Verificação
 
@@ -137,6 +141,10 @@ O que é automatizado, e onde:
 | Escala tipográfica deliberada, `height` ≥ 1.1 | `test/widget/theme_render_test.dart` |
 | Sem overflow em 360dp | `dashboard_test.dart`, `app_shell_test.dart` |
 | Estado sempre com rótulo, não só cor | `dashboard_test.dart` |
+| Ordem da tela = ordem do servidor | `widget/dispatch_queue_screens_test.dart` (`F-1`) |
+| Posição legível sem contar linhas | `widget/dispatch_queue_screens_test.dart` (`F-3`) |
+| Modo de compatibilidade declarado na tela | `widget/dispatch_queue_screens_test.dart` (`F-8`) |
+| Voltar não fecha o aplicativo fora da raiz | `widget/android_back_test.dart` (`B-1`–`B-8`) |
 
 **Não há golden test.** Cor, peso e espaçamento não estão travados por captura
 de tela: mudanças estéticas passam pelos testes acima e pelo olho no aparelho.

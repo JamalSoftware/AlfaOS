@@ -184,7 +184,24 @@ O quadro (§203) decide **quem** atende. A ordem de execução dentro da fila de
 | `src/lib/service-order-labels.ts` | Rótulos da OS, **client-safe**. Só `import type` do Prisma — `service-orders.ts` reexporta |
 | Testes | `dispatch-queue-{domain,schema,lifecycle,concurrency,api}.test.ts` e `e2e/dispatch-queue.spec.ts` |
 
-**O contrato de leitura do Field existe** (`GET /api/field/v1/dispatch-queue`), mas **o aplicativo ainda não o consome**: ele continua no ranking local (`attention_ranking.dart`). Passar a obedecer é DQ-6 — junto com o bug do **Android Back**, que fecha o aplicativo em vez de navegar (achado no piloto físico, escopo obrigatório de DQ-6).
+**O Field consome a fila (DQ-6 entregue, `DEVICE PILOT PENDING`).** Os arquivos do aplicativo:
+
+| Arquivo | Papel |
+|---|---|
+| `apps/field/lib/features/orders/domain/dispatch_queue.dart` | O contrato lido. `tryParse` devolve `null` quando falta `position` — **não** inventa índice |
+| `apps/field/lib/features/orders/state/dispatch_queue_controller.dart` | Os três desfechos: autoritativa · indisponível (404) · erro. Falha **preserva** a fila anterior |
+| `apps/field/lib/core/widgets/position_badge.dart` | `1ª`/`2ª`/`3ª`. A `1ª` pesa mais — hierarquia, não alerta |
+| `apps/field/lib/core/widgets/local_order_note.dart` | A etiqueta de procedência do modo de compatibilidade |
+| `apps/field/lib/app/shell_back.dart` | `resolveShellBack` — a decisão do Voltar, pura e testável fora da árvore |
+| Testes | `test/dispatch_queue_test.dart`, `test/widget/{dispatch_queue_screens,android_back}_test.dart` |
+
+Três regras do lado do cliente que são fáceis de desfazer sem perceber:
+
+* **`attention_ranking.dart` só decide quando o servidor não oferece a fila** (404). Falha de rede **não** cai nele: ordenar sozinho e apresentar como se fosse do despacho é pior que dizer que não deu para atualizar.
+* **Quando ele decide, a tela DIZ isso** (`LocalOrderNote`). Fallback isolado no código e silencioso na tela ainda faz o técnico atender na ordem errada com confiança.
+* **Nada é reordenado no aplicativo.** Nem por `number`, nem por `priority`, nem por `scheduledAt` — `F-1` monta a armadilha de propósito.
+
+O **Android Back** (o aplicativo fechava em vez de navegar, achado no piloto físico) foi corrigido no mesmo escopo: gaveta e modal fecham primeiro, aba sem pilha volta ao Início, e **só o Início na raiz** deixa o Android sair. **Widget test não aprova gesto de sistema** — a fase só fecha com piloto em aparelho.
 
 Quatro regras que o código já impõe e são fáceis de desfazer sem perceber:
 
