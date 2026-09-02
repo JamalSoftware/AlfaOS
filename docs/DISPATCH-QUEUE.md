@@ -7,11 +7,12 @@ sequência de transação, tabela de endpoint e matriz de teste são engenharia.
 As decisões de produto (`D-01`–`D-11`) continuam registradas no PRD, onde
 foram levantadas; aqui está como executá-las.
 
-> **Estado: `DQ-1` a `DQ-5` entregues** — schema, serviço, backfill, API
-> administrativa, painel Web `/despacho` e o contrato de leitura do Field.
-> **O aplicativo ainda não OBEDECE à fila**: ele continua no ranking local, e
-> passar a obedecer é `DQ-6`. A tabela de fases no fim do documento é a fonte
-> de verdade do que está feito.
+> **Estado: `DQ-1` a `DQ-7` concluídas.** Schema, serviço, backfill, API
+> administrativa, painel Web `/despacho`, contrato de leitura do Field e o
+> aplicativo **obedecendo** à fila, mais o Voltar do Android corrigido. A
+> auditoria independente clean-room da `DQ-7` fechou em `APPROVED WITH RISKS`
+> e o piloto físico passou (§19). A tabela de fases no fim do documento é a
+> fonte de verdade do que está feito.
 
 ---
 
@@ -828,8 +829,8 @@ Cada fase é um commit, com prova de reversão e critério de saída.
 | **DQ-3** ✅ | Rotas administrativas | `api/dispatch/**`, `api/service-orders/[id]/priority`, `dispatch-queue-view.ts` | **ENTREGUE** — 45 testes novos, `T-S1`–`T-S8` e `T-C6` verdes, 409 verificado por corrida real pelas ROTAS |
 | **DQ-4** ✅ | Web `/despacho` | `src/app/(app)/despacho/**`, `DispatchPanel.tsx`, `service-order-labels.ts` | **ENTREGUE** — 17 testes Playwright, `W-1`–`W-5` cobertos, 409 provado com duas sessões |
 | **DQ-5** ✅ | Contrato de leitura no Field | `src/lib/field/dto.ts`, `api/field/v1/dispatch-queue` | **ENTREGUE** — 18 testes, `FQ-1`–`FQ-11`, integração Web→Field provada nos dois sentidos |
-| **DQ-6** ✅ | Field consome a ordem + Voltar do Android | `apps/field/lib/features/**`, `app/shell_back.dart`, `core/widgets/{position_badge,local_order_note}.dart` | **ENTREGUE** — 36 testes novos, `F-1`–`F-8` e `B-1`–`B-8` verdes, 8 provas de reversão. **DEVICE PILOT PENDING** |
-| **DQ-7** | Endurecimento, auditoria independente, piloto | — | Auditoria por quem não implementou; piloto físico |
+| **DQ-6** ✅ | Field consome a ordem + Voltar do Android | `apps/field/lib/features/**`, `app/shell_back.dart`, `core/widgets/{position_badge,local_order_note}.dart` | **ENTREGUE** — 36 testes novos, `F-1`–`F-8` e `B-1`–`B-8` verdes, 8 provas de reversão. **DEVICE PILOT PASSED** |
+| **DQ-7** ✅ | Auditoria independente clean-room, piloto físico | — | **CONCLUÍDA** — `APPROVED WITH RISKS`, 1 LOW e 3 INFO, nenhum bloqueador. Piloto físico `PASSED`. Ver §19 |
 
 `DQ-1` e `DQ-2` são separados de propósito: schema sem consumidor é reversível
 por `migrate resolve`; schema com serviço já tem dado escrito.
@@ -856,3 +857,139 @@ não acrescenta índice em technicianId            medir em DQ-2 (§16)
 O polimento visual pendente do Field (destaque das métricas de OS abertas e
 urgentes, repetição da mesma OS entre `ATENÇÃO AGORA` e `PRÓXIMA OS`, ajustes
 da gaveta) **não pertence a esta capability** e não entra em nenhuma fase `DQ`.
+
+---
+
+## 19. DQ-7 — auditoria independente clean-room
+
+Feita por uma sessão que **não** implementou nenhuma das fases `DQ-1`–`DQ-6`.
+Nada foi aceito por relatório: schema, migration, serviço, rotas, painel Web,
+Flutter e Git foram lidos de novo, e as provas abaixo foram desenhadas nesta
+auditoria contra o código como ele está.
+
+**Veredito: `APPROVED WITH RISKS`.** 0 CRITICAL, 0 HIGH, 0 MEDIUM, 1 LOW,
+3 INFO. Nenhum bloqueador de release.
+
+### Provas adversariais executadas
+
+33 provas próprias, temporárias, removidas ao final. 32 passaram; 1 falhou e
+virou o achado `BKF-01`.
+
+```text
+P-1   IDs cruzados entre tenants (5)      404, banco intacto, sem fila vazada
+P-2   CAS obsoleto (3)                    409 sem sobrescrita; 400 sem token de fila
+P-3   reatribuição concorrente (2)        sem deadlock, sem OS em duas filas
+P-4   start/complete × reorder (2)        sem entrada órfã, posições contíguas
+P-5   banda de prioridade (3)             NORMAL→1ª não ultrapassa URGENT
+P-6   contrato do Field (6)               DTO, no-store, revogação, ordem, inProgress
+P-7   RBAC (3)                            TECHNICIAN 403, DISPATCHER 200, anônimo 401
+P-8   backfill contra estado sujo (3)     1 FALHA → BKF-01
+P-9   backfill sequencial após start (1)  não re-enfileira
+P-10  idempotência (5)                    replay, conflito de payload, /assign
+```
+
+Duas hipóteses do auditor foram **refutadas** pelas próprias provas, e ficam
+registradas para não voltarem:
+
+* **`PopScope.canPop` obsoleto na gaveta.** `HomeShell` calcula `canPop` no
+  build e a gaveta abre sem reconstruí-lo — no `Início` (branch 0) `canPop`
+  fica `true`, e o Voltar pareceria fechar o aplicativo com a gaveta aberta. O
+  teste `B-6` só cobre a gaveta aberta da aba `OS`, onde `canPop` já é `false`.
+  A prova mostrou que **não acontece**: `DrawerController` registra um
+  `LocalHistoryEntry` na `ModalRoute` ao abrir, e `Navigator.maybePop` consome
+  o pop antes de consultar qualquer `PopScope`. O ramo `closeDrawer` de
+  `resolveShellBack` é redundância defensiva, não o mecanismo real.
+* **`/assign` sem `Idempotency-Key` permitiria mutação dupla.** Não permite. O
+  reenvio literal é recusado por **duas** regras independentes: o CAS de
+  `ServiceOrder.version` e a igualdade `os.technicianId === technicianId`.
+  Provado: uma entrada de fila, um `TECHNICIAN_CHANGED`, duas notificações
+  (a atribuição inicial e a reatribuição) — nunca três.
+
+### `BKF-01` — `LOW` — backfill não reconcilia entrada fora da lista
+
+**Superfície:** `src/lib/dispatch-queue-backfill.ts`, `backfillOne`.
+
+**Defeito.** A fase 2 da renumeração percorre apenas `desired`. Uma entrada que
+existe na fila mas **não** está na lista de candidatos fica com a posição
+**negativa** que a fase 1 lhe deu, e a fila deixa de ser 1..N contígua.
+
+**Reprodução (executada, falha determinística):** duas OS `ASSIGNED` na fila do
+mesmo técnico; a primeira passa a `IN_PROGRESS` por escrita direta no banco,
+sem o serviço; roda `backfillDispatchQueues(companyId)`. Resultado persistido:
+
+```text
+[{"position":-1,"number":1},{"position":1,"number":2}]
+```
+
+**Corolário não reproduzido, mesma raiz.** `backfillDispatchQueues` lê os
+candidatos **fora** da transação por técnico e nunca os revalida. Uma OS que
+saia de `ASSIGNED` entre a varredura e a escrita seria recriada como entrada —
+uma `IN_PROGRESS` de volta à fila de próximas, contra `I-06`. Isto foi
+**deduzido do código, não observado**: a janela não foi encenada.
+
+**Impacto.** `ORDER BY position ASC` põe a posição negativa em **primeiro**, no
+`/despacho` e no Field, exibida como `-1ª`. Cura sozinho na mutação seguinte
+da fila ou na conclusão da OS. Não cruza tenant, não perde dado, não afeta
+autorização.
+
+**Por que `LOW`, e não bloqueador.** `backfillDispatchQueues` é importado por
+**um** arquivo — `scripts/dispatch-queue-backfill.ts` (verificado por busca
+global). Nenhuma rota, nenhum job, nenhum cron o alcança. Só um operador
+rodando `npm run dispatch:backfill` contra uma base viva, com uma transição de
+estado na janela, chega lá.
+
+**Correção sugerida (fora desta auditoria, que não corrige o que não bloqueia):**
+renumerar **todas** as entradas carregadas — não só as de `desired` — e
+revalidar o status do candidato dentro da transação. Com a correção, a
+reprodução acima vira teste permanente.
+
+### INFO aceitos
+
+* **`DQV-01`** — `getFieldDispatchQueue` e `getDispatchQueueView` leem `queued`
+  e `inProgress` em `Promise.all`, fora de transação. Um `start` que commite
+  entre as duas consultas faz a mesma OS aparecer nas duas listas por uma
+  leitura, e o Hero conta `openCount` a mais. Transitório, cura no refresh.
+* **`RSP-01`** — a rota de reordenação relê a fila **depois** do commit, fora
+  da transação. A janela é menor que a de um `204` + `GET` do cliente, que era
+  a alternativa, mas não é zero.
+* **`ASG-01`** — `/assign` segue sem `Idempotency-Key` obrigatória. Sem impacto
+  demonstrável (ver acima); fica registrado porque é a única mutação da fila
+  fora da infraestrutura de idempotência.
+
+### Piloto físico — `PASSED`
+
+Evidência fornecida pelo operador, em aparelho real:
+
+```text
+Web altera a ordem  →  Field atualiza e respeita a mesma ordem
+1ª e 2ª aparecem corretamente          prioridade Urgente aparece
+OS → Voltar → Início                   Jornada → Voltar → Início
+detalhe volta para a superfície anterior
+gaveta fecha corretamente
+temas claro e escuro inspecionados
+```
+
+Nenhum teste físico não realizado é declarado aqui.
+
+### `FIELD DESIGN FREEZE` — `ACTIVE`
+
+O design do Field está **congelado** até uma rodada própria de Design Refresh.
+Nesta fase só justificam alteração visual: defeito, acessibilidade crítica,
+overflow, segurança e regressão funcional.
+
+### Gates executados do zero
+
+```text
+git diff --check          limpo
+prisma validate           válido
+prisma migrate status     23 migrations, banco em dia
+lint                      sem avisos
+tsc --noEmit              sem erro
+vitest                    1561 passaram (73 arquivos)
+playwright                116 passaram
+dart format               86 arquivos, 0 alterados
+flutter analyze           sem problemas
+flutter test              316 passaram
+next build + build:worker OK
+flutter build apk --debug OK
+```
