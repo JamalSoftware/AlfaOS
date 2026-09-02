@@ -31,7 +31,7 @@ async function main(): Promise<void> {
   const result = await backfillDispatchQueues(companyId);
 
   console.log(
-    `[dispatch-backfill] os=${result.ordersScanned} filas_criadas=${result.queuesCreated} filas_alteradas=${result.queuesChanged} entradas=${result.entriesCreated}`,
+    `[dispatch-backfill] os=${result.ordersScanned} filas_criadas=${result.queuesCreated} filas_alteradas=${result.queuesChanged} entradas_criadas=${result.entriesCreated} entradas_removidas=${result.entriesRemoved}`,
   );
 }
 

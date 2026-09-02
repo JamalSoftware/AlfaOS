@@ -11,7 +11,10 @@ import {
   reapplyPriorityToQueue,
   removeOrderFromQueue,
 } from "@/lib/dispatch-queue-service";
-import { backfillDispatchQueues } from "@/lib/dispatch-queue-backfill";
+import {
+  backfillDispatchQueues,
+  reconcileTechnicianQueue,
+} from "@/lib/dispatch-queue-backfill";
 import { seedTestData, type TestFixture } from "./helpers";
 
 /**
@@ -856,5 +859,415 @@ describe("T-I8 · backfill é idempotente", () => {
       where: { companyId: fixture.companyB.id },
     });
     expect(filasB).toBe(0);
+  });
+});
+
+/**
+ * # `BKF-01` — o backfill RECONCILIA, não só completa (DQ-7.1)
+ *
+ * Achado `LOW` da auditoria independente DQ-7 (`docs/DISPATCH-QUEUE.md` §19).
+ *
+ * O backfill nasceu respondendo "o que falta na fila?". A pergunta certa é "o
+ * que a fila deveria ser?" — e a diferença aparece quando uma OS **sai** da
+ * elegibilidade: ela não era completada, era simplesmente ignorada, e a
+ * entrada dela sobrevivia com a posição negativa da fase 1 da renumeração.
+ * `ORDER BY position ASC` põe negativo em primeiro, e a fila aparecia com uma
+ * `-1ª` no topo, no `/despacho` e no Field.
+ */
+describe("BKF-01 · o backfill remove entrada que deixou de ser elegível", () => {
+  it("BKF-01-A · OS que sai de ASSIGNED não sobrevive ao backfill", async () => {
+    const a = await makeOrder("NORMAL");
+    const b = await makeOrder("NORMAL");
+    for (const os of [a, b]) {
+      await prisma.serviceOrder.update({
+        where: { id: os.id },
+        data: { technicianId: techA1.id, status: "ASSIGNED" },
+      });
+    }
+    await backfillDispatchQueues(fixture.companyA.id);
+    expect(await queueOf(techA1.id)).toEqual([
+      [1, a.number],
+      [2, b.number],
+    ]);
+
+    /*
+      Escrita DIRETA no banco, sem passar pelo serviço: é o cenário do achado.
+      O serviço tira a entrada da fila junto com a transição — quem não a tira
+      é uma correção manual, um script antigo ou uma importação.
+    */
+    await prisma.serviceOrder.update({
+      where: { id: a.id },
+      data: { status: "IN_PROGRESS", startedAt: new Date() },
+    });
+
+    await backfillDispatchQueues(fixture.companyA.id);
+
+    // A entrada inelegível saiu, e o que restou é 1..N contíguo.
+    expect(await queueOf(techA1.id)).toEqual([[1, b.number]]);
+  });
+
+  it("nenhuma posição não positiva sobrevive ao commit", async () => {
+    // A garantia do §9 dita como asserção sobre o banco, e não sobre a lista:
+    // uma posição <= 0 persistida é corrupção de fila, não detalhe de ordem.
+    const a = await makeOrder("NORMAL");
+    const b = await makeOrder("URGENT");
+    const c = await makeOrder("LOW");
+    for (const os of [a, b, c]) {
+      await prisma.serviceOrder.update({
+        where: { id: os.id },
+        data: { technicianId: techA1.id, status: "ASSIGNED" },
+      });
+    }
+    await backfillDispatchQueues(fixture.companyA.id);
+
+    await prisma.serviceOrder.update({
+      where: { id: b.id },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    });
+    await backfillDispatchQueues(fixture.companyA.id);
+
+    const naoPositivas = await prisma.technicianDispatchQueueEntry.count({
+      where: { companyId: fixture.companyA.id, position: { lte: 0 } },
+    });
+    expect(naoPositivas).toBe(0);
+    expect(await queueOf(techA1.id)).toEqual([
+      [1, a.number],
+      [2, c.number],
+    ]);
+  });
+});
+
+/**
+ * # `BKF-01` — os caminhos que a reconciliação tem de fechar (DQ-7.1)
+ *
+ * A remoção da entrada obsoleta é a metade visível do achado. A outra é a
+ * janela: a varredura acontece fora da transação por técnico, e entre ela e a
+ * escrita uma OS pode deixar de ser elegível. Quem decide o conteúdo da fila é
+ * a leitura feita sob o `FOR UPDATE`, e é isso que estes testes atacam.
+ */
+describe("BKF-01 · elegibilidade é lida sob o lock, não na varredura", () => {
+  /**
+   * Espera até observar o backfill BLOQUEADO no lock da fila.
+   *
+   * Não é `sleep`: é uma condição observável no próprio Postgres, com teto. O
+   * teste afirma que ela foi observada, então uma janela que não se encene
+   * derruba o teste em vez de deixá-lo passar por engano.
+   */
+  async function esperarBloqueioNoLock(): Promise<boolean> {
+    const limite = Date.now() + 10_000;
+    while (Date.now() < limite) {
+      const [linha] = await prisma.$queryRaw<{ n: bigint }[]>`
+        SELECT count(*) AS n FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND state = 'active'
+          AND wait_event_type = 'Lock'
+          AND query ILIKE '%technician_dispatch_queues%FOR UPDATE%'
+      `;
+      if (Number(linha?.n ?? 0) > 0) return true;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return false;
+  }
+
+  it("BKF-01-B · OS que sai de ASSIGNED durante a reconciliação não persiste", async () => {
+    const a = await makeOrder("NORMAL");
+    const b = await makeOrder("NORMAL");
+    for (const os of [a, b]) {
+      await prisma.serviceOrder.update({
+        where: { id: os.id },
+        data: { technicianId: techA1.id, status: "ASSIGNED" },
+      });
+    }
+    await backfillDispatchQueues(fixture.companyA.id);
+    expect(await queueOf(techA1.id)).toEqual([
+      [1, a.number],
+      [2, b.number],
+    ]);
+
+    let lockNasMaos!: () => void;
+    const travou = new Promise<void>((resolve) => {
+      lockNasMaos = resolve;
+    });
+    let liberar!: () => void;
+    const portao = new Promise<void>((resolve) => {
+      liberar = resolve;
+    });
+
+    /*
+      Encenação do `startServiceOrder`: ele muda o status E tira a entrada da
+      fila na MESMA transação, segurando o lock enquanto faz as duas coisas.
+      É a transação com quem o backfill precisa se serializar.
+    */
+    const start = prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`
+          SELECT "id" FROM "technician_dispatch_queues"
+          WHERE "companyId" = ${fixture.companyA.id}
+            AND "technicianId" = ${techA1.id}
+          FOR UPDATE
+        `;
+        lockNasMaos();
+        await portao;
+        await tx.serviceOrder.update({
+          where: { id: a.id },
+          data: { status: "IN_PROGRESS", startedAt: new Date() },
+        });
+        await tx.technicianDispatchQueueEntry.deleteMany({
+          where: { serviceOrderId: a.id },
+        });
+      },
+      { timeout: 30_000, maxWait: 30_000 },
+    );
+
+    await travou;
+    /*
+      A RECONCILIAÇÃO, e não `backfillDispatchQueues`, é o que se ataca aqui.
+
+      A unidade que responde pela janela é esta: quem decide o conteúdo da fila
+      é a leitura de elegibilidade, e a pergunta do teste é se ela acontece
+      depois do lock. A varredura de fora só escolhe quem visitar, e visitar
+      alguém a mais é inofensivo por construção.
+
+      Rodar o backfill inteiro aqui NÃO prova isso — e chegou a passar com a
+      leitura sabotada. O passo 1 (poda) consome o bloqueio e não insere nada;
+      quando o passo 2 chega, o lock já foi liberado e a leitura obsoleta já
+      não existe. O teste passaria pelo motivo errado.
+    */
+    const reconciliacao = reconcileTechnicianQueue(
+      fixture.companyA.id,
+      techA1.id,
+    );
+    const bloqueou = await esperarBloqueioNoLock();
+    liberar();
+    await start;
+    await reconciliacao;
+
+    // A elegibilidade mudou enquanto a reconciliação esperava: é a janela.
+    expect(bloqueou).toBe(true);
+    // E a OS que saiu de ASSIGNED não voltou para a fila de próximas.
+    expect(await queueOf(techA1.id)).toEqual([[1, b.number]]);
+
+    // O backfill completo, depois, também não a traz de volta.
+    await backfillDispatchQueues(fixture.companyA.id);
+    expect(await queueOf(techA1.id)).toEqual([[1, b.number]]);
+  });
+
+  it("remover a PRIMEIRA posição não colide com a renumeração", async () => {
+    /*
+      A posição negada sobrevivente pode ter magnitude MAIOR que a contagem de
+      sobreviventes: tirando a `1ª` de `[1,2,3]`, restam `-2` e `-3`. Uma nova
+      entrada colocada em `-3` colidiria com a unique `(queueId, position)`.
+    */
+    const a = await makeOrder("URGENT");
+    const b = await makeOrder("NORMAL");
+    const c = await makeOrder("LOW");
+    for (const os of [a, b, c]) {
+      await prisma.serviceOrder.update({
+        where: { id: os.id },
+        data: { technicianId: techA1.id, status: "ASSIGNED" },
+      });
+    }
+    await backfillDispatchQueues(fixture.companyA.id);
+    expect(await queueOf(techA1.id)).toEqual([
+      [1, a.number],
+      [2, b.number],
+      [3, c.number],
+    ]);
+
+    // A da posição 1 sai, e uma nova entra na MESMA execução.
+    await prisma.serviceOrder.update({
+      where: { id: a.id },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    });
+    const d = await makeOrder("URGENT");
+    await prisma.serviceOrder.update({
+      where: { id: d.id },
+      data: { technicianId: techA1.id, status: "ASSIGNED" },
+    });
+
+    const resultado = await backfillDispatchQueues(fixture.companyA.id);
+
+    expect(resultado.entriesRemoved).toBe(1);
+    expect(resultado.entriesCreated).toBe(1);
+    expect(await queueOf(techA1.id)).toEqual([
+      [1, d.number],
+      [2, b.number],
+      [3, c.number],
+    ]);
+  });
+
+  it("IN_PROGRESS pelo serviço não é recriada pelo backfill", async () => {
+    const os = await makeOrder("NORMAL");
+    await assign(os.id, techA1.id);
+    const fresh = await prisma.serviceOrder.findUniqueOrThrow({
+      where: { id: os.id },
+      select: { version: true },
+    });
+    await startServiceOrder(
+      fixture.companyA.id,
+      techA1.userId,
+      os.id,
+      fresh.version,
+    );
+    expect(await queueOf(techA1.id)).toEqual([]);
+
+    const resultado = await backfillDispatchQueues(fixture.companyA.id);
+
+    // A fila não é lugar de OS em atendimento (`I-06`).
+    expect(await queueOf(techA1.id)).toEqual([]);
+    expect(resultado.entriesCreated).toBe(0);
+
+    /*
+      E a reconciliação DIRETA, sem a varredura na frente.
+
+      A varredura já filtra por `ASSIGNED`, então pelo backfill inteiro este
+      técnico nem seria visitado — o teste passaria mesmo que a reconciliação
+      não checasse status nenhum. Chamando-a de frente, quem responde é o
+      predicado dela, que é o que este teste afirma existir.
+    */
+    const direta = await reconcileTechnicianQueue(
+      fixture.companyA.id,
+      techA1.id,
+    );
+    expect(direta.entriesCreated).toBe(0);
+    expect(await queueOf(techA1.id)).toEqual([]);
+  });
+
+  it("COMPLETED não fica e não volta", async () => {
+    const concluida = await makeOrder("NORMAL");
+    const aberta = await makeOrder("NORMAL");
+    for (const o of [concluida, aberta]) {
+      await prisma.serviceOrder.update({
+        where: { id: o.id },
+        data: { technicianId: techA1.id, status: "ASSIGNED" },
+      });
+    }
+    await backfillDispatchQueues(fixture.companyA.id);
+
+    await prisma.serviceOrder.update({
+      where: { id: concluida.id },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    });
+
+    await backfillDispatchQueues(fixture.companyA.id);
+    expect(await queueOf(techA1.id)).toEqual([[1, aberta.number]]);
+
+    // E a execução seguinte não a traz de volta.
+    await backfillDispatchQueues(fixture.companyA.id);
+    expect(await queueOf(techA1.id)).toEqual([[1, aberta.number]]);
+  });
+
+  it("OS reatribuída sai da fila do técnico anterior, sem duplicar", async () => {
+    const os = await makeOrder("NORMAL");
+    await prisma.serviceOrder.update({
+      where: { id: os.id },
+      data: { technicianId: techA1.id, status: "ASSIGNED" },
+    });
+    await backfillDispatchQueues(fixture.companyA.id);
+    expect(await queueOf(techA1.id)).toEqual([[1, os.number]]);
+
+    // Reatribuição por escrita direta: sem o serviço, a fila não se mexe.
+    await prisma.serviceOrder.update({
+      where: { id: os.id },
+      data: { technicianId: techA2.id },
+    });
+
+    await backfillDispatchQueues(fixture.companyA.id);
+
+    expect(await queueOf(techA1.id)).toEqual([]);
+    expect(await queueOf(techA2.id)).toEqual([[1, os.number]]);
+    // Uma OS, uma entrada: nunca as duas filas ao mesmo tempo.
+    const entradas = await prisma.technicianDispatchQueueEntry.count({
+      where: { serviceOrderId: os.id },
+    });
+    expect(entradas).toBe(1);
+  });
+
+  it("a reconciliação de uma empresa não toca a fila da outra", async () => {
+    const daA = await makeOrder("NORMAL");
+    await prisma.serviceOrder.update({
+      where: { id: daA.id },
+      data: { technicianId: techA1.id, status: "ASSIGNED" },
+    });
+    await backfillDispatchQueues(fixture.companyA.id);
+    const filaDeA = await queueOf(techA1.id);
+    expect(filaDeA).toEqual([[1, daA.number]]);
+
+    const daB = await makeOrder("NORMAL", { companyId: fixture.companyB.id });
+    await prisma.serviceOrder.update({
+      where: { id: daB.id },
+      data: { technicianId: techB1.id, status: "ASSIGNED" },
+    });
+
+    await backfillDispatchQueues(fixture.companyB.id);
+
+    // Reconciliar B não pode esvaziar A: o predicado carrega o tenant.
+    expect(await queueOf(techA1.id)).toEqual(filaDeA);
+  });
+
+  it("OS de outra empresa não entra na fila mesmo apontando este técnico", async () => {
+    /*
+      O vetor REAL de cross-tenant nesta superfície.
+
+      `ServiceOrder.technicianId` é FK simples para `Technician.id`: não existe
+      constraint `(companyId, technicianId)`, então uma OS da empresa B
+      apontando um técnico da A é representável no banco — é o estado que uma
+      escrita defeituosa, uma importação ou um script antigo produzem.
+
+      Quem tem de recusar é o predicado da leitura de elegibilidade, e ele
+      precisa carregar o tenant EM SQL. Sem isso, a OS da B entraria na fila da
+      A e apareceria no `/despacho` e no Field de outra empresa.
+
+      Um `reconcile` com o `companyId` trocado não serve como prova aqui: a
+      unique global em `technicianId` recusa o par cruzado antes de o predicado
+      ser consultado, e o teste passaria pelo schema, não pelo código.
+    */
+    const daA = await makeOrder("NORMAL");
+    await prisma.serviceOrder.update({
+      where: { id: daA.id },
+      data: { technicianId: techA1.id, status: "ASSIGNED" },
+    });
+    const daB = await makeOrder("NORMAL", { companyId: fixture.companyB.id });
+    await prisma.serviceOrder.update({
+      where: { id: daB.id },
+      data: { technicianId: techA1.id, status: "ASSIGNED" },
+    });
+
+    await reconcileTechnicianQueue(fixture.companyA.id, techA1.id);
+
+    // Só a OS da própria empresa. A da B não atravessou.
+    expect(await queueOf(techA1.id)).toEqual([[1, daA.number]]);
+    const vazada = await prisma.technicianDispatchQueueEntry.count({
+      where: { serviceOrderId: daB.id },
+    });
+    expect(vazada).toBe(0);
+  });
+
+  it("a remoção também é idempotente, e só a primeira move version", async () => {
+    const a = await makeOrder("NORMAL");
+    const b = await makeOrder("NORMAL");
+    for (const os of [a, b]) {
+      await prisma.serviceOrder.update({
+        where: { id: os.id },
+        data: { technicianId: techA1.id, status: "ASSIGNED" },
+      });
+    }
+    await backfillDispatchQueues(fixture.companyA.id);
+    await prisma.serviceOrder.update({
+      where: { id: a.id },
+      data: { status: "IN_PROGRESS", startedAt: new Date() },
+    });
+
+    const primeira = await backfillDispatchQueues(fixture.companyA.id);
+    const versionDepois = await versionOf(techA1.id);
+    const segunda = await backfillDispatchQueues(fixture.companyA.id);
+
+    expect(primeira.entriesRemoved).toBe(1);
+    expect(primeira.queuesChanged).toBe(1);
+    // Nada mudou na segunda: sem escrita, sem version, sem 409 para ninguém.
+    expect(segunda.entriesRemoved).toBe(0);
+    expect(segunda.queuesChanged).toBe(0);
+    expect(await versionOf(techA1.id)).toBe(versionDepois);
+    expect(await queueOf(techA1.id)).toEqual([[1, b.number]]);
   });
 });
