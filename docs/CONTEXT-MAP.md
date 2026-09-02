@@ -424,6 +424,25 @@ Quatro coisas que a especificação fixou e são fáceis de desfazer sem percebe
 **Quando:** a tarefa envolve CTO, porta óptica, vínculo do cliente à rede de distribuição ou o status na visão da caixa.
 **Quando NÃO:** qualquer outra coisa. **Nada disso existe em código**, e a §119 se aplica. A próxima fase continua sendo `DQ-6` — escrever a especificação não a promove na ordem.
 
+## Colaboração entre Técnicos — PLANNED, nada em código
+
+**Carregar:** `docs/FIELD-COLLABORATION.md` (especificação técnica — ciclo do convite, matriz de permissão, concorrência, opções de modelagem, fases `COL-1`–`COL-9`, aceite `COL-AC01`–`COL-AC15`, decisões abertas `COL-01`–`COL-07`) e PRD §342–§351 (visão, invariantes `I-C01`–`I-C12`, roadmap). Para entender a superfície que ela estende, também `src/lib/service-order-child-mutation.ts` e `loadOwnedServiceOrder` em `src/lib/service-orders.ts`.
+
+**A distinção que a especificação inteira sustenta:** **colaborar acrescenta participante SEM trocar o responsável; transferir troca o responsável** e por isso mexe na fila de despacho. Os dois nunca são sinônimos, e "repasse" não é palavra desta capability — ela sugere que a OS mudou de dono, que é exatamente o que a colaboração não faz.
+
+Cinco achados do código real que a §4 registrou e que decidem o custo das fases:
+
+* **A posse tem UM portão.** Toda mutação-filha (evidência, material, equipamento, assinatura, checklist, impedimento) passa por `loadInProgressOwnedOrder` → `loadOwnedServiceOrder`, que recusa quando `order.technicianId !== technician.id`. A permissão do colaborador se resolve **estendendo um predicado**, não espalhando verificações — e errar essa única função erra todas as escritas de uma vez.
+* **A autoria já existe em cinco superfícies e falta em duas.** `ServiceOrderEvent`, `ServiceOrderEvidence`, `ServiceOrderMaterialUsage`, `ServiceOrderSignature` e `AuditLog` já gravam o autor; **`ServiceOrderExecution` e `ServiceOrderEquipment` não**. A `Execution` é registro **único por OS**, então dois técnicos no mesmo diagnóstico não são duas linhas — é decisão de arquitetura, não detalhe (`COL-6`).
+* **A fila já PROÍBE a OS em duas filas.** `TechnicianDispatchQueueEntry.serviceOrderId` é `@unique` global, então `COL-AC03` é **estrutural** e não depende de alguém lembrar dele.
+* **O `409` de `expectedVersion` deixa de ser raro.** Com dois participantes escrevendo, o CAS de `claimOrderForChildMutation` passa a disparar em uso normal — é o mecanismo funcionando, e o Field precisa tratá-lo como recarregar-e-tentar, não como erro.
+* **Não existe tabela genérica de capability.** O precedente é coluna de política em `Company` (`pppoePasswordPolicy`, `timezone`); as `capabilities` do `GET /me` do Field são derivadas e não-autoritativas.
+
+**Modelagem recomendada (§19 do documento):** manter `ServiceOrder.technicianId` como responsável e acrescentar relação própria de colaboração. A alternativa uniforme (`ServiceOrderParticipant` com role) exigiria refatorar a fila de despacho inteira, o predicado de posse de todas as mutações-filhas, a atribuição e a listagem do Field — a superfície mais testada e mais recentemente auditada do projeto — sem ganho operacional para quem está em campo.
+
+**Quando:** a tarefa envolve colaboração entre técnicos, convite/aceite, permissões do colaborador, autoria por participante, ou a distinção entre colaborar e transferir responsabilidade.
+**Quando NÃO:** reatribuição administrativa comum (isso é a Fila Operacional, entrada própria), execução do técnico responsável sozinho, ou qualquer coisa que não tenha dois participantes. **Nada disso existe em código**, e a §119 se aplica: escrever a especificação não a promove na ordem.
+
 ## Contatos do cliente — PLANNED
 
 **Carregar:** `docs/PRD.md` §247–§249 — múltiplos contatos, correção em campo, precedência ERP × campo e painel de qualidade cadastral.

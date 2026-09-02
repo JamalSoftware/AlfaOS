@@ -11566,3 +11566,310 @@ a CTO decide      onde o cliente está conectado
 ```
 
 ---
+
+# PARTE XIV — COLABORAÇÃO ENTRE TÉCNICOS
+
+> **Addendum aprovado em 2026-09-02.** Documentação de produto e arquitetura.
+> **Nada desta Parte existe em código.**
+>
+> A especificação técnica (ciclo do convite, matriz de permissão, política de
+> concorrência, opções de modelagem, fases, aceite e decisões abertas) vive em
+> `docs/FIELD-COLLABORATION.md`. Aqui ficam a visão, as invariantes e o
+> roadmap.
+>
+> Ela **não reabre** a Fila Operacional (Parte XII), que está pronta para
+> release. A única coisa que interage com a fila é a **transferência de
+> responsabilidade**, que já existe e não é colaboração.
+
+---
+
+# 342. COLABORAÇÃO ENTRE TÉCNICOS — CAPABILITY OFICIAL
+
+**Classificação: `IMPORTANTE`. Nada implementado.**
+
+O técnico A terminou a carga dele mais cedo. O técnico B ainda tem cinco OS.
+Hoje o AlfaOS tem **uma** resposta para isso: reatribuir uma OS de B para A —
+o que troca o responsável, mexe na fila de despacho dos dois e some com a OS da
+lista de B.
+
+Só que a operação muitas vezes não quer transferir. Quer que A **ajude** B numa
+OS específica: subir no poste junto, puxar cabo, medir. A OS continua sendo de
+B, e B continua respondendo por ela.
+
+Falta ao AlfaOS a segunda resposta.
+
+```text
+OS #523
+Responsável   Técnico B
+Colaborador   Técnico A
+```
+
+## O que ela NÃO é
+
+```text
+não é transferência        o responsável não muda
+não é equipe fixa          a colaboração é por OS, não por cadastro
+não é acesso à carteira    colaborar numa OS não abre as outras OS do colega
+não é folha de pagamento   o AlfaOS documenta sem julgar nem descontar
+```
+
+---
+
+# 343. COLABORAR NÃO É TRANSFERIR
+
+A invariante que atravessa a Parte inteira:
+
+```text
+COLABORAÇÃO      acrescenta participante     NÃO altera o responsável
+                                             NÃO altera a fila de despacho
+
+TRANSFERÊNCIA    altera o responsável        PODE alterar a fila de despacho
+                                             é auditada como reatribuição
+```
+
+**Os dois nunca são sinônimos.** Um produto que chame as duas coisas de
+"repasse" perde a distinção no primeiro diálogo de UI, e depois não consegue
+responder a pergunta que o SLA, o fechamento e a auditoria fazem todo dia: *de
+quem é esta OS?*
+
+Transferência **não** é capability nova: é a reatribuição que já existe
+(`assignTechnician` e a fila de despacho). A fase de planejamento reusa esse
+domínio, não escreve um segundo.
+
+---
+
+# 344. UM RESPONSÁVEL, ZERO OU MAIS COLABORADORES
+
+```text
+ServiceOrder
+├── Responsável        1     quem responde pela OS
+└── Colaboradores      0..N  quem ajuda a executá-la
+```
+
+A OS continua tendo **um único** técnico responsável, e isso não é preferência
+estética. É o que sustenta:
+
+```text
+accountability     alguém responde pela OS
+fila de despacho   a fila é por técnico, e a OS ocupa uma posição em UMA fila
+fechamento         quem conclui responde pelo que foi entregue
+SLA                o prazo é de alguém
+relatórios         responsabilidade ≠ participação
+auditoria          "quem era o responsável naquele momento?"
+```
+
+A arquitetura precisa aceitar **0..N** colaboradores desde o início, mesmo que
+a primeira tela limite a um ou dois. Modelar como um campo único
+(`helperTechnicianId`) resolveria a primeira semana e viraria migration na
+segunda.
+
+---
+
+# 345. A FILA DE DESPACHO NÃO É TOCADA
+
+**Invariante crítico.** Acrescentar colaborador **não** cria entrada na fila
+autoritativa dele. A fila continua pertencendo ao responsável.
+
+Isto já é **estrutural**, e não depende de alguém lembrar:
+`TechnicianDispatchQueueEntry.serviceOrderId` é `@unique` global, e a mesma OS
+não cabe em duas filas.
+
+No Field, a colaboração aparece em **seção própria**, nunca com `1ª/2ª/3ª`:
+
+```text
+EM ATENDIMENTO      OS #480
+PRÓXIMAS NA FILA    1ª OS #512    2ª OS #517
+COLABORANDO         OS #523   Responsável: Técnico B
+```
+
+Numerar a colaboração junto com a fila misturaria **responsabilidade
+operacional** com **auxílio**, e o técnico deixaria de saber qual é a próxima
+OS dele — exatamente o que a Parte XII existe para responder.
+
+`priority` continua sendo propriedade da OS. O colaborador não ganha prioridade
+própria, e a colaboração não altera a prioridade de nada.
+
+---
+
+# 346. CAPABILITY POR EMPRESA
+
+A colaboração é **habilitável por empresa**. Com ela desligada, nenhuma
+superfície aparece — nem botão no Field, nem seção no painel, nem rota útil.
+
+Políticas previstas, todas por empresa:
+
+```text
+Permitir colaboração entre técnicos        ON / OFF
+Permitir o técnico convidar colaborador    ON / OFF
+Exigir aceite do colaborador               ON / OFF
+Máximo de colaboradores por OS             número
+Permitir colaborador concluir a OS         ON / OFF
+```
+
+Onde essa configuração mora é decisão da fase de planejamento. O precedente do
+projeto é coluna de política em `Company` (`pppoePasswordPolicy`, `timezone`);
+não existe tabela genérica de feature flag, e inventar uma só para isto é
+decisão que precisa ser tomada, não presumida.
+
+O Field recebe capabilities derivadas no `GET /me`, como já recebe hoje — e
+continua valendo que **UI não é controle de segurança**: cada rota reconfere.
+
+---
+
+# 347. O COLABORADOR NÃO HERDA O RESPONSÁVEL
+
+Não presumir que o colaborador pode tudo o que o responsável pode. A política é
+por empresa, sobre uma lista explícita de ações: visualizar, diagnosticar,
+responder checklist, fotografar, registrar material, registrar equipamento,
+medir, coletar assinatura, concluir.
+
+**Recomendação para a V1** — recomendação, não contrato fechado: o colaborador
+executa tudo o que é contribuição, e **só o responsável conclui**. Conclusão é
+a ação que fecha a responsabilidade, e deixá-la com o responsável evita
+arbitrar, já na primeira versão, duas pessoas concluindo a mesma OS de dois
+celulares.
+
+## Três conceitos que não podem colapsar
+
+```text
+Check-in da OS   o técnico chegou no cliente
+Jornada          o técnico está trabalhando hoje
+Colaboração      o técnico participa desta OS
+```
+
+O colaborador **não** executa `startServiceOrder`: a OS já está `IN_PROGRESS`,
+iniciada pelo responsável. Entrar na colaboração é conceito separado de iniciar
+a OS.
+
+---
+
+# 348. CONVITE, ACEITE E HISTÓRICO
+
+```text
+INVITED  ──aceita──►  ACCEPTED  ──removido──►  REMOVED
+   │
+   └────recusa────►  DECLINED
+```
+
+Antes do aceite, o convidado **não é colaborador ativo**: não escreve nada, não
+aparece como participante, não recebe acesso. Uma empresa pode desligar a
+exigência de aceite; aí a colaboração nasce ativa, conforme a política de quem
+pode convidar.
+
+## O histórico não é opcional
+
+Nunca substituir uma lista atual sem histórico. É preciso responder **quem
+participou, quando entrou, quando saiu, quem convidou e quem aceitou** — o
+mesmo raciocínio do vínculo de CTO (§335): fechar o registro antigo e abrir o
+novo, nunca `UPDATE` destrutivo.
+
+## Sugerir, nunca aplicar
+
+Com o Mapa Operacional (Parte III) e a Jornada, um seletor futuro poderá
+mostrar quem está em jornada, com que carga e a que distância. **Nenhuma
+colaboração e nenhuma transferência acontecem automaticamente** por carga ou
+proximidade. O sistema sugere; a pessoa confirma.
+
+---
+
+# 349. AUTORIA — O QUE O CÓDIGO JÁ SUSTENTA
+
+Toda contribuição preserva **quem fez**. Não atribuir tudo ao responsável.
+
+O levantamento no código real, que decide o custo da fase `COL-6`:
+
+```text
+ServiceOrderEvent (timeline)     userId              já existe
+ServiceOrderEvidence             uploadedByUserId    já existe
+ServiceOrderMaterialUsage        createdByUserId     já existe
+ServiceOrderSignature            capturedByUserId    já existe
+AuditLog                         userId              já existe
+
+ServiceOrderExecution            —                   NÃO existe
+ServiceOrderEquipment            —                   NÃO existe
+```
+
+`ServiceOrderExecution` é **um registro único por OS**: diagnóstico, trabalho
+realizado, notas e checklist moram nele, e ninguém precisou registrar autoria
+porque só existia um técnico possível. Dois técnicos escrevendo o mesmo
+diagnóstico não são duas linhas — são uma linha com duas mãos, e isso é decisão
+de arquitetura, não detalhe.
+
+## O conflito de versão deixa de ser raro
+
+Hoje um `409` de `expectedVersion` numa OS é **raro**: só um técnico escreve.
+Com dois participantes, ele passa a ser **rotina** — não é defeito, é o
+mecanismo funcionando. O Field precisa tratá-lo como recarregar-e-tentar, e não
+como erro vermelho. É a consequência de UX mais concreta desta capability.
+
+## Cada um com a própria sessão
+
+Nenhum compartilhamento de token, credencial ou autorização de upload entre
+técnicos. O colaborador nunca age pela sessão do responsável.
+
+---
+
+# 350. INVARIANTES
+
+```text
+I-C01  colaborar acrescenta participante; NÃO troca o responsável
+I-C02  a OS tem exatamente um responsável, sempre
+I-C03  colaborador não entra na fila de despacho autoritativa
+I-C04  o responsável não é colaborador de si mesmo
+I-C05  o mesmo técnico não é colaborador ativo duas vezes na mesma OS
+I-C06  colaboração é company-scoped, com companyId vindo da SESSÃO
+I-C07  colaboração não altera priority, origin, externalProvider nem externalId
+I-C08  cada ação preserva o autor real, e não o responsável por padrão
+I-C09  o histórico de participação é preservado, nunca sobrescrito
+I-C10  sem a capability da empresa, nenhuma superfície aparece
+I-C11  técnico inativado não executa novas ações; o histórico permanece
+I-C12  o backend é a autoridade — não existe colaboração decidida offline
+```
+
+Os critérios de aceite (`COL-AC01`–`COL-AC15`) estão em
+`docs/FIELD-COLLABORATION.md` §21.
+
+---
+
+# 351. ROADMAP — E A ORDEM COM O RESTO
+
+```text
+COL-1   modelagem, capability por empresa, invariantes em código
+COL-2   Admin/Web gerencia colaboradores de uma OS
+COL-3   Field convida colaborador
+COL-4   aceite e recusa
+COL-5   permissões do colaborador, por empresa
+COL-6   auditoria, timeline e atribuição de autoria
+COL-7   notificações push
+COL-8   relatórios de colaboração
+COL-9   FUTURO — sugestão por carga e localização
+```
+
+## Sete decisões abertas, e nenhuma resolvida em silêncio
+
+`COL-01` origem do material · `COL-02` o que acontece com o antigo responsável
+após a transferência · `COL-03` máximo de colaboradores · `COL-04` ações da V1
+· `COL-05` colaborador pode concluir? · `COL-06` como medir tempo de
+colaboração · `COL-07` a Jornada avisa ou bloqueia?
+
+Detalhamento em `docs/FIELD-COLLABORATION.md` §22.
+
+## Esta Parte NÃO promove nada na ordem
+
+Escrever a especificação **não** a coloca como próxima implementação. A §119
+vale aqui como em toda parte: estar no PRD não autoriza implementar, e a ordem
+global continua sendo a do roadmap vigente.
+
+Continuam valendo as duas escalas de prioridade (§117, §194).
+
+## Onde a Colaboração se encaixa
+
+```text
+a FILA decide           qual OS o técnico atende primeiro
+a COLABORAÇÃO decide    quem executa esta OS junto com ele
+a TRANSFERÊNCIA decide  de quem a OS passa a ser
+```
+
+Três domínios diferentes. Só o terceiro toca a fila.
+
+---
