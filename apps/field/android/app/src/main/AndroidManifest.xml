@@ -21,6 +21,18 @@
     <uses-permission android:name="android.permission.CAMERA"/>
 
     <!--
+        Notificacoes: avisar o tecnico quando uma OS e atribuida a ele (NF-2).
+
+        Permissao de RUNTIME desde o Android 13. O aplicativo pede depois do
+        primeiro login bem-sucedido, com contexto na tela: pedido sem contexto
+        e recusado, e no Android a recusa e lembrada.
+
+        Negar nao bloqueia nada. O aviso continua existindo dentro do
+        aplicativo, no sino, e o tecnico o ve ao abrir.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!--
         Localizacao ENQUANTO EM USO, e so.
 
         ACCESS_BACKGROUND_LOCATION NAO e pedida e nao deve ser acrescentada: o

@@ -28,25 +28,3 @@ class NotificationsRepository {
     return (data['updated'] as num?)?.toInt() ?? 0;
   }
 }
-
-/// Ponto de extensão para o push real.
-///
-/// O FCM **não** está integrado: exigiria projeto no Google, credencial de
-/// serviço e uma decisão de infraestrutura fora do escopo da Alpha. O backend
-/// já tem o outbox e o `pushToken` opcional em `MobileDevice`; falta só o
-/// provider real dos dois lados.
-///
-/// Esta interface existe para que o dia da integração seja uma implementação
-/// nova, e não uma cirurgia. Ela **não finge entrega**: `register` devolve
-/// null, e nada no aplicativo afirma que push está funcionando.
-abstract class PushRegistrationService {
-  /// Token do provider de push, ou null quando não há provider.
-  Future<String?> register();
-}
-
-class NoopPushRegistrationService implements PushRegistrationService {
-  const NoopPushRegistrationService();
-
-  @override
-  Future<String?> register() async => null;
-}

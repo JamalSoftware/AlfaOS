@@ -4,6 +4,32 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+/*
+    Google Services: aplicado SOMENTE quando o google-services.json existe.
+
+    O plugin gera recursos nativos a partir daquele arquivo, e FALHA o build
+    quando ele falta. Aplicando-o incondicionalmente, ninguem conseguiria
+    compilar o Field sem antes ter acesso ao projeto Firebase da plataforma —
+    nem para rodar em emulador, nem para abrir um APK de depuracao.
+
+    Com a condicao, os dois estados sao validos e explicitos:
+
+      sem o arquivo   o APK compila, o app roda, o push fica indisponivel
+      com o arquivo   o plugin entra e o push funciona
+
+    O arquivo NAO e versionado (ver .gitignore). Ele e configuracao de
+    CLIENTE, e nao a credencial de servidor — essa vive so no worker, no
+    firebase-admin, e nunca chega ao aparelho.
+*/
+val googleServicesJson = file("google-services.json")
+if (googleServicesJson.exists()) {
+    apply(plugin = "com.google.gms.google-services")
+} else {
+    logger.lifecycle(
+        "[alfaos] google-services.json ausente: push desativado neste build.",
+    )
+}
+
 android {
     namespace = "com.jamalsoftware.alfaos.field"
 

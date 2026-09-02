@@ -55,6 +55,8 @@ dependencies:
   # em troca de nada.
   geolocator: ^13.0.2
   image_picker: ^1.1.2
+  firebase_core: ^4.14.0
+  firebase_messaging: ^16.6.0
 
 dev_dependencies:
   flutter_test:

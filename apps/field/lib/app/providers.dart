@@ -8,6 +8,9 @@ import '../core/storage/session_store.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/state/session_controller.dart';
 import '../features/execution/data/execution_repository.dart';
+import '../core/push/field_push_service.dart';
+import '../core/push/push_coordinator.dart';
+import '../core/push/push_prompt_memory.dart';
 import '../features/notifications/data/notifications_repository.dart';
 import '../features/orders/data/orders_repository.dart';
 import 'theme/theme_controller.dart';
@@ -87,12 +90,22 @@ final photoCaptureProvider = Provider<PhotoCapture>((ref) {
   return const ImagePickerPhotoCapture();
 });
 
-/// Registro de push — inerte nesta Alpha.
+/// A fonte do token de push (`NF-2`).
 ///
-/// Existe como ponto de extensão. **Não finge entrega**: devolve null, e nada
-/// no aplicativo afirma que push está funcionando.
-final pushRegistrationProvider = Provider<PushRegistrationService>((ref) {
-  return const NoopPushRegistrationService();
+/// Substituiu o `PushRegistrationService` inerte: manter os dois seria manter
+/// duas costuras para a mesma coisa, e a fase seguinte teria de escolher entre
+/// elas. Sem Firebase configurado esta implementação responde `unavailable` —
+/// não finge entrega, e nada no aplicativo afirma que push está funcionando.
+final fieldPushServiceProvider = Provider<FieldPushService>((ref) {
+  return createFieldPushService();
+});
+
+/// Quando perguntar sobre notificações, e a garantia de não insistir.
+final pushCoordinatorProvider = Provider<PushCoordinator>((ref) {
+  return PushCoordinator(
+    service: ref.watch(fieldPushServiceProvider),
+    memory: const SharedPrefsPushPromptMemory(),
+  );
 });
 
 final sessionControllerProvider =

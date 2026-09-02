@@ -46,3 +46,9 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Configuracao do Firebase para o Android. Fornecida pelo operador, por
+# ambiente, e NAO versionada: ela identifica o projeto da plataforma e nao tem
+# por que morar no repositorio. Sem ela o build funciona e o push fica
+# desativado (NF-2, apps/field/android/app/build.gradle.kts).
+android/app/google-services.json
