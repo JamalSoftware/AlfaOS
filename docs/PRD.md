@@ -4137,7 +4137,12 @@ significa que ele não descobre.
 > transação da atribuição, o worker entrega com lease e backoff, o
 > `MobileDevice.pushToken` existe e as rotas já o aceitam. O que falta é o
 > provider FCM real, o lado Flutter e o deep link do toque — e **`NF-1` a
-> `NF-5` não exigem migration nenhuma**. Nada foi implementado.
+> `NF-5` não exigem migration nenhuma**.
+>
+> **`NF-1` está ENTREGUE** (§24 do documento): o provider real do FCM, a
+> seleção por configuração com fail-safe e a correção do logout que deixava o
+> aparelho recebendo push do usuário anterior. **Nenhum push chega a um
+> aparelho ainda** — o Flutter não obtém token, e isso é `NF-2` a `NF-5`.
 
 ## O inventário do que a fundação terá de atender
 

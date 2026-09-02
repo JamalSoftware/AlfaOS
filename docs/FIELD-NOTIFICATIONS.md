@@ -4,10 +4,12 @@ Plano da fase descrita no PRD **§153–§157**. Mora aqui, e não no PRD, pelo
 mesmo motivo que `DISPATCH-QUEUE.md`: o PRD é visão de produto, e provider,
 ciclo do token, política de retry e contrato de payload são engenharia.
 
-> **Estado: `NF-0` — PLANEJAMENTO. Nada aqui foi implementado nesta fase.**
+> **Estado: `NF-1` ENTREGUE. `NF-2` em diante continuam `PLANNED`.**
 >
-> Nenhuma dependência instalada, nenhum arquivo Dart alterado, nenhum código
-> nativo Android, nenhuma migration, nenhum projeto Firebase, nenhum segredo.
+> O provider real do FCM existe, a seleção por configuração existe, e o defeito
+> de logout que a §2 registrou foi corrigido. **Nenhum arquivo Dart, nenhum
+> código nativo Android, nenhuma migration, nenhum projeto Firebase criado e
+> nenhum segredo versionado.** O registro do que foi entregue está na §24.
 
 ---
 
@@ -95,14 +97,14 @@ A lista é curta, e é por isso que o roadmap abaixo não se parece com o do
 briefing.
 
 ```text
-1. provider FCM real           só NoopPushProvider existe
-2. seleção do provider         setPushProvider só é chamado por teste
-3. configuração e credencial   nada lido do ambiente
+1. provider FCM real           RESOLVIDO em NF-1
+2. seleção do provider         RESOLVIDO em NF-1
+3. configuração e credencial   RESOLVIDO em NF-1
 4. Flutter: firebase_messaging dependência, config nativa, permissão
 5. Flutter: obter e enviar     PushRegistrationService nunca é consumido
 6. rotação de token            nenhum listener de refresh
 7. deep link do toque          o router não trata rota inicial vinda de push
-8. logout não limpa pushToken  ← DEFEITO LATENTE, ver abaixo
+8. logout não limpa pushToken  RESOLVIDO em NF-1 (era o defeito latente)
 9. observabilidade de entrega  nada é persistido por dispositivo
 ```
 
@@ -139,7 +141,7 @@ assignTechnician (transação)
                 ↓
         PushNotificationProvider
                 ↓
-        FcmPushProvider       ← o que falta
+        FcmPushProvider       NF-1
                 ↓
               FCM
                 ↓
@@ -417,7 +419,7 @@ aparecem aqui.
 
 | Fase | Escopo | Migration | Dependência |
 |---|---|---|---|
-| **NF-1** | `FcmPushProvider`, seleção por configuração, fail-safe, **limpeza do `pushToken` no logout**, logging | ❌ | `firebase-admin` (só worker) |
+| **NF-1** ✅ | `FcmPushProvider`, seleção por configuração, fail-safe, **limpeza do `pushToken` no logout**, logging | ❌ | `firebase-admin` (só worker) — **ENTREGUE, ver §24** |
 | **NF-2** | Flutter: `firebase_messaging`, config nativa Android, permissão com contexto | ❌ | `firebase_messaging` |
 | **NF-3** | Flutter: obter token, enviar no login e no `devices/register`, listener de rotação | ❌ | — |
 | **NF-4** | Deep link do toque, nos três estados, atrás do guard de sessão | ❌ | — |
@@ -526,3 +528,171 @@ não reabre a Fila           D-10 continua valendo pelo outro lado
 não autoriza redesign       FIELD DESIGN FREEZE segue ACTIVE
 não cria migration          NF-1 a NF-5 não precisam de nenhuma
 ```
+
+---
+
+## 24. `NF-1` — o que foi entregue
+
+Escopo: **backend e worker apenas**. Zero Dart, zero código nativo Android,
+zero migration, zero schema.
+
+### Arquivos
+
+```text
+src/lib/push/fcm.ts         FcmPushProvider, mapper de erro, chave, credencial
+src/lib/push/bootstrap.ts   a escolha do provider, uma vez por processo
+src/lib/push/provider.ts    PushDeliveryResult ganhou retryableFailures
+src/lib/outbox-handlers.ts  ordem do sucesso parcial e deduplicação de token
+src/lib/field/devices.ts    logoutField limpa o pushToken
+scripts/outbox-worker.ts    chama o bootstrap na subida
+tsconfig.worker.json        as duas fontes novas entram na compilação do worker
+.env.example                as três variáveis, comentadas e sem valor
+```
+
+Uma dependência nova: **`firebase-admin`**, e nenhuma outra.
+
+### A extensão mínima do contrato
+
+`PushDeliveryResult` ganhou **`retryableFailures: number`**, obrigatório. O
+contrato anterior sabia dizer "entreguei" e "este token morreu", e não sabia
+dizer "tente de novo" — um provider que falhasse de forma transitória faria o
+handler concluir o evento, e o aviso sumiria em silêncio.
+
+Obrigatório, e não opcional, porque campo opcional convida exatamente esse
+esquecimento no próximo provider que alguém escrever. O compilador cobrou os
+dois fakes de teste na hora.
+
+### A ordem no sucesso parcial
+
+É a regra desta fase, e não um detalhe:
+
+```text
+1. envia
+2. limpa os tokens PERMANENTEMENTE inválidos
+3. só então lança, se houve falha transitória
+```
+
+Três aparelhos — um entregou, um morreu, um tropeçou — precisam dos três
+desfechos ao mesmo tempo. Se a exceção viesse antes da limpeza, o token morto
+sobreviveria a cada tentativa e o evento gastaria as seis contra um aparelho
+desinstalado. Limpando antes, **cada retentativa tem estritamente menos
+destinos condenados que a anterior**: a fila avança mesmo quando falha.
+
+Lançar é como o handler diz "de novo" ao outbox — `processOutboxBatch` devolve
+o evento a `PENDING` com backoff. O preço é declarado: quem já recebeu vai
+receber de novo. A entrega é **at-least-once**, e sempre foi; push repetido é
+incômodo, `Notification` duplicada seria registro errado, e ela não se duplica
+porque nasce na transação do domínio.
+
+### A classificação de erro, e a assimetria que a decide
+
+Um mapper só, em `fcm.ts`. Permanente condena o token: `not-registered`,
+`invalid-registration-token`, `invalid-argument`, `invalid-recipient`,
+`mismatched-credential`. **Todo o resto é transitório, inclusive o código
+desconhecido.**
+
+A assimetria é a razão: chamar transitório de permanente **apaga o token** e
+cala aquele aparelho para sempre, sem ninguém perceber; chamar permanente de
+transitório gasta seis tentativas e aparece como `FAILED`, com motivo, na fila.
+O primeiro erro é silencioso e definitivo; o segundo é barulhento e reversível.
+
+### Fail-safe, provado no build
+
+```text
+credencial completa    → FcmPushProvider
+credencial ausente     → Noop, e o worker diz por quê
+credencial incompleta  → Noop, e o worker diz QUAL variável falta
+credencial recusada    → Noop, e o worker não morre
+```
+
+`npm run build`, `npm test` e `npx playwright test` rodaram **sem nenhuma
+variável do Firebase** definida.
+
+### O isolamento do bundle, verificado e não afirmado
+
+```text
+grep -rl firebase .next/server .next/static   →  zero arquivos
+grep -l  firebase-admin dist/src/lib/push/*.js →  fcm.js
+```
+
+A dependência está no worker compilado e em lugar nenhum do bundle da web. A
+credencial de serviço não existe no runtime que atende requisição de usuário.
+
+### O provider não decide tenant
+
+`grep -c companyId` no módulo de push inteiro devolve **zero**. Ele recebe uma
+lista de tokens já filtrada; quem escolhe destinos é o handler, com o
+`companyId` do evento no predicado da consulta.
+
+### O defeito de logout — corrigido
+
+`logoutField` passou a limpar o `pushToken`. **Não revoga**: `status` continua
+`ACTIVE`, a linha continua reaproveitável, e o próximo login registra um token
+novo pelo caminho que já existe (`loginField` só sobrescreve `pushToken`
+quando o aplicativo manda um).
+
+### Testes — 34 novos
+
+```text
+FCM-01  config completa → provider real
+FCM-02  sem config → Noop, sem derrubar nada
+FCM-03  config parcial → Noop, nomeando a variável que falta
+        (mais: em branco conta como ausente; chave recusada cai no Noop)
+FCM-04  chave privada: `\n` escapado, aspas do shell, chave já correta
+FCM-05  instalar duas vezes no mesmo processo não lança
+FCM-06  entrega bem-sucedida não mexe no token
+FCM-07  token inválido sai, e o aparelho NÃO é revogado
+FCM-08  falha transitória pede retry e preserva o token
+FCM-09  sucesso parcial: limpa o morto, mantém o vivo, ainda pede retry
+FCM-10  nenhum aparelho elegível conclui sem retry infinito
+FCM-11  aparelho revogado não recebe
+FCM-13  multi-dispositivo, e o mesmo token em duas linhas envia uma vez
+FCM-14  evento da empresa A não alcança aparelho da B
+        classificação de erro: permanente, transitório e desconhecido
+        payload: só type/resourceType/resourceId, e texto sem PII
+
+LOGOUT-PUSH-01  logout limpa o token, mantém ACTIVE, e o aparelho sai da mira
+                (inclui o técnico SEGUINTE no mesmo aparelho)
+LOGOUT-PUSH-02  o outro aparelho do mesmo usuário continua recebendo
+LOGOUT-PUSH-03  revogar continua sendo mais forte que sair
+```
+
+A chave RSA usada no teste é **gerada em processo** e descartada: `cert()` do
+SDK valida o PEM, e uma chave de mentira faria o teste do caminho feliz medir
+o fail-safe em vez do caminho feliz.
+
+### Provas de reversão
+
+```text
+A  logout mantém o pushToken            4 dos 5 testes de logout falham
+B  handler envia para revogado          FCM-11 falha
+C  handler sem companyId no predicado   FCM-14 falha
+D  token inválido revoga o aparelho     FCM-07 falha
+E  tudo classificado como permanente    2 testes de classificação falham
+G  config ausente derruba o processo    FCM-02 e o de credencial em branco falham
+H  falha parcial concluída em silêncio  4 testes de entrega falham
+F  token inteiro em log                 verificada por inspeção: nenhum
+                                        `console.*` imprime token ou chave
+```
+
+### Risco de dependência, medido
+
+`npm audit` reporta 14 vulnerabilidades. **Oito `high` são pré-existentes** —
+cadeias de Next, Prisma e ESLint. As **seis `moderate` chegaram com o
+`firebase-admin`**, todas na cadeia `@google-cloud/storage` →
+`retry-request` → `teeny-request` → `uuid`.
+
+Medido, e não presumido: importar `firebase-admin/app` e
+`firebase-admin/messaging` carrega **98 módulos, e nenhum deles** é
+`@google-cloud/storage`, `retry-request` ou `teeny-request`. O código
+vulnerável está instalado e não é alcançado pelo caminho que o AlfaOS usa.
+
+Nenhum upgrade foi feito: `npm audit fix --force` é proibido pelo `CLAUDE.md`,
+e um upgrade amplo fora de escopo trocaria um risco medido por um não medido.
+
+### O que continua faltando para o push chegar ao técnico
+
+`NF-1` liga o lado do servidor. **Nenhuma notificação chega a um aparelho
+ainda**, porque o Flutter não obtém token: `PushRegistrationService` continua
+sendo o `Noop`, não há `firebase_messaging`, não há permissão de Android e não
+há deep link. Isso é `NF-2` a `NF-5`.
