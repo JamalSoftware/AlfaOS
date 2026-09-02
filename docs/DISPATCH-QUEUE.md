@@ -12,8 +12,9 @@ foram levantadas; aqui está como executá-las.
 > aplicativo **obedecendo** à fila, mais o Voltar do Android corrigido. A
 > auditoria independente clean-room da `DQ-7` fechou em `APPROVED WITH RISKS`
 > e o piloto físico passou (§19). O único achado não-`INFO`, o `BKF-01`, foi
-> corrigido na `DQ-7.1` (§20). A tabela de fases no fim do documento é a fonte
-> de verdade do que está feito.
+> corrigido na `DQ-7.1` (§20), e a observação que ela levantou — o backfill
+> reescrevendo ordem manual — na `DQ-7.2` (§21). A tabela de fases no fim do
+> documento é a fonte de verdade do que está feito.
 
 ---
 
@@ -833,6 +834,7 @@ Cada fase é um commit, com prova de reversão e critério de saída.
 | **DQ-6** ✅ | Field consome a ordem + Voltar do Android | `apps/field/lib/features/**`, `app/shell_back.dart`, `core/widgets/{position_badge,local_order_note}.dart` | **ENTREGUE** — 36 testes novos, `F-1`–`F-8` e `B-1`–`B-8` verdes, 8 provas de reversão. **DEVICE PILOT PASSED** |
 | **DQ-7** ✅ | Auditoria independente clean-room, piloto físico | — | **CONCLUÍDA** — `APPROVED WITH RISKS`, 1 LOW e 3 INFO, nenhum bloqueador. Piloto físico `PASSED`. Ver §19 |
 | **DQ-7.1** ✅ | Endurecimento focal do backfill | `dispatch-queue-backfill.ts` | **ENTREGUE** — `BKF-01` `RESOLVED`, 10 testes novos, 5 provas de reversão, nenhuma migration. Ver §20 |
+| **DQ-7.2** ✅ | Ordem manual preservada na reconciliação | `dispatch-queue-backfill.ts` | **ENTREGUE** — bootstrap × reconciliação separados, 7 testes novos, 5 provas de reversão, nenhuma migration. Ver §21 |
 
 `DQ-1` e `DQ-2` são separados de propósito: schema sem consumidor é reversível
 por `migrate resolve`; schema com serviço já tem dado escrito.
@@ -1110,6 +1112,9 @@ DQ-7.1** — é semântica do comando desde a DQ-2, não regressão. Fica regist
 porque decide quando é seguro rodá-lo numa base viva: o comando responde pela
 ordem **inicial** da fila, e não preserva decisão de despacho posterior.
 
+> **Corrigido na `DQ-7.2` (§21).** A observação fica como está: ela descreve o
+> que o comando fazia desde a DQ-2, e é a razão de a correção existir.
+
 ### Gates
 
 ```text
@@ -1128,3 +1133,119 @@ flutter test              316 passaram
 
 Zero arquivo Dart tocado, então nenhum APK novo: a regressão Flutter roda por
 garantia, não por mudança.
+
+---
+
+## 21. `DQ-7.2` — a ordem do despachante sobrevive ao backfill
+
+Patch focal sobre a observação registrada no fim da §20. Escopo fechado:
+`src/lib/dispatch-queue-backfill.ts` e os testes. **Nenhuma migration, nenhuma
+rota, nenhuma UI, nenhum arquivo Dart, nenhuma feature nova.**
+
+### O invariante novo
+
+> **Depois que uma fila existe, o backfill não é autoridade sobre a ordem
+> dela.** Para entradas que já pertencem à fila e continuam elegíveis,
+> preserva-se a ordem relativa persistida.
+
+```text
+BOOTSTRAP        fila que ainda não existe    banda → scheduledAt → assignedAt → id
+RECONCILIAÇÃO    fila que já foi operada      preserva a ordem relativa dentro da banda
+```
+
+A regra de bootstrap **não mudou**: sem estado operacional anterior não há
+decisão de despacho a preservar, e o comando decide.
+
+### O que a reconciliação faz, na ordem
+
+```text
+1. remover    existente - elegível
+2. preservar  existente ∩ elegível, na ordem persistida
+3. repor      a precedência de banda, com ordenação ESTÁVEL
+4. inserir    elegível - existente, no FIM da própria banda
+5. renumerar  1..N
+```
+
+### Precedência continua sendo reparada
+
+Preservar a mão do despachante não é preservar estado inválido. Uma `NORMAL`
+persistida à frente de uma `URGENT` — prioridade alterada fora do fluxo, dado
+antigo, importação — é reposta na banda certa.
+
+Quem faz isso é **`normalizeQueue`**, a mesma função que o serviço usa em toda
+mutação de fila. Ela ordena por posição, aplica uma ordenação **estável** por
+banda e renumera; a estabilidade é o que faz repor a banda sem embaralhar quem
+já estava dentro dela. Escrever uma segunda implementação de precedência aqui
+criaria uma segunda autoridade, e as duas divergiriam na primeira vez que
+alguém ajustasse só uma.
+
+A inserção do que falta usa **`appendPositionForBand`**, a mesma política de
+`placeAssignedOrder`: fim da própria banda, `D-04`/`D-05`. Chegar depois não é
+ser mais importante, e a OS nova nunca desloca a ordem relativa de nenhuma
+outra.
+
+### OS que trocou de banda por fora
+
+Ela vai para dentro da nova banda, no ponto que a **posição persistida** dela
+implica. Numa fila coerente isso é o **fim** da banda de destino ao promover,
+que é a regra normal de mudança de prioridade: a posição global de quem estava
+numa banda mais fraca é maior que a de todas as da banda mais forte.
+
+Ao rebaixar, ela pode cair antes do fim da nova banda. Não dá para fazer
+melhor sem inventar: a banda **anterior** não é persistida, então *"esta OS
+mudou de banda"* não é uma pergunta que o estado responda, e adivinhá-la por
+heurística seria a ordenação arbitrária que esta fase existe para tirar do
+caminho. Fica documentado em vez de mascarado.
+
+### Testes permanentes
+
+```text
+PRESERVE-01  mesma banda, C,A,B manual        continua C,A,B, e NADA é escrito
+PRESERVE-02  B,A urgentes + nova urgente D    B, A, D, C
+PRESERVE-03  C,A,B e A sai de ASSIGNED        C, B — sem reordenar o resto
+PRESERVE-04  NORMAL persistida antes de duas URGENT   repara a banda sem inverter A/B
+PRESERVE-05  quatro bandas com ordem manual   precedência e ordem mantidas, sem escrita
+PRESERVE-06  reconciliar de novo              zero mudança, zero version
+             fila que não existe ainda        ordem de BOOTSTRAP, inalterada
+```
+
+### Provas de reversão
+
+```text
+A  reordenar a fila inteira por bootstrap        5 falhas, PRESERVE-01 entre elas
+B  inserir o que falta no INÍCIO da banda        PRESERVE-02 e o bootstrap falham
+C  recalcular os sobreviventes após a remoção    PRESERVE-03 e mais 4 falham
+D  preservar posição sem repor a banda           PRESERVE-04 falha
+E  inverter a ordem existente dentro da banda    PRESERVE-01, 05 e 06 falham
+```
+
+**`E` passou na primeira tentativa, e a culpa era dos testes.** O backfill roda
+em **dois passos** (poda e preenchimento), e uma transformação que inverte a
+ordem é aplicada duas vezes: a segunda desfaz a primeira, e a asserção sobre a
+ordem final passava com o código quebrado. Foi preciso acrescentar a afirmação
+forte — **uma fila já válida não é sequer reescrita**, `queuesChanged === 0` —
+em `PRESERVE-01` e `PRESERVE-05`. Só então a sabotagem caiu, e essa asserção
+vale por si: ela é o que impede o comando de escrever sem motivo.
+
+A primeira versão de `E` também estava errada por outro motivo: ela trocava
+`position` pelo índice do array, e `existing` é lido **sem `orderBy`** — então
+ela sabotava algo que o código correto não usa. O código depende de `position`,
+nunca da ordem em que o banco devolveu as linhas.
+
+### Gates
+
+```text
+git diff --check          limpo
+prisma generate/validate  ok, schema válido
+prisma migrate status     23 migrations, banco em dia, NENHUMA nova
+lint                      sem avisos
+tsc --noEmit              sem erro
+vitest                    1578 passaram (era 1571), 73 arquivos
+playwright                116 passaram
+next build + build:worker OK
+dart format               86 arquivos, 0 alterados
+flutter analyze           sem problemas
+flutter test              316 passaram
+```
+
+Zero arquivo Dart tocado.

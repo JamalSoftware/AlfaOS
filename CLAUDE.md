@@ -400,9 +400,21 @@ A raiz, e não só o sintoma: **a elegibilidade é lida DEPOIS do `FOR UPDATE`**
 
 Uma guarda nova: posição não positiva só existe **dentro** da transação, e uma contagem no fim faz a transação inteira voltar se alguma sobreviver. Um `BKF-01` futuro vira falha, não fila torta.
 
-**Observação pré-existente, registrada e não corrigida:** o backfill **descarta ordenação manual do despachante** — numa fila sem entrada faltando nem sobrando, mas reordenada à mão, ele renumera de volta para a ordem de backfill. Reproduzido em sonda temporária e confirmado **idêntico no código anterior**, então é semântica do comando desde a DQ-2, não regressão. Decide quando é seguro rodá-lo em base viva.
+**Observação pré-existente, registrada e não corrigida nela:** o backfill **descarta ordenação manual do despachante** — numa fila sem entrada faltando nem sobrando, mas reordenada à mão, ele renumera de volta para a ordem de backfill. Reproduzido em sonda temporária e confirmado **idêntico no código anterior**, então é semântica do comando desde a DQ-2, não regressão. **Corrigido na DQ-7.2.**
 
 Gates: **1571 Vitest** (era 1561), 116 Playwright, 316 Flutter, lint, tsc, build, `dart format`, `flutter analyze`, `prisma validate`, 23 migrations — **nenhuma nova**. Registro em `docs/DISPATCH-QUEUE.md` §20.
+
+**`DQ-7.2` ENTREGUE — commits locais, sem tag e sem push.** Corrige a observação que a DQ-7.1 levantou. **Nenhuma migration, nenhuma rota, nenhuma UI, nenhuma feature nova, zero arquivo Dart.**
+
+O invariante novo: **depois que uma fila existe, o backfill não é autoridade sobre a ordem dela.** Passaram a existir duas regras, e a distinção é o ponto — **BOOTSTRAP** (fila que ainda não existe: banda, `scheduledAt`, `assignedAt`, `id`, inalterado) e **RECONCILIAÇÃO** (fila já operada: preserva a ordem relativa dentro da banda). Um comando de manutenção que reescreve a decisão operacional é pior que um comando que não roda.
+
+**Precedência continua sendo reparada**, e quem faz isso é o **`normalizeQueue`** que o serviço já usa em toda mutação de fila: ele ordena por posição, aplica ordenação **estável** por banda e renumera. A estabilidade é o que repõe a banda sem embaralhar quem já estava dentro dela. Escrever uma segunda implementação de precedência no backfill criaria uma segunda autoridade. A inserção do que falta usa `appendPositionForBand`, a mesma política de `placeAssignedOrder`: fim da própria banda (`D-04`/`D-05`).
+
+**Limite declarado, não mascarado:** uma OS que trocou de banda por fora vai para o ponto que a posição persistida dela implica — o **fim** da banda ao promover, numa fila coerente; ao rebaixar, pode cair antes do fim. A banda **anterior** não é persistida, então "esta OS mudou de banda" não é pergunta que o estado responda, e adivinhar seria a ordenação arbitrária que a fase existe para tirar do caminho.
+
+**A sabotagem `E` passou, e a culpa era dos testes.** O backfill roda em **dois passos**, e uma transformação que inverte a ordem é aplicada duas vezes: a segunda desfaz a primeira, e a asserção sobre a ordem final passava com o código quebrado. Entrou a afirmação forte — **uma fila já válida não é sequer reescrita** (`queuesChanged === 0`) — na `PRESERVE-01` e na `PRESERVE-05`. A primeira versão de `E` também estava errada por outro motivo: trocava `position` pelo índice do array, e `existing` é lido **sem `orderBy`**, então sabotava algo que o código correto não usa.
+
+Gates: **1578 Vitest** (era 1571), 116 Playwright, 316 Flutter, lint, tsc, build, `dart format`, `flutter analyze`, `prisma validate`, 23 migrations — **nenhuma nova**. Registro em `docs/DISPATCH-QUEUE.md` §21.
 
 **Próxima fase separada: `FIELD NOTIFICATION FOUNDATION`** (PRD §153) — `backend → notification event → device token → FCM → Android → deep link da OS`. Nada de push existe hoje, e o sino não fabrica badge. Depois dela existem **duas** trilhas registradas e prontas para começar — **Escala de Trabalho P0** (§307) e **Fila Operacional backend + Web** (§332) —, e **a ordem entre as duas não foi decidida**: são addenda aprovados em momentos diferentes, e escolher agora seria decisão de produto tomada em silêncio.
 
