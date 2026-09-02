@@ -4139,10 +4139,12 @@ significa que ele não descobre.
 > provider FCM real, o lado Flutter e o deep link do toque — e **`NF-1` a
 > `NF-5` não exigem migration nenhuma**.
 >
-> **`NF-1` está ENTREGUE** (§24 do documento): o provider real do FCM, a
-> seleção por configuração com fail-safe e a correção do logout que deixava o
-> aparelho recebendo push do usuário anterior. **Nenhum push chega a um
-> aparelho ainda** — o Flutter não obtém token, e isso é `NF-2` a `NF-5`.
+> **`NF-1` e `NF-2` estão ENTREGUES** (§24 e §25 do documento): o provider
+> real do FCM com fail-safe, a correção do logout que deixava o aparelho
+> recebendo push do usuário anterior, e o lado do aplicativo — Firebase
+> inicializado, permissão pedida com contexto depois do primeiro login, token
+> obtido e rotação observada. **Nenhum push chega a um aparelho ainda**: o
+> token não é enviado ao AlfaOS, e isso é `NF-3`.
 
 ## O inventário do que a fundação terá de atender
 

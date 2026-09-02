@@ -440,6 +440,24 @@ Gates: **1578 Vitest** (era 1571), 116 Playwright, 316 Flutter, lint, tsc, build
 
 Gates: **1612 Vitest** (era 1578), 116 Playwright, 316 Flutter, lint, tsc, build, `build:worker`, `dart format`, `flutter analyze`, `prisma validate`, 23 migrations — **nenhuma nova**. Sete sabotagens detectadas, mais uma verificada por inspeção. Registro em `docs/FIELD-NOTIFICATIONS.md` §24.
 
+**`NF-2` ENTREGUE — commits locais, sem tag e sem push.** O **aparelho** ficou preparado: `firebase_core` + `firebase_messaging`, `POST_NOTIFICATIONS` no manifesto, permissão pedida com contexto depois do primeiro login, token obtido e rotação observada. **Flutter e Android apenas — zero TypeScript, zero Prisma, zero migration, zero alteração de backend.**
+
+**E ainda assim nenhum push chega.** O token existe no aplicativo e **não é enviado ao AlfaOS** — isso é `NF-3`, e a fronteira está em `PushCoordinator.tokenRefresh`. Antecipá-la faria o registro nascer sem os testes de idempotência que a fase seguinte prevê.
+
+**A descoberta que decidiu a estratégia do Gradle:** o plugin `com.google.gms.google-services` **falha o build quando o `google-services.json` falta**. Aplicado sem condição, ninguém compilaria o Field sem antes ter acesso ao projeto Firebase da plataforma — nem para rodar em emulador. Ele passou a ser aplicado **condicionalmente**, e o APK foi construído sem o arquivo, com `android/app/build/generated/res/google-services/` **inexistente** provando que o plugin foi pulado.
+
+**`unavailable` não é `denied`.** Um é ausência de infraestrutura, o outro é decisão da pessoa; colapsá-los faria a tela dizer "você recusou" para quem nunca foi perguntado — que é exatamente o estado enquanto o projeto Firebase não existir. Já `deniedPermanently` **é** colapsado em `denied`: a conduta é a mesma, e estado a mais só se justifica quando muda o que o aplicativo faz.
+
+**A permissão é pedida UMA vez, depois do primeiro login, com contexto.** Pedido sem contexto é recusado, e no Android a recusa é lembrada — a partir da segunda negativa o sistema nem exibe o diálogo. Perguntar cedo demais não adianta a permissão: gasta a única boa chance de obtê-la. A marca de "já perguntamos" é **um booleano** em `SharedPreferences`, e nada além dele é gravado.
+
+**A costura inerte foi REMOVIDA, não mantida ao lado.** `PushRegistrationService` nunca teve consumidor, e deixar duas costuras para a mesma coisa faria a fase seguinte ter de escolher entre elas. `FieldPushService` é a única.
+
+**Nada disso derruba o aplicativo:** toda chamada ao Firebase é protegida, a oferta roda **fora** do `try` do login, e a inicialização não bloqueia a subida. O token **não é persistido** (o SDK é a autoridade) e **não é impresso** em lugar nenhum.
+
+Gates: 1612 Vitest, 116 Playwright, **339 Flutter** (era 316), lint, tsc, build, `build:worker`, `dart format`, `flutter analyze`, `prisma validate`, 23 migrations — **nenhuma nova** —, APK debug construído. Sete sabotagens detectadas, mais uma por inspeção. Registro em `docs/FIELD-NOTIFICATIONS.md` §25.
+
+**Pendência do operador, e ela não é código:** criar o projeto Firebase da plataforma, registrar o Android com o `applicationId` **`com.jamalsoftware.alfaos.field`** e colocar o `google-services.json` em `apps/field/android/app/` — **fora do Git**, e o `.gitignore` já o cobre.
+
 **A escolha de SDK (`firebase-admin`, só no worker) depende de um fato do grafo de imports:** `outbox-handlers.ts` é alcançado apenas por `scripts/outbox-worker.ts` e pelos testes — **nenhuma rota do Next**. Por isso a credencial de serviço nunca existe no runtime web. Se uma rota passar a importá-lo, a decisão precisa ser reavaliada, não herdada.
 
 Depois dela existem **três** trilhas documentadas e nenhuma promovida — **Escala de Trabalho P0** (§307), **CTOs e Rede de Distribuição** (§333–§341) e **Colaboração entre Técnicos** (§342–§351). **A ordem entre elas não foi decidida**: são addenda aprovados em momentos diferentes, e escolher agora seria decisão de produto tomada em silêncio. O CTO tinha gate explícito — entrava "depois de a sequência da fila estar concluída e **publicada**" —, então publicar a v0.12 o torna **elegível**, o que não é o mesmo que promovê-lo.

@@ -4,12 +4,16 @@ Plano da fase descrita no PRD **§153–§157**. Mora aqui, e não no PRD, pelo
 mesmo motivo que `DISPATCH-QUEUE.md`: o PRD é visão de produto, e provider,
 ciclo do token, política de retry e contrato de payload são engenharia.
 
-> **Estado: `NF-1` ENTREGUE. `NF-2` em diante continuam `PLANNED`.**
+> **Estado: `NF-1` e `NF-2` ENTREGUES. `NF-3` em diante continuam `PLANNED`.**
 >
 > O provider real do FCM existe, a seleção por configuração existe, e o defeito
-> de logout que a §2 registrou foi corrigido. **Nenhum arquivo Dart, nenhum
-> código nativo Android, nenhuma migration, nenhum projeto Firebase criado e
-> nenhum segredo versionado.** O registro do que foi entregue está na §24.
+> de logout que a §2 registrou foi corrigido (§24). O Flutter inicializa o
+> Firebase, pede a permissão com contexto e obtém o token (§25).
+>
+> **Nenhuma migration, nenhum projeto Firebase criado e nenhum segredo
+> versionado.** O aplicativo compila e roda **sem** o `google-services.json`;
+> enquanto ele não existir, o push fica `unavailable`. **Nenhum push chega a um
+> aparelho ainda** — o token não é enviado ao AlfaOS, e isso é `NF-3`.
 
 ---
 
@@ -100,9 +104,9 @@ briefing.
 1. provider FCM real           RESOLVIDO em NF-1
 2. seleção do provider         RESOLVIDO em NF-1
 3. configuração e credencial   RESOLVIDO em NF-1
-4. Flutter: firebase_messaging dependência, config nativa, permissão
-5. Flutter: obter e enviar     PushRegistrationService nunca é consumido
-6. rotação de token            nenhum listener de refresh
+4. Flutter: firebase_messaging RESOLVIDO em NF-2
+5. Flutter: obter o token      RESOLVIDO em NF-2 (ENVIAR continua sendo NF-3)
+6. rotação de token            RESOLVIDO em NF-2 (exposta; registrar é NF-3)
 7. deep link do toque          o router não trata rota inicial vinda de push
 8. logout não limpa pushToken  RESOLVIDO em NF-1 (era o defeito latente)
 9. observabilidade de entrega  nada é persistido por dispositivo
@@ -420,7 +424,7 @@ aparecem aqui.
 | Fase | Escopo | Migration | Dependência |
 |---|---|---|---|
 | **NF-1** ✅ | `FcmPushProvider`, seleção por configuração, fail-safe, **limpeza do `pushToken` no logout**, logging | ❌ | `firebase-admin` (só worker) — **ENTREGUE, ver §24** |
-| **NF-2** | Flutter: `firebase_messaging`, config nativa Android, permissão com contexto | ❌ | `firebase_messaging` |
+| **NF-2** ✅ | Flutter: `firebase_messaging`, config nativa Android, permissão com contexto | ❌ | `firebase_core`, `firebase_messaging` — **ENTREGUE, ver §25** |
 | **NF-3** | Flutter: obter token, enviar no login e no `devices/register`, listener de rotação | ❌ | — |
 | **NF-4** | Deep link do toque, nos três estados, atrás do guard de sessão | ❌ | — |
 | **NF-5** | Piloto em aparelho físico e endurecimento | ❌ | — |
@@ -696,3 +700,175 @@ e um upgrade amplo fora de escopo trocaria um risco medido por um não medido.
 ainda**, porque o Flutter não obtém token: `PushRegistrationService` continua
 sendo o `Noop`, não há `firebase_messaging`, não há permissão de Android e não
 há deep link. Isso é `NF-2` a `NF-5`.
+
+---
+
+## 25. `NF-2` — o que foi entregue
+
+Escopo: **Flutter e Android apenas**. Zero TypeScript, zero Prisma, zero
+migration, zero alteração de backend.
+
+```text
+apps/field/lib/core/push/field_push_service.dart    a costura e a implementação Firebase
+apps/field/lib/core/push/push_coordinator.dart      quando perguntar, e a garantia de não insistir
+apps/field/lib/core/push/push_prompt_memory.dart    a marca de "já perguntamos"
+apps/field/lib/core/push/push_permission_sheet.dart a explicação antes do diálogo do sistema
+apps/field/lib/app/providers.dart                   a costura nova substitui a inerte
+apps/field/lib/features/auth/ui/login_screen.dart   a oferta, depois do login
+apps/field/android/app/src/main/AndroidManifest.xml POST_NOTIFICATIONS
+apps/field/android/app/build.gradle.kts             google-services CONDICIONAL
+apps/field/android/settings.gradle.kts              versão do plugin, sem aplicar
+apps/field/.gitignore                               google-services.json fora do Git
+```
+
+Duas dependências diretas — `firebase_core` e `firebase_messaging` — e mais
+cinco transitivas da mesma família. **Nenhum pacote não relacionado mudou de
+versão**, e `flutter_local_notifications` **não** entrou: banner em primeiro
+plano é fase futura, e trazê-lo agora seria complexidade sem consumidor.
+
+### O aplicativo compila SEM o Firebase, e isso foi verificado
+
+A descoberta que decidiu a estratégia de Gradle: o plugin
+`com.google.gms.google-services` **falha o build quando o
+`google-services.json` falta**. Aplicado sem condição, ninguém compilaria o
+Field sem antes ter acesso ao projeto Firebase da plataforma — nem para rodar
+em emulador, nem para abrir um APK de depuração.
+
+Por isso ele é aplicado **condicionalmente**:
+
+```text
+sem o arquivo   o APK compila, o app roda, o push fica indisponível
+com o arquivo   o plugin entra e o push funciona
+```
+
+Verificado, e não afirmado: `flutter build apk --debug` conclui, e
+`android/app/build/generated/res/google-services/` **não existe** — o plugin
+foi de fato pulado.
+
+### A costura, e por que a antiga saiu
+
+`FieldPushService` expõe `initialize`, `permissionStatus`,
+`requestPermission`, `token` e `tokenRefresh`. Nenhuma tela, controller ou
+repositório chama `FirebaseMessaging` diretamente — é essa fronteira que faz
+os 339 testes rodarem sem Firebase.
+
+O `PushRegistrationService` inerte foi **removido**, e não mantido ao lado.
+Ele nunca teve consumidor, e deixar duas costuras para a mesma coisa faria a
+fase seguinte ter de escolher entre elas.
+
+### Três identificadores que não se misturam
+
+```text
+installationId   correlaciona reinstalação com a mesma linha de MobileDevice
+token de sessão  o Bearer opaco do Field, revogável
+pushToken (FCM)  endereça UMA instalação, e rotaciona sozinho
+```
+
+`FieldPushService` **não expõe** os dois primeiros, e `PushPreparation`
+carrega apenas o terceiro. A confusão entre eles é o erro clássico da
+integração de push, e aqui ela é impedida pelo tipo.
+
+### Quando o aplicativo pergunta
+
+**Depois do primeiro login bem-sucedido, com contexto** — a regra decidida no
+`NF-0`, agora em código.
+
+```text
+authorized     nada a perguntar; busca o token
+notDetermined  e nunca perguntamos  → oferece a explicação
+notDetermined  e já perguntamos     → não oferece
+denied         → NUNCA volta a perguntar sozinho
+unavailable    → não oferece, e não diz que a pessoa recusou
+```
+
+Pedido sem contexto é recusado, e no Android a recusa é lembrada: a partir da
+segunda negativa o sistema nem exibe o diálogo. Perguntar cedo demais não
+adianta a permissão — **gasta a única boa chance de obtê-la**.
+
+A marca de "já perguntamos" é **um booleano** em `SharedPreferences`. Não é
+segredo, então não vai para o armazenamento seguro; e nada além dele é
+gravado — nem token, nem e-mail, nem data.
+
+### `unavailable` não é `denied`
+
+Um é ausência de infraestrutura, o outro é decisão da pessoa. Colapsá-los
+faria a tela dizer "você recusou" para quem nunca foi perguntado — e é
+exatamente o estado do AlfaOS enquanto o projeto oficial do Firebase não
+existir. São dois valores distintos do enum, com teste próprio.
+
+`deniedPermanently`, que o plugin expõe, **é** colapsado em `denied`: a conduta
+é a mesma, e estado a mais no domínio só se justifica quando muda o que o
+aplicativo faz.
+
+### Nada disso derruba o aplicativo
+
+Toda chamada ao Firebase é protegida, e a oferta de permissão roda **fora** do
+`try` do login: o técnico entrou, e se o Firebase não existe, se a permissão é
+recusada ou se o provedor cai, ele continua com OS, Jornada e execução. Push é
+capability, não requisito — e a `Notification` interna existe de qualquer
+jeito, no sino.
+
+A inicialização também **não bloqueia a subida**: ela acontece depois do
+login, e não no `main()`.
+
+### O token não é persistido, e não é impresso
+
+O SDK do Firebase é a autoridade sobre o token; guardá-lo em disco criaria uma
+segunda cópia que envelhece. E nenhum `print`, `debugPrint` ou `log` do
+aplicativo recebe token — verificado por inspeção e pela prova de reversão
+`A`. O redator de log já censurava `pushtoken`; agora não há o que censurar.
+
+### A fronteira com o `NF-3`
+
+`NF-2` **expõe** o token e a rotação. **Não registra nada no backend** — não
+chama `/devices/register`, não toca no login do servidor. Antecipar isso faria
+o registro nascer sem os testes de idempotência que a fase seguinte prevê, e a
+fronteira está exatamente em `PushCoordinator.tokenRefresh`.
+
+### Testes — 23 novos
+
+```text
+NF2-01  inicializa uma vez; a segunda chamada não tenta de novo
+NF2-02  já autorizado: não pergunta, e busca o token
+NF2-03  negado: não quebra, e não volta a perguntar sozinho
+NF2-04  o token vem depois de a permissão ser concedida
+NF2-05  permissão concedida sem token não quebra
+NF2-06  rotação emite o token novo para quem for registrá-lo
+NF2-07  provedor indisponível não impede nada; unavailable ≠ denied;
+        a stream de rotação é vazia sem Firebase
+NF2-08  o token viaja no RESULTADO, não em log
+NF2-09  construir o coordenador não inicializa, não consulta e não pergunta
+NF2-10  depois do login, a oferta existe — oferecer não é perguntar
+NF2-11  "agora não" mantém o app e não repete a pergunta
+NF2-12  três logins depois de uma recusa: nenhuma pergunta nova
+NF2-13  o manifesto declara POST_NOTIFICATIONS e nada além do necessário
+NF2-14  o plugin do Gradle é condicional, e a versão é declarada sem aplicar
+NF2-15  nenhum google-services.json versionado, nenhuma chave no Android
+        e os três identificadores não se misturam
+```
+
+### Provas de reversão
+
+```text
+A  imprimir o token                      inspeção: nenhum print/log no módulo
+B  pedir permissão no construtor         7 testes falham
+C  negação lança e bloqueia              NF2-03, NF2-07 e NF2-12 falham
+D  não escutar a rotação                 NF2-06 falha
+E  falha do Firebase sobe como exceção   NF2-01 falha
+F  devolver installationId como token    NF2-04, NF2-05 e NF2-08 falham
+G  perguntar sempre, mesmo negado        NF2-03, NF2-11 e NF2-12 falham
+```
+
+### O que o operador ainda precisa fazer
+
+```text
+1. criar ou reusar o projeto Firebase da plataforma
+2. registrar o app Android com o applicationId com.jamalsoftware.alfaos.field
+3. baixar o google-services.json e colocá-lo em apps/field/android/app/
+   — ele NAO vai para o Git, e o .gitignore já o cobre
+4. a credencial de servidor do NF-1 continua sendo outra coisa, e mora
+   somente no ambiente do worker
+```
+
+Enquanto isso não acontecer, o aplicativo compila, roda e trabalha — e o push
+fica `unavailable`, dito com essa palavra e não como recusa da pessoa.
