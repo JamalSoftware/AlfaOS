@@ -68,9 +68,22 @@ async function handleServiceOrderAssigned(
     select: { id: true, pushToken: true },
   });
 
-  const tokens = devices
-    .map((device) => device.pushToken)
-    .filter((token): token is string => Boolean(token));
+  /*
+    Tokens ÚNICOS.
+
+    O mesmo token pode aparecer em duas linhas de `MobileDevice` — o aplicativo
+    reinstalado com `installationId` novo, antes de o token antigo rotacionar.
+    Enviar duas vezes entregaria duas notificações iguais no mesmo aparelho. A
+    limpeza do token inválido continua alcançando as DUAS linhas, porque ela
+    casa por valor de token e não por linha.
+  */
+  const tokens = Array.from(
+    new Set(
+      devices
+        .map((device) => device.pushToken)
+        .filter((token): token is string => Boolean(token)),
+    ),
+  );
 
   if (tokens.length === 0) {
     // Técnico sem aparelho registrado, ou sem permissão de notificação
@@ -113,6 +126,35 @@ async function handleServiceOrderAssigned(
         data: { pushToken: null },
       });
     }
+  }
+
+  /*
+    SUCESSO PARCIAL — e a ORDEM aqui é a regra, não detalhe.
+
+    Três aparelhos: A entregou, B tem token morto, C tropeçou na rede. Os três
+    desfechos precisam sobreviver à mesma chamada, e cada um quer uma coisa
+    diferente do outbox.
+
+    A limpeza de B acontece ANTES deste ponto de propósito. Se a exceção viesse
+    primeiro, o token morto sobreviveria a cada tentativa e o evento gastaria
+    as seis contra um aparelho desinstalado. Limpando antes, cada retentativa
+    tem estritamente menos destinos condenados que a anterior — a fila avança
+    mesmo quando falha.
+
+    Falha transitória vira EXCEÇÃO porque é assim que o outbox entende "de
+    novo": `processOutboxBatch` devolve o evento a `PENDING` com backoff, ou o
+    marca `FAILED` ao esgotar. Concluir em silêncio deixaria C sem aviso e o
+    evento marcado como processado.
+
+    O preço é declarado: A vai receber de novo na próxima tentativa. A entrega
+    é **at-least-once**, e sempre foi — push repetido é incômodo, `Notification`
+    duplicada seria registro errado, e ela não se duplica porque nasce na
+    transação do domínio, não aqui.
+  */
+  if (result.retryableFailures > 0) {
+    throw new Error(
+      `push: ${result.retryableFailures} destino(s) com falha transitória (provider=${getPushProvider().name})`,
+    );
   }
 }
 

@@ -35,7 +35,11 @@ class ContadorPush implements PushNotificationProvider {
   readonly sent: PushMessage[] = [];
   async send(message: PushMessage) {
     this.sent.push(message);
-    return { delivered: message.tokens.length, invalidTokens: [] };
+    return {
+      delivered: message.tokens.length,
+      invalidTokens: [],
+      retryableFailures: 0,
+    };
   }
 }
 

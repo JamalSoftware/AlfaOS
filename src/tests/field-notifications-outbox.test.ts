@@ -40,12 +40,18 @@ class FakePush implements PushNotificationProvider {
   readonly name = "fake";
   readonly sent: PushMessage[] = [];
   invalid: string[] = [];
+  /** Falhas transitorias reportadas: o handler deve pedir nova tentativa. */
+  transitorias = 0;
   falhar = false;
 
   async send(message: PushMessage) {
     if (this.falhar) throw new Error("provider fora do ar");
     this.sent.push(message);
-    return { delivered: message.tokens.length, invalidTokens: this.invalid };
+    return {
+      delivered: message.tokens.length - this.invalid.length - this.transitorias,
+      invalidTokens: this.invalid,
+      retryableFailures: this.transitorias,
+    };
   }
 }
 

@@ -19,6 +19,7 @@
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",
+    "firebase-admin": "^14.3.0",
     "jose": "^6.2.9",
     "next": "14.2.35",
     "react": "^18",

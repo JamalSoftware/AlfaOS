@@ -32,6 +32,7 @@
  */
 
 import { processOutboxBatch } from "../src/lib/outbox";
+import { installConfiguredPushProvider } from "../src/lib/push/bootstrap";
 import { handleOutboxEvent } from "../src/lib/outbox-handlers";
 import { prisma } from "../src/lib/prisma";
 
@@ -39,6 +40,19 @@ import { prisma } from "../src/lib/prisma";
 const BATCH_LIMIT = Number(process.env.OUTBOX_BATCH_LIMIT ?? 50);
 
 async function main(): Promise<void> {
+  /*
+    Escolha do provider: UMA vez, na subida, antes do primeiro lote.
+
+    Sem credencial o processo segue com o Noop e diz por que — push
+    indisponivel nao pode impedir o outbox de processar o resto (NF-1).
+  */
+  const push = installConfiguredPushProvider();
+  if (push.reason) {
+    console.warn(`[outbox] push: ${push.reason}`);
+  } else {
+    console.info(`[outbox] push: provider=${push.provider}`);
+  }
+
   const started = Date.now();
   const result = await processOutboxBatch(handleOutboxEvent, BATCH_LIMIT);
   const ms = Date.now() - started;

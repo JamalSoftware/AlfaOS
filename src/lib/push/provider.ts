@@ -42,6 +42,21 @@ export interface PushDeliveryResult {
    * desinstalado.
    */
   invalidTokens: string[];
+  /**
+   * Destinos que falharam por causa **transitória** e merecem outra tentativa.
+   *
+   * Contagem, e não lista de tokens: quem tenta de novo é o outbox, que relê os
+   * aparelhos elegíveis do zero — a lista de agora estaria velha na próxima
+   * execução.
+   *
+   * ## Por que é obrigatório
+   *
+   * Um provider que falhasse de forma transitória sem dizer faria o handler
+   * concluir o evento, e o aviso sumiria em silêncio: entregue para ninguém,
+   * marcado como processado. Campo opcional convidaria exatamente esse
+   * esquecimento no próximo provider que alguém escrever.
+   */
+  retryableFailures: number;
 }
 
 export interface PushNotificationProvider {
@@ -56,6 +71,13 @@ export interface PushNotificationProvider {
  * verdadeiro, e é o que as métricas do worker vão mostrar. Um stub que
  * reportasse entrega criaria a impressão de que o push funciona e esconderia,
  * no dia da integração real, se ele parou de funcionar.
+ *
+ * ## `retryableFailures: 0` é deliberado
+ *
+ * Não configurar o Firebase **não é uma falha transitória**: tentar de novo
+ * daqui a um minuto não vai configurá-lo. Reportar retry aqui deixaria toda
+ * instalação de desenvolvimento com a fila girando até esgotar as tentativas,
+ * e transformaria "push desligado" em "outbox quebrado" (`NF-1`, §39 do plano).
  */
 export class NoopPushProvider implements PushNotificationProvider {
   readonly name = "noop";
@@ -65,7 +87,7 @@ export class NoopPushProvider implements PushNotificationProvider {
     console.info(
       `[push:noop] ${message.tokens.length} destino(s) ignorado(s) — provider de push não configurado`,
     );
-    return { delivered: 0, invalidTokens: [] };
+    return { delivered: 0, invalidTokens: [], retryableFailures: 0 };
   }
 }
 
