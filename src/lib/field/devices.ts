@@ -234,11 +234,32 @@ export async function loginField(
  * Zera o token e **preserva a linha**. O histórico de qual instalação operou
  * continua existindo, e o técnico volta com um login normal — sair do
  * aplicativo não é o mesmo que perder o aparelho.
+ *
+ * ## O `pushToken` sai junto (`NF-1`)
+ *
+ * Não é higiene: é o que impede o aparelho de continuar recebendo notificação
+ * PRIVADA de quem acabou de sair. O predicado do worker é exatamente
+ * `status ACTIVE` + `revokedAt null` + `pushToken != null`, e o logout não
+ * mexia em nenhum dos três — então a linha continuava sendo alvo.
+ *
+ * E o token de push é da **instalação**, não da pessoa. Quem entrasse depois no
+ * mesmo aparelho leria, na própria tela, a notificação do técnico anterior. Só
+ * não acontecia porque o provider era inerte; ligar o FCM sem esta linha
+ * transformaria a fase inteira num vazamento entre contas.
+ *
+ * Limpar o token **não revoga** o aparelho: `status` continua `ACTIVE` e a
+ * linha continua reaproveitável. O próximo login registra um token novo pelo
+ * caminho que já existe, e a pessoa volta a receber sem nenhum passo extra.
  */
 export async function logoutField(principal: FieldPrincipal): Promise<void> {
   await prisma.mobileDevice.updateMany({
     where: { id: principal.device.id, companyId: principal.user.companyId },
-    data: { tokenHash: null, tokenIssuedAt: null, tokenExpiresAt: null },
+    data: {
+      tokenHash: null,
+      tokenIssuedAt: null,
+      tokenExpiresAt: null,
+      pushToken: null,
+    },
   });
   await logAudit({
     companyId: principal.user.companyId,
