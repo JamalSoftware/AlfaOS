@@ -4130,6 +4130,14 @@ significa que ele não descobre.
 > Enquanto ela não existir, o sino do cabeçalho leva à central (§154), o
 > contador vem do mesmo estado que a tela já carrega, e **não há badge
 > fabricado**: nada no aplicativo afirma que push está funcionando.
+>
+> **`NF-0` — plano fechado em `docs/FIELD-NOTIFICATIONS.md`.** O levantamento
+> mostrou que a fundação está **quase toda pronta**: o vertical slice
+> `SERVICE_ORDER_ASSIGNED` já grava `Notification` e `OutboxEvent` na mesma
+> transação da atribuição, o worker entrega com lease e backoff, o
+> `MobileDevice.pushToken` existe e as rotas já o aceitam. O que falta é o
+> provider FCM real, o lado Flutter e o deep link do toque — e **`NF-1` a
+> `NF-5` não exigem migration nenhuma**. Nada foi implementado.
 
 ## O inventário do que a fundação terá de atender
 

@@ -424,6 +424,25 @@ Quatro coisas que a especificação fixou e são fáceis de desfazer sem percebe
 **Quando:** a tarefa envolve CTO, porta óptica, vínculo do cliente à rede de distribuição ou o status na visão da caixa.
 **Quando NÃO:** qualquer outra coisa. **Nada disso existe em código**, e a §119 se aplica. A sequência da fila fechou (`DQ-1`–`DQ-7.2`), o que **desbloqueia** o gate do CTO assim que a v0.12 for publicada — desbloquear não é promover, e escrever a especificação não a coloca na ordem.
 
+## Field Notification Foundation — NF-0 PLANEJADA, backend quase todo pronto
+
+**Carregar:** `docs/FIELD-NOTIFICATIONS.md` (plano — inventário do que já existe, arquitetura, escolha de SDK, ciclo do token, payload, deep link, fases `NF-1`–`NF-7`, testes, plano adversarial, decisões `NP-01`–`NP-05`) e PRD §153–§157. Código: `src/lib/push/provider.ts`, `src/lib/outbox.ts`, `src/lib/outbox-handlers.ts`, `src/lib/notifications.ts`, `scripts/outbox-worker.ts`, `src/lib/field/devices.ts`.
+
+**Não presuma que a fundação está por fazer — ela está quase toda pronta.** O levantamento do `NF-0` verificou arquivo por arquivo:
+
+* **O vertical slice `SERVICE_ORDER_ASSIGNED` já é completo no backend.** `assignTechnician` grava `ServiceOrder` + `Notification` + `OutboxEvent` na **mesma transação**; o worker reivindica com lease e backoff; o handler relê a notificação filtrando por `companyId`, busca os aparelhos `ACTIVE`/`revokedAt: null`/`pushToken != null`, envia, e limpa **só o `pushToken`** dos recusados — sem revogar o aparelho.
+* **`MobileDevice.pushToken` já existe**, e `POST /devices/register` e `POST /auth/login` já o aceitam. **Nenhuma migration é necessária em `NF-1`–`NF-5`.**
+* **A abstração de provider já existe** (`PushNotificationProvider`, `PushMessage`, `PushDeliveryResult`), com `NoopPushProvider` que devolve `delivered: 0` — ele **não finge entrega**, de propósito. `setPushProvider` é a costura que os testes já usam.
+* **A central de notificações é real**: `GET /api/field/v1/notifications`, e o sino do Field consome o estado verdadeiro. Não é placeholder.
+* **Falta**: o provider FCM real, a seleção por configuração, o lado Flutter (`firebase_messaging`, permissão, obtenção e rotação do token) e o deep link do toque.
+
+**Um defeito latente, registrado na §2 do documento e ainda não corrigido:** `logoutField` zera `tokenHash` mas **não limpa `pushToken`**, e mantém `status: ACTIVE`. O predicado do handler é exatamente `ACTIVE + revokedAt null + pushToken != null`, então um aparelho de onde o técnico saiu continua sendo alvo do push do usuário **anterior** — e o token é da instalação, não da pessoa. Hoje inócuo (o Noop não entrega), vira defeito de privacidade no dia do FCM. **É pré-requisito de `NF-1`.**
+
+**A escolha de SDK depende de um fato do grafo de imports:** `outbox-handlers.ts` é alcançado só por `scripts/outbox-worker.ts` e pelos testes — **nenhuma rota do Next**. Por isso `firebase-admin` fica confinado ao worker, e a credencial de serviço nunca existe no runtime web. Se algum dia uma rota importar esse arquivo, a decisão precisa ser reavaliada, não herdada em silêncio.
+
+**Quando:** a tarefa envolve push, FCM, token de aparelho, outbox de notificação, deep link vindo de notificação, ou permissão de notificação no Android.
+**Quando NÃO:** a central de notificações in-app (já existe e funciona sem push), notificação do painel web (outro assunto), ou qualquer coisa que não atravesse o provider. **`NF-1` a `NF-7` não foram iniciadas.**
+
 ## Colaboração entre Técnicos — PLANNED, nada em código
 
 **Carregar:** `docs/FIELD-COLLABORATION.md` (especificação técnica — ciclo do convite, matriz de permissão, concorrência, opções de modelagem, fases `COL-1`–`COL-9`, aceite `COL-AC01`–`COL-AC15`, decisões abertas `COL-01`–`COL-07`) e PRD §342–§351 (visão, invariantes `I-C01`–`I-C12`, roadmap). Para entender a superfície que ela estende, também `src/lib/service-order-child-mutation.ts` e `loadOwnedServiceOrder` em `src/lib/service-orders.ts`.
