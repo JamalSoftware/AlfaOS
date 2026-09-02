@@ -386,6 +386,24 @@ Duas hipóteses do auditor foram **refutadas pelas próprias provas**, e ficam r
 
 Gates reexecutados do zero: **1561 Vitest, 116 Playwright, 316 Flutter**, lint, tsc, build, `dart format`, `flutter analyze`, `prisma validate`, 23 migrations em dia, APK debug construído. Mais **33 provas adversariais próprias** (temporárias, removidas ao final): 32 passaram, 1 virou o `BKF-01`.
 
+**`DQ-7.1` ENTREGUE — `BKF-01` `RESOLVED`. Commits locais, sem tag e sem push.** Patch focal sobre o único achado não-`INFO` da auditoria DQ-7. **Nenhuma migration, nenhuma rota, nenhuma feature nova, zero arquivo Dart.**
+
+O backfill **passou a reconciliar**. Ele nasceu perguntando "o que falta na fila?", e a pergunta certa é "o que a fila deveria ser?" — a diferença é a entrada que **sobra**. Agora `existente - elegível` sai, `elegível - existente` entra, e a interseção é renumerada 1..N.
+
+A raiz, e não só o sintoma: **a elegibilidade é lida DEPOIS do `FOR UPDATE`**, dentro da transação. A varredura de fora responde só *quem visitar*. É o lock que serializa o backfill contra `start`, `complete` e `assign`, que mudam status e mexem na fila na mesma transação — quem chega primeiro decide a ordem dos fatos, e nenhum dos dois desfechos deixa `IN_PROGRESS` na fila.
+
+**Dois caminhos que a implementação encontrou e o plano não previa.** A varredura de OS **não encontra todas as filas**: um técnico cuja fila só tem entrada obsoleta não tem nenhuma `ASSIGNED`, então nunca era visitado e a entrada morta sobreviveria a quantas execuções fossem — entrou uma segunda varredura, sobre as filas existentes. E a **remoção precisa vir antes de toda inserção**, porque `serviceOrderId` é único entre entradas: uma OS reatribuída de A para B só cabe na fila de B depois de sair da de A. O backfill roda em dois passos, poda e preenchimento; inverter dá violação de unique, e foi o teste de reatribuição que achou isso.
+
+**Um defeito meu, corrigido antes de ser testado:** reduzir o offset do espaço negativo pela contagem de removidas colide com uma posição negada de magnitude maior (tirar a `1ª` de `[1,2,3]` deixa `-2` e `-3` vivos). A conta é sobre posições ocupadas, nunca sobre quantidade de linhas.
+
+**Duas das cinco sabotagens passaram, e a culpa era dos meus testes.** `B` (ler elegibilidade antes do lock) rodava o backfill inteiro, e o passo de poda consumia o bloqueio sem inserir nada — passou a atacar `reconcileTechnicianQueue` diretamente. `E` (sem tenant no predicado) reconciliava com o `companyId` trocado, e a **unique global em `technicianId`** recusava o par cruzado antes de o predicado ser consultado — passou a usar o vetor real: uma OS da empresa B apontando um técnico da A, que o schema permite porque `ServiceOrder.technicianId` é FK simples, sem constraint `(companyId, technicianId)`. Reescritos, os dois derrubam a sabotagem.
+
+Uma guarda nova: posição não positiva só existe **dentro** da transação, e uma contagem no fim faz a transação inteira voltar se alguma sobreviver. Um `BKF-01` futuro vira falha, não fila torta.
+
+**Observação pré-existente, registrada e não corrigida:** o backfill **descarta ordenação manual do despachante** — numa fila sem entrada faltando nem sobrando, mas reordenada à mão, ele renumera de volta para a ordem de backfill. Reproduzido em sonda temporária e confirmado **idêntico no código anterior**, então é semântica do comando desde a DQ-2, não regressão. Decide quando é seguro rodá-lo em base viva.
+
+Gates: **1571 Vitest** (era 1561), 116 Playwright, 316 Flutter, lint, tsc, build, `dart format`, `flutter analyze`, `prisma validate`, 23 migrations — **nenhuma nova**. Registro em `docs/DISPATCH-QUEUE.md` §20.
+
 **Próxima fase separada: `FIELD NOTIFICATION FOUNDATION`** (PRD §153) — `backend → notification event → device token → FCM → Android → deep link da OS`. Nada de push existe hoje, e o sino não fabrica badge. Depois dela existem **duas** trilhas registradas e prontas para começar — **Escala de Trabalho P0** (§307) e **Fila Operacional backend + Web** (§332) —, e **a ordem entre as duas não foi decidida**: são addenda aprovados em momentos diferentes, e escolher agora seria decisão de produto tomada em silêncio.
 
 **Decisão de produto NOVA, aguardando documentação própria: `Field Collaboration` (colaboração entre técnicos).** `ServiceOrder` passa a ter um **técnico responsável** e uma lista de **colaboradores**, e a distinção é o ponto: **colaborar acrescenta participantes SEM trocar o responsável**; **transferir troca o responsável** e por isso mexe na fila de despacho. São conceitos diferentes e não podem colapsar num só. A empresa SaaS poderá habilitar ou desabilitar a colaboração. **Nada disso existe em código, nada foi especificado ainda** — documentar o módulo é tarefa separada, posterior à DQ-7.

@@ -11,8 +11,9 @@ foram levantadas; aqui está como executá-las.
 > administrativa, painel Web `/despacho`, contrato de leitura do Field e o
 > aplicativo **obedecendo** à fila, mais o Voltar do Android corrigido. A
 > auditoria independente clean-room da `DQ-7` fechou em `APPROVED WITH RISKS`
-> e o piloto físico passou (§19). A tabela de fases no fim do documento é a
-> fonte de verdade do que está feito.
+> e o piloto físico passou (§19). O único achado não-`INFO`, o `BKF-01`, foi
+> corrigido na `DQ-7.1` (§20). A tabela de fases no fim do documento é a fonte
+> de verdade do que está feito.
 
 ---
 
@@ -831,6 +832,7 @@ Cada fase é um commit, com prova de reversão e critério de saída.
 | **DQ-5** ✅ | Contrato de leitura no Field | `src/lib/field/dto.ts`, `api/field/v1/dispatch-queue` | **ENTREGUE** — 18 testes, `FQ-1`–`FQ-11`, integração Web→Field provada nos dois sentidos |
 | **DQ-6** ✅ | Field consome a ordem + Voltar do Android | `apps/field/lib/features/**`, `app/shell_back.dart`, `core/widgets/{position_badge,local_order_note}.dart` | **ENTREGUE** — 36 testes novos, `F-1`–`F-8` e `B-1`–`B-8` verdes, 8 provas de reversão. **DEVICE PILOT PASSED** |
 | **DQ-7** ✅ | Auditoria independente clean-room, piloto físico | — | **CONCLUÍDA** — `APPROVED WITH RISKS`, 1 LOW e 3 INFO, nenhum bloqueador. Piloto físico `PASSED`. Ver §19 |
+| **DQ-7.1** ✅ | Endurecimento focal do backfill | `dispatch-queue-backfill.ts` | **ENTREGUE** — `BKF-01` `RESOLVED`, 10 testes novos, 5 provas de reversão, nenhuma migration. Ver §20 |
 
 `DQ-1` e `DQ-2` são separados de propósito: schema sem consumidor é reversível
 por `migrate resolve`; schema com serviço já tem dado escrito.
@@ -943,6 +945,10 @@ renumerar **todas** as entradas carregadas — não só as de `desired` — e
 revalidar o status do candidato dentro da transação. Com a correção, a
 reprodução acima vira teste permanente.
 
+**`RESOLVED` na DQ-7.1** — ver §20. A reprodução acima é hoje o teste
+`BKF-01-A`, e a janela deduzida virou o `BKF-01-B`. O histórico do achado fica
+como está: ele descreve o que o código fazia quando foi auditado.
+
 ### INFO aceitos
 
 * **`DQV-01`** — `getFieldDispatchQueue` e `getDispatchQueueView` leem `queued`
@@ -993,3 +999,132 @@ flutter test              316 passaram
 next build + build:worker OK
 flutter build apk --debug OK
 ```
+
+---
+
+## 20. `DQ-7.1` — endurecimento do backfill (`BKF-01` `RESOLVED`)
+
+Patch focal sobre o único achado da auditoria DQ-7 que não era `INFO`. Escopo
+fechado: `src/lib/dispatch-queue-backfill.ts`, o script que o chama e os testes.
+**Nenhuma migration, nenhuma rota, nenhum arquivo Dart, nenhuma feature nova.**
+
+### O backfill responde outra pergunta agora
+
+Ele nasceu perguntando *"o que falta na fila?"*. A pergunta certa é *"o que a
+fila deveria ser?"* — e a diferença é exatamente a entrada que **sobra**.
+
+```text
+existente - elegível   → remover
+elegível - existente   → acrescentar
+interseção             → renumerar 1..N
+```
+
+### A elegibilidade é lida DEPOIS do lock
+
+A varredura de fora responde **quem visitar**, e só isso. O conteúdo de cada
+fila sai de uma leitura feita dentro da transação, depois do `FOR UPDATE`.
+
+É esse `FOR UPDATE` que serializa o backfill contra `start`, `complete` e
+`assign` — que mudam status e mexem na fila na **mesma** transação. Quem chega
+primeiro ao lock decide a ordem dos fatos, e os dois desfechos são corretos: se
+o backfill trava antes, ele lê `ASSIGNED`, mantém a entrada e o `start` a
+remove logo depois; se o `start` trava antes, o backfill lê `IN_PROGRESS` e não
+a recria. Nenhum deixa `IN_PROGRESS` na fila.
+
+### Elegibilidade, por extenso
+
+`status = ASSIGNED` **e** `technicianId` = o dono desta fila **e** o mesmo
+`companyId`, os três em SQL. Sem o segundo, uma OS reatribuída sobreviveria na
+fila do técnico anterior. Sem o terceiro, a pergunta atravessaria tenant — e
+esse não é um risco teórico: `ServiceOrder.technicianId` é FK simples para
+`Technician.id`, sem constraint `(companyId, technicianId)`, então uma OS da
+empresa B apontando um técnico da A **é representável no banco**.
+
+### Dois caminhos que a implementação encontrou, e o plano não previa
+
+**A varredura de OS não encontra todas as filas.** Um técnico cuja fila só tem
+entrada obsoleta não tem nenhuma OS `ASSIGNED`, logo não aparecia na varredura,
+logo a fila dele nunca era visitada: a entrada morta sobreviveria a quantas
+execuções fossem. Entrou uma segunda varredura, sobre as **filas existentes**.
+
+**A remoção precisa vir antes de toda inserção.** `serviceOrderId` é único
+entre entradas — uma OS está em uma fila, nunca em duas. Uma OS reatribuída de
+A para B só cabe na fila de B depois de sair da de A, então o backfill roda em
+dois passos: **poda** em todas as filas, depois **preenchimento**. Inverter dá
+violação de unique, e foi o teste de reatribuição que encontrou isso.
+
+### A guarda de normalização
+
+Posição não positiva só existe **dentro** da transação, como espaço de manobra
+da fase 1 da renumeração. Uma contagem no fim verifica que nenhuma sobreviveu;
+se alguma sobreviver, a transação inteira volta. Um `BKF-01` futuro vira falha,
+e não fila torta.
+
+### Testes permanentes
+
+```text
+BKF-01-A   OS sai de ASSIGNED entre execuções          entrada removida, 1..N
+BKF-01-B   OS sai de ASSIGNED DURANTE a reconciliação  não é recriada
+           posição não positiva persistida             sempre zero
+           remover a 1ª e inserir na mesma execução    sem colisão de unique
+           IN_PROGRESS pelo serviço                    não recriada
+           COMPLETED                                   não fica, não volta
+           reatribuição A → B                          sai de A, nunca duplica
+           reconciliar B não toca a fila de A          tenant no predicado
+           OS de outra empresa apontando este técnico  não entra
+           remoção idempotente                         2ª execução não escreve
+```
+
+`BKF-01-B` encena a janela com um lock real: uma transação segura o
+`FOR UPDATE` da fila, a reconciliação bloqueia, a OS muda de estado, o lock é
+liberado. A espera é por condição observável em `pg_stat_activity`, com teto, e
+o teste **afirma** que o bloqueio aconteceu — uma janela que não se encene
+derruba o teste em vez de deixá-lo passar por engano.
+
+### Provas de reversão
+
+```text
+A  não remover `existente - elegível`      6 falhas, BKF-01-A entre elas
+B  ler elegibilidade ANTES do lock         BKF-01-B falha
+C  não validar status ASSIGNED             IN_PROGRESS e mais 6 falham
+D  não validar dono (technicianId)         reatribuição falha
+E  não validar tenant (companyId)          OS da outra empresa entra
+```
+
+**`B` e `E` passaram na primeira tentativa, e a culpa era dos testes.** `B`
+rodava o backfill inteiro, e o passo de poda consumia o bloqueio sem inserir
+nada — quando o passo 2 chegava, a leitura obsoleta já não existia; passou a
+atacar `reconcileTechnicianQueue` diretamente, que é a unidade que responde
+pela janela. `E` reconciliava com o `companyId` trocado, e a unique global em
+`technicianId` recusava o par cruzado antes de o predicado ser consultado —
+passou a usar o vetor real, a OS de outra empresa apontando este técnico.
+Reescritos, os dois derrubam a sabotagem.
+
+### Observação pré-existente, não corrigida aqui
+
+**O backfill descarta ordenação manual do despachante.** Numa fila sem entrada
+faltando e sem entrada sobrando, mas reordenada à mão, ele renumera de volta
+para a ordem de backfill (banda, `scheduledAt`, `assignedAt`, `id`).
+Reproduzido em sonda temporária e confirmado **idêntico no código anterior à
+DQ-7.1** — é semântica do comando desde a DQ-2, não regressão. Fica registrado
+porque decide quando é seguro rodá-lo numa base viva: o comando responde pela
+ordem **inicial** da fila, e não preserva decisão de despacho posterior.
+
+### Gates
+
+```text
+git diff --check          limpo
+prisma generate/validate  ok, schema válido
+prisma migrate status     23 migrations, banco em dia, NENHUMA nova
+lint                      sem avisos
+tsc --noEmit              sem erro
+vitest                    1571 passaram (era 1561), 73 arquivos
+playwright                116 passaram
+next build + build:worker OK
+dart format               86 arquivos, 0 alterados
+flutter analyze           sem problemas
+flutter test              316 passaram
+```
+
+Zero arquivo Dart tocado, então nenhum APK novo: a regressão Flutter roda por
+garantia, não por mudança.
