@@ -1271,3 +1271,281 @@ describe("BKF-01 · elegibilidade é lida sob o lock, não na varredura", () => 
     expect(await queueOf(techA1.id)).toEqual([[1, b.number]]);
   });
 });
+
+/**
+ * # A ordem do despachante sobrevive ao backfill (DQ-7.2)
+ *
+ * Observação levantada na DQ-7.1 e corrigida aqui: uma fila **já operada** era
+ * renumerada pela ordem determinística de bootstrap, e a sequência que o
+ * despachante montou à mão desaparecia.
+ *
+ * A distinção que passou a existir:
+ *
+ * ```text
+ * BOOTSTRAP        fila que não existe ainda   banda → scheduledAt → assignedAt → id
+ * RECONCILIAÇÃO    fila que já existe          preserva a ordem relativa dentro da banda
+ * ```
+ *
+ * O backfill decide a ordem INICIAL. Depois disso quem manda é o despacho — e
+ * um comando de manutenção que reescreve a decisão operacional é pior que um
+ * comando que não roda.
+ */
+describe("PRESERVE · a ordem manual sobrevive à reconciliação", () => {
+  /** Força posições diretamente no banco, na ordem dada. Duas fases. */
+  async function forcarOrdem(
+    technicianId: string,
+    ordem: string[],
+  ): Promise<void> {
+    const queue = await prisma.technicianDispatchQueue.findFirstOrThrow({
+      where: { companyId: fixture.companyA.id, technicianId },
+      select: { id: true },
+    });
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        UPDATE "technician_dispatch_queue_entries"
+        SET "position" = -"position" WHERE "queueId" = ${queue.id}
+      `;
+      for (let indice = 0; indice < ordem.length; indice += 1) {
+        await tx.technicianDispatchQueueEntry.update({
+          where: { serviceOrderId: ordem[indice] },
+          data: { position: indice + 1 },
+        });
+      }
+    });
+  }
+
+  /** Atribui pelo serviço, que já coloca a OS no fim da banda dela. */
+  async function atribuir(orderId: string, technicianId: string) {
+    await assignTechnician(
+      fixture.companyA.id,
+      fixture.adminA.id,
+      orderId,
+      technicianId,
+    );
+  }
+
+  /** Atribui SEM passar pelo serviço: a OS fica elegível e sem entrada. */
+  async function atribuirSemFila(orderId: string, technicianId: string) {
+    await prisma.serviceOrder.update({
+      where: { id: orderId },
+      data: { technicianId, status: "ASSIGNED", assignedAt: new Date() },
+    });
+  }
+
+  it("PRESERVE-01 · mesma banda: C,A,B continua C,A,B", async () => {
+    const a = await makeOrder("NORMAL");
+    const b = await makeOrder("NORMAL");
+    const c = await makeOrder("NORMAL");
+    for (const os of [a, b, c]) await atribuir(os.id, techA1.id);
+    expect(await queueOf(techA1.id)).toEqual([
+      [1, a.number],
+      [2, b.number],
+      [3, c.number],
+    ]);
+
+    // O despachante decide outra coisa.
+    await prisma.$transaction((tx) =>
+      moveOrderToPosition(tx, {
+        companyId: fixture.companyA.id,
+        technicianId: techA1.id,
+        serviceOrderId: c.id,
+        targetPosition: 1,
+      }),
+    );
+    expect(await queueOf(techA1.id)).toEqual([
+      [1, c.number],
+      [2, a.number],
+      [3, b.number],
+    ]);
+
+    const resultado = await backfillDispatchQueues(fixture.companyA.id);
+
+    /*
+      A regra de bootstrap devolveria `a, b, c` — banda igual, sem
+      `scheduledAt`, e `assignedAt` crescente. O backfill não é autoridade
+      sobre uma fila que já foi operada.
+    */
+    expect(await queueOf(techA1.id)).toEqual([
+      [1, c.number],
+      [2, a.number],
+      [3, b.number],
+    ]);
+    /*
+      E a afirmação FORTE: uma fila já válida não é sequer reescrita.
+
+      Sem ela o teste tem ponto cego. O backfill roda em dois passos (poda e
+      preenchimento), e uma transformação que inverta a ordem seria aplicada
+      duas vezes, voltando ao estado original — a asserção sobre a ordem final
+      passaria com o código quebrado. Provado: foi o que aconteceu com a
+      sabotagem `E` antes desta linha existir.
+    */
+    expect(resultado.queuesChanged).toBe(0);
+  });
+
+  it("PRESERVE-02 · OS nova entra no FIM da banda dela", async () => {
+    const a = await makeOrder("URGENT");
+    const b = await makeOrder("URGENT");
+    const c = await makeOrder("NORMAL");
+    for (const os of [a, b, c]) await atribuir(os.id, techA1.id);
+    // Mão do despachante: B antes de A.
+    await prisma.$transaction((tx) =>
+      moveOrderToPosition(tx, {
+        companyId: fixture.companyA.id,
+        technicianId: techA1.id,
+        serviceOrderId: b.id,
+        targetPosition: 1,
+      }),
+    );
+    expect(await queueOf(techA1.id)).toEqual([
+      [1, b.number],
+      [2, a.number],
+      [3, c.number],
+    ]);
+
+    const d = await makeOrder("URGENT");
+    await atribuirSemFila(d.id, techA1.id);
+
+    await backfillDispatchQueues(fixture.companyA.id);
+
+    /*
+      D é urgente e entra depois das urgentes que já existem — nunca na frente.
+      Chegar depois não é ser mais importante (`D-04`), e a ordem B,A que o
+      despachante montou continua de pé.
+    */
+    expect(await queueOf(techA1.id)).toEqual([
+      [1, b.number],
+      [2, a.number],
+      [3, d.number],
+      [4, c.number],
+    ]);
+  });
+
+  it("PRESERVE-03 · remover do meio não reordena o resto", async () => {
+    const a = await makeOrder("NORMAL");
+    const b = await makeOrder("NORMAL");
+    const c = await makeOrder("NORMAL");
+    for (const os of [a, b, c]) await atribuir(os.id, techA1.id);
+    await forcarOrdem(techA1.id, [c.id, a.id, b.id]);
+
+    await prisma.serviceOrder.update({
+      where: { id: a.id },
+      data: { status: "IN_PROGRESS", startedAt: new Date() },
+    });
+
+    await backfillDispatchQueues(fixture.companyA.id);
+
+    // C continua antes de B: tirar do meio fecha o buraco, não embaralha.
+    expect(await queueOf(techA1.id)).toEqual([
+      [1, c.number],
+      [2, b.number],
+    ]);
+  });
+
+  it("PRESERVE-04 · precedência de banda é reparada, sem inverter A e B", async () => {
+    const a = await makeOrder("URGENT");
+    const b = await makeOrder("URGENT");
+    const c = await makeOrder("NORMAL");
+    for (const os of [a, b, c]) await atribuir(os.id, techA1.id);
+    // Estado historicamente inconsistente, persistido de propósito.
+    await forcarOrdem(techA1.id, [c.id, a.id, b.id]);
+
+    await backfillDispatchQueues(fixture.companyA.id);
+
+    /*
+      A reconciliação repara a PRECEDÊNCIA — normal não fica na frente de
+      urgente — e não toca no resto: A continua antes de B, porque era assim
+      que estava e nada disse o contrário.
+    */
+    expect(await queueOf(techA1.id)).toEqual([
+      [1, a.number],
+      [2, b.number],
+      [3, c.number],
+    ]);
+  });
+
+  it("PRESERVE-05 · quatro bandas, ordem manual dentro de cada uma", async () => {
+    const u1 = await makeOrder("URGENT");
+    const u2 = await makeOrder("URGENT");
+    const h1 = await makeOrder("HIGH");
+    const h2 = await makeOrder("HIGH");
+    const n1 = await makeOrder("NORMAL");
+    const l1 = await makeOrder("LOW");
+    for (const os of [u1, u2, h1, h2, n1, l1]) {
+      await atribuir(os.id, techA1.id);
+    }
+    // Dentro de URGENT e de HIGH, o despachante inverte.
+    await forcarOrdem(techA1.id, [
+      u2.id,
+      u1.id,
+      h2.id,
+      h1.id,
+      n1.id,
+      l1.id,
+    ]);
+
+    const resultado = await backfillDispatchQueues(fixture.companyA.id);
+
+    expect(await queueOf(techA1.id)).toEqual([
+      [1, u2.number],
+      [2, u1.number],
+      [3, h2.number],
+      [4, h1.number],
+      [5, n1.number],
+      [6, l1.number],
+    ]);
+    // Fila válida em todas as bandas: nada a reescrever (ver PRESERVE-01).
+    expect(resultado.queuesChanged).toBe(0);
+  });
+
+  it("PRESERVE-06 · reconciliar de novo não muda nada, nem version", async () => {
+    const a = await makeOrder("NORMAL");
+    const b = await makeOrder("URGENT");
+    const c = await makeOrder("NORMAL");
+    for (const os of [a, b, c]) await atribuir(os.id, techA1.id);
+    await forcarOrdem(techA1.id, [b.id, c.id, a.id]);
+
+    const primeira = await backfillDispatchQueues(fixture.companyA.id);
+    const fila = await queueOf(techA1.id);
+    const version = await versionOf(techA1.id);
+
+    const segunda = await backfillDispatchQueues(fixture.companyA.id);
+
+    // Nada faltando, nada sobrando, ordem já válida: não se escreve.
+    expect(primeira.queuesChanged).toBe(0);
+    expect(segunda.queuesChanged).toBe(0);
+    expect(await queueOf(techA1.id)).toEqual(fila);
+    expect(await versionOf(techA1.id)).toBe(version);
+    // E a ordem preservada é a do despachante, não a de bootstrap.
+    expect(fila).toEqual([
+      [1, b.number],
+      [2, c.number],
+      [3, a.number],
+    ]);
+  });
+
+  it("a fila que NÃO existe ainda nasce na ordem de bootstrap", async () => {
+    /*
+      O outro lado da regra, e ele não mudou: sem estado operacional anterior
+      não há ordem manual a preservar, e o backfill decide — banda, depois
+      `scheduledAt`, depois `assignedAt`, depois `id`.
+    */
+    const tarde = await makeOrder("NORMAL", {
+      scheduledAt: new Date("2026-09-02T15:00:00.000Z"),
+    });
+    const cedo = await makeOrder("NORMAL", {
+      scheduledAt: new Date("2026-09-02T08:00:00.000Z"),
+    });
+    const urgente = await makeOrder("URGENT");
+    for (const os of [tarde, cedo, urgente]) {
+      await atribuirSemFila(os.id, techA1.id);
+    }
+
+    await backfillDispatchQueues(fixture.companyA.id);
+
+    expect(await queueOf(techA1.id)).toEqual([
+      [1, urgente.number],
+      [2, cedo.number],
+      [3, tarde.number],
+    ]);
+  });
+});

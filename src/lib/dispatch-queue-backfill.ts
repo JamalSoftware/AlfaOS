@@ -1,5 +1,10 @@
 import { prisma } from "./prisma";
-import { dispatchRank } from "./dispatch-queue";
+import {
+  appendPositionForBand,
+  dispatchRank,
+  normalizeQueue,
+  type QueueMember,
+} from "./dispatch-queue";
 import type { ServiceOrderPriority } from "@prisma/client";
 
 /**
@@ -31,6 +36,17 @@ import type { ServiceOrderPriority } from "@prisma/client";
  * `FOR UPDATE` — que é o que serializa o backfill contra `start`, `complete` e
  * `assign`. Uma OS que muda de estado entre a varredura e a escrita é vista
  * pela leitura autoritativa, nunca pela lista velha.
+ *
+ * ## Ele não é autoridade sobre uma fila já operada (DQ-7.2)
+ *
+ * ```text
+ * BOOTSTRAP        fila que ainda não existe    banda → scheduledAt → assignedAt → id
+ * RECONCILIAÇÃO    fila que já foi operada      preserva a ordem relativa dentro da banda
+ * ```
+ *
+ * O backfill decide a ordem **inicial**. Depois disso quem decide a sequência
+ * é o despacho — e um comando de manutenção que reescreve a decisão
+ * operacional é pior que um comando que não roda. Ver [buildDesiredOrder].
  *
  * ## Idempotente por construção
  *
@@ -223,6 +239,84 @@ export async function backfillDispatchQueues(
 }
 
 /**
+ * A ordem final da fila: o que já estava, do jeito que estava, mais o que falta.
+ *
+ * ## As duas regras, e por que são duas (DQ-7.2)
+ *
+ * ```text
+ * BOOTSTRAP        fila que ainda não existe    banda → scheduledAt → assignedAt → id
+ * RECONCILIAÇÃO    fila que já foi operada      preserva a ordem relativa dentro da banda
+ * ```
+ *
+ * O backfill decide a ordem **inicial** de uma fila que nunca existiu. Depois
+ * disso quem decide a sequência é o despacho, e um comando de manutenção que
+ * reescreve a decisão operacional é pior que um comando que não roda: o
+ * despachante ordenou a manhã do técnico, alguém rodou `dispatch:backfill`, e
+ * a ordem voltou para uma regra determinística que não sabe de nada.
+ *
+ * ## Precedência continua sendo reparada
+ *
+ * Preservar a mão do despachante não é preservar estado inválido. Se o
+ * persistido tiver uma `NORMAL` na frente de uma `URGENT` — prioridade
+ * alterada fora do fluxo, dado antigo, importação —, a precedência é reposta.
+ * Quem faz isso é [normalizeQueue], a **mesma** função que o serviço usa em
+ * toda mutação de fila: a ordenação dela é estável, então repor a banda não
+ * embaralha quem já estava dentro dela.
+ *
+ * Uma segunda implementação de precedência aqui seria uma segunda autoridade,
+ * e as duas divergiriam na primeira vez que alguém ajustasse só uma.
+ *
+ * ## OS que trocou de banda por fora
+ *
+ * Ela vai para dentro da nova banda, no ponto que a posição persistida dela
+ * implica. Numa fila coerente isso é o **fim** da banda de destino ao promover
+ * — que é a regra normal de mudança de prioridade (`D-04`/`D-05`) —, porque a
+ * posição global de quem estava numa banda mais fraca é maior que a de todas
+ * as da banda mais forte.
+ *
+ * Não dá para fazer melhor sem inventar: a banda **anterior** não é
+ * persistida, então "esta OS mudou de banda" não é uma pergunta que o estado
+ * responda. Adivinhá-la por heurística seria exatamente a ordenação arbitrária
+ * que esta fase existe para tirar do caminho.
+ */
+function buildDesiredOrder(
+  existentesElegiveis: readonly { serviceOrderId: string; position: number }[],
+  porOrdem: ReadonlyMap<string, Candidate>,
+  faltantes: readonly Candidate[],
+): Candidate[] {
+  const prioridadeDe = (id: string): ServiceOrderPriority =>
+    porOrdem.get(id)!.priority;
+
+  // O que já está na fila, na ordem persistida, com a precedência reposta.
+  let membros: QueueMember[] = normalizeQueue(
+    existentesElegiveis.map((e) => ({
+      serviceOrderId: e.serviceOrderId,
+      priority: prioridadeDe(e.serviceOrderId),
+      position: e.position,
+    })),
+  );
+
+  /*
+    Cada faltante entra no FIM da própria banda, uma de cada vez.
+
+    `appendPositionForBand` é a mesma política de `placeAssignedOrder`: chegar
+    depois não é ser mais importante, e a OS nova nunca desloca a ordem
+    relativa de nenhuma outra.
+  */
+  for (const candidato of faltantes) {
+    const at = appendPositionForBand(membros, candidato.priority);
+    membros.splice(at - 1, 0, {
+      serviceOrderId: candidato.id,
+      priority: candidato.priority,
+      position: at,
+    });
+    membros = membros.map((m, i) => ({ ...m, position: i + 1 }));
+  }
+
+  return membros.map((m) => porOrdem.get(m.serviceOrderId)!);
+}
+
+/**
  * Reconcilia a fila de UM técnico com o estado real das OS dele.
  *
  * ## A ordem das operações é a correção do `BKF-01`
@@ -328,21 +422,26 @@ export async function reconcileTechnicianQueue(
     });
     const existingByOrder = new Map(existing.map((e) => [e.serviceOrderId, e]));
 
-    const elegiveis = [...items].sort(compareBackfillOrder);
-    const elegiveisIds = new Set(elegiveis.map((c) => c.id));
+    const porOrdem = new Map(items.map((c) => [c.id, c]));
+    const elegiveisIds = new Set(items.map((c) => c.id));
     // `existente - elegível`: concluída, iniciada, reatribuída ou desatribuída.
     const stale = existing.filter((e) => !elegiveisIds.has(e.serviceOrderId));
 
     /*
-      Na poda, o alvo é o que JÁ está na fila e continua elegível. Fora dela, o
-      alvo é o conjunto elegível inteiro.
+      Na poda, só o que JÁ está na fila entra no alvo. Fora dela, o conjunto
+      elegível inteiro — e o que falta é ordenado pela regra de BOOTSTRAP.
     */
-    const desired = podeInserir
-      ? elegiveis
-      : elegiveis.filter((c) => existingByOrder.has(c.id));
     const missing = podeInserir
-      ? elegiveis.filter((c) => !existingByOrder.has(c.id))
+      ? [...items]
+          .filter((c) => !existingByOrder.has(c.id))
+          .sort(compareBackfillOrder)
       : [];
+
+    const desired = buildDesiredOrder(
+      existing.filter((e) => elegiveisIds.has(e.serviceOrderId)),
+      porOrdem,
+      missing,
+    );
 
     /*
       A segunda execução costuma cair aqui: nada faltando, nada sobrando e as
