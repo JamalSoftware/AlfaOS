@@ -166,9 +166,9 @@ Três regras que a Parte VI fixou e são fáceis de desfazer sem perceber:
 
 O quadro (§203) decide **quem** atende. A ordem de execução dentro da fila de cada técnico é outra Parte — ver abaixo.
 
-## Fila Operacional de OS — DQ-1 a DQ-5 ENTREGUES, DQ-6 em diante PLANNED
+## Fila Operacional de OS — DQ-1 a DQ-7.2 ENTREGUES, publicação pendente
 
-**Carregar:** `docs/DISPATCH-QUEUE.md` (plano — schema, algoritmo, transações, endpoints, fases `DQ-1`–`DQ-7`) e PRD §308–§332 (Parte XII — o porquê e as regras de produto).
+**Carregar:** `docs/DISPATCH-QUEUE.md` (plano — schema, algoritmo, transações, endpoints, fases `DQ-1`–`DQ-7.2`, mais o registro da auditoria e dos dois endurecimentos nas §19–§21) e PRD §308–§332 (Parte XII — o porquê e as regras de produto).
 
 **Código que já existe:**
 
@@ -184,7 +184,7 @@ O quadro (§203) decide **quem** atende. A ordem de execução dentro da fila de
 | `src/lib/service-order-labels.ts` | Rótulos da OS, **client-safe**. Só `import type` do Prisma — `service-orders.ts` reexporta |
 | Testes | `dispatch-queue-{domain,schema,lifecycle,concurrency,api}.test.ts` e `e2e/dispatch-queue.spec.ts` |
 
-**O Field consome a fila (DQ-6 entregue, `DEVICE PILOT PENDING`).** Os arquivos do aplicativo:
+**O Field consome a fila (DQ-6 entregue, `DEVICE PILOT PASSED`).** Os arquivos do aplicativo:
 
 | Arquivo | Papel |
 |---|---|
@@ -422,7 +422,7 @@ Quatro coisas que a especificação fixou e são fáceis de desfazer sem percebe
 * **O diagnóstico atual não sustenta tempo real** (§337): refresh é sob demanda com gatilho na OS, e o teto é **10 chamadas por minuto por empresa** — uma CTO de 8 portas consumiria 8. Por isso a CTO mostra o último estado conhecido **com a idade da leitura**.
 
 **Quando:** a tarefa envolve CTO, porta óptica, vínculo do cliente à rede de distribuição ou o status na visão da caixa.
-**Quando NÃO:** qualquer outra coisa. **Nada disso existe em código**, e a §119 se aplica. A próxima fase continua sendo `DQ-6` — escrever a especificação não a promove na ordem.
+**Quando NÃO:** qualquer outra coisa. **Nada disso existe em código**, e a §119 se aplica. A sequência da fila fechou (`DQ-1`–`DQ-7.2`), o que **desbloqueia** o gate do CTO assim que a v0.12 for publicada — desbloquear não é promover, e escrever a especificação não a coloca na ordem.
 
 ## Colaboração entre Técnicos — PLANNED, nada em código
 

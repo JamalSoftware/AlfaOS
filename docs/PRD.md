@@ -11166,18 +11166,53 @@ compatibilidade com as prioridades existentes (D-01, D-02)
 # 332. ROADMAP — FILA OPERACIONAL
 
 ```text
-1.  Field Workspace Visual Polish       local, aguardando publicação
-2.  Fila Operacional — PRD              DONE                §308–§331
-2b. Plano de implementação fechado      DONE   docs/DISPATCH-QUEUE.md
-3.  Fila Operacional — backend + Web    PLANNED             DQ-1 … DQ-4
-4.  Field consome a fila autoritativa   PLANNED             DQ-5, DQ-6
-5.  Piloto em dispositivo e Web         PLANNED             DQ-7
-6.  Field Notification Foundation + FCM PLANNED
-7.  Notificações de fila e prioridade   PLANNED
+1.  Field Workspace Visual Polish       DONE      aguardando publicação
+2.  Fila Operacional — PRD              DONE      §308–§331
+2b. Plano de implementação fechado      DONE      docs/DISPATCH-QUEUE.md
+3.  Fila Operacional — backend + Web    DONE      DQ-1 … DQ-4
+4.  Field consome a fila autoritativa   DONE      DQ-5, DQ-6
+5.  Piloto em dispositivo e Web         DONE      DQ-7 · os dois PASSED
+5b. Endurecimento pós-auditoria         DONE      DQ-7.1, DQ-7.2
+6.  Field Notification Foundation + FCM PLANNED   próxima fase (§153)
+7.  Notificações de fila e prioridade   PLANNED   depende do item 6
 ```
 
-**Nenhuma etapa de 3 a 7 está feita, e nenhuma linha de código foi escrita.**
-Os itens 2 e 2b são documentação.
+**As etapas 1 a 5b estão feitas e existem em código.** Uma migration aditiva
+(`20260830120000_add_technician_dispatch_queue`), o serviço de fila com
+`FOR UPDATE` mais CAS próprio, as rotas administrativas, o painel Web
+`/despacho`, o contrato de leitura do Field e o aplicativo **obedecendo** à
+ordem do despacho, mais o `Voltar` do Android corrigido. Os itens 2 e 2b
+continuam sendo documentação.
+
+## Pilotos e auditoria
+
+```text
+WEB PILOT      PASSED
+DEVICE PILOT   PASSED
+```
+
+O piloto físico verificou: a Web altera a ordem e o Field recebe a mesma
+ordem; o `pull-to-refresh` reflete a inversão feita no servidor; `1ª` e `2ª`
+corretos; `Urgente` correto; `OS → Voltar → Início` e `Jornada → Voltar →
+Início` funcionando, com o detalhe voltando à superfície anterior e a gaveta
+fechando; claro e escuro inspecionados. **Nada além disso foi verificado em
+aparelho**, e nada além disso é afirmado aqui.
+
+A auditoria independente **clean-room** da `DQ-7`, feita por quem não
+implementou nenhuma fase, fechou em **`APPROVED WITH RISKS`**. O único achado
+não-`INFO` (`BKF-01`, `LOW`) foi corrigido na **`DQ-7.1`**, e a observação que
+essa correção levantou — o backfill reescrevendo ordenação manual do
+despachante — na **`DQ-7.2`**.
+
+```text
+0 CRITICAL   0 HIGH   0 MEDIUM   0 LOW pendente
+INFO aceitos: DQV-01, RSP-01, ASG-01
+```
+
+O registro completo está em `docs/DISPATCH-QUEUE.md` §19, §20 e §21.
+
+> **Checkpoint de release proposto: `v0.12-operational-dispatch-queue`.** A tag
+> **não existe** — está proposta e aguardando aprovação de publicação.
 
 ## Onde isto entra nas escalas existentes
 
