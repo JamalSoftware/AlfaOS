@@ -56,7 +56,24 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 
 **Carregar:** `docs/ERP-INTEGRATIONS.md` — contrato/capabilities, modelo normalizado de diagnóstico, snapshot, modelo de erros, timeout, cenários do MockERP e o estado de implementação da integração ReceitaNet. O fluxo de sync de OS continua em `docs/SERVICE-ORDERS.md`.
 **Quando:** a tarefa envolve adapters de ERP, diagnóstico de conectividade do cliente, sincronização, ou a futura integração real com o ReceitaNet.
-**Quando NÃO:** tarefas que não tocam a camada de integração. **Antes de implementar qualquer chamada ReceitaNet**, ler a seção 1 de `docs/ERP-INTEGRATIONS.md` — ela separa o que está IMPLEMENTADO (CallCenter read-only v0.6 **e Chatbot v0.7.2**), o que está documentado e deliberadamente fora, e o que não existe em nenhuma API. Complementam: `docs/PRD.md` §140 (as duas capabilities e suas credenciais independentes), §141 (por que não existe descoberta global de OS), §142 (escopo da sincronização na v0.8) e §121–§131 (propriedade da OS e posição dos ERPs). O §129 descreve as APIs **como lidas em spec** e tem duas conclusões superadas — ler a nota no topo dele antes de citar. O §64 continua valendo — nenhuma chamada fora do que o OpenAPI descreve.
+**Quando NÃO:** tarefas que não tocam a camada de integração. **Antes de implementar qualquer chamada ReceitaNet**, ler a seção 1 de `docs/ERP-INTEGRATIONS.md` — ela separa o que está IMPLEMENTADO (CallCenter read-only v0.6 **e Chatbot v0.7.2**), o que está documentado e deliberadamente fora, e o que não existe em nenhuma API **do ReceitaNet**. Complementam: `docs/PRD.md` §140 (as duas capabilities e suas credenciais independentes), §141 (por que não existe descoberta global de OS), §142 (escopo da sincronização na v0.8) e §121–§131 (propriedade da OS e posição dos ERPs). O §129 descreve as APIs **como lidas em spec** e tem duas conclusões superadas — ler a nota no topo dele antes de citar. O §64 continua valendo — nenhuma chamada fora do que o OpenAPI descreve.
+
+**O documento tem duas metades.** As seções **1–12** descrevem o que existe em código. As seções **13–27** são o **planejamento da plataforma de ERPs plugáveis (`ERP-0R`)** e **nada delas existe**: não há `ERPProvider.SGP`, `SgpAdapter` nem migration. Não citar como implementado.
+
+## ERPs plugáveis e SGP (PLANEJADO)
+
+**Carregar:** `docs/ERP-INTEGRATIONS.md` §13–§27 (regra, resolução, troca de ERP, migração, testes, roadmap) e `docs/ERP-SGP.md` (inventário do provider SGP). Complementa: `docs/PRD.md` §352–§361.
+**Quando:** a tarefa toca escolha de ERP por empresa, troca de provider, credencial de um ERP que não seja o ReceitaNet, ou qualquer coisa relacionada ao SGP.
+**Quando NÃO:** tarefas do ReceitaNet já implementado — para essas, as seções 1–12 bastam.
+
+* **A regra é `Company → ERPIntegration 0..1 → provider`.** Cada empresa tem **zero ou um** ERP ativo; o AlfaOS suporta vários *tipos* globalmente. **Não existe** provider por capability, dual-provider operacional nem principal+secundário. `ERPIntegration.companyId @unique` é o que sustenta isso e **não deve ser trocado** por `@@unique([companyId, provider])`.
+* **Uma tentativa anterior (`ERP-0`/`ERP-1`) implementou o modelo multi-provider e foi DESCARTADA** por decisão de produto. Os commits ficaram na branch local `backup/erp-multiprovider-discarded`. Não ressuscitar `resolveProviderFor`, `ERPCapabilityBinding` nem `Company.primaryErpProvider`.
+* **A resolução que existe basta:** `resolveCompanyAdapter(companyId, provider)`. Capability continua sendo pergunta ao **adapter**, pelos type guards (`supportsDiagnostics`, `supportsCustomerLookup`, `supportsServiceTickets`).
+* **Dois defeitos conhecidos e ainda não corrigidos** (`ERP-1`): a troca de ERP acontece como efeito colateral de `test-connection`, e essa troca **apaga as credenciais** do provider anterior. Ver §17 e §18.
+* **`docs/ERP-SGP.md` só contém endpoint com fonte oficial.** Onde a documentação não cobre, está `NÃO DOCUMENTADO` ou `NEED SGP ACCESS` — não é convite a supor (§64).
+* **Duas superfícies de API do SGP não resolvidas:** `/api/ura/` com Token/App no corpo, e `/api/v1/` com header. Confirmar no sandbox **antes** de escrever o transporte.
+* **Método HTTP não é garantia de segurança nessa API:** `GET /api/fttx/onu/{id}/reset/` derruba uma ONU.
+* **O SGP tem descoberta global de OS, CTO e ONU — o ReceitaNet não.** Isso **não** revoga a §141 nem promove a Parte XIII; ver `ERP-SGP.md` §5.
 
 ## Sincronização de OS do ReceitaNet
 

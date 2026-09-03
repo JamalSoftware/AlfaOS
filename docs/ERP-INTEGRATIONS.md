@@ -1,8 +1,14 @@
-# Integrações ERP e Diagnóstico do Cliente — AlfaOS (v0.7.2)
+# Integrações ERP e Diagnóstico do Cliente — AlfaOS
 
 Como o AlfaOS fala com sistemas externos e como o diagnóstico de conectividade
 do cliente chega até a tela. Complementa `docs/ARCHITECTURE.md` (camadas) e
 `docs/SERVICE-ORDERS.md` (sync de OS).
+
+**Duas metades, com estados diferentes.** As seções **1 a 12** descrevem o que
+**existe em código** desde a v0.7.2: contrato, capabilities, credenciais,
+diagnóstico, erros e a integração ReceitaNet. As seções **13 em diante** são o
+**planejamento da plataforma de ERPs plugáveis (`ERP-0R`)** — nada delas existe
+em código. O inventário do provider SGP vive em `docs/ERP-SGP.md`.
 
 ## 1. Estado da integração ReceitaNet
 
@@ -103,9 +109,15 @@ fallback silencioso apresentaria dado de uma API como se fosse da outra.
 > APIs **lidas em spec**; contra a API real, a **Chatbot entrega os quatro**. A
 > lacuna era de leitura, não do provider.
 
-Continua sem existir em nenhuma API: **ONU**, potência óptica, MAC de
-equipamento de rede, OLT, **listagem de OS por empresa** (confirmado pelo
+Continua sem existir **em nenhuma API do ReceitaNet**: **ONU**, potência óptica,
+MAC de equipamento de rede, OLT, **listagem de OS por empresa** (confirmado pelo
 suporte — `docs/PRD.md` §141), delta sync e webhook.
+
+> **Qualificado em 2026-09-03.** Este parágrafo dizia "em nenhuma API", sem
+> nomear provider, e virou afirmação sobre o mundo quando era afirmação sobre um
+> fornecedor. O levantamento do SGP (`docs/ERP-SGP.md` §5) encontrou endpoints
+> documentados de ONU, OLT, PON, CPE e **listagem global de OS**. A limitação é
+> do ReceitaNet, não uma propriedade dos ERPs.
 
 Consequência prática: o AlfaOS **não preenche** esses campos a partir do ERP e
 não os inventa.
@@ -311,3 +323,345 @@ Chamadas reais ReceitaNet, busca administrativa de cliente por
 nome/CPF/telefone contra o ERP, dados de PPPoE/ONU/óptico, cache, circuit
 breaker, retry, rate limit do provider, e qualquer escrita no sistema externo.
 v0.5 é read-only.
+
+---
+
+# PLATAFORMA DE ERPs PLUGÁVEIS — PLANEJAMENTO `ERP-0R`
+
+Tudo daqui para baixo é **plano**. Nenhuma linha existe em código: não há
+`ERPProvider.SGP`, não há `SgpAdapter`, não há migration. O inventário do
+provider está em `docs/ERP-SGP.md`.
+
+Motivação: a Alfa Telecom está migrando do ReceitaNet para o **SGP**. Atender só
+a esse caso seria trocar um acoplamento por outro — o objetivo é a **camada**,
+com o SGP como o primeiro provider a exercitá-la de verdade.
+
+> **Correção de rota registrada.** Uma versão anterior deste plano (`ERP-0`) e a
+> implementação que a seguiu (`ERP-1`) partiam de **múltiplos ERPs ativos
+> simultaneamente por empresa**, com autoridade por capability e provider
+> principal. Essa premissa foi **descartada como decisão de produto**, e os
+> commits correspondentes saíram da `main` (ficaram na branch local
+> `backup/erp-multiprovider-discarded`). O que segue substitui aquele plano.
+
+## 13. A regra
+
+```text
+Company
+   └── ERPIntegration 0..1
+          └── provider   (RECEITANET | SGP | futuros)
+```
+
+**Cada empresa tem ZERO OU UM ERP ativo.** O AlfaOS suporta vários *tipos* de
+ERP globalmente; cada empresa escolhe **um** e usa aquele.
+
+Não existe provider por capability. Não existe dual-provider operacional. Não
+existe principal + secundário.
+
+A terminologia acompanha: **plataforma de ERPs plugáveis**, não
+"multi-provider por empresa". A primeira descreve o produto; a segunda descrevia
+uma arquitetura que foi recusada.
+
+### Por que a regra simples é a certa
+
+O ganho que o modelo descartado prometia era migração gradual por capability.
+O preço era alto e agora está medido, porque chegou a existir em código:
+
+* **duas autoridades passam a ser possíveis**, e impedi-las exige uma unique
+  nova, uma tabela nova e uma camada de resolução nova;
+* toda pergunta ao ERP deixa de ser *"qual o ERP da empresa?"* e vira *"quem
+  responde por esta capability?"* — em cada call site;
+* a tela deixa de mostrar um estado e passa a mostrar uma matriz;
+* e a operação ganha um modo de falha novo: **acreditar que está no provedor A
+  enquanto uma capability ainda responde pelo B**.
+
+Nada disso paga por si para o caso real, que é *trocar de ERP uma vez*. Um corte
+com preparação e confirmação explícita (§19) resolve a migração sem nenhum
+desses custos.
+
+## 14. `ERPIntegration.companyId @unique` — PRESERVAR
+
+A relação existente está **correta** e não muda. É ela que torna a regra da §13
+invariante de banco em vez de convenção.
+
+**Não** criar `@@unique([companyId, provider])` como substituto: aquilo é
+exatamente a mudança que permitiria dois ERPs ativos.
+
+**Não** criar `Company.primaryErpProvider`: com uma integração só, o provider
+dela **é** o provider ativo. Um campo separado seria uma segunda memória do
+mesmo fato, e as duas divergem no dia em que alguém escrever numa e esquecer da
+outra.
+
+**Não** criar `ERPCapabilityBinding` nem `company + capability → provider`.
+
+## 15. Resolução — a que já existe basta
+
+```text
+Company → ERPIntegration → provider → adapter
+```
+
+`resolveCompanyAdapter(companyId, provider)` (`src/lib/erp-adapter.ts`) continua
+sendo o **único** ponto que decifra uma credencial e a entrega pronta. Nenhum
+adapter toca Prisma ou ciphertext.
+
+**Não criar uma segunda camada de resolução.** Não existe
+`resolveProviderFor(company, capability)`, porque não há o que resolver: só há
+um provider ativo.
+
+## 16. Capability continua sendo pergunta ao ADAPTER
+
+Capability descreve **o que um adapter sabe fazer** — não quem responde por ela.
+O mecanismo já existe e não muda: interfaces fora do contrato base, detectadas
+por type guard.
+
+```text
+adapter = resolveCompanyAdapter(company, provider)
+
+supportsCustomerLookup(adapter) ?  executar
+                                :  NOT_SUPPORTED
+```
+
+`supportsDiagnostics`, `supportsCustomerLookup` e `supportsServiceTickets` já
+respondem isso hoje. Um `SgpAdapter` futuro declara as suas, e o núcleo do
+AlfaOS continua sem saber com qual ERP está falando.
+
+Empresa sem integração habilitada, ou provider que não implementa a capability
+pedida, recebe `NOT_SUPPORTED` — **nunca** fallback silencioso para o MockERP.
+Rotular dado de mock como se viesse de ERP real é a confusão que a §8 já proíbe.
+
+## 17. Troca de ERP ativo
+
+Trocar o ERP da empresa é **uma ação explícita e confirmada**, não efeito
+colateral de outra.
+
+**Estado atual, e é o defeito a corrigir:** hoje a troca acontece dentro de
+`POST /api/integrations/test-connection`. Clicar em "testar conexão" com um
+provider diferente do gravado **troca o provider da empresa** e, além disso,
+**apaga as credenciais do anterior**. Testar deixou de ser uma consulta.
+
+O desenho correto separa as duas coisas:
+
+```text
+TESTAR CONEXÃO     consulta. Não altera o ERP ativo. Não apaga nada.
+ALTERAR ERP ATIVO  ação própria, com confirmação explícita e AuditLog.
+```
+
+## 18. Trocar de provider NÃO apaga credencial
+
+Este é o achado da implementação descartada que **continua valendo**, e é o
+único que sobrevive dela.
+
+Hoje a troca executa `deleteMany` sobre as `ERPCredential` do provider anterior.
+Isso destrói segredo sem ação explícita e **elimina o rollback operacional**: se
+o ERP novo se comportar mal na segunda-feira de manhã, voltar exige reconfigurar
+credencial sob pressão.
+
+A regra passa a ser: **credencial armazenada não significa ERP ativo.** As
+credenciais do provider anterior permanecem, cifradas e ociosas, até que alguém
+as remova explicitamente. O vínculo AAD `(companyId, provider, kind)` já as
+mantém isoladas — elas simplesmente não são consultadas enquanto aquele provider
+não for o ativo.
+
+Remover credencial continua existindo como **ação própria** do ADMIN.
+
+## 19. Migração ReceitaNet → SGP
+
+```text
+A   ReceitaNet ativo.
+B   Admin configura as credenciais do SGP.
+C   TESTAR CONEXÃO no SGP passa.
+D   Admin confirma: "ALTERAR ERP ATIVO PARA SGP".
+E   ERPIntegration.provider = SGP.
+F   As operações passam a usar o SGP. As credenciais do ReceitaNet FICAM.
+```
+
+O ponto de corte é `D`, e é deliberadamente um só: a operação sabe exatamente
+quando mudou de ERP, e o `AuditLog` sabe quem e quando.
+
+### `B` e `C` sem dois ERPs ativos — a decisão em aberto
+
+Para testar o SGP antes do corte é preciso ter a credencial dele em algum lugar.
+Duas saídas, e a escolha fica para a `SGP-1`:
+
+**(i) Credencial candidata, não persistida.** O ADMIN preenche Base URL, App e
+Token, e a rota de teste usa esses valores **em memória**, sem gravar. Só depois
+da confirmação em `D` o segredo é cifrado e gravado. Nada muda no schema, e não
+existe estado intermediário para alguém confundir com "ERP ativo".
+
+**(ii) Credencial gravada para provider não ativo.** `ERPCredential` já é
+`(companyId, provider, kind)` — o schema **já permite** guardar a credencial do
+SGP enquanto o ReceitaNet é o ativo. É o mesmo estado que a §18 cria depois da
+troca, só que antes.
+
+A (ii) é a que o schema já suporta e a que sobrevive naturalmente ao rollback;
+a (i) evita que um token trafegue e seja gravado antes de alguém decidir usá-lo.
+**Recomendada: (ii)**, porque não inventa um caminho de token não persistido e
+porque a §18 já exige que credencial ociosa seja um estado normal. A `SGP-1`
+confirma ao escrever a tela.
+
+## 20. Identidade externa — histórico, não seleção
+
+`(companyId, externalProvider, externalId)` em `Customer` e `ServiceOrder`
+**permanece exatamente como está**. Ela registra **de onde o dado veio**, não
+qual ERP está ativo agora.
+
+```text
+OS importada antes da troca   externalProvider = RECEITANET
+OS importada depois           externalProvider = SGP
+```
+
+As duas coexistem, e isso é correto. **Nenhum registro antigo é convertido para
+SGP.** Reescrever o histórico apagaria a informação de qual sistema originou
+cada atendimento — e é justamente ela que permite conferir uma OS antiga com o
+provedor certo.
+
+`ServiceOrderOrigin` também não muda: OS importada nasce `EXTERNAL`, e a partir
+daí **execução, fila de despacho, timeline e fechamento são do AlfaOS** (§17 da
+Parte XV do PRD).
+
+## 21. Arquitetura de adapters — preservada
+
+`ERPIntegrationContract`, `ReceitanetAdapter`, `MockERPAdapter`, o modelo de
+erros `IntegrationError`, o timeout no call site e as capabilities por type
+guard **não mudam**. Um `SgpAdapter` entra ao lado; `IxcAdapter`,
+`MkSolutionsAdapter` e `HubsoftAdapter` entrariam da mesma forma.
+
+O núcleo do AlfaOS não sabe qual ERP está usando, e é isso que a plataforma
+significa.
+
+## 22. Configuração na Web
+
+Caminho existente, preservado: **`/integracoes`**, já no menu, restrito a
+`ADMIN`. A tela mostra **um** ERP ativo:
+
+```text
+INTEGRAÇÃO ERP
+
+ERP utilizado pela empresa   [ ReceitaNet ▼ ]
+Status                       Conectado · testado há 4 min
+
+<configuração específica do provider selecionado>
+
+[ TESTAR CONEXÃO ]   [ SALVAR ]   [ ALTERAR ERP ATIVO ]
+```
+
+**Nunca** apresentar dois ERPs como ativos ao mesmo tempo.
+
+O seletor pode listar o **catálogo** de fornecedores que o AlfaOS suporta — SGP,
+ReceitaNet, e futuros marcados como `EM BREVE`, sem opção de seleção enquanto
+não houver adapter. *"Disponível no AlfaOS"* não é *"ativo nesta empresa"*, e a
+tela não pode deixar a diferença ambígua.
+
+Campos por provider: o ReceitaNet mantém os atuais; o SGP acrescenta **Base
+URL**, **App** e **Token**, com o token pelo `ERPCredentialService`.
+
+`ERPIntegration` já tem `baseUrl` e um `config Json?` **sem nenhum consumidor**
+hoje — ou seja, o `app` do SGP tem onde morar sem coluna nova, se a `SGP-1`
+preferir. Coluna dedicada continua sendo opção; a decisão é da fase que
+implementa.
+
+## 23. Segredo e auditoria
+
+Sem novidade estrutural — o que existe basta:
+
+* token cifrado por `ERPCredentialService`, AAD `(companyId, provider, kind)`;
+* **não existe caminho de leitura do token**: só `SUBSTITUIR`, nunca `REVELAR`;
+* apenas os últimos 4 caracteres aparecem;
+* log permitido: empresa, provider, capability, operação, status, duração.
+  **Proibido:** token, `app` junto do token, CPF completo, telefone, nome,
+  endereço, senha PPPoE, corpo da resposta.
+
+`AuditLog` registra: integração criada, habilitada, desabilitada, `baseUrl`
+alterada, `app` alterado, token substituído, token removido, teste executado e
+— o que mais importa — **troca do ERP ativo**, com origem e destino. Nenhum
+evento carrega valor de token.
+
+## 24. Credencial do SGP e privilégio mínimo
+
+A API do SGP expõe liquidar, estornar e cancelar título. Enquanto não houver
+capability de escrita, o token gerado para o AlfaOS **não deve** ter essas
+permissões — um token que não pode chamá-las transforma *"não chamamos"* em
+*"não conseguimos"*.
+
+Se o SGP permitir restringir host e associar usuário ao token — o que a
+documentação pública **não** descreve (`ERP-SGP.md` §10) —, a recomendação é
+restringir e usar um usuário identificável como integração, nunca conta pessoal.
+Confirmar com o fornecedor antes de prometer.
+
+## 25. O que o schema realmente precisa
+
+Resposta direta: **quase nada**, e é essa a diferença em relação ao plano
+descartado.
+
+| Necessidade | Situação |
+| --- | --- |
+| uma integração por empresa | **já existe** — `companyId @unique` |
+| provider ativo | **já existe** — `ERPIntegration.provider` |
+| `baseUrl` por empresa | **já existe** |
+| lugar para o `app` do SGP | **já existe** — `config Json?`, hoje sem consumidor (ou coluna nova, se a fase preferir) |
+| credencial cifrada por provider e API | **já existe** — `ERPCredential(companyId, provider, kind)` |
+| identidade externa por provider | **já existe** |
+| `ERPProvider.SGP` | **falta** — `ALTER TYPE ... ADD VALUE`, aditivo |
+| valor de `ERPCredentialKind` para o SGP | **falta** — o SGP tem UMA API, e `CALLCENTER`/`CHATBOT` são nomes do ReceitaNet |
+
+Sobre o `kind`: **não reutilizar `CALLCENTER` para o SGP** só para evitar um
+valor novo — a linha passaria a mentir sobre qual API a credencial abre. E **não
+renomear** os existentes: eles estão gravados em linhas reais e participam do
+AAD `v2`, e renomear valor de enum invalidaria credencial em produção.
+
+Os dois valores que faltam cabem numa migration **aditiva de duas linhas**, e
+ela pertence à `SGP-1` — é lá que passam a ser usados.
+
+## 26. Plano de testes
+
+| # | Cenário |
+| --- | --- |
+| `ERP-01` | empresa A escolhe SGP |
+| `ERP-02` | empresa B escolhe ReceitaNet, sem interferência |
+| `ERP-03` | empresa sem ERP é estado legítimo |
+| `ERP-04` | **o banco recusa** duas `ERPIntegration` para a mesma empresa |
+| `ERP-05` | troca ReceitaNet → SGP muda o ERP ativo |
+| `ERP-06` | a troca **não** apaga a credencial anterior |
+| `ERP-07` | o adapter resolvido é o do provider ativo |
+| `ERP-08` | capability não suportada devolve `NOT_SUPPORTED`, nunca Mock |
+| `ERP-09` | empresa A não lê nem altera a integração de B |
+| `ERP-10` | segredo mascarado: só `last4`, nunca o token |
+| `ERP-11` | substituição de token troca o valor e audita sem vazar |
+| `ERP-12` | a troca do ERP ativo é auditada com origem e destino |
+| `ERP-13` | `externalProvider` histórico preservado após a troca |
+| `ERP-14` | OS antiga do ReceitaNet **continua** ReceitaNet |
+| `ERP-15` | OS nova nasce SGP |
+
+`ERP-04` é o teste que substitui toda a maquinaria descartada: com
+`companyId @unique`, ele é uma linha e o banco responde.
+
+## 27. Roadmap revisado
+
+| Fase | Escopo | Migration |
+| --- | --- | --- |
+| `ERP-1` | troca de ERP explícita + parar de apagar credencial na troca + auditoria | **não** |
+| `SGP-1` | `ERPProvider.SGP` + `kind` do SGP + `SgpClient`/`SgpAdapter` com `testConnection` + configuração na tela | **sim**, aditiva de 2 valores |
+| `SGP-2` | `CUSTOMER_LOOKUP` read-only | não |
+| `SGP-3` | contratos, financeiro e demais capabilities conforme a API real | a definir |
+| `SGP-4` | descoberta e importação de OS sobre o motor da v0.8 | provável, pequena |
+| `SGP-5` | write-back controlado, capability explícita e desligada por padrão | a definir |
+
+### Quanto a `ERP-1` precisa mesmo existir
+
+**Pouco, e nada disso é fundação.** A §25 mostra que o schema já sustenta a
+regra: `companyId @unique` **já é** a invariante principal, e não há camada de
+resolução a construir.
+
+O que sobra são **dois defeitos de comportamento**, ambos independentes do SGP e
+ambos benéficos para o ReceitaNet hoje:
+
+1. a troca de ERP acontece como efeito colateral de "testar conexão" (§17);
+2. a troca apaga credencial sem ação explícita (§18).
+
+Consertar os dois é uma fase pequena, sem migration. **Se a prioridade for
+chegar ao SGP, é legítimo dobrar `ERP-1` dentro de `SGP-1`** — a tela de
+configuração do SGP é justamente onde a troca explícita precisa aparecer.
+
+A recomendação é mantê-las separadas por um motivo prático: `ERP-1` pode ser
+verificada contra o ReceitaNet, que já funciona e já tem regressão. Misturada
+com o transporte novo do SGP, um defeito na troca ficaria indistinguível de um
+defeito no adapter.

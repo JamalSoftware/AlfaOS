@@ -460,6 +460,30 @@ Gates: 1612 Vitest, 116 Playwright, **339 Flutter** (era 316), lint, tsc, build,
 
 **A escolha de SDK (`firebase-admin`, só no worker) depende de um fato do grafo de imports:** `outbox-handlers.ts` é alcançado apenas por `scripts/outbox-worker.ts` e pelos testes — **nenhuma rota do Next**. Por isso a credencial de serviço nunca existe no runtime web. Se uma rota passar a importá-lo, a decisão precisa ser reavaliada, não herdada.
 
+**A Notification Foundation está `PAUSED` depois da NF-2 — não cancelada.** `NF-3` (registro do token no AlfaOS) a `NF-5` continuam válidas; a prioridade passou para a migração de ERP. Os commits da NF-1 e da NF-2 são locais, não publicados, e **não devem ser reescritos, amendados nem squashados**.
+
+**Trilha atual: `PLATAFORMA DE ERPs PLUGÁVEIS` — `ERP-0R` PLANEJADA, nada implementado.** Plano em `docs/ERP-INTEGRATIONS.md` §13–§27, inventário do provider em `docs/ERP-SGP.md`, PRD §352–§361 (Parte XV).
+
+**A regra, e ela é definitiva:** `Company → ERPIntegration 0..1 → provider`. **Cada empresa tem ZERO OU UM ERP ativo.** O AlfaOS suporta vários *tipos* de ERP globalmente — `SGP` é provider **`APPROVED / PLANNED`**, `ReceitaNet` é o existente e implementado —, mas **não existe** provider por capability, dual-provider operacional nem principal+secundário. `ERPIntegration.companyId @unique` **preservada**; não trocar por `@@unique([companyId, provider])`.
+
+**Uma tentativa anterior foi DESCARTADA, e o registro importa mais que o código.** O `ERP-0`/`ERP-1` chegou a ser planejado, implementado, testado e commitado com **múltiplos ERPs ativos simultâneos** (autoridade por capability, `ERPCapabilityBinding`, `Company.primaryErpProvider`, `resolveProviderFor`, migration aditiva). A premissa foi recusada como decisão de produto, e os seis commits saíram da `main` por `git reset --hard 0a8c596`. Ficaram na branch **local** `backup/erp-multiprovider-discarded` (`1331e84`), sem push. **Não ressuscitar aquelas peças.**
+
+O que a experiência mediu, e por isso vale registrar: o modelo descartado prometia migração gradual por capability, e cobrava uma tabela nova, uma unique nova, uma camada de resolução nova, uma tela que vira matriz — e um modo de falha novo: **acreditar que se está no provedor A enquanto uma capability ainda responde pelo B**. Nada disso paga por si para o caso real, que é **trocar de ERP uma vez**.
+
+**Duas coisas do trabalho descartado sobrevivem como achado válido.** A primeira: **trocar de provider NÃO pode apagar credencial** — hoje a troca executa `deleteMany` sobre as `ERPCredential` do anterior, o que destrói segredo sem ação explícita e elimina o rollback operacional. A segunda: **a troca de ERP acontece hoje como efeito colateral de `POST /api/integrations/test-connection`** — clicar em "testar conexão" com outro provider troca o ERP da empresa, e testar deixou de ser consulta. As duas são `ERP-1`.
+
+**O schema já sustenta a regra, e é isso que torna `ERP-1` pequena.** `companyId @unique` **já é** a invariante principal; `baseUrl` e `config Json?` (hoje sem nenhum consumidor) já existem; `ERPCredential` já é `(companyId, provider, kind)`. Falta apenas `SGP` no enum de provider e um valor de `ERPCredentialKind` para a API única do SGP — migration **aditiva de duas linhas**, que pertence à `SGP-1`. **Não reutilizar `CALLCENTER` para o SGP** (a linha mentiria sobre qual API a credencial abre) e **não renomear** os existentes (estão no AAD `v2` de linhas reais).
+
+**O SGP autentica com Token + App no CORPO da requisição**, não em header — diferença estrutural em relação ao ReceitaNet —, e a `Base URL` é **por empresa**. Só o `Token` é segredo. Fontes oficiais revalidadas ao vivo em 2026-09-03.
+
+**Duas coisas que a documentação oficial NÃO resolve:** existe uma segunda superfície (`/api/v1/`, credencial em header) no site do fabricante, ausente da coleção oficial de 275 endpoints — **confirmar no sandbox antes de escrever o transporte**; e **restrição de host e usuário associado ao token não aparecem no texto documentado**. Rate limit do SGP: `UNKNOWN`.
+
+**Cuidado com o verbo HTTP nessa API:** `GET /api/fttx/onu/{id}/reset/` e `.../deauth/` **derrubam ou removem uma ONU**. E `fatura2via` não é leitura — tem `nao_gerar_os`, ou seja, pode **abrir OS**; a sonda de conexão recomendada é `consultaplano`, que não envia documento nenhum.
+
+**Três achados que tocam seções já escritas, e nenhum promove nada.** O SGP **tem descoberta global de OS** — o que não revoga a §141, que é sobre o ReceitaNet e que **já previu** a entrada de uma estratégia de descoberta nova sem trocar o motor de importação da v0.8. O SGP **tem CTO**, o que remove a premissa de "não há fonte" da Parte XIII **sem alterá-la** — a §334 já decidiu que a fronteira é precedência. E ONU/OLT/PON/CPE existem lá, então a frase de `ERP-INTEGRATIONS.md` §1 foi **qualificada** para dizer "em nenhuma API do ReceitaNet".
+
+**`externalProvider` é HISTÓRICO, não seleção.** OS antiga do ReceitaNet continua ReceitaNet depois da troca; OS nova nasce SGP. **Nenhum registro é convertido** — reescrever apagaria de qual sistema veio cada atendimento.
+
 Depois dela existem **três** trilhas documentadas e nenhuma promovida — **Escala de Trabalho P0** (§307), **CTOs e Rede de Distribuição** (§333–§341) e **Colaboração entre Técnicos** (§342–§351). **A ordem entre elas não foi decidida**: são addenda aprovados em momentos diferentes, e escolher agora seria decisão de produto tomada em silêncio. O CTO tinha gate explícito — entrava "depois de a sequência da fila estar concluída e **publicada**" —, então publicar a v0.12 o torna **elegível**, o que não é o mesmo que promovê-lo.
 
 Também sem código, **documentação apenas**: a **Parte XIV do PRD (§342–§351)** e `docs/FIELD-COLLABORATION.md` — **Colaboração entre Técnicos**. Uma OS tem **um** responsável e **0..N** colaboradores, e a regra que atravessa o módulo inteiro é: **colaborar acrescenta participante SEM trocar o responsável**; **transferir troca o responsável** e por isso mexe na fila de despacho. Nunca são sinônimos, e "repasse" não é palavra desta capability. Habilitável por empresa. **Nada disso existe em código.**
@@ -476,7 +500,7 @@ Cinco achados do **código real** que a especificação registrou e que decidem 
 
 Sete decisões abertas (`COL-01`–`COL-07`), nenhuma resolvida em silêncio; a mais pesada é `COL-01`, de qual estoque sai o material que o colaborador registra. **Esta Parte não promove nada na ordem** — a §119 vale, e a Fila Operacional continua fechada e pronta para release.
 
-A §119 continua valendo para tudo o que é só especificação: FCM real, offline no cliente, `ToolExecution`, toolbox, custódia de patrimônio, mapa operacional, Central de Despacho, rede interna do cliente, contratos, escala de trabalho e espelho de jornada, CTOs e rede de distribuição, e **colaboração entre técnicos**. (A **fila operacional de OS** saiu desta lista: `DQ-1` a `DQ-7.2` existem em código.) Duas escalas de prioridade convivem e precisam ser conferidas juntas: §117 classifica o produto (MVP/IMPORTANTE/DIFERENCIAL/FUTURO), §194 classifica a trilha Field (P0/P1/P2).
+A §119 continua valendo para tudo o que é só especificação: FCM real, offline no cliente, `ToolExecution`, toolbox, custódia de patrimônio, mapa operacional, Central de Despacho, rede interna do cliente, contratos, escala de trabalho e espelho de jornada, CTOs e rede de distribuição, **colaboração entre técnicos** e a **plataforma de ERPs plugáveis com o provider SGP**. (A **fila operacional de OS** saiu desta lista: `DQ-1` a `DQ-7.2` existem em código. O **push FCM do lado do servidor** também: `NF-1` e `NF-2` existem, e o que falta é `NF-3` a `NF-5`.) Duas escalas de prioridade convivem e precisam ser conferidas juntas: §117 classifica o produto (MVP/IMPORTANTE/DIFERENCIAL/FUTURO), §194 classifica a trilha Field (P0/P1/P2).
 
 ## Princípios
 
