@@ -19,13 +19,13 @@ export function TestConnectionButton({
   const [provider, setProvider] = useState(currentProvider);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TestResult | null>(null);
-  const [invalidated, setInvalidated] = useState(false);
+  const [candidate, setCandidate] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleTest() {
     setLoading(true);
     setResult(null);
-    setInvalidated(false);
+    setCandidate(false);
     setError(null);
     try {
       const res = await fetch("/api/integrations/test-connection", {
@@ -39,7 +39,7 @@ export function TestConnectionButton({
         return;
       }
       setResult(payload?.data?.result ?? null);
-      setInvalidated(payload?.data?.invalidatedCredential === true);
+      setCandidate(payload?.data?.testedActiveProvider === false);
       router.refresh();
     } catch {
       setError("Erro de conexão. Tente novamente.");
@@ -66,10 +66,9 @@ export function TestConnectionButton({
         <option value="RECEITANET">ReceitaNet</option>
       </select>
       {provider !== currentProvider && (
-        <p className="mb-3 text-xs text-warning-fg">
-          Trocar o provedor apaga a credencial configurada — ela é vinculada ao
-          provedor e deixa de ser utilizável. Será necessário configurar o token
-          novamente.
+        <p className="mb-3 text-xs text-fg-muted" data-testid="test-candidate-hint">
+          Diagnóstico de um provedor candidato. Testar <strong>não</strong>{" "}
+          altera o ERP ativo da empresa e não apaga credencial nenhuma.
         </p>
       )}
 
@@ -98,13 +97,14 @@ export function TestConnectionButton({
         </div>
       )}
 
-      {invalidated && (
+      {candidate && (
         <div
-          role="alert"
-          className="mt-4 rounded-lg border border-warning-border bg-warning-bg px-3 py-2 text-sm text-warning-fg"
+          role="status"
+          data-testid="test-candidate-result"
+          className="mt-4 rounded-lg border border-border bg-surface-muted px-3 py-2 text-sm text-fg-secondary"
         >
-          A credencial anterior foi removida porque o provedor mudou. Configure
-          um novo token para este provedor antes de usar a integração.
+          Resultado de um provedor candidato. O ERP ativo da empresa continua o
+          mesmo — trocá-lo é uma ação separada.
         </div>
       )}
 

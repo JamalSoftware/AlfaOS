@@ -8,7 +8,6 @@ import { getSessionUser } from "@/lib/session";
 import { isIntegrationError } from "@/integrations/errors";
 import { resolveChatbotClient, resolveCompanyAdapter } from "@/lib/erp-adapter";
 import type { ERPConnectionResult } from "@/integrations/contract";
-import { CLEARED_CREDENTIAL_FIELDS } from "@/lib/erp-credentials";
 import {
   enforceCapabilityLimit,
   ERP_CAPABILITIES,
@@ -51,7 +50,23 @@ export async function POST(request: Request) {
     );
     if (limited) return limited;
 
-    let provider: ERPProvider = "MOCK";
+    /**
+     * Sem `provider` no corpo, testa-se o ERP **ativo** da empresa.
+     *
+     * Antes o padrão era `MOCK` fixo, o que só não enganava porque a rota
+     * gravava o provider testado logo em seguida — testar "sem dizer qual"
+     * acabava transformando a empresa em MOCK. Com a escrita removida, o padrão
+     * precisa ser o provider que de fato está atendendo.
+     *
+     * `MOCK` continua sendo o último recurso, para a empresa que ainda não
+     * configurou ERP nenhum: ali o teste é uma sonda, e não persiste nada.
+     */
+    const activeBefore = await prisma.eRPIntegration.findUnique({
+      where: { companyId: session.companyId },
+      select: { provider: true },
+    });
+
+    let provider: ERPProvider = activeBefore?.provider ?? "MOCK";
     let kind: "CALLCENTER" | "CHATBOT" = "CALLCENTER";
     try {
       const body = await request.json();
@@ -171,119 +186,83 @@ export async function POST(request: Request) {
     }
 
     /**
-     * Trocar o provider invalida a credencial já gravada.
+     * ## Testar é CONSULTAR — `ERP-1`
      *
-     * O ciphertext é vinculado por AAD a `(companyId, provider)`, então depois
-     * da troca ele deixa de decriptar. Antes da v0.5.1 os campos ficavam no
-     * lugar e `getCredentialStatus` — que só verifica se o ciphertext existe —
-     * continuava reportando "configurada" com o mesmo last4. O operador via uma
-     * credencial aparentemente válida que nenhum adapter conseguiria usar.
+     * Esta rota **não** troca o ERP ativo e **não** apaga credencial. Até a
+     * `ERP-1` ela fazia as duas coisas: um `upsert` que gravava `provider`, e um
+     * `deleteMany` sobre as `ERPCredential` do provider anterior.
      *
-     * A limpeza é explícita: um segredo que não pode mais ser lido não é uma
-     * credencial, é lixo que mente sobre o estado da integração.
+     * O efeito prático era grave em dois sentidos. Testar o provider candidato
+     * **ativava** aquele ERP na empresa sem ninguém pedir — a operação inteira
+     * passava a falar com outro sistema por causa de um clique de diagnóstico.
+     * E o segredo do provider anterior era destruído em silêncio, eliminando o
+     * rollback: voltar exigia recadastrar token sob pressão.
+     *
+     * Trocar o ERP ativo agora é `POST /api/integrations/active-provider`, com
+     * confirmação e auditoria próprias (`switchActiveErpProvider`).
+     *
+     * ## O que ainda é gravado, e só isso
+     *
+     * `lastTestedAt`/`lastTestStatus` descrevem a saúde da integração **ativa**.
+     * Quando o teste é de um provider CANDIDATO, nada é persistido: escrever o
+     * resultado dele na linha da empresa faria a tela anunciar a saúde de um ERP
+     * que não está atendendo ninguém.
+     *
+     * Não há coluna para saúde de candidato, e não se inventa uma aqui — exigir
+     * "último teste bem-sucedido" antes da troca fica para a `SGP-1`, quando
+     * existir uma segunda implementação real para exercitá-la.
      */
-    const previous = await prisma.eRPIntegration.findUnique({
-      where: { companyId: session.companyId },
-      select: { id: true, provider: true },
-    });
-    const providerChanged =
-      previous !== null && previous.provider !== provider;
+    const testedActiveProvider =
+      activeBefore !== null && activeBefore.provider === provider;
 
-    /**
-     * O flag descreve o STORE OPERACIONAL, nao a coluna legada.
-     *
-     * Antes do cutover ele olhava `ERPIntegration.credentialCiphertext`. Com a
-     * credencial morando em `ERPCredential`, continuar olhando a coluna antiga
-     * faria a tela dizer que nada foi invalidado enquanto tokens reais eram
-     * apagados -- um aviso que some justamente quando importa.
-     */
-    const invalidatedCredential =
-      providerChanged &&
-      (await prisma.eRPCredential.count({
-        where: { companyId: session.companyId, provider: previous.provider },
-      })) > 0;
-
-    // A successful test is NOT an automatic activation. The integration
-    // only becomes enabled through an explicit enable/disable action.
-    const integration = await prisma.eRPIntegration.upsert({
-      where: { companyId: session.companyId },
-      update: {
-        provider,
-        /**
-         * `name` acompanha o provider.
-         *
-         * Antes só o `create` o definia, então trocar de MOCK para RECEITANET
-         * deixava a coluna dizendo “Mock ERP” para sempre — e a tela repetia
-         * isso ao operador, que via um provedor e o nome de outro.
-         */
-        name: provider === "MOCK" ? "Mock ERP" : "ReceitaNet",
-        lastTestedAt: new Date(),
-        lastTestStatus: result.ok ? "OK" : "ERROR",
-        ...(providerChanged ? CLEARED_CREDENTIAL_FIELDS : {}),
-      },
-      create: {
-        companyId: session.companyId,
-        provider,
-        name: provider === "MOCK" ? "Mock ERP" : "ReceitaNet",
-        enabled: false,
-        lastTestedAt: new Date(),
-        lastTestStatus: result.ok ? "OK" : "ERROR",
-      },
-    });
+    const integration = testedActiveProvider
+      ? await prisma.eRPIntegration.update({
+          where: { companyId: session.companyId },
+          data: {
+            lastTestedAt: new Date(),
+            lastTestStatus: result.ok ? "OK" : "ERROR",
+          },
+        })
+      : await prisma.eRPIntegration.findUnique({
+          where: { companyId: session.companyId },
+        });
 
     await logAudit({
       companyId: session.companyId,
       userId: session.id,
       action: "ERP.TEST_CONNECTION",
       entity: "ERPIntegration",
-      entityId: integration.id,
-      details: `Provider ${provider}: ${result.ok ? "conectado" : "falhou"}`,
+      entityId: integration?.id ?? null,
+      /**
+       * O evento nomeia o provider testado e diz se ele era o ATIVO. Sem isso,
+       * um teste de candidato ficaria indistinguível de um teste do ERP em uso —
+       * e poderia ser lido como se a empresa tivesse trocado de ERP. Trocar tem
+       * evento próprio: `ERP.ACTIVE_PROVIDER_CHANGED`.
+       */
+      details: `Provider ${provider}${testedActiveProvider ? " (ativo)" : " (candidato)"}: ${result.ok ? "conectado" : "falhou"}`,
     });
-
-    /**
-     * Troca de provider invalida as credenciais do provider ANTERIOR.
-     *
-     * O AAD liga o ciphertext a `(companyId, provider, kind)`, então depois
-     * da troca ele deixa de decriptar para o provider novo. Deixar as linhas
-     * no lugar faria o status reportar “configurada” para algo que nenhum
-     * adapter conseguiria usar — foi exatamente o defeito corrigido na
-     * v0.6.2, e ele precisa continuar corrigido agora que a credencial mora
-     * noutra tabela.
-     */
-    if (providerChanged) {
-      await prisma.eRPCredential.deleteMany({
-        where: { companyId: session.companyId, provider: previous.provider },
-      });
-    }
-
-    if (invalidatedCredential) {
-      // Registra provider antigo e novo — nunca token, ciphertext, iv,
-      // authTag, last4 ou chave.
-      await logAudit({
-        companyId: session.companyId,
-        userId: session.id,
-        action: "ERP_CREDENTIAL_INVALIDATED",
-        entity: "ERPIntegration",
-        entityId: integration.id,
-        details: `Credencial removida na troca de provider ${previous.provider} para ${provider}`,
-      });
-    }
 
     return jsonOk({
       result,
       // Codigo do catalogo fechado, para a tela mostrar o motivo sem receber
       // nada do corpo do provider.
       code,
-      // Booleano, para a tela poder avisar que é preciso reconfigurar. Não
-      // carrega nada do segredo removido.
-      invalidatedCredential,
-      integration: {
-        id: integration.id,
-        provider: integration.provider,
-        enabled: integration.enabled,
-        lastTestedAt: integration.lastTestedAt,
-        lastTestStatus: integration.lastTestStatus,
-      },
+      /**
+       * Testar um provider candidato não ativa nada. A tela usa este campo para
+       * dizer ao operador que o resultado é de um diagnóstico, e que trocar o
+       * ERP continua sendo uma ação separada.
+       */
+      testedActiveProvider,
+      activeProvider: activeBefore?.provider ?? null,
+      integration: integration
+        ? {
+            id: integration.id,
+            provider: integration.provider,
+            enabled: integration.enabled,
+            lastTestedAt: integration.lastTestedAt,
+            lastTestStatus: integration.lastTestStatus,
+          }
+        : null,
     });
   });
 }
