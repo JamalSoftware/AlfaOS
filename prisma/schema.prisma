@@ -16,6 +16,16 @@ enum AccessProfile {
 enum ERPProvider {
   MOCK
   RECEITANET
+
+  /// SGP (TSMX). Ver `docs/ERP-SGP.md`.
+  ///
+  /// Autenticação por **Token + App no CORPO** da requisição — diferença
+  /// estrutural em relação ao ReceitaNet, que usa header. A `baseUrl` é
+  /// obrigatória por empresa, porque cada provedor tem instalação própria.
+  ///
+  /// Na `SGP-1` o adapter implementa **apenas** `testConnection`. Nenhuma
+  /// capability de negócio foi declarada.
+  SGP
 }
 
 /// Qual API do provider a credencial abre.
@@ -28,6 +38,21 @@ enum ERPProvider {
 enum ERPCredentialKind {
   CALLCENTER
   CHATBOT
+
+  /// A **API Pública** do SGP — o nome que o próprio fabricante usa.
+  ///
+  /// O SGP publica UMA API, então precisa de UM valor. Reaproveitar
+  /// `CALLCENTER` faria a linha mentir sobre qual API a credencial abre, e o
+  /// enum existe justamente para responder isso.
+  ///
+  /// Nomeia a API, não o provider — a mesma convenção de `CALLCENTER` e
+  /// `CHATBOT`, que também são nomes de API do ReceitaNet e não trazem o nome
+  /// dele no valor.
+  ///
+  /// Os dois valores existentes NÃO foram renomeados: eles estão gravados em
+  /// linhas reais e participam do AAD `v2`, e renomear valor de enum
+  /// invalidaria credencial em produção.
+  PUBLIC_API
 }
 
 enum ServiceOrderPriority {

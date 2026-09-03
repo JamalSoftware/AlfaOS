@@ -330,4 +330,5 @@ export const CONNECTIVITY_LABELS: Record<ConnectivityStatus, string> = {
 export const PROVIDER_LABELS: Record<ERPProvider, string> = {
   MOCK: "Mock ERP",
   RECEITANET: "ReceitaNet",
+  SGP: "SGP",
 };

@@ -13,6 +13,7 @@
 const PROVIDER_LABELS: Record<string, string> = {
   MOCK: "Mock ERP",
   RECEITANET: "ReceitaNet",
+  SGP: "SGP",
 };
 
 export function providerLabel(provider: string): string {

@@ -3,6 +3,7 @@ import type { ERPIntegrationContract } from "./contract";
 import { IntegrationError } from "./errors";
 import { MockERPAdapter } from "./MockERPAdapter";
 import { ReceitanetAdapter } from "./ReceitanetAdapter";
+import { SgpAdapter } from "./SgpAdapter";
 import type { FetchLike } from "./receitanet/CallCenterClient";
 
 /**
@@ -16,6 +17,14 @@ import type { FetchLike } from "./receitanet/CallCenterClient";
 export interface ERPAdapterConfig {
   token?: string | null;
   baseUrl?: string | null;
+  /**
+   * Nome da aplicação no provider, quando o esquema de autenticação o exige.
+   *
+   * Existe para o par Token/App do SGP. **Não é segredo** — o segredo é o
+   * token, e é por isso que este campo viaja em claro ao lado dele em vez de
+   * passar pelo cofre de credenciais.
+   */
+  app?: string | null;
   /** Injetável nos testes, para exercitar a integração sem tocar a rede. */
   fetchImpl?: FetchLike;
 }
@@ -45,6 +54,23 @@ export function getERPAdapter(
       return new ReceitanetAdapter({
         token: config.token,
         baseUrl: config.baseUrl,
+        fetchImpl: config.fetchImpl,
+      });
+    }
+    case "SGP": {
+      /**
+       * O SGP exige os TRÊS: sem qualquer um deles não existe adapter
+       * utilizável. `baseUrl` porque cada provedor tem instalação própria, e
+       * `app` porque a documentação oficial o marca obrigatório junto do token.
+       *
+       * A recusa acontece na construção, onde a causa ainda é óbvia — mesma
+       * política do ReceitaNet acima. `SgpClient` valida os três e lança
+       * `AUTHENTICATION_FAILED` nomeando qual falta.
+       */
+      return new SgpAdapter({
+        baseUrl: config.baseUrl ?? "",
+        app: config.app ?? "",
+        token: config.token ?? "",
         fetchImpl: config.fetchImpl,
       });
     }

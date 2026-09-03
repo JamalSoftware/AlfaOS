@@ -42,6 +42,70 @@ export class CapabilityUnavailableError extends Error {
 }
 
 /**
+ * O provider ficará utilizável DEPOIS da troca?
+ *
+ * Diferente de `resolveCompanyAdapter`: aqui o adapter é construído **sem as
+ * sobreposições gravadas** (`baseUrl`, `config`), porque elas pertencem ao
+ * provider que está SAINDO e a troca as limpa.
+ *
+ * Essa distinção não é teórica. Usar `resolveCompanyAdapter` como precondição
+ * fazia a volta do SGP para o ReceitaNet **falhar**: a linha ainda tinha o host
+ * do SGP, o `ReceitanetCallCenterClient` tem allowlist exata de host e recusava
+ * — e o operador recebia "não foi possível autenticar", como se o token
+ * estivesse errado. A precondição precisa avaliar o estado que a troca vai
+ * PRODUZIR, não o que ela está deixando.
+ *
+ * Lança `IntegrationError` quando a credencial falta ou não pode ser lida.
+ */
+export async function assertProviderUsableAfterSwitch(
+  companyId: string,
+  provider: ERPProvider,
+): Promise<void> {
+  if (provider === "MOCK") {
+    // Não precisa de credencial nem de host: o adapter é local.
+    getERPAdapter(provider);
+    return;
+  }
+
+  const kind: ERPCredentialKind =
+    provider === "SGP" ? "PUBLIC_API" : "CALLCENTER";
+
+  let token: string;
+  try {
+    token = await requireCredential(companyId, provider, kind);
+  } catch (error) {
+    if (error instanceof CapabilityUnavailableError) {
+      throw new IntegrationError(
+        "AUTHENTICATION_FAILED",
+        provider,
+        error.reason === "NOT_CONFIGURED"
+          ? "credencial não configurada"
+          : "credencial armazenada não pôde ser lida",
+      );
+    }
+    throw error;
+  }
+
+  // Sem `baseUrl` e sem `app`: o adapter usa os próprios padrões, que é o que
+  // valerá depois da limpeza feita pela troca.
+  getERPAdapter(provider, { token });
+}
+
+/**
+ * Extrai o `app` de `ERPIntegration.config`, que é `Json?`.
+ *
+ * Defensivo de propósito: a coluna é livre, e nada garante que o que está lá
+ * seja um objeto com `app` string. Um valor inesperado devolve `null`, e a
+ * recusa acontece na construção do adapter — em vez de virar `"[object
+ * Object]"` no corpo de uma requisição autenticada ao provider.
+ */
+export function readConfiguredApp(config: unknown): string | null {
+  if (!config || typeof config !== "object" || Array.isArray(config)) return null;
+  const app = (config as Record<string, unknown>).app;
+  return typeof app === "string" && app.trim() ? app.trim() : null;
+}
+
+/**
  * Lê a credencial de UMA API.
  *
  * **Nunca cai para a credencial da outra.** Um token de CallCenter enviado ao
@@ -84,6 +148,46 @@ export async function resolveCompanyAdapter(
   companyId: string,
   provider: ERPProvider,
 ): Promise<ERPIntegrationContract> {
+  /**
+   * SGP: credencial `PUBLIC_API`, mais `baseUrl` e `app` da própria integração.
+   *
+   * O `app` mora em `ERPIntegration.config` porque **não é segredo** — a
+   * documentação oficial o trata como identificador da aplicação, e o segredo é
+   * o token. Guardá-lo no cofre de credenciais o mascararia na tela, e o
+   * operador perderia a única forma de conferir se digitou o app certo.
+   *
+   * Uma linha sem `baseUrl` ou sem `app` não produz adapter: `SgpClient` recusa
+   * na construção, nomeando o que falta.
+   */
+  if (provider === "SGP") {
+    let token: string;
+    try {
+      token = await requireCredential(companyId, provider, "PUBLIC_API");
+    } catch (error) {
+      if (error instanceof CapabilityUnavailableError) {
+        throw new IntegrationError(
+          "AUTHENTICATION_FAILED",
+          provider,
+          error.reason === "NOT_CONFIGURED"
+            ? "credencial não configurada"
+            : "credencial armazenada não pôde ser lida",
+        );
+      }
+      throw error;
+    }
+
+    const integration = await prisma.eRPIntegration.findUnique({
+      where: { companyId },
+      select: { baseUrl: true, config: true },
+    });
+
+    return getERPAdapter(provider, {
+      token,
+      baseUrl: integration?.baseUrl ?? null,
+      app: readConfiguredApp(integration?.config),
+    });
+  }
+
   if (provider !== "RECEITANET") {
     return getERPAdapter(provider);
   }
