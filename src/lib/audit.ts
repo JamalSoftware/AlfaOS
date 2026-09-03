@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 
 export interface AuditLogData {
@@ -46,6 +47,27 @@ function auditRow(data: AuditLogData) {
     entityId: data.entityId ?? null,
     details: sanitizeAuditDetails(data.details),
   };
+}
+
+/**
+ * Auditoria DENTRO de uma transação já aberta.
+ *
+ * Existe para operações em que o registro não pode sobreviver ao fracasso da
+ * mudança, nem a mudança sobreviver ao fracasso do registro — a troca do ERP
+ * ativo é uma delas: um `AuditLog` sem a troca inventa um evento que não
+ * ocorreu, e uma troca sem `AuditLog` apaga quem a fez.
+ *
+ * A exceção PROPAGA, ao contrário de `logAudit`: engoli-la aqui derrotaria o
+ * propósito de estar na transação.
+ *
+ * Recebe o cliente transacional em vez de abrir o próprio — e reusa
+ * `auditRow`, para a sanitização continuar num lugar só.
+ */
+export async function logAuditWithin(
+  tx: Prisma.TransactionClient,
+  data: AuditLogData,
+): Promise<void> {
+  await tx.auditLog.create({ data: auditRow(data) });
 }
 
 export async function logAudit(data: AuditLogData): Promise<void> {

@@ -7,6 +7,7 @@ import { listCredentialStatus } from "@/lib/erp-credential-store";
 import { TestConnectionButton } from "./TestConnectionButton";
 import { IntegrationToggle } from "./IntegrationToggle";
 import { ErpCredentialForm } from "./ErpCredentialForm";
+import { ActiveProviderSwitch } from "./ActiveProviderSwitch";
 
 export const metadata: Metadata = {
   title: "Integrações",
@@ -56,6 +57,17 @@ const PROVIDER_LABEL: Record<ERPProvider, string> = {
   RECEITANET: "ReceitaNet",
 };
 
+/**
+ * Catálogo dos provedores que o AlfaOS suporta.
+ *
+ * **"Disponível no AlfaOS" não é "ativo nesta empresa".** A empresa usa UM, e o
+ * bloco "ERP atual" diz qual. Este catálogo alimenta apenas a troca explícita —
+ * ele lista opções, não estados.
+ */
+const PROVIDER_OPTIONS = (Object.keys(PROVIDER_LABEL) as ERPProvider[]).map(
+  (value) => ({ value, label: PROVIDER_LABEL[value] }),
+);
+
 export default async function IntegrationsPage() {
   const session = await requirePageProfile(["ADMIN"]);
 
@@ -96,9 +108,25 @@ export default async function IntegrationsPage() {
               provider a deixava obsoleta e a tela anunciava o provedor
               errado. Derivar aqui torna a divergência impossível.
             */}
-            <h2 className="text-base font-semibold text-fg" data-testid="integration-name">
-              {PROVIDER_LABEL[integration?.provider ?? "MOCK"]}
-            </h2>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+              ERP atual
+            </p>
+            {/*
+              O selo fica FORA do `h2`. `integration-name` identifica o nome do
+              provedor, e só ele — enfiar um estado ali faria o seletor passar a
+              casar "ReceitaNetATIVO", que não é o nome de provedor nenhum.
+            */}
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-semibold text-fg" data-testid="integration-name">
+                {PROVIDER_LABEL[integration?.provider ?? "MOCK"]}
+              </h2>
+              <span
+                className="inline-flex items-center rounded-full bg-primary-bg px-2 py-0.5 text-[11px] font-semibold text-primary-text"
+                data-testid="integration-active-badge"
+              >
+                ATIVO
+              </span>
+            </div>
             <p className="mt-0.5 text-xs text-fg-muted">
               Provedor: {integration?.provider ?? "MOCK"}
             </p>
@@ -134,10 +162,24 @@ export default async function IntegrationsPage() {
         </dl>
 
         <TestConnectionButton currentProvider={integration?.provider ?? "MOCK"} />
-        <p className="mb-5 mt-3 text-xs text-fg-muted">
-          O teste de conexão verifica a conectividade com o ERP, mas não
-          habilita a integração. A habilitação é uma ação separada e explícita.
+        <p className="mt-3 text-xs text-fg-muted">
+          O teste verifica a conectividade com o ERP. Ele{" "}
+          <strong>não</strong> habilita a integração, <strong>não</strong>{" "}
+          altera o ERP ativo e <strong>não</strong> apaga credencial. Habilitar
+          e alterar são ações separadas e explícitas.
         </p>
+
+        {/*
+          Trocar o ERP ativo é a ÚNICA operação que escreve
+          `ERPIntegration.provider`, e por isso tem controle próprio. Antes da
+          `ERP-1` ela acontecia dentro do teste de conexão.
+        */}
+        <div className="mb-5 mt-5 border-t border-border-subtle pt-4">
+          <ActiveProviderSwitch
+            currentProvider={integration?.provider ?? "MOCK"}
+            options={PROVIDER_OPTIONS}
+          />
+        </div>
 
         {/*
           Only the STATUS crosses to the client — provider, a boolean, the last
