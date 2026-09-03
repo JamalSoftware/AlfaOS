@@ -1,8 +1,13 @@
 # SGP (TSMX) — inventário da API oficial
 
-Levantamento do provider **SGP**, para o planejamento `ERP-0R`. Nada aqui está
-implementado: não existe `SgpAdapter`, não existe `ERPProvider.SGP` e nenhuma
-linha de código fala com o SGP.
+Levantamento do provider **SGP**, feito para o planejamento `ERP-0R`.
+
+> **Estado desde a `SGP-1`.** `ERPProvider.SGP` existe, o `SgpClient` e o
+> `SgpAdapter` existem, e o AlfaOS **fala com o SGP** — mas somente para
+> `testConnection`, pela sonda da §8. Nenhuma capability de negócio foi
+> implementada: busca de cliente, contratos, financeiro, OS, FTTH e CPE seguem
+> apenas documentados aqui. Registro da entrega em
+> `docs/ERP-INTEGRATIONS.md` §29.
 
 **Regra desta página:** só entra o que a documentação oficial sustenta. Onde a
 fonte oficial não cobre, está escrito `NÃO DOCUMENTADO` — e isso vale como
@@ -90,11 +95,16 @@ não aparece em nenhuma das 275 requisições catalogadas (lá o cliente é
 **Hipótese, não conclusão:** há uma API nova convivendo com a legada. Não
 alcancei documentação pública dela.
 
-**Decisão registrada:** o planejamento assume a superfície **documentada e
-catalogada** (`/api/ura/`, `/api/os/`, `/api/fttx/`, `/api/estoque/`, Token/App
-no corpo). A `/api/v1/` entra como pergunta ao fornecedor (§11), e a `SGP-1`
-deve confirmá-la contra o sandbox **antes** de escrever o client. Escolher a
-errada custa o transporte inteiro.
+**Decisão da `SGP-1`, tomada e registrada:** a superfície **ADOTADA** é a
+documentada e catalogada — `/api/ura/`, `/api/os/`, `/api/fttx/`,
+`/api/estoque/`, com Token e App no corpo. É a única com 275 requisições
+descritas, exemplos de resposta e tabela de parâmetros.
+
+A `/api/v1/` fica **`NOT ADOPTED / NEED VALIDATION`**. Em particular, **não se
+assume que o token de uma vale na outra**: são esquemas de autenticação
+diferentes (corpo × header), e tratá-los como equivalentes é justamente o tipo de
+suposição que esta página existe para não fazer. Segue como pergunta ao
+fornecedor (§11).
 
 ## 3. Base URL — por tenant, obrigatoriamente
 
@@ -246,14 +256,22 @@ Precisa ser **autenticado e sem efeito colateral**. Descartados: `fatura2via`
 `/api/banco/titulo/...` (financeiro) e `cpemanager/.../command/ping/` (o nome
 engana: executa comando em equipamento).
 
-**Candidato recomendado:** `GET /api/ura/consultaplano/` — catálogo de planos,
-leitura pura, **sem PII na requisição nem na resposta**. Alternativa:
-`POST /api/ura/consultacliente/` com um `cpfcnpj` que não casa, replicando a
-técnica já auditada no ReceitaNet. `consultaplano` é preferível porque não envia
-documento nenhum ao provider.
+**ADOTADA na `SGP-1`: `POST /api/ura/planoscontas/`.**
 
-**Confirmar contra o sandbox antes de fixar** — e ver a ressalva de `GET` com
-corpo na §10.
+A recomendação anterior era `GET /api/ura/consultaplano/`. A reconfirmação na
+coleção oficial mostrou que ele é **`GET` com corpo `form-data`** — e um `GET`
+com corpo é descartado por proxies e por vários clientes HTTP. A única
+alternativa seria `token`/`app` na query string, que é o que não se faz com um
+segredo.
+
+`planoscontas` é **`POST`**, recebe exatamente `token` e `app`, e devolve
+`[{ id, codigo, descricao }]` — plano de contas, sem cliente, sem valor e sem
+PII. Autenticado, somente leitura, e sem parâmetro capaz de disparar efeito.
+
+Descartados, com motivo: `fatura2via` tem `nao_gerar_os` e pode **abrir OS**;
+`cpemanager/.../command/ping/` executa comando em equipamento; e
+`consultacliente` exigiria enviar o documento de uma pessoa real só para saber
+se o token vale.
 
 ## 9. Fora de escopo — mutantes
 

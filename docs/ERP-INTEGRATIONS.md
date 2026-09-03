@@ -4,14 +4,16 @@ Como o AlfaOS fala com sistemas externos e como o diagnóstico de conectividade
 do cliente chega até a tela. Complementa `docs/ARCHITECTURE.md` (camadas) e
 `docs/SERVICE-ORDERS.md` (sync de OS).
 
-**Três partes, com estados diferentes.** As seções **1 a 12** descrevem a
-integração ReceitaNet, em código desde a v0.7.2. As seções **13 a 27** são o
-plano da plataforma de ERPs plugáveis (`ERP-0R`). A seção **28** registra o que
-a **`ERP-1` entregou**: troca explícita do ERP ativo e preservação da credencial
-anterior.
+**Quatro partes, com estados diferentes.** As seções **1 a 12** descrevem a
+integração ReceitaNet, em código desde a v0.7.2. As **13 a 27** são o plano da
+plataforma de ERPs plugáveis (`ERP-0R`). A **§28** registra o que a **`ERP-1`
+entregou** — troca explícita do ERP ativo e preservação da credencial anterior.
+A **§29** registra a **`SGP-1`**: o provider SGP autentica, tem sonda de conexão
+e é ativável.
 
-O que continua sendo só plano é tudo que depende do adapter do SGP — que **não
-existe**. O inventário do provider vive em `docs/ERP-SGP.md`.
+O que continua sendo só plano são as **capabilities de negócio do SGP** — busca
+de cliente, contratos, financeiro e OS. O `SgpAdapter` implementa **apenas**
+`testConnection`. Inventário do provider em `docs/ERP-SGP.md`.
 
 ## 1. Estado da integração ReceitaNet
 
@@ -647,7 +649,7 @@ ela pertence à `SGP-1` — é lá que passam a ser usados.
 | Fase | Escopo | Migration |
 | --- | --- | --- |
 | `ERP-1` | troca de ERP explícita + parar de apagar credencial na troca + auditoria | **não** — **ENTREGUE**, ver §28 |
-| `SGP-1` | `ERPProvider.SGP` + `kind` do SGP + `SgpClient`/`SgpAdapter` com `testConnection` + configuração na tela | **sim**, aditiva de 2 valores |
+| `SGP-1` | `ERPProvider.SGP` + `kind` do SGP + `SgpClient`/`SgpAdapter` com `testConnection` + configuração na tela | **sim**, aditiva de 2 valores — **ENTREGUE**, ver §29 |
 | `SGP-2` | `CUSTOMER_LOOKUP` read-only | não |
 | `SGP-3` | contratos, financeiro e demais capabilities conforme a API real | a definir |
 | `SGP-4` | descoberta e importação de OS sobre o motor da v0.8 | provável, pequena |
@@ -804,3 +806,183 @@ asserção "B continua em MOCK" tem o que proibir.
 `ERP-1` sai da §27 como **ENTREGUE**. A próxima é `SGP-1`, que carrega a
 migration aditiva de dois valores de enum (`ERPProvider.SGP` e o `kind` da API
 única do SGP) e o `SgpAdapter`.
+
+---
+
+# 29. `SGP-1` — ENTREGUE
+
+O provider SGP existe no domínio, autentica e é ativável. **Somente
+`testConnection`** — nenhuma capability de negócio.
+
+Uma migration **aditiva de duas linhas**, exatamente como a §25 previu. Zero
+coluna, zero tabela, zero unique alterada, zero dependência, zero Dart.
+
+## 29.1 O que entrou
+
+| Peça | Onde |
+| --- | --- |
+| `ERPProvider.SGP`, `ERPCredentialKind.PUBLIC_API` | migration `20260903120000` |
+| `SgpClient` — transporte Token/App | `src/integrations/sgp/SgpClient.ts` |
+| `SgpAdapter` — só `testConnection` | `src/integrations/SgpAdapter.ts` |
+| Validação de URL de saída (SSRF) | `src/lib/safe-outbound-url.ts` |
+| Candidato e ativação atômica | `src/lib/erp-provisioning.ts` |
+| `assertProviderUsableAfterSwitch` | `src/lib/erp-adapter.ts` |
+| `POST /api/integrations/candidate` | rota de teste e ativação |
+| Card do SGP | `src/app/(app)/integracoes/SgpProviderCard.tsx` |
+
+## 29.2 A superfície escolhida, e a que ficou de fora
+
+**Adotada:** `/api/ura/`, `/api/os/`, `/api/fttx/`, `/api/estoque/` — Token e App
+no **corpo**, `application/x-www-form-urlencoded`.
+
+**`NOT ADOPTED / NEED VALIDATION`:** a superfície `/api/v1/` com `Authorization`,
+vista no site do fabricante e ausente das 275 requisições catalogadas. **Não se
+assume que o token de uma vale na outra.** Confirmar antes de considerar migrar
+o transporte.
+
+## 29.3 A sonda mudou de endpoint, e a reconfirmação é o motivo
+
+A `ERP-0R` sugeriu `consultaplano`. A revalidação da coleção oficial mostrou que
+ele é **`GET` com corpo `form-data`** — e um `GET` com corpo é descartado por
+proxies e por vários clientes HTTP. A única alternativa seria `token`/`app` na
+query string, que é o que não se faz com um segredo.
+
+**Sonda adotada: `POST /api/ura/planoscontas/`.** É `POST`, recebe exatamente
+`token` e `app`, e devolve `[{ id, codigo, descricao }]` — plano de contas, sem
+cliente, sem valor, sem PII. Autenticado, somente leitura, e nenhum parâmetro
+capaz de disparar efeito.
+
+Descartados com motivo: `fatura2via` tem `nao_gerar_os` e pode **abrir OS**;
+`cpemanager/.../command/ping/` executa comando em equipamento; e
+`consultacliente` exigiria enviar o documento de uma pessoa real só para saber se
+o token vale.
+
+**O SGP não tem `/ping` anônimo.** Não existe chamada que prove "o serviço está
+de pé" sem credencial, então `reachable` e `credentialValidated` são derivados
+assim: sucesso → os dois; `401`/`403` → alcançável com credencial recusada
+(um 401 **é** resposta); timeout ou 5xx → não alcançável, e nada se sabe sobre a
+credencial.
+
+## 29.4 Candidato: nada é persistido
+
+Testar uma configuração que a empresa ainda não usa era o problema central. Dois
+caminhos foram recusados por escrito antes de o código existir:
+
+* gravar `baseUrl`/`config` do SGP na integração ativa só para testar —
+  **corromperia a configuração do ERP que está atendendo**;
+* criar uma segunda `ERPIntegration` — quebraria a regra de um ERP ativo.
+
+A saída: `testCandidateConnection` recebe a configuração pelo corpo, monta o
+adapter **em memória**, testa e devolve. Nada é gravado — nem integração, nem
+credencial, nem `lastTestedAt`. O token existe só naquela requisição.
+
+**Nem no navegador.** O formulário guarda os três valores em estado de
+componente; `localStorage`, `sessionStorage` e cookie estão fora. Se o ADMIN sair
+antes de ativar, preenche de novo — simplicidade escolhida sobre segredo
+persistido fora do cofre.
+
+## 29.5 Ativação: reteste no servidor, e atomicidade real
+
+O resultado que o browser viu **não é aceito como prova**. Entre o clique em
+"testar" e o em "confirmar" o token pode ter sido revogado — e o corpo da
+confirmação é reenviável, então sem reteste um `POST` forjado ativaria o SGP com
+credencial que nunca funcionou. A ativação testa de novo, no servidor, com a
+configuração que vai de fato ser gravada. Falhou → **nada é trocado**.
+
+A atomicidade é real e não aparente: `encryptCredential` é **pura** e roda FORA
+da transação, falhando por chave ausente antes de qualquer escrita. Só as
+escritas entram — integração, credencial e `AuditLog` —, então não existe estado
+em que `provider = SGP` conviva com credencial ausente.
+
+Concorrência: o mesmo compare-and-set da `ERP-1`, sobre o provider lido. Duas
+ativações simultâneas deixam uma vencer; a outra recebe 409 sem gravar auditoria
+de uma troca que não fez.
+
+## 29.6 SSRF
+
+A `baseUrl` vem do ADMIN, então o servidor do AlfaOS passaria a bater onde
+mandassem. `safe-outbound-url.ts` recusa: esquema fora de `https` (com `http`
+liberado só fora de produção, porque o token viaja no corpo), credencial
+embutida na URL, fragmento, IP literal privado, e **nome que resolve** para
+loopback, link-local (inclusive `169.254.169.254`), RFC1918, CGNAT ou multicast.
+
+**Regex não bastaria, e é por isso que há DNS.** `http://127.0.0.1` é fácil de
+barrar por texto; `https://host.exemplo` apontando para `127.0.0.1` não é. E
+**todos** os endereços resolvidos são verificados, não só o primeiro — um nome
+com um registro público e um interno passaria se a checagem parasse no primeiro.
+
+Redirecionamento não é seguido (`redirect: "manual"`): um `302` para host interno
+driblaria a validação, que só examinou a URL que nós montamos.
+
+**O que NÃO está fechado, declarado:** DNS rebinding. Entre a resolução e a
+conexão existe uma janela; fechá-la exige fixar o IP validado na própria conexão
+(dispatcher com `lookup` próprio), o que atravessa a camada de transporte e não é
+escopo desta fase. O que está garantido é que um endereço **estaticamente**
+interno — direto ou por resolução — nunca é aceito.
+
+## 29.7 Duas correções que o código impôs ao plano
+
+### A precondição da troca avaliava o estado ERRADO
+
+`switchActiveErpProvider` usava `resolveCompanyAdapter` como precondição, e ela
+lê as sobreposições **gravadas**. Depois de ativar o SGP, voltar para o
+ReceitaNet **falhava**: a linha ainda tinha o host do SGP, o
+`ReceitanetCallCenterClient` tem allowlist **exata** de host e recusava — e o
+operador recebia *"não foi possível autenticar"*, como se o token estivesse
+errado.
+
+Corrigido com `assertProviderUsableAfterSwitch`, que constrói o adapter **sem**
+as sobreposições — o estado que a troca vai produzir, já que ela limpa
+`baseUrl`/`config`.
+
+**E a limpeza não é proteção contra vazamento de token:** a allowlist do
+ReceitaNet já impedia isso, antes de qualquer requisição. O defeito era de
+operabilidade — rollback bloqueado com mensagem enganosa —, e é assim que está
+registrado.
+
+### O SGP não entra pela rota genérica de troca
+
+`POST /api/integrations/active-provider` troca entre providers cuja credencial já
+está gravada. O SGP precisa de `baseUrl`, `app` e token, então ele é recusado ali
+com mensagem que aponta o caminho certo — e, no seletor da tela, nem é oferecido.
+Deixá-lo passar acabaria ativando o SGP com a `baseUrl` de outro provider.
+
+## 29.8 Nenhuma capability de negócio
+
+A API do SGP documenta cliente, contratos, financeiro, OS, ONU e CPE. **A
+existência do endpoint não é a capability.** O adapter não declara nenhuma
+interface e não tem os métodos, então `supportsCustomerLookup`,
+`supportsDiagnostics` e `supportsServiceTickets` respondem `false`
+estruturalmente — sem ninguém manter uma lista.
+
+Dois testes guardam isso: um estrutural, pelos type guards, e um sobre o
+**fonte** — que proíbe até a declaração das interfaces, porque um método vazio
+adicionado às pressas compilaria.
+
+## 29.9 Recomendação ao operador
+
+O token do SGP para o AlfaOS deve ser **somente leitura** nesta fase:
+
+```text
+Permite Baixar Título      OFF
+Permite Cancelar Título    OFF
+```
+
+A API expõe esses caminhos; o AlfaOS não os chama, e um token que não pode
+chamá-los transforma *"não chamamos"* em *"não conseguimos"*.
+
+Restrição de host/rota e usuário associado ao token **não aparecem na
+documentação pública** (§10). Se existirem no produto, restringir; e usar um
+usuário identificável como integração, nunca conta pessoal — recomendação que
+vale desde já e vira requisito quando houver write-back.
+
+## 29.10 O que depende do sandbox
+
+Um detalhe de transporte, e só ele: a coleção oficial cataloga
+`multipart/form-data`, e a documentação de autenticação registra que *"o uso de
+form-data é opcional"*. A implementação usa `application/x-www-form-urlencoded`,
+que é o mesmo transporte do cliente do ReceitaNet e não exige gerar boundary. Se
+o SGP recusar, muda o `Content-Type` e a serialização — e nada mais.
+
+Nenhum teste automático chama o SGP real. Sem credencial de sandbox disponível,
+o estado é **`SGP SANDBOX VALIDATION REQUIRED`**.

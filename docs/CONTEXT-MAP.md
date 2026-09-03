@@ -58,13 +58,20 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 **Quando:** a tarefa envolve adapters de ERP, diagnóstico de conectividade do cliente, sincronização, ou a futura integração real com o ReceitaNet.
 **Quando NÃO:** tarefas que não tocam a camada de integração. **Antes de implementar qualquer chamada ReceitaNet**, ler a seção 1 de `docs/ERP-INTEGRATIONS.md` — ela separa o que está IMPLEMENTADO (CallCenter read-only v0.6 **e Chatbot v0.7.2**), o que está documentado e deliberadamente fora, e o que não existe em nenhuma API **do ReceitaNet**. Complementam: `docs/PRD.md` §140 (as duas capabilities e suas credenciais independentes), §141 (por que não existe descoberta global de OS), §142 (escopo da sincronização na v0.8) e §121–§131 (propriedade da OS e posição dos ERPs). O §129 descreve as APIs **como lidas em spec** e tem duas conclusões superadas — ler a nota no topo dele antes de citar. O §64 continua valendo — nenhuma chamada fora do que o OpenAPI descreve.
 
-**O documento tem três partes.** As seções **1–12** descrevem a integração ReceitaNet. As **13–27** são o plano da plataforma de ERPs plugáveis (`ERP-0R`). A **§28** registra o que a **`ERP-1` entregou**. O que continua sendo só plano é tudo que depende do adapter do SGP: não há `ERPProvider.SGP`, `SgpAdapter` nem migration.
+**O documento tem quatro partes.** As seções **1–12** descrevem a integração ReceitaNet. As **13–27** são o plano da plataforma de ERPs plugáveis (`ERP-0R`). A **§28** registra a **`ERP-1`** e a **§29** a **`SGP-1`**. O que continua sendo só plano são as **capabilities de negócio do SGP**: o `SgpAdapter` implementa apenas `testConnection`.
 
-## ERPs plugáveis e SGP (PLANEJADO)
+## ERPs plugáveis e SGP
 
-**Carregar:** `docs/ERP-INTEGRATIONS.md` §13–§27 (regra, resolução, troca de ERP, migração, testes, roadmap) e `docs/ERP-SGP.md` (inventário do provider SGP). Complementa: `docs/PRD.md` §352–§361.
+**Carregar:** `docs/ERP-INTEGRATIONS.md` §13–§29 (regra, resolução, troca de ERP, migração, testes, roadmap e o registro das duas entregas) e `docs/ERP-SGP.md` (inventário do provider SGP). Complementa: `docs/PRD.md` §352–§361.
 **Quando:** a tarefa toca escolha de ERP por empresa, troca de provider, credencial de um ERP que não seja o ReceitaNet, ou qualquer coisa relacionada ao SGP.
 **Quando NÃO:** tarefas do ReceitaNet já implementado — para essas, as seções 1–12 bastam.
+
+* **O SGP autentica e é ativável, e NADA além disso.** `SgpAdapter` implementa só `testConnection`; `supportsCustomerLookup`, `supportsDiagnostics` e `supportsServiceTickets` respondem `false` **estruturalmente**. `sgp-boundary.test.ts` proíbe até a declaração das interfaces no fonte — abrir capability exige abrir a fase.
+* **A superfície ADOTADA é `/api/ura/` com Token+App no CORPO**, `urlencoded`. A `/api/v1/` com `Authorization` é `NOT ADOPTED / NEED VALIDATION`, e **não se assume que o token de uma vale na outra**.
+* **A sonda é `POST /api/ura/planoscontas/`**, não `consultaplano` — este é `GET` com corpo, que proxies descartam. Sonda sem PII, sem preço e sem parâmetro capaz de disparar efeito.
+* **Configuração candidata NÃO é persistida.** Testar monta o adapter em memória; nada é gravado, nem no banco nem no navegador. A ativação **reexecuta o teste no servidor** e grava provider, `baseUrl`, `config`, credencial cifrada e `AuditLog` **numa transação**.
+* **`baseUrl` fornecida pelo ADMIN passa por validação de SSRF** (`src/lib/safe-outbound-url.ts`), que **resolve DNS** — regex não bastaria. Rebinding fica declarado como janela não fechada.
+* **A precondição da troca avalia o estado DEPOIS dela** (`assertProviderUsableAfterSwitch`). Usar `resolveCompanyAdapter` ali bloqueia o rollback: a linha ainda tem o host do provider que sai, e a allowlist do ReceitaNet o recusa — ver §29.7.
 
 * **A regra é `Company → ERPIntegration 0..1 → provider`.** Cada empresa tem **zero ou um** ERP ativo; o AlfaOS suporta vários *tipos* globalmente. **Não existe** provider por capability, dual-provider operacional nem principal+secundário. `ERPIntegration.companyId @unique` é o que sustenta isso e **não deve ser trocado** por `@@unique([companyId, provider])`.
 * **Uma tentativa anterior (`ERP-0`/`ERP-1`) implementou o modelo multi-provider e foi DESCARTADA** por decisão de produto. Os commits ficaram na branch local `backup/erp-multiprovider-discarded`. Não ressuscitar `resolveProviderFor`, `ERPCapabilityBinding` nem `Company.primaryErpProvider`.

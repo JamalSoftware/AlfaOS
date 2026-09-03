@@ -12131,24 +12131,27 @@ execução, fila, timeline e fechamento são do AlfaOS.
 
 ```text
 ERP-1   troca explícita de ERP + parar de apagar credencial   ENTREGUE
-SGP-1   ERPProvider.SGP + kind do SGP + SgpAdapter/testConnection + tela
+SGP-1   ERPProvider.SGP + kind + SgpAdapter/testConnection + tela   ENTREGUE
 SGP-2   customer lookup read-only
 SGP-3   contratos, financeiro e demais capabilities
 SGP-4   descoberta e importação de OS sobre o motor da v0.8
 SGP-5   write-back controlado, desligado por padrão
 ```
 
-**O schema já sustenta a regra.** `companyId @unique` **já é** a invariante
-principal, `baseUrl` e `config` já existem, e `ERPCredential` já é por provider e
-por API. Falta apenas o valor `SGP` no enum de provider e um valor de
-`ERPCredentialKind` para a API única do SGP — migration **aditiva de duas
-linhas**, que pertence à `SGP-1`, onde os valores passam a ser usados.
+**O schema sustentou a regra, como previsto.** `companyId @unique` era a
+invariante principal, `baseUrl` e `config` já existiam, e `ERPCredential` já era
+por provider e por API. A `SGP-1` acrescentou exatamente o que faltava — o valor
+`SGP` no enum de provider e `PUBLIC_API` em `ERPCredentialKind` — numa migration
+**aditiva de duas linhas**. Zero coluna, zero tabela, zero unique alterada.
 
-Por isso **`ERP-1` é pequena e não é fundação**: são dois defeitos de
-comportamento (§356, §357), independentes do SGP e benéficos para o ReceitaNet
-hoje. Dobrá-la dentro de `SGP-1` é legítimo se a prioridade for chegar ao SGP;
-mantê-las separadas permite verificar a troca contra o ReceitaNet, que já
-funciona e já tem regressão.
+`ERP-1` e `SGP-1` foram feitas **separadas**, e a separação pagou: a troca de ERP
+pôde ser verificada contra o ReceitaNet, que já funciona e já tem regressão, e um
+defeito na precondição da troca apareceu ali em vez de se confundir com o
+transporte novo do SGP (`docs/ERP-INTEGRATIONS.md` §29.7).
+
+**A `SGP-1` implementa apenas `testConnection`.** O `SgpAdapter` não declara
+capability de negócio nenhuma, e dois testes guardam isso — um estrutural, pelos
+type guards, e um sobre o fonte, que proíbe até a declaração das interfaces.
 
 **READ-ONLY primeiro.** A primeira implementação SGP não baixa título, não
 cancela título, não altera cliente, não cria chamado e não encerra chamado.
