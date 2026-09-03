@@ -1,8 +1,9 @@
-import type { ERPProvider } from "@prisma/client";
+import { Prisma, type ERPProvider } from "@prisma/client";
 import { isIntegrationError } from "@/integrations/errors";
 import { logAuditWithin } from "./audit";
-import { resolveCompanyAdapter } from "./erp-adapter";
+import { assertProviderUsableAfterSwitch } from "./erp-adapter";
 import { badRequest, conflict, notFound } from "./errors";
+import { requiresCandidateConfiguration } from "./erp-provisioning";
 import { prisma } from "./prisma";
 
 /**
@@ -58,11 +59,16 @@ export async function getActiveIntegration(companyId: string) {
  * ## Precondições, e por que são genéricas
  *
  * A exigência de credencial **não** é codificada por provider. Ela é: *"o
- * provider de destino resolve para um adapter utilizável?"* — e quem responde é
- * `resolveCompanyAdapter`, que já falha com `AUTHENTICATION_FAILED` quando
- * falta o segredo. O MockERP passa porque não precisa de token; o ReceitaNet só
- * passa com credencial gravada; um provider futuro herda a regra sem que
- * ninguém precise voltar aqui.
+ * provider de destino ficará utilizável DEPOIS da troca?"* — e quem responde é
+ * `assertProviderUsableAfterSwitch`, que falha com `AUTHENTICATION_FAILED`
+ * quando falta o segredo. O MockERP passa porque não precisa de token; o
+ * ReceitaNet só passa com credencial gravada; um provider futuro herda a regra
+ * sem que ninguém precise voltar aqui.
+ *
+ * **"Depois da troca" é o detalhe que importa.** A precondição avalia o adapter
+ * SEM as sobreposições gravadas, porque elas pertencem ao provider que está
+ * saindo e esta função as limpa. Avaliá-las bloquearia o rollback — ver a nota
+ * naquela função.
  *
  * ## O que ela NÃO faz
  *
@@ -112,8 +118,23 @@ export async function switchActiveErpProvider(params: {
     throw badRequest(`O ERP ativo desta empresa já é ${provider}.`);
   }
 
+  /**
+   * Provider que exige configuração própria não entra por aqui.
+   *
+   * O SGP precisa de `baseUrl`, `app` e token, e ativá-lo é o fluxo de
+   * `activateErpProviderWithConfiguration` — que valida a URL contra SSRF,
+   * retesta no servidor e grava tudo numa transação. Deixar esta rota tentar
+   * produziria uma recusa por credencial ausente com mensagem confusa, ou —
+   * pior — ativaria o SGP reaproveitando `baseUrl` de outro provider.
+   */
+  if (requiresCandidateConfiguration(provider)) {
+    throw badRequest(
+      `Ativar ${provider} exige informar Base URL, App e Token na tela do provedor.`,
+    );
+  }
+
   try {
-    await resolveCompanyAdapter(companyId, provider);
+    await assertProviderUsableAfterSwitch(companyId, provider);
   } catch (error) {
     if (isIntegrationError(error)) {
       throw badRequest(
@@ -129,7 +150,32 @@ export async function switchActiveErpProvider(params: {
       // o `provider` é o que foi lido acima — juntos, impedem tanto alcançar
       // outra empresa quanto sobrescrever uma troca concorrente.
       where: { companyId, provider: current.provider },
-      data: { provider },
+      data: {
+        provider,
+        /**
+         * `baseUrl` e `config` pertenciam ao provider ANTERIOR, e são limpos.
+         *
+         * `resolveCompanyAdapter` usa `baseUrl` como SOBREPOSIÇÃO do host, e
+         * sair do SGP sem limpar deixaria o host dele numa linha que passou a
+         * descrever outro ERP.
+         *
+         * **O token não vazaria por isso** — o `ReceitanetCallCenterClient` tem
+         * allowlist EXATA de host e recusa qualquer outro antes de qualquer
+         * requisição. O que acontecia sem esta limpeza era pior de diagnosticar
+         * do que perigoso: voltar para o ReceitaNet **falhava**, e falhava com
+         * "não foi possível autenticar" — mandando o operador trocar um token
+         * que estava perfeito, quando o problema era um host herdado. Limpar é
+         * o que torna o rollback possível.
+         *
+         * Um provider que precise de configuração própria não chega aqui (ver
+         * a recusa acima), então nunca se limpa algo que este caminho deveria
+         * ter preenchido.
+         */
+        baseUrl: null,
+        // `JsonNull` e não `null`: Prisma distingue "apagar o campo" de "gravar
+        // o valor JSON null", e só o primeiro é o que se quer aqui.
+        config: Prisma.JsonNull,
+      },
     });
 
     if (updated.count === 0) {

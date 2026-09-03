@@ -8,6 +8,7 @@ import { TestConnectionButton } from "./TestConnectionButton";
 import { IntegrationToggle } from "./IntegrationToggle";
 import { ErpCredentialForm } from "./ErpCredentialForm";
 import { ActiveProviderSwitch } from "./ActiveProviderSwitch";
+import { SgpProviderCard } from "./SgpProviderCard";
 
 export const metadata: Metadata = {
   title: "Integrações",
@@ -55,6 +56,7 @@ function testStatusBadge(status: string | null) {
 const PROVIDER_LABEL: Record<ERPProvider, string> = {
   MOCK: "Mock ERP",
   RECEITANET: "ReceitaNet",
+  SGP: "SGP",
 };
 
 /**
@@ -64,9 +66,16 @@ const PROVIDER_LABEL: Record<ERPProvider, string> = {
  * bloco "ERP atual" diz qual. Este catálogo alimenta apenas a troca explícita —
  * ele lista opções, não estados.
  */
-const PROVIDER_OPTIONS = (Object.keys(PROVIDER_LABEL) as ERPProvider[]).map(
-  (value) => ({ value, label: PROVIDER_LABEL[value] }),
-);
+const PROVIDER_OPTIONS = (Object.keys(PROVIDER_LABEL) as ERPProvider[])
+  /**
+   * O SGP sai do seletor genérico de propósito.
+   *
+   * Ativá-lo exige Base URL, App e Token, e esse fluxo vive no card próprio —
+   * com validação de SSRF, reteste no servidor e gravação transacional.
+   * Oferecê-lo aqui daria ao ADMIN um caminho que só pode terminar em recusa.
+   */
+  .filter((value) => value !== "SGP")
+  .map((value) => ({ value, label: PROVIDER_LABEL[value] }));
 
 export default async function IntegrationsPage() {
   const session = await requirePageProfile(["ADMIN"]);
@@ -206,6 +215,13 @@ export default async function IntegrationsPage() {
           </div>
         ))}
       </div>
+
+      {/*
+        Catálogo: o SGP é um provedor que o AlfaOS suporta. Ele só aparece como
+        `ATIVO` depois da troca confirmada — "disponível no AlfaOS" não é "em uso
+        nesta empresa".
+      */}
+      <SgpProviderCard isActive={integration?.provider === "SGP"} />
 
       <div className="mt-6 max-w-2xl rounded-2xl border border-border bg-surface p-6 shadow-sm">
         <h3 className="mb-2 text-sm font-semibold text-fg">
