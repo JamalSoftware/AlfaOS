@@ -4,11 +4,14 @@ Como o AlfaOS fala com sistemas externos e como o diagnóstico de conectividade
 do cliente chega até a tela. Complementa `docs/ARCHITECTURE.md` (camadas) e
 `docs/SERVICE-ORDERS.md` (sync de OS).
 
-**Duas metades, com estados diferentes.** As seções **1 a 12** descrevem o que
-**existe em código** desde a v0.7.2: contrato, capabilities, credenciais,
-diagnóstico, erros e a integração ReceitaNet. As seções **13 em diante** são o
-**planejamento da plataforma de ERPs plugáveis (`ERP-0R`)** — nada delas existe
-em código. O inventário do provider SGP vive em `docs/ERP-SGP.md`.
+**Três partes, com estados diferentes.** As seções **1 a 12** descrevem a
+integração ReceitaNet, em código desde a v0.7.2. As seções **13 a 27** são o
+plano da plataforma de ERPs plugáveis (`ERP-0R`). A seção **28** registra o que
+a **`ERP-1` entregou**: troca explícita do ERP ativo e preservação da credencial
+anterior.
+
+O que continua sendo só plano é tudo que depende do adapter do SGP — que **não
+existe**. O inventário do provider vive em `docs/ERP-SGP.md`.
 
 ## 1. Estado da integração ReceitaNet
 
@@ -146,9 +149,14 @@ O token existe apenas em memória do servidor. Nunca é logado, nunca entra em
 volta ao frontend.
 
 Cada credencial é **vinculada criptograficamente** a `(companyId, provider)`
-via AAD do AES-GCM. Consequência operacional: **trocar o `provider` de uma
-integração invalida a credencial**, que é apagada explicitamente na troca.
-Detalhe em `docs/SECURITY.md` §8.4.
+via AAD do AES-GCM. Detalhe em `docs/SECURITY.md` §8.4.
+
+> **Corrigido na `ERP-1`.** Este parágrafo afirmava que trocar o provider
+> **apagava** a credencial, "explicitamente na troca". Era verdade, e era o
+> defeito: o segredo do provider anterior era destruído sem ação explícita, o
+> que eliminava o rollback operacional. Hoje a credencial **permanece**, cifrada
+> e ociosa — o AAD já a mantém isolada, e ela simplesmente não é consultada
+> enquanto aquele provider não for o ativo. Ver §18 e §28.4.
 
 **Credenciais por API — IMPLEMENTADO na v0.7.1.** A resolução é
 `(companyId, provider, credentialKind)`, com `credentialKind ∈ {CALLCENTER,
@@ -638,7 +646,7 @@ ela pertence à `SGP-1` — é lá que passam a ser usados.
 
 | Fase | Escopo | Migration |
 | --- | --- | --- |
-| `ERP-1` | troca de ERP explícita + parar de apagar credencial na troca + auditoria | **não** |
+| `ERP-1` | troca de ERP explícita + parar de apagar credencial na troca + auditoria | **não** — **ENTREGUE**, ver §28 |
 | `SGP-1` | `ERPProvider.SGP` + `kind` do SGP + `SgpClient`/`SgpAdapter` com `testConnection` + configuração na tela | **sim**, aditiva de 2 valores |
 | `SGP-2` | `CUSTOMER_LOOKUP` read-only | não |
 | `SGP-3` | contratos, financeiro e demais capabilities conforme a API real | a definir |
@@ -665,3 +673,134 @@ A recomendação é mantê-las separadas por um motivo prático: `ERP-1` pode se
 verificada contra o ReceitaNet, que já funciona e já tem regressão. Misturada
 com o transporte novo do SGP, um defeito na troca ficaria indistinguível de um
 defeito no adapter.
+
+---
+
+# 28. `ERP-1` — ENTREGUE
+
+Os dois defeitos da §17 e da §18 estão corrigidos. **Nenhuma migration, nenhuma
+alteração de schema, nenhuma dependência nova, zero Dart.** O SGP continua sem
+existir: sem `ERPProvider.SGP`, sem `SgpAdapter`, sem transporte.
+
+## 28.1 O que entrou
+
+| Peça | Onde |
+| --- | --- |
+| `switchActiveErpProvider`, `getActiveIntegration` | `src/lib/erp-integration.ts` |
+| `POST /api/integrations/active-provider` | `src/app/api/integrations/active-provider/route.ts` |
+| `logAuditWithin` (auditoria dentro de transação) | `src/lib/audit.ts` |
+| Teste de conexão sem efeito colateral | `src/app/api/integrations/test-connection/route.ts` |
+| Controle de troca com confirmação | `src/app/(app)/integracoes/ActiveProviderSwitch.tsx` |
+
+## 28.2 As três ações, agora separadas
+
+```text
+SALVAR CREDENCIAL   grava segredo. Não ativa provider.
+TESTAR CONEXÃO      consulta. Não altera o ERP ativo. Não apaga nada. Não cria nada.
+ALTERAR ERP ATIVO   POST /api/integrations/active-provider. A ÚNICA que escreve `provider`.
+```
+
+### O que o teste de conexão fazia, e não faz mais
+
+Três escritas saíram da rota:
+
+* o `upsert` que gravava `provider` — testar um candidato **ativava** aquele ERP
+  na empresa, e toda a operação passava a falar com outro sistema por causa de
+  um clique de diagnóstico;
+* o `deleteMany` sobre as `ERPCredential` do provider anterior — segredo
+  destruído em silêncio, rollback eliminado;
+* o `CLEARED_CREDENTIAL_FIELDS` sobre as colunas legadas.
+
+Junto com elas saiu a **criação** da integração. O `upsert` fazia de "testar" um
+caminho de configuração: uma empresa sem ERP que clicasse em testar acabava
+configurada em MOCK. Criar é `PATCH /api/integrations`; testar é consulta.
+
+### O que ainda é gravado
+
+`lastTestedAt`/`lastTestStatus` descrevem a saúde da integração **ativa**, e por
+isso só são gravados quando o provider testado **é** o ativo. Testar um
+candidato não persiste nada: escrever o resultado dele na linha da empresa faria
+a tela anunciar a saúde de um ERP que não atende ninguém.
+
+Não existe coluna para saúde de candidato, e **nenhuma foi inventada** — exigir
+"último teste bem-sucedido" antes da troca fica para a `SGP-1`, quando houver
+uma segunda implementação real para exercitá-la.
+
+A resposta ganhou `testedActiveProvider` e `activeProvider`, e perdeu
+`invalidatedCredential` — o campo sinalizava uma destruição que deixou de
+existir.
+
+## 28.3 A troca explícita
+
+`switchActiveErpProvider` é a única operação que escreve `ERPIntegration.provider`.
+
+**Precondições, e nenhuma é codificada por provider.** A exigência de credencial
+é *"o provider de destino resolve para um adapter utilizável?"*, e quem responde
+é `resolveCompanyAdapter`, que já falha com `AUTHENTICATION_FAILED` quando falta
+o segredo. O MockERP passa porque não precisa de token; o ReceitaNet só passa com
+credencial gravada; um provider futuro herda a regra sem que ninguém volte lá.
+
+**Trocar para o provider já ativo é recusado**, e não tratado como no-op
+silencioso: um 200 gravaria `ERP.ACTIVE_PROVIDER_CHANGED` para uma troca que não
+aconteceu, e a auditoria passaria a conter eventos que a operação nunca viveu.
+
+**Concorrência sem coluna nova.** O `updateMany` é compare-and-set sobre o
+provider **lido**: `where: { companyId, provider: current.provider }`. Duas
+trocas simultâneas a partir do mesmo estado não deixam estado híbrido — quem
+chega em segundo encontra `count === 0` e recebe 409, sem gravar auditoria de
+uma troca que não fez. Nenhuma `version` foi acrescentada ao schema: o próprio
+provider é o token de comparação, e ele já estava lá.
+
+**Atomicidade.** A escrita e o `AuditLog` estão na mesma transação, via
+`logAuditWithin`. Um registro sem a troca inventaria um evento; uma troca sem
+registro apagaria quem a fez. `logAuditWithin` propaga a exceção, ao contrário de
+`logAudit` — engoli-la derrotaria o propósito de estar na transação — e reusa
+`auditRow`, para a sanitização continuar num lugar só.
+
+## 28.4 Credencial armazenada não é ERP ativo
+
+A troca **não apaga** a credencial do provider anterior. As linhas ficam
+cifradas e ociosas, isoladas pelo AAD `(companyId, provider, kind)`, e
+simplesmente não são consultadas enquanto aquele provider não for o ativo.
+
+É isso que preserva o rollback: `RECEITANET → MOCK → RECEITANET` não exige
+recadastrar token em nenhum dos passos.
+
+**E credencial ociosa não cria provider secundário.** Se o ERP ativo não oferece
+uma capability, a resposta é `NOT_SUPPORTED` — e não "usar o outro provider, que
+tem credencial e sabe fazer". Não existe fallback.
+
+## 28.5 Histórico
+
+A troca não toca `Customer.externalProvider` nem
+`ServiceOrder.externalProvider`. Isso é estrutural, não disciplina: o serviço
+escreve em **duas** tabelas apenas, `erp_integrations` e `audit_logs`.
+
+## 28.6 O que o teste de conexão perdeu, e por que os testes antigos mudaram
+
+Três testes afirmavam o comportamento antigo — que a credencial era apagada e
+que o provider mudava. Estavam descrevendo o defeito, não a regra. Foram
+reescritos para o invariante novo e ganharam as asserções que antes eram
+impossíveis: o ERP ativo não muda, a credencial do ativo sobrevive, e o
+resultado do candidato **não** é gravado na linha da empresa.
+
+Um deles montava uma empresa **sem** integração e dependia do `upsert` para
+existir. Virou dois testes: um com a integração criada antes, e outro — novo —
+provando que testar **não cria** integração para quem não tem ERP.
+
+## 28.7 Um teste que passava pelo motivo errado
+
+A sabotagem `F` (obedecer ao `companyId` do corpo) **passou** na primeira
+tentativa. O `ERP1-13` mandava o `companyId` da empresa B, mas B não tinha
+credencial do provider de destino: a troca falhava por precondição, e o 400
+aparecia mesmo com o ataque bem-sucedido.
+
+O teste passou a preparar a empresa B **inteira** — integração e credencial de
+destino no lugar —, de modo que obedecer ao corpo *funcionaria*. Só então a
+asserção "B continua em MOCK" tem o que proibir.
+
+## 28.8 Roadmap
+
+`ERP-1` sai da §27 como **ENTREGUE**. A próxima é `SGP-1`, que carrega a
+migration aditiva de dois valores de enum (`ERPProvider.SGP` e o `kind` da API
+única do SGP) e o `SgpAdapter`.

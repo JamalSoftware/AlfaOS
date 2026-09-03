@@ -462,7 +462,7 @@ Gates: 1612 Vitest, 116 Playwright, **339 Flutter** (era 316), lint, tsc, build,
 
 **A Notification Foundation está `PAUSED` depois da NF-2 — não cancelada.** `NF-3` (registro do token no AlfaOS) a `NF-5` continuam válidas; a prioridade passou para a migração de ERP. Os commits da NF-1 e da NF-2 são locais, não publicados, e **não devem ser reescritos, amendados nem squashados**.
 
-**Trilha atual: `PLATAFORMA DE ERPs PLUGÁVEIS` — `ERP-0R` PLANEJADA, nada implementado.** Plano em `docs/ERP-INTEGRATIONS.md` §13–§27, inventário do provider em `docs/ERP-SGP.md`, PRD §352–§361 (Parte XV).
+**Trilha atual: `PLATAFORMA DE ERPs PLUGÁVEIS` — `ERP-0R` planejada e `ERP-1` ENTREGUE.** Plano em `docs/ERP-INTEGRATIONS.md` §13–§27, inventário do provider em `docs/ERP-SGP.md`, PRD §352–§361 (Parte XV).
 
 **A regra, e ela é definitiva:** `Company → ERPIntegration 0..1 → provider`. **Cada empresa tem ZERO OU UM ERP ativo.** O AlfaOS suporta vários *tipos* de ERP globalmente — `SGP` é provider **`APPROVED / PLANNED`**, `ReceitaNet` é o existente e implementado —, mas **não existe** provider por capability, dual-provider operacional nem principal+secundário. `ERPIntegration.companyId @unique` **preservada**; não trocar por `@@unique([companyId, provider])`.
 
@@ -470,7 +470,23 @@ Gates: 1612 Vitest, 116 Playwright, **339 Flutter** (era 316), lint, tsc, build,
 
 O que a experiência mediu, e por isso vale registrar: o modelo descartado prometia migração gradual por capability, e cobrava uma tabela nova, uma unique nova, uma camada de resolução nova, uma tela que vira matriz — e um modo de falha novo: **acreditar que se está no provedor A enquanto uma capability ainda responde pelo B**. Nada disso paga por si para o caso real, que é **trocar de ERP uma vez**.
 
-**Duas coisas do trabalho descartado sobrevivem como achado válido.** A primeira: **trocar de provider NÃO pode apagar credencial** — hoje a troca executa `deleteMany` sobre as `ERPCredential` do anterior, o que destrói segredo sem ação explícita e elimina o rollback operacional. A segunda: **a troca de ERP acontece hoje como efeito colateral de `POST /api/integrations/test-connection`** — clicar em "testar conexão" com outro provider troca o ERP da empresa, e testar deixou de ser consulta. As duas são `ERP-1`.
+**Duas coisas do trabalho descartado sobreviveram como achado válido, e as duas viraram a `ERP-1`, agora ENTREGUE.**
+
+**`ERP-1` ENTREGUE — commits locais, sem tag e sem push.** Corrige dois defeitos que existiam desde antes da trilha ERP. **Nenhuma migration, nenhuma alteração de schema, nenhuma dependência nova, zero Dart.** O SGP continua sem existir.
+
+**As três ações deixaram de compartilhar efeito colateral:** salvar credencial grava segredo e não ativa nada; **testar conexão é consulta** — não altera o ERP ativo, não apaga credencial e não cria integração; e **alterar ERP ativo** é `POST /api/integrations/active-provider`, a **única** operação que escreve `ERPIntegration.provider`, com confirmação na tela, `ERP.ACTIVE_PROVIDER_CHANGED` e compare-and-set.
+
+Três escritas saíram do `test-connection`: o `upsert` que gravava `provider` (testar um candidato **ativava** aquele ERP, e toda a operação passava a falar com outro sistema por causa de um clique de diagnóstico), o `deleteMany` sobre as credenciais do provider anterior, e o `CLEARED_CREDENTIAL_FIELDS`. Junto foi a **criação** da integração: o `upsert` fazia de "testar" um caminho de configuração, e uma empresa sem ERP que clicasse em testar acabava configurada em MOCK.
+
+**Credencial armazenada não é ERP ativo.** A troca preserva a credencial do anterior, cifrada e ociosa, isolada pelo AAD — é o que permite `RECEITANET → MOCK → RECEITANET` sem recadastrar token em passo nenhum. E credencial ociosa **não cria provider secundário**: ERP ativo sem a capability responde `NOT_SUPPORTED`, sem fallback.
+
+Quatro decisões que não podem ser desfeitas: **a precondição de credencial é genérica** — "o provider de destino resolve para um adapter utilizável?", respondida por `resolveCompanyAdapter`, sem `if` por provider, então um provider futuro herda a regra; **trocar para o provider já ativo é recusado**, não é no-op, porque um 200 gravaria `ERP.ACTIVE_PROVIDER_CHANGED` para uma troca que não aconteceu; **`lastTestedAt`/`lastTestStatus` só são gravados ao testar o ATIVO**, porque não há coluna para saúde de candidato e nenhuma foi inventada; e **concorrência sem coluna nova** — o `updateMany` é compare-and-set sobre o provider lido, e a auditoria vai na mesma transação por `logAuditWithin`.
+
+**Um teste meu passava pelo motivo errado.** A sabotagem que faz o `companyId` do corpo virar autoridade **passou**: o `ERP1-13` mandava o `companyId` da empresa B, mas B não tinha credencial do provider de destino — a troca falhava por precondição e o 400 aparecia mesmo com o ataque bem-sucedido. O teste passou a preparar a empresa B inteira, de modo que obedecer ao corpo *funcionaria*, e só então a asserção tem o que proibir.
+
+**Perdi a correção do `test-connection` no meio da fase** ao rodar `git checkout` no arquivo para desfazer uma sabotagem — o arquivo voltou ao estado do HEAD, que é o código com o defeito. Refiz e passei a guardar cópia dos arquivos corrigidos antes de sabotar. `git checkout` não desfaz sabotagem em arquivo com trabalho não commitado.
+
+Gates: **1634 Vitest** (era 1612), 116 Playwright, **339 Flutter** inalterados, lint, tsc, build, `build:worker`, `dart format`, `flutter analyze`, `prisma validate`, **23 migrations** — nenhuma nova. Oito sabotagens (`A`–`H`), oito detectadas, todas restauradas. Registro em `docs/ERP-INTEGRATIONS.md` §28.
 
 **O schema já sustenta a regra, e é isso que torna `ERP-1` pequena.** `companyId @unique` **já é** a invariante principal; `baseUrl` e `config Json?` (hoje sem nenhum consumidor) já existem; `ERPCredential` já é `(companyId, provider, kind)`. Falta apenas `SGP` no enum de provider e um valor de `ERPCredentialKind` para a API única do SGP — migration **aditiva de duas linhas**, que pertence à `SGP-1`. **Não reutilizar `CALLCENTER` para o SGP** (a linha mentiria sobre qual API a credencial abre) e **não renomear** os existentes (estão no AAD `v2` de linhas reais).
 
@@ -500,7 +516,7 @@ Cinco achados do **código real** que a especificação registrou e que decidem 
 
 Sete decisões abertas (`COL-01`–`COL-07`), nenhuma resolvida em silêncio; a mais pesada é `COL-01`, de qual estoque sai o material que o colaborador registra. **Esta Parte não promove nada na ordem** — a §119 vale, e a Fila Operacional continua fechada e pronta para release.
 
-A §119 continua valendo para tudo o que é só especificação: FCM real, offline no cliente, `ToolExecution`, toolbox, custódia de patrimônio, mapa operacional, Central de Despacho, rede interna do cliente, contratos, escala de trabalho e espelho de jornada, CTOs e rede de distribuição, **colaboração entre técnicos** e a **plataforma de ERPs plugáveis com o provider SGP**. (A **fila operacional de OS** saiu desta lista: `DQ-1` a `DQ-7.2` existem em código. O **push FCM do lado do servidor** também: `NF-1` e `NF-2` existem, e o que falta é `NF-3` a `NF-5`.) Duas escalas de prioridade convivem e precisam ser conferidas juntas: §117 classifica o produto (MVP/IMPORTANTE/DIFERENCIAL/FUTURO), §194 classifica a trilha Field (P0/P1/P2).
+A §119 continua valendo para tudo o que é só especificação: FCM real, offline no cliente, `ToolExecution`, toolbox, custódia de patrimônio, mapa operacional, Central de Despacho, rede interna do cliente, contratos, escala de trabalho e espelho de jornada, CTOs e rede de distribuição, **colaboração entre técnicos** e as **chamadas ao SGP** (a `ERP-1` da plataforma existe em código; o que falta é o `SgpAdapter`). (A **fila operacional de OS** saiu desta lista: `DQ-1` a `DQ-7.2` existem em código. O **push FCM do lado do servidor** também: `NF-1` e `NF-2` existem, e o que falta é `NF-3` a `NF-5`.) Duas escalas de prioridade convivem e precisam ser conferidas juntas: §117 classifica o produto (MVP/IMPORTANTE/DIFERENCIAL/FUTURO), §194 classifica a trilha Field (P0/P1/P2).
 
 ## Princípios
 

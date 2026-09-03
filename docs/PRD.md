@@ -12027,23 +12027,29 @@ pedida, recebe `NOT_SUPPORTED` — **nunca** fallback silencioso para o MockERP.
 
 ---
 
-# 356. TROCAR DE ERP É AÇÃO EXPLÍCITA
+# 356. TROCAR DE ERP É AÇÃO EXPLÍCITA — IMPLEMENTADO (ERP-1)
 
 ```text
 TESTAR CONEXÃO     consulta. Não altera o ERP ativo. Não apaga nada.
 ALTERAR ERP ATIVO  ação própria, com confirmação e AuditLog.
 ```
 
-**Hoje isso não é verdade, e é o defeito a corrigir:** a troca acontece dentro de
+**Era assim até a `ERP-1`, e era o defeito:** a troca acontecia dentro de
 `POST /api/integrations/test-connection`. Clicar em "testar conexão" com um
-provider diferente do gravado **troca o provider da empresa** — testar deixou de
-ser uma consulta.
+provider diferente do gravado **trocava o provider da empresa** — testar deixara
+de ser uma consulta.
+
+Hoje a troca é `POST /api/integrations/active-provider`, com confirmação na tela,
+`AuditLog` próprio (`ERP.ACTIVE_PROVIDER_CHANGED`) e compare-and-set contra
+troca concorrente. **É a única operação que escreve `ERPIntegration.provider`.**
+Testar também deixou de CRIAR a integração: configurar é ação própria.
 
 ---
 
-# 357. TROCAR DE PROVIDER NÃO APAGA CREDENCIAL
+# 357. TROCAR DE PROVIDER NÃO APAGA CREDENCIAL — IMPLEMENTADO (ERP-1)
 
-Hoje a troca executa `deleteMany` sobre as `ERPCredential` do provider anterior.
+Até a `ERP-1` a troca executava `deleteMany` sobre as `ERPCredential` do
+provider anterior.
 Isso destrói segredo sem ação explícita e **elimina o rollback operacional**: se
 o ERP novo se comportar mal na segunda-feira de manhã, voltar exige reconfigurar
 credencial sob pressão.
@@ -12124,7 +12130,7 @@ execução, fila, timeline e fechamento são do AlfaOS.
 # 361. ROADMAP
 
 ```text
-ERP-1   troca explícita de ERP + parar de apagar credencial   sem migration
+ERP-1   troca explícita de ERP + parar de apagar credencial   ENTREGUE
 SGP-1   ERPProvider.SGP + kind do SGP + SgpAdapter/testConnection + tela
 SGP-2   customer lookup read-only
 SGP-3   contratos, financeiro e demais capabilities
