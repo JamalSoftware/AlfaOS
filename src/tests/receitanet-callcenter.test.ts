@@ -575,9 +575,23 @@ describe("Teste de conexão na troca de provider (regressão do 502)", () => {
     expect(res.status).toBe(200);
     const payload = await res.json();
 
-    // A credencial antiga continua sendo apagada — isso estava certo.
-    expect(payload.data.invalidatedCredential).toBe(true);
-    // O que estava errado: aprovar a integração enquanto a apaga.
+    /**
+     * ## O invariante VIROU na `ERP-1`, e virar era o ponto
+     *
+     * Este teste afirmava que a credencial antiga era apagada ("isso estava
+     * certo") e que o provider da empresa passava a ser RECEITANET. Estava
+     * descrevendo o defeito, não a regra: testar é **consultar**, e um clique
+     * de diagnóstico não pode trocar o ERP com que a operação inteira fala nem
+     * destruir o segredo do provider anterior.
+     *
+     * O que o teste protegia continua protegido — a rota não aprova uma
+     * integração sem credencial —, e agora ele também prova o que antes era
+     * impossível: nada foi ativado e nada foi apagado.
+     */
+    expect(payload.data.testedActiveProvider).toBe(false);
+    expect(payload.data.activeProvider).toBe("MOCK");
+
+    // A recusa correta: sem credencial para o provider testado.
     expect(payload.data.result.ok).toBe(false);
     expect(payload.data.result.credentialValidated).toBe(false);
 
@@ -598,10 +612,25 @@ describe("Teste de conexão na troca de provider (regressão do 502)", () => {
       where: { companyId: fixture.companyA.id },
       select: { provider: true, lastTestStatus: true, credentialCiphertext: true },
     });
-    expect(row.provider).toBe("RECEITANET");
-    expect(row.credentialCiphertext).toBeNull();
-    // A tela lê este campo. OK aqui é a mentira que produziu o 502.
-    expect(row.lastTestStatus).toBe("ERROR");
+
+    // O ERP ativo NÃO mudou. Trocar é `POST /api/integrations/active-provider`.
+    expect(row.provider).toBe("MOCK");
+
+    /**
+     * E o resultado do candidato NÃO foi gravado na linha da empresa.
+     *
+     * `lastTestStatus` descreve a saúde da integração ATIVA. Escrever ali o
+     * resultado de um provider que não atende ninguém faria a tela anunciar
+     * falha do MOCK por causa de um teste do ReceitaNet.
+     */
+    expect(row.lastTestStatus).toBeNull();
+
+    // A credencial do provider ATIVO sobreviveu ao teste do candidato.
+    expect(
+      await prisma.eRPCredential.count({
+        where: { companyId: fixture.companyA.id, provider: "MOCK" },
+      }),
+    ).toBe(1);
   });
 });
 

@@ -16,11 +16,6 @@ import {
   listServiceOrdersForTechnician,
 } from "@/lib/service-orders";
 import {
-  getCredential,
-  getCredentialStatus,
-  saveCredential,
-} from "@/lib/erp-credentials";
-import {
   getCredentialFor,
   listCredentialStatus,
   saveCredentialFor,
@@ -652,8 +647,23 @@ describe("Concluídas recentes do técnico", () => {
 // Provider x credencial
 // ---------------------------------------------------------------------------
 
-describe("Troca de provider invalida a credencial", () => {
-  it("limpa a credencial e informa, sem deixar last4 aparentando validade", async () => {
+describe("Testar conexão não mexe na credencial nem no ERP ativo", () => {
+  /**
+   * ## O invariante VIROU na `ERP-1`
+   *
+   * Este bloco afirmava o contrário: testar um provider diferente do gravado
+   * **trocava** o ERP ativo da empresa e **apagava** as credenciais do
+   * anterior. Descrevia o defeito, não a regra.
+   *
+   * Três ações são diferentes e não compartilham efeito colateral:
+   *
+   * ```text
+   * SALVAR CREDENCIAL   grava segredo. Não ativa provider.
+   * TESTAR CONEXÃO      consulta. Não altera o ERP ativo. Não apaga nada.
+   * ALTERAR ERP ATIVO   POST /api/integrations/active-provider.
+   * ```
+   */
+  it("testar um candidato preserva a credencial do provider ativo", async () => {
     await prisma.eRPIntegration.create({
       data: {
         companyId: fixture.companyA.id,
@@ -663,14 +673,6 @@ describe("Troca de provider invalida a credencial", () => {
       },
     });
 
-    /**
-     * Store OPERACIONAL, nao o legado.
-     *
-     * O invariante que este teste protege nao mudou -- trocar de provider nao
-     * pode deixar para tras uma credencial que a tela anuncia como valida e
-     * nenhum adapter consegue usar. O que mudou foi ONDE a credencial mora,
-     * e um teste apontado para o lugar antigo deixaria o novo desprotegido.
-     */
     await saveCredentialFor(
       fixture.companyA.id,
       fixture.adminA.id,
@@ -678,15 +680,6 @@ describe("Troca de provider invalida a credencial", () => {
       "CALLCENTER",
       "token-secreto-do-mock-1234",
     );
-
-    const [before] = await listCredentialStatus(fixture.companyA.id, "MOCK", [
-      "CALLCENTER",
-    ]);
-    expect(before.configured).toBe(true);
-    expect(before.last4).toBe("1234");
-    expect(
-      await getCredentialFor(fixture.companyA.id, "MOCK", "CALLCENTER"),
-    ).toBe("token-secreto-do-mock-1234");
 
     const token = await createTokenFor(fixture.adminA.id);
     const res = await testConnection(
@@ -698,40 +691,28 @@ describe("Troca de provider invalida a credencial", () => {
     );
     expect(res.status).toBe(200);
     const payload = await res.json();
-    expect(payload.data.invalidatedCredential).toBe(true);
-    expect(payload.data.integration.provider).toBe("RECEITANET");
 
-    const [afterCallCenter] = await listCredentialStatus(
-      fixture.companyA.id,
-      "RECEITANET",
-      ["CALLCENTER"],
-    );
-    // Antes da v0.5.1 estas continuavam anunciando uma credencial que nao
-    // decriptava mais.
-    expect(afterCallCenter.configured).toBe(false);
-    expect(afterCallCenter.last4).toBeNull();
+    expect(payload.data.testedActiveProvider).toBe(false);
+    expect(payload.data.activeProvider).toBe("MOCK");
 
-    // Ausente, nao corrompida: nada a decriptar significa `null`, nao erro.
-    expect(
-      await getCredentialFor(fixture.companyA.id, "RECEITANET", "CALLCENTER"),
-    ).toBeNull();
-    // E a linha do provider ANTIGO foi de fato removida.
-    expect(
-      await prisma.eRPCredential.count({
-        where: { companyId: fixture.companyA.id, provider: "MOCK" },
-      }),
-    ).toBe(0);
-
+    // O ERP ativo não mudou.
     const row = await prisma.eRPIntegration.findUniqueOrThrow({
       where: { companyId: fixture.companyA.id },
     });
-    expect(row.credentialCiphertext).toBeNull();
-    expect(row.credentialIv).toBeNull();
-    expect(row.credentialAuthTag).toBeNull();
-    expect(row.apiKey).toBeNull();
+    expect(row.provider).toBe("MOCK");
+
+    // E o token do MOCK continua legível, com o mesmo valor.
+    const [slot] = await listCredentialStatus(fixture.companyA.id, "MOCK", [
+      "CALLCENTER",
+    ]);
+    expect(slot.configured).toBe(true);
+    expect(slot.last4).toBe("1234");
+    expect(
+      await getCredentialFor(fixture.companyA.id, "MOCK", "CALLCENTER"),
+    ).toBe("token-secreto-do-mock-1234");
   });
 
-  it("registra a invalidação em auditoria sem vazar segredo", async () => {
+  it("nenhuma auditoria de invalidação é emitida, e nada vaza", async () => {
     await prisma.eRPIntegration.create({
       data: { companyId: fixture.companyA.id, provider: "MOCK", name: "Mock" },
     });
@@ -756,25 +737,34 @@ describe("Troca de provider invalida a credencial", () => {
     const logs = await prisma.auditLog.findMany({
       where: { companyId: fixture.companyA.id },
     });
-    const invalidation = logs.find(
-      (l) => l.action === "ERP_CREDENTIAL_INVALIDATED",
-    );
-    expect(invalidation).toBeDefined();
-    expect(invalidation?.details).toContain("MOCK");
-    expect(invalidation?.details).toContain("RECEITANET");
+
+    // A invalidação deixou de existir porque a destruição deixou de existir.
+    expect(
+      logs.find((l) => l.action === "ERP_CREDENTIAL_INVALIDATED"),
+    ).toBeUndefined();
+    // E testar NÃO pode parecer uma troca de ERP.
+    expect(
+      logs.find((l) => l.action === "ERP.ACTIVE_PROVIDER_CHANGED"),
+    ).toBeUndefined();
+    // O teste em si continua auditado, e diz que era um candidato.
+    const tested = logs.find((l) => l.action === "ERP.TEST_CONNECTION");
+    expect(tested).toBeDefined();
+    expect(tested?.details).toContain("candidato");
 
     const dump = JSON.stringify(logs);
     expect(dump).not.toContain(secret);
     expect(dump).not.toContain("1234");
   });
 
-  it("testar o MESMO provider não mexe na credencial", async () => {
+  it("testar o MESMO provider grava o resultado e não mexe na credencial", async () => {
     await prisma.eRPIntegration.create({
       data: { companyId: fixture.companyA.id, provider: "MOCK", name: "Mock" },
     });
-    await saveCredential(
+    await saveCredentialFor(
       fixture.companyA.id,
       fixture.adminA.id,
+      "MOCK",
+      "CALLCENTER",
       "token-secreto-do-mock-1234",
     );
 
@@ -787,15 +777,21 @@ describe("Troca de provider invalida a credencial", () => {
       ),
     );
     const payload = await res.json();
-    expect(payload.data.invalidatedCredential).toBe(false);
+    expect(payload.data.testedActiveProvider).toBe(true);
 
-    // Controle positivo do teste anterior: a limpeza acontece pela TROCA, não
-    // por qualquer chamada ao endpoint.
-    const status = await getCredentialStatus(fixture.companyA.id);
-    expect(status.configured).toBe(true);
-    expect(status.last4).toBe("1234");
-    expect(await getCredential(fixture.companyA.id, "MOCK")).toBe(
-      "token-secreto-do-mock-1234",
-    );
+    /**
+     * Testar o ERP ATIVO é a única situação em que o resultado é persistido —
+     * `lastTestStatus` descreve a saúde de quem está atendendo.
+     */
+    const row = await prisma.eRPIntegration.findUniqueOrThrow({
+      where: { companyId: fixture.companyA.id },
+    });
+    expect(row.lastTestStatus).toBe("OK");
+    expect(row.provider).toBe("MOCK");
+
+    // E a credencial segue intacta.
+    expect(
+      await getCredentialFor(fixture.companyA.id, "MOCK", "CALLCENTER"),
+    ).toBe("token-secreto-do-mock-1234");
   });
 });

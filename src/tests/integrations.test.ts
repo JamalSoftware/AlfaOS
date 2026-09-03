@@ -17,6 +17,15 @@ beforeEach(async () => {
 
 describe("Integração ERP", () => {
   it("testar conexão não ativa a integração automaticamente", async () => {
+    // A integração precisa existir: testar deixou de criá-la na `ERP-1`.
+    await prisma.eRPIntegration.create({
+      data: {
+        companyId: fixture.companyA.id,
+        provider: "MOCK",
+        name: "Mock ERP",
+        enabled: false,
+      },
+    });
     const token = await createTokenFor(fixture.adminA.id);
 
     const res = await testConnection(
@@ -41,6 +50,38 @@ describe("Integração ERP", () => {
       where: { companyId: fixture.companyA.id },
     });
     expect(saved?.enabled).toBe(false);
+  });
+
+  it("testar conexão não CRIA integração para empresa que não tem ERP", async () => {
+    const token = await createTokenFor(fixture.adminA.id);
+
+    const res = await testConnection(
+      apiRequest(
+        "/api/integrations/test-connection",
+        { method: "POST", body: { provider: "MOCK" } },
+        token,
+      ),
+    );
+
+    /**
+     * A sonda responde — o operador clicou para descobrir se o provider
+     * responde, e descobre. Mas nada é criado.
+     *
+     * Até a `ERP-1` a rota fazia um `upsert` e **configurava a empresa em MOCK**
+     * como efeito colateral de um diagnóstico. Configurar é ação própria
+     * (`PATCH /api/integrations`); testar é consulta.
+     */
+    expect(res.status).toBe(200);
+    const payload = await res.json();
+    expect(payload.data.result.ok).toBe(true);
+    expect(payload.data.integration).toBeNull();
+    expect(payload.data.activeProvider).toBeNull();
+
+    expect(
+      await prisma.eRPIntegration.count({
+        where: { companyId: fixture.companyA.id },
+      }),
+    ).toBe(0);
   });
 
   it("admin habilita e desabilita a integração explicitamente", async () => {
