@@ -21,6 +21,17 @@ class FakeTransport implements HttpClientAdapter {
   /// enviou — inclusive os headers.
   final List<RequestOptions> requests = [];
 
+  /// A linha do tempo real: despachos E conclusões, na ordem em que
+  /// aconteceram.
+  ///
+  /// `requests` sozinha responde "o que saiu, em que ordem" — e isso NÃO
+  /// serve para testar quem terminou antes de quem. Um teste de ordem escrito
+  /// sobre ela mede o instante do despacho e passa mesmo quando a espera que
+  /// deveria existir foi removida.
+  ///
+  /// Formato: `> POST /caminho` ao sair, `< POST /caminho` ao responder.
+  final List<String> timeline = [];
+
   /// Quando true, toda chamada falha como se não houvesse rede.
   bool offline = false;
 
@@ -91,6 +102,8 @@ class FakeTransport implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     requests.add(options);
+    final rotulo = '${options.method} ${options.path}';
+    timeline.add('> $rotulo');
 
     /*
       Drena o corpo quando ele é um STREAM.
@@ -136,6 +149,7 @@ class FakeTransport implements HttpClientAdapter {
       await Future<void>.delayed(reply.delay);
     }
 
+    timeline.add('< $rotulo');
     return ResponseBody.fromString(
       jsonEncode(reply.body),
       reply.status,

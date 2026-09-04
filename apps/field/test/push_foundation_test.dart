@@ -1,9 +1,9 @@
-import 'dart:async';
-
 import 'package:alfaos_field/core/push/field_push_service.dart';
 import 'package:alfaos_field/core/push/push_coordinator.dart';
 import 'package:alfaos_field/core/push/push_prompt_memory.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'support/fake_push_service.dart';
 
 /// # A fundação de push do Field (`NF-2`)
 ///
@@ -14,71 +14,17 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// O token nunca aparece em asserção de log, e nenhum teste o imprime.
 
-/// Duplo roteirizado do provedor.
-class FakePushService implements FieldPushService {
-  FakePushService({
-    this.disponivel = true,
-    this.status = PushPermissionStatus.notDetermined,
-    this.tokenValue = 'tok-fake',
-    this.statusAoPerguntar,
-  });
-
-  bool disponivel;
-  PushPermissionStatus status;
-  PushPermissionStatus? statusAoPerguntar;
-  String? tokenValue;
-
-  int initializeCalls = 0;
-  int requestCalls = 0;
-  int tokenCalls = 0;
-
-  final _refresh = StreamController<String>.broadcast();
-
-  /// Simula uma falha do provedor em qualquer chamada.
-  bool explodir = false;
-
-  @override
-  Future<bool> initialize() async {
-    initializeCalls += 1;
-    if (explodir) throw StateError('firebase fora do ar');
-    return disponivel;
-  }
-
-  @override
-  Future<PushPermissionStatus> permissionStatus() async {
-    if (explodir) throw StateError('firebase fora do ar');
-    return disponivel ? status : PushPermissionStatus.unavailable;
-  }
-
-  @override
-  Future<PushPermissionStatus> requestPermission() async {
-    requestCalls += 1;
-    if (explodir) throw StateError('firebase fora do ar');
-    status = statusAoPerguntar ?? PushPermissionStatus.authorized;
-    return status;
-  }
-
-  @override
-  Future<String?> token() async {
-    tokenCalls += 1;
-    if (explodir) throw StateError('firebase fora do ar');
-    return tokenValue;
-  }
-
-  @override
-  Stream<String> get tokenRefresh => _refresh.stream;
-
-  void rotacionar(String novo) => _refresh.add(novo);
-  void fechar() => _refresh.close();
-}
-
 PushCoordinator coordenador(
   FakePushService service, {
   PushPromptMemory? memory,
+  PushTokenSink? sink,
 }) {
   return PushCoordinator(
     service: service,
     memory: memory ?? InMemoryPushPromptMemory(),
+    // A `NF-2` não tinha destino para o token; estes testes continuam sendo
+    // sobre QUANDO perguntar, e o destino inerte preserva exatamente isso.
+    sink: sink ?? (_) async {},
   );
 }
 
