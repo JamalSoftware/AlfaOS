@@ -13,6 +13,11 @@ import '../core/push/push_coordinator.dart';
 import '../core/push/push_prompt_memory.dart';
 import '../features/notifications/data/notifications_repository.dart';
 import '../features/orders/data/orders_repository.dart';
+import '../features/notifications/state/notifications_controller.dart';
+import '../features/orders/state/dispatch_queue_controller.dart';
+import '../features/orders/state/orders_controller.dart';
+import 'push_navigator.dart';
+import 'router.dart';
 import 'theme/theme_controller.dart';
 
 /// Injeção de dependência do aplicativo.
@@ -111,6 +116,71 @@ final pushCoordinatorProvider = Provider<PushCoordinator>((ref) {
     memory: const SharedPrefsPushPromptMemory(),
     sink: (token) =>
         ref.read(authRepositoryProvider).registerDevice(pushToken: token),
+  );
+});
+
+/// Do toque numa notificação até a tela (`NF-4`).
+///
+/// **Nada aqui usa `watch`**, e a razão é o destino pendente. O
+/// `routerProvider` é reconstruído a cada troca de fase da sessão — é assim
+/// que o guarda dele funciona —, então observá-lo faria este objeto nascer de
+/// novo no exato instante do login, jogando fora o destino que estava
+/// esperando por ele. `read` mantém uma instância só, viva pelo aplicativo
+/// inteiro.
+final pushNavigatorProvider = Provider<PushNavigator>((ref) {
+  return PushNavigator(
+    coordinator: ref.read(pushCoordinatorProvider),
+    currentLocation: () {
+      try {
+        return ref.read(routerProvider).state.uri.path;
+      } catch (_) {
+        // O roteador ainda não resolveu nenhuma rota. Não estar em lugar
+        // nenhum não pode impedir a navegação — só a comparação.
+        return '';
+      }
+    },
+    /*
+      Pelo GoRouter, sempre: é o `redirect` dele que carrega o guarda de sessão
+      do aplicativo inteiro.
+
+      E **depois do quadro**, o que não é detalhe. O destino pendente é
+      consumido quando a fase da sessão muda — exatamente o instante em que o
+      `routerProvider` é invalidado e reconstruído, porque ele observa essa
+      fase. Empurrar a rota ali acerta um `GoRouter` recém-criado cujo
+      delegate ainda não foi anexado à árvore, e a resolução da rota inicial
+      que vem em seguida DESCARTA o empilhamento.
+
+      O sintoma era o pior possível: nada falhava. O técnico tocava o aviso,
+      entrava, e caía no Início — sem erro, sem log, sem nada que explicasse
+      por que a notificação não levou a lugar nenhum. Encontrado por auditoria
+      independente e reproduzido com o roteador de verdade em
+      `test/widget/push_deeplink_route_test.dart`.
+
+      `ensureVisualUpdate` garante que exista um quadro para esperar: um toque
+      com o aplicativo já aberto não muda estado nenhum por conta própria, e
+      sem isso a navegação ficaria presa até o próximo repinte.
+    */
+    navigate: (rota) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(routerProvider).push(rota);
+      });
+      WidgetsBinding.instance.ensureVisualUpdate();
+    },
+    sessionActive: () => ref.read(sessionControllerProvider).isAuthenticated,
+    onForeground: (_) {
+      /*
+        Chegou com o aplicativo aberto: atualiza o que aquele evento muda, e
+        SÓ isso.
+
+        `SERVICE_ORDER_ASSIGNED` mexe na fila do despacho, na lista de OS e na
+        contagem do sino. Recarregar o aplicativo inteiro puxaria jornada,
+        estoque e sessão junto — tráfego e latência em cima de um técnico que
+        muitas vezes está em borda de sinal, para responder a um aviso.
+      */
+      ref.read(dispatchQueueControllerProvider.notifier).load();
+      ref.read(ordersControllerProvider.notifier).load(refresh: true);
+      ref.read(notificationsControllerProvider.notifier).load();
+    },
   );
 });
 
