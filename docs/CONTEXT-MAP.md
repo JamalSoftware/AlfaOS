@@ -451,13 +451,17 @@ Quatro coisas que a especificação fixou e são fáceis de desfazer sem percebe
 **Quando:** a tarefa envolve CTO, porta óptica, vínculo do cliente à rede de distribuição ou o status na visão da caixa.
 **Quando NÃO:** qualquer outra coisa. **Nada disso existe em código**, e a §119 se aplica. A sequência da fila fechou (`DQ-1`–`DQ-7.2`), o que **desbloqueia** o gate do CTO assim que a v0.12 for publicada — desbloquear não é promover, e escrever a especificação não a coloca na ordem.
 
-## Field Notification Foundation — NF-1 e NF-2 ENTREGUES, NF-3 em diante PLANNED
+## Field Notification Foundation — NF-1, NF-2 e NF-3 ENTREGUES, NF-4 e NF-5 PLANNED
 
 **Carregar:** `docs/FIELD-NOTIFICATIONS.md` (plano — inventário do que já existe, arquitetura, escolha de SDK, ciclo do token, payload, deep link, fases `NF-1`–`NF-7`, testes, plano adversarial, decisões `NP-01`–`NP-05`) e PRD §153–§157. Código: `src/lib/push/provider.ts`, `src/lib/outbox.ts`, `src/lib/outbox-handlers.ts`, `src/lib/notifications.ts`, `scripts/outbox-worker.ts`, `src/lib/field/devices.ts`.
 
-**Servidor pronto (`NF-1`) e aparelho preparado (`NF-2`) — e ainda assim NENHUM push chega.** O token existe no aplicativo e **não é enviado ao AlfaOS**: isso é `NF-3`, e a fronteira está em `PushCoordinator.tokenRefresh`. Deep link do toque é `NF-4`.
+**Servidor pronto (`NF-1`), aparelho preparado (`NF-2`) e token registrado (`NF-3`) — e ainda assim NENHUM push chega.** A razão deixou de ser o encanamento: sem o `google-services.json` da plataforma, o provedor não emite token nenhum. Deep link do toque é `NF-4`; piloto físico é `NF-5`.
 
-Código: no servidor, `src/lib/push/fcm.ts` (provider e mapper de erro) e `src/lib/push/bootstrap.ts` (a escolha, uma vez por processo). No aplicativo, `apps/field/lib/core/push/` — `field_push_service.dart` (a costura e a implementação Firebase), `push_coordinator.dart` (quando perguntar), `push_prompt_memory.dart` e `push_permission_sheet.dart`.
+Código: no servidor, `src/lib/push/fcm.ts` (provider e mapper de erro) e `src/lib/push/bootstrap.ts` (a escolha, uma vez por processo). No aplicativo, `apps/field/lib/core/push/` — `field_push_service.dart` (a costura e a implementação Firebase), `push_coordinator.dart` (quando perguntar **e para onde o token vai**), `push_prompt_memory.dart` e `push_permission_sheet.dart`.
+
+**O `PushCoordinator` é a ÚNICA costura de push do aplicativo** (`NF-3`). Ele recebe um `PushTokenSink` — uma função, não o repositório — e o `SessionController` liga e desliga o registro por **um** ponto, o `_apply`. Não criar `PushTokenManager`, `DevicePushManager` nem equivalente: duas costuras para a mesma coisa divergem no primeiro logout. O `PushRegistrationService` citado em textos antigos **não existe**; o `NF-2` o removeu por ser inerte.
+
+**A assimetria entre ligar e desligar é regra, não estilo:** `startSession()` **não é esperado** (com `await`, o `login()` nunca retorna em ambiente sem Firebase — `Firebase.initializeApp()` não completa em teste de widget e pode não completar num aparelho sem Google Play), e `stopSession()` **é esperado**, porque é ele que garante a ordem "registro em voo termina antes de o logout limpar o servidor". Pelo mesmo motivo, o `cancel()` da assinatura **não é esperado**: é chamada de canal nativo que pode não responder, e esperá-la pendurava o `logout()`.
 
 **O Field compila SEM o `google-services.json`**, e isso é deliberado: o plugin `com.google.gms.google-services` falha o build quando o arquivo falta, então ele é aplicado **condicionalmente** em `android/app/build.gradle.kts`. Sem o arquivo o push fica `unavailable`; com ele, funciona. **Não versionar o arquivo** — o `.gitignore` já o cobre.
 
@@ -469,14 +473,16 @@ O levantamento do `NF-0` verificou arquivo por arquivo, e continua valendo:
 * **`MobileDevice.pushToken` já existe**, e `POST /devices/register` e `POST /auth/login` já o aceitam. **Nenhuma migration é necessária em `NF-1`–`NF-5`.**
 * **A abstração de provider já existe** (`PushNotificationProvider`, `PushMessage`, `PushDeliveryResult`), com `NoopPushProvider` que devolve `delivered: 0` — ele **não finge entrega**, de propósito. `setPushProvider` é a costura que os testes já usam.
 * **A central de notificações é real**: `GET /api/field/v1/notifications`, e o sino do Field consome o estado verdadeiro. Não é placeholder.
-* **Falta**: enviar o token ao AlfaOS (`NF-3`) e o deep link do toque (`NF-4`).
+* **Falta**: o deep link do toque (`NF-4`) e o piloto físico (`NF-5`). O envio do token ao AlfaOS foi entregue na `NF-3`.
+
+**Três regras da `NF-3` que não podem ser desfeitas:** `pushToken: null` **nunca** é enviado pelo aplicativo (o contrato do servidor lê isso como revogação, e o provedor devolve `null` por motivo banal); **permissão negada não registra** (no Android o `getToken()` responde mesmo sem permissão, e registrar faria `pushToken != null` significar "existe endereço" em vez de "dá para avisar esta pessoa"); e o registro **solta o token de qualquer outra linha da mesma empresa**, porque um token endereça UMA instalação — o par que divide o aparelho da empresa, com um `logout` que não alcançou o servidor, receberia a notificação do outro. A limpeza para no tenant, e a janela residual está declarada em `SECURITY.md` §8.13.
 
 **Um defeito latente, encontrado no `NF-0` e CORRIGIDO no `NF-1`:** `logoutField` zerava `tokenHash` e **não limpava `pushToken`**, mantendo `status: ACTIVE`. O predicado do handler é exatamente `ACTIVE + revokedAt null + pushToken != null`, então o aparelho de onde o técnico saiu continuava sendo alvo do push do usuário **anterior** — e o token é da instalação, não da pessoa, então o técnico SEGUINTE no mesmo aparelho leria a notificação do primeiro. Era inócuo enquanto o Noop não entregava; viraria vazamento entre contas no dia do FCM. Agora o logout limpa o `pushToken` **sem revogar**, para o próximo login do mesmo aparelho continuar funcionando — três testes `LOGOUT-PUSH-*` e uma prova de reversão sustentam isso.
 
 **A escolha de SDK depende de um fato do grafo de imports:** `outbox-handlers.ts` é alcançado só por `scripts/outbox-worker.ts` e pelos testes — **nenhuma rota do Next**. Por isso `firebase-admin` fica confinado ao worker, e a credencial de serviço nunca existe no runtime web. Se algum dia uma rota importar esse arquivo, a decisão precisa ser reavaliada, não herdada em silêncio.
 
 **Quando:** a tarefa envolve push, FCM, token de aparelho, outbox de notificação, deep link vindo de notificação, ou permissão de notificação no Android.
-**Quando NÃO:** a central de notificações in-app (já existe e funciona sem push), notificação do painel web (outro assunto), ou qualquer coisa que não atravesse o provider. **`NF-1` e `NF-2` estão entregues; `NF-3` a `NF-7` não foram iniciadas.**
+**Quando NÃO:** a central de notificações in-app (já existe e funciona sem push), notificação do painel web (outro assunto), ou qualquer coisa que não atravesse o provider. **`NF-1`, `NF-2` e `NF-3` estão entregues; `NF-4` a `NF-7` não foram iniciadas.**
 
 ## Colaboração entre Técnicos — PLANNED, nada em código
 

@@ -4,16 +4,20 @@ Plano da fase descrita no PRD **§153–§157**. Mora aqui, e não no PRD, pelo
 mesmo motivo que `DISPATCH-QUEUE.md`: o PRD é visão de produto, e provider,
 ciclo do token, política de retry e contrato de payload são engenharia.
 
-> **Estado: `NF-1` e `NF-2` ENTREGUES. `NF-3` em diante continuam `PLANNED`.**
+> **Estado: `NF-1`, `NF-2` e `NF-3` ENTREGUES. `NF-4` e `NF-5` continuam
+> `PLANNED`.**
 >
 > O provider real do FCM existe, a seleção por configuração existe, e o defeito
 > de logout que a §2 registrou foi corrigido (§24). O Flutter inicializa o
-> Firebase, pede a permissão com contexto e obtém o token (§25).
+> Firebase, pede a permissão com contexto e obtém o token (§25). O token chega
+> ao `MobileDevice.pushToken` e acompanha a rotação (§26).
 >
 > **Nenhuma migration, nenhum projeto Firebase criado e nenhum segredo
 > versionado.** O aplicativo compila e roda **sem** o `google-services.json`;
 > enquanto ele não existir, o push fica `unavailable`. **Nenhum push chega a um
-> aparelho ainda** — o token não é enviado ao AlfaOS, e isso é `NF-3`.
+> aparelho ainda** — não por falta de encanamento, que a `NF-3` fechou, mas
+> porque sem o `google-services.json` o provedor não emite token nenhum. O que
+> falta é o §15, mais o deep link (`NF-4`) e o piloto físico (`NF-5`).
 
 ---
 
@@ -425,9 +429,9 @@ aparecem aqui.
 |---|---|---|---|
 | **NF-1** ✅ | `FcmPushProvider`, seleção por configuração, fail-safe, **limpeza do `pushToken` no logout**, logging | ❌ | `firebase-admin` (só worker) — **ENTREGUE, ver §24** |
 | **NF-2** ✅ | Flutter: `firebase_messaging`, config nativa Android, permissão com contexto | ❌ | `firebase_core`, `firebase_messaging` — **ENTREGUE, ver §25** |
-| **NF-3** | Flutter: obter token, enviar no login e no `devices/register`, listener de rotação | ❌ | — |
-| **NF-4** | Deep link do toque, nos três estados, atrás do guard de sessão | ❌ | — |
-| **NF-5** | Piloto em aparelho físico e endurecimento | ❌ | — |
+| **NF-3** ✅ | Flutter: enviar o token no `devices/register`, listener de rotação, ciclo de sessão | ❌ | — **ENTREGUE, ver §26** |
+| **NF-4** `PLANNED` | Deep link do toque, nos três estados, atrás do guard de sessão | ❌ | — |
+| **NF-5** `PLANNED` | Piloto em aparelho físico e endurecimento | ❌ | — |
 | **NF-6** | `FUTURO` — entrega por dispositivo, se houver quem leia | ✅ provável | — |
 | **NF-7** | `FUTURO` — eventos novos, com controle de tempestade | ❌ | — |
 
@@ -872,3 +876,233 @@ G  perguntar sempre, mesmo negado        NF2-03, NF2-11 e NF2-12 falham
 
 Enquanto isso não acontecer, o aplicativo compila, roda e trabalha — e o push
 fica `unavailable`, dito com essa palavra e não como recusa da pessoa.
+
+---
+
+## 26. `NF-3` — o que foi entregue
+
+O token do FCM chega ao `MobileDevice.pushToken` e continua chegando quando o
+Firebase o rotaciona. **Nenhuma migration, nenhuma dependência nova, nenhum
+endpoint novo** — a rota `POST /api/field/v1/devices/register` já aceitava
+`pushToken` desde o `NF-0`, e o que faltava era o aplicativo mandá-lo.
+
+**Ainda assim, nenhum push chega a um aparelho**, e a razão não mudou: sem o
+`google-services.json` da plataforma, o provedor responde `unavailable` e o
+token nem existe. O que a `NF-3` fecha é o encanamento; a água depende do §15.
+
+### 26.1 Nenhuma segunda abstração
+
+O `PushCoordinator` do `NF-2` ganhou a responsabilidade, em vez de nascer uma
+classe nova ao lado dele. Ele já era o dono do ciclo de vida do push; uma
+`PushTokenManager` teria de reimplementar o mesmo controle de sessão, e as duas
+divergiriam no primeiro logout.
+
+O destino é uma **função** — `PushTokenSink` —, não o repositório de
+autenticação. O coordenador mora em `core/` e não pode enxergar `features/`,
+mas a razão maior é de responsabilidade: quem está ali decide **quando** há um
+token para registrar, e nada mais. Empresa, usuário e dono do aparelho são
+derivados da autenticação no servidor.
+
+> **Correção de registro:** o `NF-3` foi escrito supondo um
+> `PushRegistrationService` existente. Ele **não existe** — o `NF-2` o removeu
+> de propósito (§25), por ser costura inerte sem consumidor. A instrução de
+> reutilizar valeu, e o alvo foi o `PushCoordinator`.
+
+### 26.2 A sessão é o portão, e a assimetria é deliberada
+
+`startSession()` e `stopSession()` são chamados por **um** ponto do
+`SessionController` — um `_apply` que troca a fase e acerta o push junto.
+Espalhar as duas chamadas pelos seis lugares que mudam a fase funcionaria hoje
+e falharia no dia do sétimo, com um sintoma que nenhuma tela mostra.
+
+**Ligar não é esperado. Desligar é.**
+
+```text
+authenticated   → unawaited(startSession())   a entrada não espera o push
+qualquer outra  → await   stopSession()       é isto que fecha a corrida do §17
+```
+
+A primeira metade não é preferência: com `await`, o `login()` **nunca
+retornava** em ambiente sem Firebase, e a tela ficava com o indicador girando.
+`Firebase.initializeApp()` não completa num teste de widget, e nada garante que
+complete num aparelho sem Google Play. Push é capability; a sessão não espera
+por capability. Dois testes de widget que já existiam foram os que apontaram
+isso — o valor de rodar a suíte inteira, e não só a da fase.
+
+Pela mesma razão, **o cancelamento da assinatura não é esperado**: a rotação
+real é servida por um canal de plataforma cujo `cancel()` pode não responder, e
+esperar por ele pendurava o `logout()` para sempre. Quem garante que nada mais
+é enviado é a marca de sessão ativa, não o cancelamento — que é higiene.
+
+### 26.3 Os quatro desfechos do token
+
+```text
+token disponível + permissão concedida   registra
+token null                               NÃO envia `pushToken: null`
+permissão negada                         não registra
+rotação sem sessão                       nenhuma requisição
+```
+
+`null` **não é revogação** (§11 do enunciado). O contrato do servidor lê
+`pushToken: null` como "apague", e o provedor devolve `null` por motivo banal —
+ainda não terminou de emitir. Mandar `null` aí apagaria um token que
+funcionava. A chave simplesmente não vai no corpo.
+
+**Permissão negada não registra**, e isso é uma decisão. No Android o
+`getToken()` responde mesmo sem permissão de notificação: o token existe, e é a
+ENTREGA que o sistema descarta. Registrar assim faria `pushToken != null`
+significar "existe um endereço" em vez de "dá para avisar esta pessoa" — e a
+segunda é a pergunta que o worker faz.
+
+### 26.4 A corrida entre logout e rotação
+
+O cenário do §17: a rotação chega, o logout começa, o servidor limpa o
+`pushToken`, e o callback antigo o grava de volta. Um aparelho de onde o
+técnico acabou de sair volta a ser destino de notificação, sem nada na tela
+mostrando isso.
+
+A ordem que fecha:
+
+```text
+1. a sessão cai       (nenhum envio NOVO começa)
+2. espera-se o que JÁ está em voo, sob a credencial ainda válida
+3. só então o logout limpa o servidor
+```
+
+Os envios em voo são guardados num **mapa por token**, não numa future só. Dois
+envios podem se sobrepor no caminho normal do primeiro login — `requestNow()`
+entrega o token recém-concedido e o provedor emite a rotação com esse mesmo
+token quase no mesmo instante —, e uma future só faria a segunda sobrescrever a
+primeira, deixando a primeira órfã: ninguém a esperaria, e a resposta atrasada
+regravaria o token depois da limpeza. Com a chave sendo o token, o envio
+repetido do mesmo valor nem começa: ele adere ao que já está a caminho.
+
+### 26.5 Técnico A sai, técnico B entra
+
+O token é da **instalação**, não da pessoa: ele não muda quando o técnico troca.
+A memória de "já registrei este token" é zerada no fim da sessão — se
+sobrevivesse, B nunca registraria, e o aparelho ficaria mudo para ele sem
+nenhum sinal.
+
+Do lado do servidor, `(companyId, userId, installationId)` dá a B uma linha
+própria. E o registro agora **solta o token da linha antiga da mesma empresa**:
+o caso real é o par que divide o aparelho da empresa quando o `logout` de A não
+alcançou o servidor — o aplicativo limpa a sessão local de qualquer jeito,
+porque sair precisa funcionar offline —, e sem essa limpeza uma notificação
+endereçada a A chegaria no aparelho que B está segurando, com número de OS e
+nome de cliente na tela de bloqueio.
+
+**A limpeza é escopada por `companyId`**, como toda escrita do projeto. Um
+aparelho compartilhado entre empresas DIFERENTES fica fora do alcance dela, e
+isso é risco conhecido e aceito: fechá-lo exigiria escrever na linha de outro
+tenant. Registrado em `SECURITY.md` §8.13.
+
+### 26.6 Idempotência: o servidor deixou de auditar o que não mudou
+
+`registerDevice` contava "veio no corpo" como alteração. O aplicativo reenvia o
+mesmo token a cada abertura — comportamento correto dele, já que o provedor é a
+autoridade sobre o valor —, então cada abertura gravava uma linha de auditoria
+idêntica, e a trilha do aparelho crescia no ritmo exato em que deixaria de ser
+lida. Agora o `changed` compara com o estado atual: cinco registros iguais, uma
+linha de auditoria.
+
+`lastSeenAt` continua avançando sempre. Ele é batimento, não mudança.
+
+O aplicativo também não repete: um token já confirmado não vira requisição.
+São duas defesas para coisas diferentes — a do cliente evita a viagem, a do
+servidor evita o ruído de qualquer cliente.
+
+### 26.7 O que a auditoria independente mudou
+
+Auditoria adversarial em sessão separada, sobre o diff: **`APPROVED WITH
+RISKS`**, 0 CRITICAL, 0 HIGH, 0 MEDIUM, 3 LOW e 5 INFO. Os três LOW foram
+corrigidos, não só registrados.
+
+**O mais importante era um teste meu que não provava o que dizia.** O `NF3-10`
+comparava índices na lista de requisições do transporte falso — que é
+preenchida no **despacho**, antes do atraso. Como o teste despachava a rotação
+antes de chamar o logout, o índice já estava cravado: **a asserção passava com
+a ordem do `logout()` invertida.** Verificado invertendo de fato: 19 de 19
+verdes com o código quebrado. O transporte falso ganhou uma linha do tempo com
+despacho E conclusão, e a asserção passou a ser sobre conclusão.
+
+Os outros dois: o mapa de envios em voo da §26.4 nasceu de um `LOW` sobre a
+future única; e o teste cross-tenant ganhou controle positivo, porque sem ele
+uma requisição que falhasse por qualquer motivo deixaria a asserção verde
+provando nada.
+
+Dois `INFO` viraram código por serem baratos: o predicado de escrita passou a
+exigir aparelho ativo e não revogado — uma revogação que commite entre a
+autenticação e a escrita deixaria um token gravado em linha `REVOKED` —, e o
+`tokenRefresh` público do coordenador virou `@visibleForTesting`, porque
+assinar por ali receberia a rotação sem passar pelo portão de sessão.
+
+### 26.8 Provas de reversão
+
+Oito sabotagens do enunciado, mais quatro reversões próprias.
+
+```text
+A  registrar sem sessão ativa            NF3-06 e NF3-12 falham
+B  segundo login não cancela a anterior  NF3-12 falha
+C  stopSession não desliga nada          NF3-09, NF3-10 e NF3-11 falham
+D  memória de registro sobrevive ao sair NF3-11 falha
+E  token gravado em SharedPreferences    NF3-15 falha (dois testes)
+F  token impresso em log                 NF3-13 falha
+G  aparelho revogado reativado           ver abaixo
+H  cada rotação cria outro MobileDevice  9 testes falham, entre eles B02 e B03
+
+1  ordem do logout invertida             NF3-10 falha (dois testes)
+2  esperar só o último envio             NF3-10 falha
+3  sem guarda de token já em voo         NF3-10 falha
+4  escrita sem predicado de estado       NF3-B06 falha
+```
+
+**A sabotagem `G` passou na primeira tentativa, e o defeito era do teste.**
+`revokeDevice` apaga o `tokenHash` junto, então o token da sessão deixa de
+resolver por conta própria: o `NF3-B06` recebia o 401 por outra porta e
+passaria mesmo sem o guarda de `status` na autenticação. Nasceram daí dois
+testes — um sobre o login, que é o único caminho capaz de devolver credencial
+válida a uma linha revogada, e outro que monta à mão o estado `REVOKED` com
+`tokenHash` vivo, o único jeito de exercer a segunda tranca isoladamente. Com
+eles, cada metade de `G` derruba o seu.
+
+**As reversões 1 e 3 também passaram antes de os testes serem corrigidos.** A 1
+está descrita na §26.7. A 3 falhava porque a rotação era emitida antes de a
+assinatura existir, e um `Stream.broadcast` descarta evento sem ouvinte: a
+sobreposição que o teste queria provar nunca acontecia.
+
+### 26.9 Gates
+
+```text
+1689 Vitest        (era 1670)
+ 116 Playwright    inalterado
+ 360 Flutter       (era 339)
+lint, tsc, build, build:worker, dart format, flutter analyze
+prisma validate, 24 migrations — NENHUMA nova
+APK debug construído, sem google-services.json
+```
+
+Uma falha de suíte apareceu e **não era da fase**: `time-clock-effective` usa
+`Date.now() - 60_000` como horário de correção, que no primeiro minuto depois
+da meia-noite cai no dia civil anterior. A execução começou 23:56 e atravessou
+a virada. É a mesma bomba-relógio que a `DQ-4` desarmou em
+`time-clock-routes.test.ts` com `- 30min`; as três ocorrências restantes foram
+travadas no início do dia civil da empresa.
+
+### 26.10 O que o `NF-3` deliberadamente NÃO faz
+
+```text
+deep link do toque          NF-4
+onMessageOpenedApp          NF-4
+getInitialMessage           NF-4
+banner em primeiro plano    NF-4
+notificação local           NF-4
+piloto em aparelho físico   NF-5
+fila offline de registro    não previsto — a próxima sessão tenta de novo
+enviar `pushToken: null`    nunca; quem limpa é o logout, no servidor
+```
+
+O registro **não tem retentativa própria**. Falha de rede, `401` e `403` são
+engolidos, não marcam o token como registrado, e a próxima oportunidade
+autenticada tenta de novo. Sem laço, sem fila, sem backoff — a próxima
+oportunidade chega sozinha, na abertura seguinte ou na rotação seguinte.

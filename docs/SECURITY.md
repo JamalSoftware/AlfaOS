@@ -1392,6 +1392,34 @@ A listagem administrativa **não** devolve `tokenHash`, `pushToken` nem
 `installationId`. Nenhum ajuda a decidir uma revogação, e os três são o que não
 deve passar por navegador, log de proxy e captura de tela de suporte.
 
+#### O token de push endereça UM aparelho — e a limpeza para no tenant
+
+Um token do provedor identifica uma **instalação**, não uma pessoa. Quando dois
+técnicos dividem o mesmo aparelho, os dois têm linhas próprias de
+`MobileDevice` — a unique é `(companyId, userId, installationId)` — mas o token
+é o mesmo valor para ambos.
+
+O caso que isso cria é real e não hipotético: sair do aplicativo limpa a sessão
+local **mesmo quando o `logout` não alcança o servidor**, porque sair precisa
+funcionar offline. A linha do primeiro técnico fica `ACTIVE` com o token ainda
+gravado, e uma notificação endereçada a ele chega no aparelho que o segundo
+está segurando — com número de OS e nome de cliente na tela de bloqueio.
+
+Por isso o registro de push **solta o token de qualquer outra linha da mesma
+empresa** antes de gravá-lo na linha do chamador, na mesma transação.
+
+**Janela conhecida e aceita:** essa limpeza é escopada por `companyId`, como
+toda escrita do projeto. Um aparelho compartilhado entre técnicos de empresas
+**diferentes** fica fora do alcance dela. Fechá-la exigiria uma rota da empresa
+A escrever na linha da empresa B, que é o que a regra de multi-tenancy proíbe —
+e o pré-requisito do vazamento é estreito: mesmo aparelho físico, mesma
+instalação, dois tenants, e um logout que não chegou ao servidor. A situação
+se cura sozinha no primeiro registro seguinte dentro daquele tenant.
+
+O valor bruto do `pushToken` **nunca sai do servidor**: a listagem
+administrativa o converte em booleano, nenhuma rota o devolve, e a auditoria de
+registro grava o **nome** do campo alterado, nunca o conteúdo.
+
 ### O cookie da web não abre o Field, e vice-versa
 
 O token é lido **exclusivamente** de `Authorization: Bearer`. Nunca de cookie,

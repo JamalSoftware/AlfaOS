@@ -4139,12 +4139,17 @@ significa que ele não descobre.
 > provider FCM real, o lado Flutter e o deep link do toque — e **`NF-1` a
 > `NF-5` não exigem migration nenhuma**.
 >
-> **`NF-1` e `NF-2` estão ENTREGUES** (§24 e §25 do documento): o provider
-> real do FCM com fail-safe, a correção do logout que deixava o aparelho
-> recebendo push do usuário anterior, e o lado do aplicativo — Firebase
+> **`NF-1`, `NF-2` e `NF-3` estão ENTREGUES** (§24, §25 e §26 do documento): o
+> provider real do FCM com fail-safe, a correção do logout que deixava o
+> aparelho recebendo push do usuário anterior, o lado do aplicativo — Firebase
 > inicializado, permissão pedida com contexto depois do primeiro login, token
-> obtido e rotação observada. **Nenhum push chega a um aparelho ainda**: o
-> token não é enviado ao AlfaOS, e isso é `NF-3`.
+> obtido e rotação observada — e o registro do token no
+> `MobileDevice.pushToken`, mantido em dia quando o provedor o rotaciona.
+>
+> **Nenhum push chega a um aparelho ainda**, e a razão deixou de ser o
+> encanamento: sem o `google-services.json` da plataforma o provedor não emite
+> token nenhum. `NF-4` (deep link do toque) e `NF-5` (piloto físico) continuam
+> `PLANNED`.
 
 ## O inventário do que a fundação terá de atender
 
