@@ -100,11 +100,17 @@ final fieldPushServiceProvider = Provider<FieldPushService>((ref) {
   return createFieldPushService();
 });
 
-/// Quando perguntar sobre notificações, e a garantia de não insistir.
+/// Quando perguntar sobre notificações, e para onde o token vai (`NF-3`).
+///
+/// O destino é uma função, e não o repositório inteiro: o coordenador precisa
+/// de UMA capacidade — entregar um token —, e recebê-la assim mantém `core/`
+/// sem conhecer `features/` e deixa o teste substituir só isso.
 final pushCoordinatorProvider = Provider<PushCoordinator>((ref) {
   return PushCoordinator(
     service: ref.watch(fieldPushServiceProvider),
     memory: const SharedPrefsPushPromptMemory(),
+    sink: (token) =>
+        ref.read(authRepositoryProvider).registerDevice(pushToken: token),
   );
 });
 
@@ -113,6 +119,7 @@ final sessionControllerProvider =
       return SessionController(
         auth: ref.watch(authRepositoryProvider),
         signal: ref.watch(sessionSignalProvider),
+        push: ref.watch(pushCoordinatorProvider),
       );
     });
 

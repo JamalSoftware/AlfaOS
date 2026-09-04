@@ -65,15 +65,25 @@ class AuthRepository {
     return FieldSession.fromJson(data);
   }
 
-  /// Atualiza metadados do aparelho.
+  /// Atualiza metadados do aparelho — e é por aqui que o token de push entra.
   ///
-  /// É por aqui que o token de push entraria — quando o FCM existir. Hoje
-  /// registra só a versão do app, que é o que o suporte precisa para saber
-  /// qual APK está em campo.
-  Future<void> registerDevice() async {
+  /// O corpo leva **somente** metadado do aparelho. `companyId`, `userId`,
+  /// `technicianId` e `installationId` não são enviados: o schema do servidor é
+  /// `.strict()` e os recusaria, mas a razão é anterior a isso — quem é este
+  /// aparelho já foi decidido no login, e reenviar identidade aqui seria
+  /// oferecer ao aplicativo a chance de escolher em qual linha escrever.
+  ///
+  /// [pushToken] **ausente não é ausência de token**: a chave simplesmente não
+  /// vai no corpo, e o servidor mantém o que já tinha. Mandar `null` explícito
+  /// apagaria o registro — é o que o logout faz, do lado do servidor, e não o
+  /// que um login feito antes da permissão deve fazer.
+  Future<void> registerDevice({String? pushToken}) async {
     await _api.post(
       '/devices/register',
-      body: {'appVersion': await _appVersion()},
+      body: {
+        'appVersion': await _appVersion(),
+        if (pushToken != null && pushToken.isNotEmpty) 'pushToken': pushToken,
+      },
     );
   }
 

@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/field_error.dart';
+import '../../../core/push/push_coordinator.dart';
 import '../data/auth_repository.dart';
 import '../domain/session.dart';
 
@@ -62,14 +65,47 @@ class SessionController extends StateNotifier<SessionState> {
   SessionController({
     required AuthRepository auth,
     required SessionSignal signal,
+    required PushCoordinator push,
   }) : _auth = auth,
        _signal = signal,
+       _push = push,
        super(const SessionState.bootstrapping()) {
     _signal.addListener(_onSessionEnded);
   }
 
   final AuthRepository _auth;
   final SessionSignal _signal;
+  final PushCoordinator _push;
+
+  /// Troca de estado e acerta o push junto (`NF-3`).
+  ///
+  /// Existe para haver **um** lugar onde a sessão liga e desliga o registro de
+  /// token. Espalhar `startSession`/`stopSession` pelos seis pontos que mudam
+  /// a fase funcionaria hoje e deixaria de funcionar no dia em que alguém
+  /// acrescentasse o sétimo — e o sintoma seria um aparelho ainda registrado
+  /// depois de a sessão terminar, que ninguém vê pela tela.
+  /// A assimetria entre ligar e desligar é deliberada.
+  ///
+  /// **Ligar não é esperado.** O provedor de push é lento e, em ambiente sem
+  /// Firebase, pode simplesmente não responder: `Firebase.initializeApp()` não
+  /// completa num teste de widget, e nada garante que ele complete num
+  /// aparelho sem Google Play. Esperar por isso faria a ENTRADA depender do
+  /// push — foi exatamente o que aconteceu quando esta linha tinha um `await`:
+  /// o `login()` nunca retornava e a tela ficava com o indicador girando.
+  /// Push é capability; a sessão não espera por capability.
+  ///
+  /// **Desligar É esperado.** Ele não fala com o provedor — cancela uma
+  /// assinatura e aguarda o registro que já está em voo. É o que garante a
+  /// ordem do §17: nenhuma resposta atrasada pode regravar o `pushToken`
+  /// depois de o logout o ter limpado.
+  Future<void> _apply(SessionState next) async {
+    state = next;
+    if (next.phase == SessionPhase.authenticated) {
+      unawaited(_push.startSession());
+    } else {
+      await _push.stopSession();
+    }
+  }
 
   @override
   void dispose() {
@@ -79,18 +115,24 @@ class SessionController extends StateNotifier<SessionState> {
 
   void _onSessionEnded() {
     if (state.phase == SessionPhase.revoked) return;
-    state = const SessionState(
-      phase: SessionPhase.unauthenticated,
-      message: 'Sua sessão expirou. Entre novamente.',
+    // Ouvinte síncrono: desligar o push segue sozinho, e nada aqui depende de
+    // ele ter terminado.
+    unawaited(
+      _apply(
+        const SessionState(
+          phase: SessionPhase.unauthenticated,
+          message: 'Sua sessão expirou. Entre novamente.',
+        ),
+      ),
     );
   }
 
   /// Abertura do app: existe token guardado e ele ainda vale?
   Future<void> bootstrap() async {
-    state = const SessionState.bootstrapping();
+    await _apply(const SessionState.bootstrapping());
     final token = await _auth.currentToken();
     if (token == null || token.isEmpty) {
-      state = const SessionState(phase: SessionPhase.unauthenticated);
+      await _apply(const SessionState(phase: SessionPhase.unauthenticated));
       return;
     }
     await _loadSession(registerDevice: false);
@@ -117,11 +159,13 @@ class SessionController extends StateNotifier<SessionState> {
     try {
       await _auth.login(email: email, password: password);
     } on FieldException catch (error) {
-      state = SessionState(
-        phase: error.code == FieldErrorCode.deviceRevoked
-            ? SessionPhase.revoked
-            : SessionPhase.unauthenticated,
-        message: error.message,
+      await _apply(
+        SessionState(
+          phase: error.code == FieldErrorCode.deviceRevoked
+              ? SessionPhase.revoked
+              : SessionPhase.unauthenticated,
+          message: error.message,
+        ),
       );
       rethrow;
     }
@@ -136,7 +180,18 @@ class SessionController extends StateNotifier<SessionState> {
   Future<void> _loadSession({required bool registerDevice}) async {
     try {
       final session = await _auth.me();
-      state = SessionState(phase: SessionPhase.authenticated, session: session);
+      /*
+        A fase vai para `authenticated` ANTES do registro, e é ela que liga o
+        acompanhamento do token de push (`_apply` → `startSession`).
+
+        O registro de metadados abaixo continua sendo o do `NF-0`: versão do
+        app, sem token. Quando a permissão já existe, quem manda o token é o
+        coordenador — e num primeiro login ele ainda nem foi concedida, então
+        o token nasce depois, na folha de permissão.
+      */
+      await _apply(
+        SessionState(phase: SessionPhase.authenticated, session: session),
+      );
       if (registerDevice) {
         try {
           await _auth.registerDevice();
@@ -147,21 +202,21 @@ class SessionController extends StateNotifier<SessionState> {
     } on FieldException catch (error) {
       switch (error.code) {
         case FieldErrorCode.deviceRevoked:
-          state = SessionState(
-            phase: SessionPhase.revoked,
-            message: error.message,
+          await _apply(
+            SessionState(phase: SessionPhase.revoked, message: error.message),
           );
         case FieldErrorCode.network:
           // Credencial preservada de propósito.
-          state = SessionState(
-            phase: SessionPhase.offline,
-            message: error.message,
+          await _apply(
+            SessionState(phase: SessionPhase.offline, message: error.message),
           );
         default:
           await _auth.clearSession();
-          state = SessionState(
-            phase: SessionPhase.unauthenticated,
-            message: error.message,
+          await _apply(
+            SessionState(
+              phase: SessionPhase.unauthenticated,
+              message: error.message,
+            ),
           );
       }
     }
@@ -170,14 +225,27 @@ class SessionController extends StateNotifier<SessionState> {
   Future<void> retryBootstrap() => bootstrap();
 
   Future<void> logout() async {
+    /*
+      O push para ANTES de o servidor limpar o `pushToken`, e a ordem é o
+      ponto (§17).
+
+      `stopSession` fecha a porta para envios novos e espera terminar o que já
+      estava em voo — ainda sob a credencial válida. Só então o logout apaga o
+      token no servidor. Na ordem inversa, a resposta atrasada de um registro
+      anterior gravaria o token DE VOLTA logo depois da limpeza, e um aparelho
+      de onde o técnico acabou de sair continuaria sendo destino de
+      notificação.
+    */
+    await _push.stopSession();
     await _auth.logout();
-    state = const SessionState(phase: SessionPhase.unauthenticated);
+    await _apply(const SessionState(phase: SessionPhase.unauthenticated));
   }
 
   /// Sai de um aparelho revogado, para a tela de login voltar a ser útil se o
   /// administrador reverter a situação com uma instalação nova.
   Future<void> dismissRevoked() async {
+    await _push.stopSession();
     await _auth.clearSession();
-    state = const SessionState(phase: SessionPhase.unauthenticated);
+    await _apply(const SessionState(phase: SessionPhase.unauthenticated));
   }
 }

@@ -1,4 +1,9 @@
-import { AccessProfile, type MobilePlatform } from "@prisma/client";
+import {
+  AccessProfile,
+  MobileDeviceStatus,
+  type MobilePlatform,
+  type Prisma,
+} from "@prisma/client";
 import { logAudit } from "@/lib/audit";
 import { DUMMY_PASSWORD_HASH, verifyPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
@@ -291,28 +296,98 @@ export async function registerDevice(
   principal: FieldPrincipal,
   input: DeviceRegistrationInput,
 ): Promise<{ deviceId: string }> {
-  const changed: string[] = [];
-  if (input.appVersion !== undefined) changed.push("appVersion");
-  if (input.deviceName !== undefined) changed.push("deviceName");
-  if (input.pushToken !== undefined) changed.push("pushToken");
+  /*
+    O estado entra no predicado, e não só a identidade.
 
-  await prisma.mobileDevice.updateMany({
-    where: {
-      id: principal.device.id,
-      companyId: principal.user.companyId,
-      userId: principal.user.id,
-    },
-    data: {
-      ...(input.appVersion !== undefined
-        ? { appVersion: input.appVersion }
-        : {}),
-      ...(input.deviceName !== undefined
-        ? { deviceName: input.deviceName }
-        : {}),
-      ...(input.pushToken !== undefined ? { pushToken: input.pushToken } : {}),
-      lastSeenAt: new Date(),
-    },
+    `requireFieldPrincipal` já recusou aparelho revogado — mas ele decidiu isso
+    ANTES desta escrita, e uma revogação que commite no intervalo deixaria um
+    `pushToken` gravado numa linha `REVOKED`. Hoje isso não vira entrega,
+    porque o worker filtra `status`/`revokedAt` na seleção; amanhã, se aquele
+    predicado afrouxar, seria contorno de revogação. Custa uma cláusula.
+  */
+  const scope = {
+    id: principal.device.id,
+    companyId: principal.user.companyId,
+    userId: principal.user.id,
+    status: MobileDeviceStatus.ACTIVE,
+    revokedAt: null,
+  };
+
+  /*
+    O que MUDOU, e não o que veio no corpo.
+
+    O aplicativo reenvia o mesmo token a cada abertura e a cada rotação — é o
+    comportamento correto dele, já que o provedor é a autoridade sobre o valor.
+    Contar "veio no corpo" como alteração faria cada abertura gravar uma linha
+    de auditoria idêntica, e a trilha do aparelho viraria ruído no volume exato
+    em que ela deixaria de ser lida.
+  */
+  const current = await prisma.mobileDevice.findFirst({
+    where: scope,
+    select: { appVersion: true, deviceName: true, pushToken: true },
   });
+
+  const changed: string[] = [];
+  if (current) {
+    if (input.appVersion !== undefined && input.appVersion !== current.appVersion)
+      changed.push("appVersion");
+    if (input.deviceName !== undefined && input.deviceName !== current.deviceName)
+      changed.push("deviceName");
+    if (input.pushToken !== undefined && input.pushToken !== current.pushToken)
+      changed.push("pushToken");
+  }
+
+  const writes: Prisma.PrismaPromise<unknown>[] = [];
+
+  /*
+    Um token de push endereça UMA instalação, então ele não pode continuar
+    endereçando outra linha depois de mudar de dono.
+
+    O caso real: dois técnicos da mesma empresa dividem o aparelho. O primeiro
+    sai, mas o `logout` não alcança o servidor — o aplicativo limpa a sessão
+    local de qualquer jeito, porque sair precisa funcionar offline. A linha
+    dele fica `ACTIVE` com o token ainda gravado. O segundo entra e registra o
+    MESMO token, agora na linha dele. A partir daí, uma notificação endereçada
+    ao primeiro chega no aparelho que o segundo está segurando, com número de
+    OS e nome de cliente na tela de bloqueio.
+
+    A limpeza é escopada por `companyId`, como toda escrita do projeto. Um
+    aparelho compartilhado entre empresas diferentes fica fora do alcance
+    disto — e continua registrado como risco conhecido, porque fechá-lo
+    exigiria escrever na linha de outro tenant.
+  */
+  if (input.pushToken) {
+    writes.push(
+      prisma.mobileDevice.updateMany({
+        where: {
+          companyId: principal.user.companyId,
+          pushToken: input.pushToken,
+          NOT: { id: principal.device.id },
+        },
+        data: { pushToken: null },
+      }),
+    );
+  }
+
+  writes.push(
+    prisma.mobileDevice.updateMany({
+      where: scope,
+      data: {
+        ...(input.appVersion !== undefined
+          ? { appVersion: input.appVersion }
+          : {}),
+        ...(input.deviceName !== undefined
+          ? { deviceName: input.deviceName }
+          : {}),
+        ...(input.pushToken !== undefined ? { pushToken: input.pushToken } : {}),
+        lastSeenAt: new Date(),
+      },
+    }),
+  );
+
+  // As duas escritas juntas: soltar o token da linha antiga sem prendê-lo na
+  // nova deixaria o técnico sem nenhum destino registrado.
+  await prisma.$transaction(writes);
 
   if (changed.length > 0) {
     await logAudit({
