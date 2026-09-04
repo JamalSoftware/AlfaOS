@@ -157,9 +157,8 @@ class _NotificationTile extends ConsumerWidget {
           tiver sido reatribuída, ela responde 404 e o app mostra "não está mais
           atribuída a você" em vez de exibir dado que já não é dele.
         */
-        if (notification.pointsToServiceOrder) {
-          context.push('/orders/${notification.resourceId}');
-        }
+        final destino = notification.destination;
+        if (destino != null) context.push(destino.route);
       },
     );
   }

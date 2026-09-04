@@ -52,6 +52,28 @@ enum PushPermissionStatus {
   unavailable,
 }
 
+/// Uma mensagem que chegou do provedor.
+///
+/// Carrega o `data` cru — quem o interpreta é o `PushDestination`, e só ele —
+/// mais o identificador da mensagem, que existe para uma coisa: reconhecer a
+/// ENTREGA REPETIDA. A plataforma pode entregar o mesmo toque duas vezes, e
+/// sem um identificador estável a segunda viraria uma segunda navegação.
+@immutable
+class IncomingPush {
+  const IncomingPush({required this.data, this.messageId});
+
+  final Map<String, dynamic> data;
+
+  /// `messageId` do provedor, quando ele o fornece.
+  final String? messageId;
+
+  /// **Nunca imprime o payload.** Ele é pequeno hoje — três identificadores —,
+  /// mas log é para sempre e payload cresce: no dia em que alguém acrescentar
+  /// o nome do cliente ao aviso, o log já estaria pronto para vazá-lo.
+  @override
+  String toString() => 'IncomingPush(${data['type'] ?? 'desconhecido'})';
+}
+
 /// A fronteira. Implementada de verdade pelo Firebase e por um duplo no teste.
 abstract class FieldPushService {
   /// Prepara o provedor. `false` quando não há push neste ambiente.
@@ -77,6 +99,34 @@ abstract class FieldPushService {
   /// próprio FCM. Ignorá-la faria o aparelho parar de receber em silêncio, e
   /// ninguém descobriria até uma OS urgente não chegar.
   Stream<String> get tokenRefresh;
+
+  /*
+    Os três estados do aplicativo, e por que são três coisas diferentes (`NF-4`).
+
+    O erro clássico da integração de push é tratar "chegou mensagem" e "a
+    pessoa TOCOU na mensagem" como o mesmo evento. Eles são opostos em
+    intenção: um é o sistema avisando, o outro é alguém pedindo para ir a
+    algum lugar. Confundi-los faz o aplicativo pular de tela sozinho no meio
+    de um atendimento.
+  */
+
+  /// O toque que ABRIU o aplicativo, quando ele estava fechado.
+  ///
+  /// Consultado uma vez, na subida. Devolve `null` quando o aplicativo foi
+  /// aberto normalmente — que é o caso quase sempre.
+  Future<IncomingPush?> initialMessage();
+
+  /// O toque com o aplicativo em segundo plano.
+  ///
+  /// **É intenção da pessoa**, e é o único caminho que navega sozinho.
+  Stream<IncomingPush> get openedApp;
+
+  /// A mensagem que chega com o aplicativo ABERTO.
+  ///
+  /// **Não houve toque nenhum**: a pessoa está olhando outra tela, muitas
+  /// vezes no meio de uma OS. Isto serve para atualizar estado, nunca para
+  /// navegar.
+  Stream<IncomingPush> get foregroundMessage;
 }
 
 /// Não há push. Diz isso, e não finge nada.
@@ -99,6 +149,16 @@ class UnavailablePushService implements FieldPushService {
 
   @override
   Stream<String> get tokenRefresh => const Stream<String>.empty();
+
+  @override
+  Future<IncomingPush?> initialMessage() async => null;
+
+  @override
+  Stream<IncomingPush> get openedApp => const Stream<IncomingPush>.empty();
+
+  @override
+  Stream<IncomingPush> get foregroundMessage =>
+      const Stream<IncomingPush>.empty();
 }
 
 /// A implementação real, sobre `firebase_core` e `firebase_messaging`.
@@ -177,6 +237,40 @@ class FirebasePushService implements FieldPushService {
       return const Stream<String>.empty();
     }
   }
+
+  @override
+  Future<IncomingPush?> initialMessage() async {
+    if (!await initialize()) return null;
+    try {
+      final mensagem = await FirebaseMessaging.instance.getInitialMessage();
+      return mensagem == null ? null : _converter(mensagem);
+    } catch (_) {
+      // Falhar aqui não pode impedir o aplicativo de abrir: quem toca um push
+      // quer chegar a uma OS, e chegar ao Início já é melhor que não abrir.
+      return null;
+    }
+  }
+
+  @override
+  Stream<IncomingPush> get openedApp {
+    try {
+      return FirebaseMessaging.onMessageOpenedApp.map(_converter);
+    } catch (_) {
+      return const Stream<IncomingPush>.empty();
+    }
+  }
+
+  @override
+  Stream<IncomingPush> get foregroundMessage {
+    try {
+      return FirebaseMessaging.onMessage.map(_converter);
+    } catch (_) {
+      return const Stream<IncomingPush>.empty();
+    }
+  }
+
+  IncomingPush _converter(RemoteMessage mensagem) =>
+      IncomingPush(data: mensagem.data, messageId: mensagem.messageId);
 
   /*
     `provisional` é conceito de iOS — notificação silenciosa entregue sem

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'field_push_service.dart';
+import 'push_destination.dart';
 
 /// Onde fica a marca de "já perguntamos uma vez".
 ///
@@ -285,6 +286,81 @@ class PushCoordinator {
   /// apenas porque o teste da fundação observa a fronteira do provedor.
   @visibleForTesting
   Stream<String> get tokenRefresh => _service.tokenRefresh;
+
+  /*
+    ---------------------------------------------------------------------
+    Abrir uma notificação (`NF-4`)
+    ---------------------------------------------------------------------
+
+    Estes três membros NÃO são governados por `startSession`, e a exceção é
+    deliberada: um toque que ABRE o aplicativo precisa ser capturado antes de
+    a sessão existir. Quem decide se pode navegar é o guarda de autenticação
+    do roteador, não este objeto.
+  */
+
+  /// Identificadores de mensagens já tratadas.
+  ///
+  /// A plataforma pode entregar o mesmo toque mais de uma vez. Sem esta
+  /// memória, o segundo viraria uma segunda navegação — e o técnico veria a
+  /// mesma OS empilhada duas vezes, com dois Voltar para desfazer.
+  ///
+  /// Limitada de propósito: é uma janela contra repetição imediata, não um
+  /// histórico. Guardar tudo faria a lista crescer com o aplicativo aberto o
+  /// dia inteiro, para responder a uma pergunta que só importa por segundos.
+  final _tratadas = <String>{};
+  static const _limiteTratadas = 32;
+
+  /// O toque que abriu o aplicativo fechado, quando houve um.
+  ///
+  /// Consultado uma vez, na subida.
+  Future<PushDestination?> initialDestination() async {
+    try {
+      final mensagem = await _service.initialMessage();
+      if (mensagem == null) return null;
+      return _reconhecer(mensagem);
+    } catch (_) {
+      // Push é capability: falhar aqui não pode impedir o aplicativo de abrir.
+      return null;
+    }
+  }
+
+  /// Toques com o aplicativo em segundo plano — **intenção da pessoa**.
+  ///
+  /// Já vem interpretado e sem repetição: payload que não descreve destino
+  /// conhecido simplesmente não aparece aqui.
+  Stream<PushDestination> get opened => _service.openedApp
+      .map(_reconhecer)
+      .where((destino) => destino != null)
+      .cast<PushDestination>();
+
+  /// Mensagens recebidas com o aplicativo ABERTO.
+  ///
+  /// **Não houve toque.** Serve para atualizar estado, e quem escuta não pode
+  /// navegar por causa disto — a pessoa está olhando outra tela.
+  Stream<PushDestination> get received => _service.foregroundMessage
+      .map((mensagem) => PushDestination.fromData(mensagem.data))
+      .where((destino) => destino != null)
+      .cast<PushDestination>();
+
+  /// Interpreta e descarta repetição.
+  ///
+  /// A deduplicação só vale para o que ABRE tela. O `received` não passa por
+  /// aqui: repetir uma atualização de estado é inofensivo, e descartá-la pelo
+  /// identificador faria o aplicativo ignorar um evento legítimo que a
+  /// plataforma reentregou.
+  PushDestination? _reconhecer(IncomingPush mensagem) {
+    final destino = PushDestination.fromData(mensagem.data);
+    if (destino == null) return null;
+
+    final id = mensagem.messageId;
+    if (id != null && id.isNotEmpty) {
+      if (!_tratadas.add(id)) return null;
+      if (_tratadas.length > _limiteTratadas) {
+        _tratadas.remove(_tratadas.first);
+      }
+    }
+    return destino;
+  }
 
   /// Espera o registro em voo, se houver. Existe para o teste ser
   /// determinístico — a rotação chega por evento, e sem isto a asserção

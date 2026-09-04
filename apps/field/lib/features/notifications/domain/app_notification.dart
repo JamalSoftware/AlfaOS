@@ -1,3 +1,5 @@
+import '../../../core/push/push_destination.dart';
+
 /// Aviso interno do técnico.
 ///
 /// **A central é o registro; o push é apenas o aviso** (PRD §154). Como o FCM
@@ -31,8 +33,25 @@ class AppNotification {
 
   bool get isUnread => readAt == null;
 
-  bool get pointsToServiceOrder =>
-      resourceType == 'ServiceOrder' && (resourceId?.isNotEmpty ?? false);
+  /// Para onde este aviso leva, se levar a algum lugar.
+  ///
+  /// Passa pelo MESMO parser do push (`NF-4`). A pergunta é idêntica — "para
+  /// onde este aviso leva?" — e duas respostas para ela divergiriam: a desta
+  /// tela exigia apenas `resourceId` não vazio, enquanto a do push valida o
+  /// formato do identificador.
+  ///
+  /// A validação é **defesa em profundidade**, não fechamento de vetor: hoje
+  /// existe uma única escrita de `Notification.resourceId` em produção, e ela
+  /// grava o `id` da OS. O valor está em não depender disso continuar
+  /// verdadeiro — um `resourceId` com barra montaria `/orders/abc/execucao`, e
+  /// o registro passaria a ESCOLHER a tela.
+  PushDestination? get destination => PushDestination.forNotification(
+    type: type,
+    resourceType: resourceType,
+    resourceId: resourceId,
+  );
+
+  bool get pointsToServiceOrder => destination != null;
 
   factory AppNotification.fromJson(Map<String, dynamic> json) =>
       AppNotification(
