@@ -45,6 +45,38 @@ async function body(response: Response) {
   };
 }
 
+/**
+ * "Pouco antes de agora", mas NUNCA antes da meia-noite do dia civil.
+ *
+ * A mesma bomba-relógio que o teste de correção mais abaixo já desarma à mão:
+ * no primeiro minuto depois da meia-noite, `Date.now() - 60_000` cai no dia
+ * ANTERIOR e o pedido aponta para outra jornada. A rota responde 404 — certo —
+ * e o teste falha por hora da suíte, não por defeito.
+ */
+async function agoraNoDiaCivil(recuoMs = 60_000): Promise<Date> {
+  const { timezone } = await prisma.company.findUniqueOrThrow({
+    where: { id: fixture.companyA.id },
+    select: { timezone: true },
+  });
+  const agora = new Date();
+  const partes = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(agora);
+  const parte = (tipo: string) =>
+    Number(partes.find((p) => p.type === tipo)?.value ?? 0);
+  const decorrido =
+    (((parte("hour") % 24) * 60 + parte("minute")) * 60 + parte("second")) *
+      1000 +
+    agora.getMilliseconds();
+  return new Date(
+    agora.getTime() - Math.min(recuoMs, Math.max(0, decorrido - 1)),
+  );
+}
+
 async function cenario() {
   const technician = await prisma.technician.upsert({
     where: { userId: fixture.techA.id },
@@ -271,7 +303,7 @@ describe("Field — pedido de correção", () => {
         body: {
           requestedType: "MISSING_ENTRY",
           requestedEntryType: "CLOCK_OUT",
-          requestedOccurredAt: new Date(Date.now() - 60_000).toISOString(),
+          requestedOccurredAt: (await agoraNoDiaCivil()).toISOString(),
           reason: "Esqueci de bater a saída.",
         },
       }),
@@ -298,7 +330,7 @@ describe("Field — pedido de correção", () => {
         body: {
           requestedType: "MISSING_ENTRY",
           requestedEntryType: "CLOCK_OUT",
-          requestedOccurredAt: new Date(Date.now() - 60_000).toISOString(),
+          requestedOccurredAt: (await agoraNoDiaCivil()).toISOString(),
           reason: "Esqueci.",
         },
       }),

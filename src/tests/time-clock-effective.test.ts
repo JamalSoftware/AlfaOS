@@ -84,6 +84,34 @@ function decorridoHoje(agora: Date, timezone: string): number {
 }
 
 /**
+ * "Pouco antes de agora", mas NUNCA antes da meia-noite do dia civil.
+ *
+ * `Date.now() - 60_000` sozinho é uma bomba-relógio, exatamente como o
+ * `- 30min` que a `DQ-4` desarmou em `time-clock-routes.test.ts`: no primeiro
+ * minuto depois da meia-noite ele cai no dia ANTERIOR, e o pedido passa a
+ * apontar para outra jornada. O domínio responde certo, e o teste falha por
+ * hora da suíte.
+ *
+ * **Encontrado numa execução que atravessou a meia-noite** — a suíte começou
+ * 23:56 e este arquivo rodou depois da virada. Passava nas outras 23h59.
+ */
+async function agoraNoDiaCivil(
+  companyId: string,
+  recuoMs = 60_000,
+): Promise<Date> {
+  const { timezone } = await prisma.company.findUniqueOrThrow({
+    where: { id: companyId },
+    select: { timezone: true },
+  });
+  const agora = new Date();
+  const decorrido = decorridoHoje(agora, timezone);
+  // Recua o que couber, parando 1ms depois da meia-noite.
+  return new Date(
+    agora.getTime() - Math.min(recuoMs, Math.max(0, decorrido - 1)),
+  );
+}
+
+/**
  * Semeia uma jornada e devolve `t(1..9)`, marcos ordenados dentro do dia.
  *
  * `hoje = true` ancora nas frações do que já passou HOJE — sempre no dia civil
@@ -939,13 +967,14 @@ describe("Supersessão", () => {
     // tabela inteira: corrigir hoje apontando para a marcação de ontem
     // atravessaria dois dias e deixaria os dois inconsistentes.
     const ontem = await jornada([["CLOCK_IN", 1]]);
+    const pedidoParaHoje = await agoraNoDiaCivil(ontem.companyId);
 
     await esperaErro(
       () =>
         requestTimeAdjustment(ontem.companyId, ontem.userId, {
           requestedType: "WRONG_TIME",
           requestedEntryType: "CLOCK_IN",
-          requestedOccurredAt: new Date(Date.now() - 60_000),
+          requestedOccurredAt: pedidoParaHoje,
           reason: "Alvo de outro dia.",
           targetEntryId: ontem.entries[0].id,
         }),
