@@ -4,20 +4,21 @@ Plano da fase descrita no PRD **§153–§157**. Mora aqui, e não no PRD, pelo
 mesmo motivo que `DISPATCH-QUEUE.md`: o PRD é visão de produto, e provider,
 ciclo do token, política de retry e contrato de payload são engenharia.
 
-> **Estado: `NF-1`, `NF-2` e `NF-3` ENTREGUES. `NF-4` e `NF-5` continuam
-> `PLANNED`.**
+> **Estado: `NF-1` a `NF-4` ENTREGUES. `NF-5` — piloto em aparelho físico —
+> continua `PLANNED`.**
 >
 > O provider real do FCM existe, a seleção por configuração existe, e o defeito
 > de logout que a §2 registrou foi corrigido (§24). O Flutter inicializa o
 > Firebase, pede a permissão com contexto e obtém o token (§25). O token chega
-> ao `MobileDevice.pushToken` e acompanha a rotação (§26).
+> ao `MobileDevice.pushToken` e acompanha a rotação (§26). E o toque numa
+> notificação leva à OS, atrás do guarda de sessão (§27).
 >
 > **Nenhuma migration, nenhum projeto Firebase criado e nenhum segredo
 > versionado.** O aplicativo compila e roda **sem** o `google-services.json`;
 > enquanto ele não existir, o push fica `unavailable`. **Nenhum push chega a um
-> aparelho ainda** — não por falta de encanamento, que a `NF-3` fechou, mas
-> porque sem o `google-services.json` o provedor não emite token nenhum. O que
-> falta é o §15, mais o deep link (`NF-4`) e o piloto físico (`NF-5`).
+> aparelho ainda** — não por falta de encanamento, que a `NF-3` e a `NF-4`
+> fecharam, mas porque sem o `google-services.json` o provedor não emite token
+> nenhum. O que falta é o §15 e o piloto físico (`NF-5`).
 
 ---
 
@@ -430,8 +431,8 @@ aparecem aqui.
 | **NF-1** ✅ | `FcmPushProvider`, seleção por configuração, fail-safe, **limpeza do `pushToken` no logout**, logging | ❌ | `firebase-admin` (só worker) — **ENTREGUE, ver §24** |
 | **NF-2** ✅ | Flutter: `firebase_messaging`, config nativa Android, permissão com contexto | ❌ | `firebase_core`, `firebase_messaging` — **ENTREGUE, ver §25** |
 | **NF-3** ✅ | Flutter: enviar o token no `devices/register`, listener de rotação, ciclo de sessão | ❌ | — **ENTREGUE, ver §26** |
-| **NF-4** `PLANNED` | Deep link do toque, nos três estados, atrás do guard de sessão | ❌ | — |
-| **NF-5** `PLANNED` | Piloto em aparelho físico e endurecimento | ❌ | — |
+| **NF-4** ✅ | Deep link do toque, nos três estados, atrás do guard de sessão | ❌ | — **ENTREGUE, ver §27** |
+| **NF-5** `PLANNED` | Piloto em aparelho físico e endurecimento | ❌ | depende do `google-services.json` (§15) |
 | **NF-6** | `FUTURO` — entrega por dispositivo, se houver quem leia | ✅ provável | — |
 | **NF-7** | `FUTURO` — eventos novos, com controle de tempestade | ❌ | — |
 
@@ -1106,3 +1107,192 @@ O registro **não tem retentativa própria**. Falha de rede, `401` e `403` são
 engolidos, não marcam o token como registrado, e a próxima oportunidade
 autenticada tenta de novo. Sem laço, sem fila, sem backoff — a próxima
 oportunidade chega sozinha, na abertura seguinte ou na rotação seguinte.
+
+---
+
+## 27. `NF-4` — o que foi entregue
+
+O toque numa notificação leva à OS. **Zero migration, zero dependência, zero
+endpoint novo, zero mudança de backend** — o `git diff` do servidor tem apenas
+testes.
+
+Nenhuma notificação local foi criada, e nenhuma tela foi redesenhada: o
+`FIELD DESIGN FREEZE` continua valendo, e esta fase é comportamento.
+
+### 27.1 Um parser, e ele é uma allowlist
+
+`PushDestination.fromData` é o **único** lugar que interpreta payload. Três
+listeners com três interpretações divergiriam no dia do primeiro evento novo, e
+o que divergiria em silêncio é para onde o técnico é levado.
+
+Ele exige `type == SERVICE_ORDER_ASSIGNED`, `resourceType == ServiceOrder` e um
+`resourceId` que case `^[A-Za-z0-9_-]{1,64}$`. Qualquer outra coisa devolve
+`null`, e **nada lança**: o payload vem da rede e de uma camada nativa, e o
+parser roda na ABERTURA do aplicativo, ao consultar o toque que o abriu. Um
+parser que estoura ali não deixa o aplicativo subir.
+
+**A validação do identificador é segurança, não capricho.** Ele preenche UM
+segmento de `/orders/:id`; sem a regra, `resourceId = "abc/execucao"` montaria
+`/orders/abc/execucao` e o payload passaria a **escolher a tela**. Barra, ponto,
+interrogação, porcentagem, espaço e unicode ficam de fora.
+
+### 27.2 Push indica destino; ele não autoriza nada
+
+O único dado do payload que sobrevive é o identificador dentro da rota. A tela
+de detalhe busca a OS pelo caminho autenticado de sempre, e `getFieldServiceOrder`
+continua filtrando por `companyId` **e** `technicianId` em SQL — sem saber que a
+navegação veio de um push.
+
+Os dois desfechos que isso garante estão provados contra Postgres real:
+
+```text
+OS reatribuída entre o envio e o toque   404, com controle positivo
+OS de outra empresa                      404, com controle positivo
+```
+
+O `404` é escolha, não acaso: `403` confirmaria que aquele id existe, que é
+exatamente o fato que um técnico sondando ids não pode aprender.
+
+### 27.3 Os três estados, e a distinção que os separa
+
+```text
+app FECHADO      getInitialMessage()      toque → navega
+app em SEGUNDO   onMessageOpenedApp       toque → navega
+app ABERTO       onMessage                NINGUÉM tocou → só atualiza estado
+```
+
+O erro clássico da integração de push é tratar "chegou mensagem" e "a pessoa
+tocou na mensagem" como o mesmo evento. Eles são opostos em intenção. Trocar a
+tela debaixo da mão de um técnico que está no meio de uma execução é a pior
+coisa que um aplicativo de campo pode fazer — e ele nem pediu.
+
+Em primeiro plano o aplicativo recarrega **três** coisas: fila do despacho,
+lista de OS e contagem do sino. Recarregar tudo puxaria jornada, estoque e
+sessão junto, em cima de alguém que muitas vezes está em borda de sinal.
+
+### 27.4 O guarda é o do roteador, e não há segunda porta
+
+Sem sessão, o destino **espera**. Empurrar a rota funcionaria — o `redirect` do
+`GoRouter` mandaria para o login de qualquer jeito —, mas funcionaria por
+acidente, e o destino se perderia no caminho.
+
+O pendente é memória, nunca disco: um ponteiro para recurso de uma empresa não
+sobrevive ao logout. E ele é **descartado** quando a fase vira `unauthenticated`
+ou `revoked`, porque um destino guardado durante o técnico A não pode abrir na
+sessão do técnico B, que entrou no mesmo aparelho em seguida.
+
+Um teste estrutural proíbe `Navigator.`, `GoRouter` e `go_router` dentro do
+`PushNavigator`, com os comentários removidos antes da asserção.
+
+### 27.5 O defeito que a auditoria encontrou, e que nenhum teste de unidade veria
+
+**O caminho real de produção estava quebrado, e falhava em silêncio.**
+
+O destino pendente é consumido quando a fase da sessão muda — exatamente o
+instante em que o `routerProvider` é invalidado, porque ele observa essa fase.
+O `push` acertava um `GoRouter` recém-criado cujo delegate ainda não fora
+anexado à árvore, e a resolução da rota inicial que vinha em seguida
+**descartava** o empilhamento.
+
+O sintoma: o técnico tocava o aviso, entrava, e caía no Início. Sem erro, sem
+log, sem nada que explicasse por que a notificação não levou a lugar nenhum.
+
+Todos os testes de unidade da fase passavam, porque todos injetam um roteador
+falso — eles provam a DECISÃO, não a expressão que roda em produção. A auditoria
+independente apontou a lacuna como `LOW`; ao escrever o teste que a fecha
+(`test/widget/push_deeplink_route_test.dart`, com o `GoRouter` de verdade), a
+lacuna virou defeito reproduzido.
+
+A correção é empilhar **depois do quadro**, com `ensureVisualUpdate` para
+garantir que exista um quadro pelo qual esperar — um toque com o aplicativo já
+aberto não muda estado nenhum por conta própria. Provado nos dois sentidos.
+
+### 27.6 A central de notificações usa o mesmo parser
+
+Ela já navegava, com um predicado próprio: `resourceType == 'ServiceOrder'` e
+`resourceId` não vazio. Agora passa por `PushDestination`, porque a pergunta é
+idêntica — "para onde este aviso leva?" — e duas respostas divergiriam.
+
+**Registro honesto do ganho:** isto é endurecimento em profundidade, e **não** o
+fechamento de um vetor explorável. Existe uma única escrita de
+`Notification.resourceId` em produção, e ela grava o `id` da OS. O buraco existia
+no código e não tinha fonte que o alcançasse. O valor está em não depender de a
+única fonte continuar sendo a única.
+
+Preço declarado: um `type` futuro apontando para OS — a mensagem "a OS saiu de
+você", por exemplo — deixará de navegar **em silêncio** até alguém estender o
+parser. É o custo da allowlist, e é preferível ao contrário.
+
+### 27.7 Repetição, e a tela onde a pessoa já está
+
+Duas defesas independentes, para coisas diferentes:
+
+* **`messageId` já tratado** — janela de 32 ids em memória. Cobre o mesmo toque
+  entregue duas vezes pela plataforma.
+* **"já estou lá"** — `startsWith`, e não igualdade: quem está em
+  `/orders/x/execucao` está DENTRO daquela OS, e tirá-lo da execução para
+  mostrar o detalhe dela seria perder trabalho em andamento por causa de um
+  aviso sobre o que ele já está fazendo.
+
+A primeira só ficou provada depois da auditoria: o teste original repetia a
+mensagem com o técnico já na OS, e a segunda defesa o descartaria sozinha — a
+asserção passava com a deduplicação removida.
+
+### 27.8 Provas de reversão
+
+Oito sabotagens do enunciado, mais três reversões próprias.
+
+```text
+A  navegar sem sessão                     NF4-07, 08, 09, 11 e 18 falham
+B  primeiro plano navega sozinho          NF4-13 e NF4-14 falham
+C  qualquer `type` vira OS                NF4-02 e NF4-15 falham
+D  posse fora do predicado da consulta    NF4-17 falha
+E  a mesma, no eixo temporal              NF4-16 falha
+F  repetição empilha                      NF4-12 (2) e NF4-19 (2) falham
+G  ouvinte duplicado                      ver abaixo
+H  deep link quebra o Voltar              NF4-21 falha
+
+1  `push` sem esperar o quadro            teste do roteador real falha
+2  deduplicação removida                  NF4-12 falha
+3  grep de fonte sem tirar comentários     — corrigido antes de ser explorado
+```
+
+**A sabotagem `G` passou na primeira rodada, e o defeito era do teste.** A
+deduplicação do coordenador e a guarda de "já estou lá" **mascaram** ouvintes
+duplicados: o segundo evento é descartado, a contagem de navegações continua
+certa, e o vazamento segue vivo — acumulando uma assinatura por reinício. A
+correção foi contar assinaturas VIVAS no duplo, e não navegações. Com isso, `G`
+cai.
+
+### 27.9 Gates
+
+```text
+1694 Vitest        (era 1689)
+ 116 Playwright    inalterado
+ 399 Flutter       (era 360)
+lint, tsc, build, build:worker, dart format, flutter analyze
+prisma validate, 24 migrations — NENHUMA nova
+APK debug construído, sem google-services.json
+```
+
+Auditoria independente: **`APPROVED WITH RISKS`** — 0 CRITICAL, 0 HIGH, 0
+MEDIUM, 3 LOW, 7 INFO. Os três `LOW` foram corrigidos, e um deles era o defeito
+da §27.5. Dois `INFO` viraram código: a atualização de primeiro plano passou a
+consultar a sessão, e a afirmação sobre a injeção na central foi corrigida para
+o que ela de fato é.
+
+### 27.10 O que a `NF-4` deliberadamente NÃO faz
+
+```text
+flutter_local_notifications   fora de escopo, e não instalado
+banner em primeiro plano      NF-0 decidiu que não; continua não
+navegar em primeiro plano     nunca — ninguém tocou em nada
+marcar lida ao tocar o push   a central tem regra própria, preservada
+eventos de push novos         o parser é allowlist; um evento novo é trabalho
+rastreio de entrega           NF-6, e só se houver quem leia
+iOS                           fora
+```
+
+**Falta o piloto físico (`NF-5`).** Gesto de sistema, toque em notificação real
+e ordem de subida não se aprovam por teste de widget — e a §27.5 é a prova
+disso: o caminho de produção estava quebrado com 34 testes verdes.

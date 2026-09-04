@@ -1420,6 +1420,38 @@ O valor bruto do `pushToken` **nunca sai do servidor**: a listagem
 administrativa o converte em booleano, nenhuma rota o devolve, e a auditoria de
 registro grava o **nome** do campo alterado, nunca o conteúdo.
 
+#### O toque numa notificação indica destino — nunca autoriza
+
+O payload de push chega pela rede e um aparelho comprometido pode forjá-lo.
+Nada nele concede acesso: ele produz **uma rota**, e a tela consulta o servidor
+pelo caminho autenticado de sempre. `getFieldServiceOrder` continua filtrando
+por `companyId` **e** `technicianId` em SQL, sem saber que a navegação veio de
+um aviso — uma OS reatribuída entre o envio e o toque responde `404`, e uma OS
+de outra empresa também.
+
+`404` e não `403`, pela mesma razão do resto da superfície: confirmar que aquele
+identificador existe é justamente o fato que um técnico sondando ids não pode
+aprender.
+
+**Injeção de rota fechada na origem.** O identificador preenche UM segmento de
+`/orders/:id`, então ele é validado contra `^[A-Za-z0-9_-]{1,64}$` antes de a
+rota ser montada. Sem isso, `resourceId = "abc/execucao"` produziria
+`/orders/abc/execucao`: o payload deixaria de indicar um recurso e passaria a
+**escolher a tela**. A mesma validação passou a valer para a central de
+notificações — ali é defesa em profundidade, já que a única escrita de
+`Notification.resourceId` em produção grava o `id` da OS.
+
+**O guarda de sessão é o do roteador, e não há segunda porta.** Sem sessão
+autenticada o destino fica em memória e espera o login; ele é descartado quando
+a fase vira `unauthenticated` ou `revoked`, porque um destino guardado durante a
+sessão de um técnico não pode abrir na sessão do próximo no mesmo aparelho.
+Nada é gravado em disco: um ponteiro para recurso de uma empresa não sobrevive
+ao logout.
+
+**Mensagem recebida com o aplicativo aberto não navega.** Ninguém tocou em
+nada — ela atualiza estado, e apenas quando há sessão. Navegar ali tiraria o
+técnico do meio de um atendimento sem que ele tivesse pedido.
+
 ### O cookie da web não abre o Field, e vice-versa
 
 O token é lido **exclusivamente** de `Authorization: Bearer`. Nunca de cookie,

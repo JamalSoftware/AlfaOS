@@ -451,11 +451,19 @@ Quatro coisas que a especificação fixou e são fáceis de desfazer sem percebe
 **Quando:** a tarefa envolve CTO, porta óptica, vínculo do cliente à rede de distribuição ou o status na visão da caixa.
 **Quando NÃO:** qualquer outra coisa. **Nada disso existe em código**, e a §119 se aplica. A sequência da fila fechou (`DQ-1`–`DQ-7.2`), o que **desbloqueia** o gate do CTO assim que a v0.12 for publicada — desbloquear não é promover, e escrever a especificação não a coloca na ordem.
 
-## Field Notification Foundation — NF-1, NF-2 e NF-3 ENTREGUES, NF-4 e NF-5 PLANNED
+## Field Notification Foundation — NF-1 a NF-4 ENTREGUES, NF-5 (piloto físico) PLANNED
 
 **Carregar:** `docs/FIELD-NOTIFICATIONS.md` (plano — inventário do que já existe, arquitetura, escolha de SDK, ciclo do token, payload, deep link, fases `NF-1`–`NF-7`, testes, plano adversarial, decisões `NP-01`–`NP-05`) e PRD §153–§157. Código: `src/lib/push/provider.ts`, `src/lib/outbox.ts`, `src/lib/outbox-handlers.ts`, `src/lib/notifications.ts`, `scripts/outbox-worker.ts`, `src/lib/field/devices.ts`.
 
-**Servidor pronto (`NF-1`), aparelho preparado (`NF-2`) e token registrado (`NF-3`) — e ainda assim NENHUM push chega.** A razão deixou de ser o encanamento: sem o `google-services.json` da plataforma, o provedor não emite token nenhum. Deep link do toque é `NF-4`; piloto físico é `NF-5`.
+**Servidor pronto (`NF-1`), aparelho preparado (`NF-2`), token registrado (`NF-3`) e deep link do toque (`NF-4`) — e ainda assim NENHUM push chega.** A razão deixou de ser o encanamento: sem o `google-services.json` da plataforma, o provedor não emite token nenhum. Falta o piloto físico (`NF-5`).
+
+**O parser de payload é `PushDestination` (`core/push/push_destination.dart`), e ele é ALLOWLIST** — `type` + `resourceType` + formato do `resourceId` (`^[A-Za-z0-9_-]{1,64}$`). Nenhum listener consulta `data['type']` por conta própria. A validação do identificador é **segurança**: ele preenche UM segmento de `/orders/:id`, e sem ela `resourceId = "abc/execucao"` faria o payload ESCOLHER a tela. A central de notificações usa o mesmo parser.
+
+**Push indica destino; não autoriza.** A tela de detalhe busca a OS pelo caminho autenticado, e `getFieldServiceOrder` filtra por `companyId` E `technicianId` — OS reatribuída e OS de outra empresa dão 404, com controle positivo em `src/tests/field-push-deeplink.test.ts`.
+
+**Três estados, e "chegou" ≠ "tocou":** `getInitialMessage` e `onMessageOpenedApp` navegam (é intenção da pessoa); `onMessage` **nunca navega** — atualiza fila, lista de OS e contagem do sino, e nada mais.
+
+**Armadilha registrada (`NF-4` §27.5):** o `routerProvider` é recriado a cada troca de fase, e o destino pendente é consumido exatamente nessa troca. Empilhar rota ali acerta um `GoRouter` cujo delegate ainda não foi anexado, e o empilhamento é DESCARTADO em silêncio. A navegação vai por `addPostFrameCallback` + `ensureVisualUpdate`. Todos os testes de unidade passavam com o defeito vivo, porque injetam roteador falso — quem o pegou foi `test/widget/push_deeplink_route_test.dart`, com o `GoRouter` real.
 
 Código: no servidor, `src/lib/push/fcm.ts` (provider e mapper de erro) e `src/lib/push/bootstrap.ts` (a escolha, uma vez por processo). No aplicativo, `apps/field/lib/core/push/` — `field_push_service.dart` (a costura e a implementação Firebase), `push_coordinator.dart` (quando perguntar **e para onde o token vai**), `push_prompt_memory.dart` e `push_permission_sheet.dart`.
 
@@ -473,7 +481,7 @@ O levantamento do `NF-0` verificou arquivo por arquivo, e continua valendo:
 * **`MobileDevice.pushToken` já existe**, e `POST /devices/register` e `POST /auth/login` já o aceitam. **Nenhuma migration é necessária em `NF-1`–`NF-5`.**
 * **A abstração de provider já existe** (`PushNotificationProvider`, `PushMessage`, `PushDeliveryResult`), com `NoopPushProvider` que devolve `delivered: 0` — ele **não finge entrega**, de propósito. `setPushProvider` é a costura que os testes já usam.
 * **A central de notificações é real**: `GET /api/field/v1/notifications`, e o sino do Field consome o estado verdadeiro. Não é placeholder.
-* **Falta**: o deep link do toque (`NF-4`) e o piloto físico (`NF-5`). O envio do token ao AlfaOS foi entregue na `NF-3`.
+* **Falta**: o piloto físico (`NF-5`). Envio do token (`NF-3`) e deep link do toque (`NF-4`) foram entregues.
 
 **Três regras da `NF-3` que não podem ser desfeitas:** `pushToken: null` **nunca** é enviado pelo aplicativo (o contrato do servidor lê isso como revogação, e o provedor devolve `null` por motivo banal); **permissão negada não registra** (no Android o `getToken()` responde mesmo sem permissão, e registrar faria `pushToken != null` significar "existe endereço" em vez de "dá para avisar esta pessoa"); e o registro **solta o token de qualquer outra linha da mesma empresa**, porque um token endereça UMA instalação — o par que divide o aparelho da empresa, com um `logout` que não alcançou o servidor, receberia a notificação do outro. A limpeza para no tenant, e a janela residual está declarada em `SECURITY.md` §8.13.
 
@@ -482,7 +490,7 @@ O levantamento do `NF-0` verificou arquivo por arquivo, e continua valendo:
 **A escolha de SDK depende de um fato do grafo de imports:** `outbox-handlers.ts` é alcançado só por `scripts/outbox-worker.ts` e pelos testes — **nenhuma rota do Next**. Por isso `firebase-admin` fica confinado ao worker, e a credencial de serviço nunca existe no runtime web. Se algum dia uma rota importar esse arquivo, a decisão precisa ser reavaliada, não herdada em silêncio.
 
 **Quando:** a tarefa envolve push, FCM, token de aparelho, outbox de notificação, deep link vindo de notificação, ou permissão de notificação no Android.
-**Quando NÃO:** a central de notificações in-app (já existe e funciona sem push), notificação do painel web (outro assunto), ou qualquer coisa que não atravesse o provider. **`NF-1`, `NF-2` e `NF-3` estão entregues; `NF-4` a `NF-7` não foram iniciadas.**
+**Quando NÃO:** notificação do painel web (outro assunto) ou qualquer coisa que não atravesse o provider. **`NF-1` a `NF-4` estão entregues; `NF-5` (piloto físico) não foi iniciada, e `NF-6`/`NF-7` seguem `FUTURO`.**
 
 ## Colaboração entre Técnicos — PLANNED, nada em código
 
