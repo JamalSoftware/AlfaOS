@@ -360,6 +360,66 @@ describe("SSRF", () => {
     }
   });
 
+  it("SGP1-11b: IPv4 embutido em literal IPv6 não escapa do filtro", async () => {
+    /*
+      Achado da auditoria de release (`SSRF-01`), com exploração demonstrada.
+
+      O guarda tinha a ramificação certa e ela nunca disparava: o parser WHATWG
+      de `URL` normaliza `[::ffff:127.0.0.1]` para o hostname `[::ffff:7f00:1]`
+      — hexadecimal, sem ponto —, e a verificação só reconhecia a forma
+      pontuada. Loopback, metadados de nuvem, RFC1918 e NAT64 atravessavam,
+      enquanto `127.0.0.1` e `[::1]` eram corretamente recusados.
+
+      **A asserção vive AQUI, no nível do guarda, e não em `isPrivateAddress`.**
+      Essa é a lição do achado: a suíte antiga testava a função auxiliar, onde a
+      normalização da URL ainda não aconteceu — e por isso o defeito não
+      conseguia aparecer. Testar a unidade não é testar o controle.
+    */
+    for (const url of [
+      "https://[::ffff:127.0.0.1]",
+      "https://[::ffff:169.254.169.254]",
+      "https://[::ffff:10.0.0.5]",
+      "https://[::ffff:192.168.1.1]:8443",
+      "https://[::ffff:172.16.0.1]",
+      "https://[::127.0.0.1]",
+      "https://[64:ff9b::127.0.0.1]",
+    ]) {
+      await expect(
+        testCandidateConnection({
+          provider: "SGP",
+          candidate: { baseUrl: url, app: APP, token: TOKEN },
+        }),
+        `deveria recusar ${url}`,
+      ).rejects.toBeInstanceOf(DomainError);
+    }
+  });
+
+  it("SGP1-11c: endereço público em literal IPv6 continua aceito", async () => {
+    /*
+      Controle positivo. Sem ele, a correção acima passaria mesmo se alguém
+      recusasse TODO literal IPv6 — o teste ficaria verde e um SGP hospedado em
+      IPv6 pararia de funcionar sem ninguém entender por quê.
+
+      Não há rede aqui: o que se afirma é que o GUARDA deixa passar. A chamada
+      falha depois, no transporte, e é isso que o `catch` distingue.
+    */
+    for (const url of [
+      "https://[::ffff:8.8.8.8]",
+      "https://[2001:4860:4860::8888]",
+    ]) {
+      let recusadoPeloGuarda = false;
+      try {
+        await testCandidateConnection({
+          provider: "SGP",
+          candidate: { baseUrl: url, app: APP, token: TOKEN },
+        });
+      } catch (erro) {
+        recusadoPeloGuarda = erro instanceof DomainError;
+      }
+      expect(recusadoPeloGuarda, `${url} não deveria ser barrado`).toBe(false);
+    }
+  });
+
   it("SGP1-12: link-local e o endereço de metadados são recusados", async () => {
     for (const url of [
       "https://169.254.169.254/latest/meta-data/",
