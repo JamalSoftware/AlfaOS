@@ -1972,10 +1972,10 @@ são a assinatura da localização aproximada do Android.
 
 `POST_NOTIFICATIONS` estava `granted=true`, confirmando o piloto da `NF-5`.
 
-**Câmera: NÃO EXECUTADO.** O único gatilho de câmera é a tela de Execução, e ela
-não carregou contra o servidor local — falha **pré-existente e alheia a
-permissões**, registrada em §8.16.6. `CAMERA` seguiu em `granted=false`; nenhum
-`pm grant` foi usado em teste nenhum.
+**Câmera — EXECUTADO depois, e PASSOU (§8.16.11).** Na auditoria de permissões
+ficou NÃO EXECUTADO porque a tela de Execução não carregava. O bloqueio era
+transitório, do servidor de desenvolvimento, e não defeito de rota — §8.16.11
+mostra por quê. Nenhum `pm grant` foi usado em teste nenhum.
 
 ### 8.16.6 Achado fora do escopo, não corrigido
 
@@ -1987,7 +1987,7 @@ responde `401` com o envelope JSON correto, enquanto as duas rotas sob
 `service-orders/[id]` respondem **500 com HTML**. Merece investigação própria;
 não é regressão desta auditoria e não toca permissão.
 
-### 8.16.7 Pendência de produto: o seletor de fotos
+### 8.16.7 `PHOTO-PICKER-01` — pendência de produto: o seletor de fotos
 
 `image_picker` expõe `useAndroidPhotoPicker`, e o padrão do plugin é `false` — o
 AlfaOS nunca o liga. A galeria abre por `ACTION_GET_CONTENT`, não pelo seletor
@@ -2003,10 +2003,13 @@ moderno muda o comportamento da tela de foto, que é exatamente o caminho que
 esta auditoria **não conseguiu exercitar em aparelho** (§8.16.5). Mudança de UX
 não verificável não entra numa auditoria.
 
-### 8.16.8 `EXIF-01` — coordenada GPS viaja na foto de evidência
+### 8.16.8 `EXIF-01` — coordenada GPS viaja na foto de evidência · **CLOSED**
 
-**Achado da auditoria independente. Pré-existente desde a v0.10. NÃO corrigido
-nesta tarefa, e a razão está no fim desta seção.**
+> **Estado: `CLOSED`.** Corrigido no servidor, com prova de reprodução antes e
+> teste físico depois. O registro do achado fica abaixo; a correção está em
+> §8.16.10.
+
+**Achado da auditoria independente. Pré-existente desde a v0.10.**
 
 Toda foto de evidência sobe com o bloco GPS do EXIF intacto. A cadeia foi
 verificada no fonte resolvido deste projeto, não presumida:
@@ -2031,19 +2034,12 @@ Não é vazamento entre empresas nem falha de autorização — o dado fica dent
 tenant. É coleta e retenção de dado pessoal fora da política que o próprio
 projeto escreveu.
 
-**Por que não foi corrigido aqui.** Não existe correção sem dependência nova, e
-o mandato desta tarefa proíbe uma. Foi verificado: `requestFullMetadata`, que
-resolveria no iOS, **não tem implementação Java** no plugin — o Android o ignora.
-Remover `maxWidth`/`imageQuality` também não resolve, porque o ramo sem
-redimensionamento preserva o EXIF igual. As duas saídas reais são uma biblioteca
-de EXIF no aparelho ou uma de imagem no servidor. Some-se a isso que o caminho
-da foto é justamente o que esta auditoria **não conseguiu exercitar em
-aparelho**, e corrigir às cegas o ponto de saída da evidência — com risco de
-perder `TAG_ORIENTATION` e passar a exibir foto girada — seria pior que
-registrar.
-
-**Falta o controle positivo:** ler o EXIF de uma foto realmente capturada pelo
-aplicativo. Ele deve preceder o dimensionamento da correção.
+**Por que não foi corrigido na auditoria de permissões.** O mandato daquela
+tarefa proibia dependência nova, e a saída parecia exigir uma — o caminho do
+aparelho está fechado (`requestFullMetadata` **não tem implementação Java** no
+plugin, e remover `maxWidth`/`imageQuality` não ajuda porque o ramo sem
+redimensionamento preserva o EXIF igual). A reavaliação mostrou que a correção
+no servidor **não** precisa de dependência: ver §8.16.10.
 
 `ACCESS_MEDIA_LOCATION` — a permissão que destravaria o GPS de EXIF em foto de
 galeria no Android 10+ — entrou na lista de proibidas do teste de fronteira,
@@ -2089,3 +2085,127 @@ lista de proibidas.
 **Ressalva que fica de pé:** os testes passarem não prova que o APK de *release*
 está limpo. Eles rodam contra o fundido de **debug**, e o de release nunca foi
 gerado neste repositório.
+
+### 8.16.10 A correção do `EXIF-01` — limpeza de metadado no servidor
+
+#### A fronteira, e por que ela é o servidor
+
+`src/lib/media/image-metadata.ts`, chamado por `addEvidence` e `putSignature`
+(`src/lib/service-order-closing.ts`) — os **dois** pontos que persistem imagem.
+
+Qualquer cliente pode enviar imagem: o aplicativo, um script, uma integração
+futura, alguém com o token. Uma limpeza feita só no aparelho protegeria
+exatamente quem já se comporta bem. E a posição dentro da função importa: a
+sanitização acontece **antes do hash e do tamanho**, de modo que `contentHash` e
+`sizeBytes` descrevem o ARQUIVO GRAVADO. Sanitizar depois do hash faria o campo
+que existe para provar "o arquivo não mudou" acusar corrupção em toda foto.
+
+#### Dependência: nenhuma
+
+Metadado vive em **segmentos de contêiner**, ao lado dos dados comprimidos — não
+dentro deles. Removê-lo é percorrer a estrutura e não copiar certos pedaços:
+nenhum pixel é decodificado, nada é recomprimido, nenhuma qualidade se perde.
+`sharp` faria o oposto — decodificar e reencodar tudo para jogar fora um punhado
+de bytes —, cobrando binário nativo no deploy e degradando a evidência a cada
+upload. O inventário confirmou que o projeto **não tem** nenhuma biblioteca de
+imagem, e continua sem ter.
+
+#### Política de metadado
+
+| Segmento | Destino | Por quê |
+|---|---|---|
+| `APP0` com prefixo `JFIF\0` | fica | estrutural; não fala da pessoa |
+| `APP2` com prefixo `ICC_PROFILE\0` | fica | perfil de cor; tirá-lo muda como a foto APARECE |
+| `APP1` Exif | sai, **menos `Orientation`** | é onde mora a IFD de GPS |
+| `APP1` XMP | sai | `exif:GPSLatitude` em texto |
+| `APP13` IPTC, demais `APPn`, `COM` | sai | sem valor operacional |
+| bytes depois do `EOI` | sai | trailer de Motion Photo |
+| PNG `eXIf`/`tEXt`/`iTXt`/`zTXt` | sai | `eXIf` carrega GPS igual ao do JPEG |
+| WebP `EXIF`/`XMP `, com os bits do `VP8X` zerados | sai | senão o arquivo se descreve errado |
+
+**Minimização com uma exceção declarada.** `Orientation` é reinjetada num EXIF
+mínimo de 34 bytes porque o AlfaOS **não decodifica** a imagem: os pixels chegam
+como a câmera os gravou e é a tag que os endireita. Apagá-la faria toda foto de
+retrato aparecer deitada, e o técnico levaria a culpa por "tirar a foto errada".
+Imagem sem orientação declarada **não ganha uma inventada**.
+
+**O que isto NÃO faz:** não é defesa contra esteganografia. Dado escondido nos
+pixels sobrevive, e sobreviveria a um reencode também.
+
+#### O que a auditoria independente encontrou na primeira versão
+
+Veredito `APPROVED WITH RISKS` — 0 CRITICAL, 0 HIGH, **2 MEDIUM**, e os dois
+eram reais. Ambos corrigidos, com regressão própria e prova de reversão:
+
+* **`EXIFA-01` — arma de CPU.** O percurso trabalha sobre bytes escolhidos por
+  quem envia, e marcadores isolados ocupam **dois bytes**: 8 MB deles produziam
+  **1452 ms de event loop bloqueado**, contra 2 ms de um JPEG normal — 726
+  vezes. Em Node isso não é uma requisição lenta, é a aplicação inteira parada,
+  para todos os tenants, porque a thread é uma só. Fechado com teto de 1024
+  segmentos, que nenhum JPEG real alcança.
+* **`EXIFA-02` — o arquivo não termina na imagem.** A limpeza copiava tudo a
+  partir do `SOS`, o que está certo para os dados comprimidos e errado para o
+  que vem depois do `EOI`. Samsung e Google anexam ali o MP4 da Motion Photo,
+  cujo `moov/udta/©xyz` guarda coordenada — e ele atravessava intacto o mesmo
+  arquivo em que GPS, thumbnail e IPTC eram removidos. Alcançável pela **web**,
+  onde o `<input type="file">` envia o arquivo cru. Fechado cortando no `EOI`.
+
+Mais dois `LOW`: `APP0` e `APP2` eram preservados pelo **número** do marcador,
+o que deixava passar `JFXX` (que carrega thumbnail) e qualquer carga com prefixo
+parecido com `ICC_PROFILE`. Agora são reconhecidos pelo conteúdo.
+
+#### Efeito colateral declarado: a validação apertou
+
+De "tem os bytes mágicos certos" para "é um contêiner que fecha". Arquivo
+truncado ou malformado passa a receber **400** em vez de ser gravado corrompido
+— falha fechada, e estritamente melhor. O preço apareceu de imediato: os
+fixtures de imagem de **sete** arquivos de teste eram assinatura mais enchimento
+e nunca foram imagem nenhuma. Viraram contêineres mínimos válidos.
+
+#### Provas
+
+Reprodução antes da correção: **8 testes falhando**, com GPS sobrevivendo à
+persistência. Depois: **16 testes** (`EXIF-01`…`EXIF-10`), e seis provas de
+reversão — persistir o original, preservar GPS, apagar sem tratar orientação,
+copiar até o fim do buffer, remover o teto de segmentos, e preservar `APPn` pelo
+número.
+
+**Prova física**, aparelho real, foto real capturada pela tela que o técnico usa:
+
+```text
+original enviado pelo aparelho   EXIF_PRESENT=true   26406 bytes, com marca/modelo/MakerNote
+arquivo gravado                  EXIF_PRESENT=false  25267 bytes
+                                 GPS_METADATA_PRESENT=false
+                                 XMP_PRESENT=false
+segmentos preservados            0xE0 (JFIF), 0xE2 (ICC) — exatamente a política
+```
+
+**Limite honesto:** aquele exemplar **não tinha GPS** — a câmera do aparelho não
+anexou coordenada —, então o teste físico prova que EXIF real de câmera é
+removido, e o GPS especificamente é provado pelo teste com fixture controlado. A
+IFD de GPS mora **dentro** do bloco EXIF que foi demonstravelmente removido por
+inteiro, o que liga as duas provas.
+
+### 8.16.11 Teste físico da câmera — `PASS`
+
+Executado pela mesma tela que o técnico usa em produção; nenhuma rota
+temporária, nenhuma tela de depuração, nenhum `pm grant`.
+
+```text
+estado inicial          CAMERA granted=false
+OS -> Execução -> Adicionar foto -> categoria
+  prompt NATIVO do Android aparece EXATAMENTE aqui, não no login nem na subida
+NÃO PERMITIR            app não quebra; câmera não abre; fotos, OS e sessão
+                        intactas; granted=false com USER_SET
+segunda tentativa       o prompt reaparece — negar uma vez não é permanente
+DURANTE O USO DO APP    granted=true; a câmera do sistema abre
+captura + envio         evidência gravada, e sem metadado (§8.16.10)
+```
+
+**O bloqueio anterior era do servidor de desenvolvimento, não da rota.** A
+`getFieldExecutionBundle` já respondia corretamente quando chamada direto com os
+identificadores reais, a rota tem cobertura de teste que passa, e numa instância
+limpa as três rotas devolvem `401` JSON para requisição sem token — inclusive as
+duas sob `service-orders/[id]`, que antes tinham devolvido `500` HTML. Nenhuma
+linha de rota, autorização, tenancy, posse, máquina de estados ou CAS foi
+alterada para fazer a tela carregar.
