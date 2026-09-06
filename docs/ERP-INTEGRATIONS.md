@@ -985,4 +985,8 @@ que é o mesmo transporte do cliente do ReceitaNet e não exige gerar boundary. 
 o SGP recusar, muda o `Content-Type` e a serialização — e nada mais.
 
 Nenhum teste automático chama o SGP real. Sem credencial de sandbox disponível,
-o estado é **`SGP SANDBOX VALIDATION REQUIRED`**.
+o estado é **`SGP SANDBOX VALIDATION REQUIRED`** e, desde a `RC-1`, também
+**`PRODUCTION ACTIVATION GUARDED`**: a ativação em produção depende de
+`SGP_ACTIVATION_ENABLED=true`, que é decisão deliberada tomada depois da
+homologação com uma instalação real. Testar a conexão continua liberado. Ver
+`docs/SECURITY.md` §8.18.

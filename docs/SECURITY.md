@@ -1252,6 +1252,14 @@ obtido do projeto Firebase da plataforma, com o `applicationId`
 injetado no momento do build. O Gradle o aplica **condicionalmente**: sem o
 arquivo o APK compila e o push fica `unavailable`, em vez de o build quebrar.
 
+**A ativação do SGP fica travada até a homologação.** `SGP_ACTIVATION_ENABLED`
+é o padrão de produção em `false` — ausente também é `false`, e a comparação é
+exata com `"true"` (mesma convenção de `TRUST_PROXY_HEADERS`), de modo que
+`"1"`, `"yes"` e `"TRUE"` **não** liberam nada. Testar a conexão continua
+disponível: é diagnóstico e é o que a homologação precisa fazer. Ligar para
+`true` é decisão deliberada, depois de o SGP ser exercitado contra uma
+instalação real — ver §8.18.
+
 **O worker precisa ser chamado.** Ele processa um lote e termina — é comando,
 não daemon, e a decisão está justificada em `scripts/outbox-worker.ts`. Execuções
 sobrepostas são seguras porque a reivindicação é um `updateMany` com predicado de
@@ -2299,3 +2307,94 @@ A regressão (`SGP1-11b`) vive **no nível do guarda**, não da função auxilia
 porque é ali que a normalização da URL já aconteceu. Ao revisar teste novo, a
 pergunta é *"o defeito conseguiria aparecer nesta asserção?"* antes de *"a
 asserção está correta?"*.
+
+---
+
+## 8.18. `RC-1` — a ativação do SGP é travada até a homologação real
+
+Fecha o único MEDIUM aberto da revisão final de checkpoint.
+
+### O que a revisão mediu
+
+O SGP autentica e é ativável desde a `SGP-1`, e **nunca foi exercitado contra
+uma instalação real**. A consequência de ativá-lo hoje não é hipotética: o
+`SgpAdapter` não declara capability de negócio nenhuma, então toda a superfície
+ERP da empresa passa a responder `NOT_SUPPORTED` — busca de cliente,
+diagnóstico, chamados. Reversível, porque a credencial do provider anterior é
+preservada; e **ninguém era avisado**.
+
+### A trava
+
+`SGP_ACTIVATION_ENABLED`, padrão `false`, comparação **exata** com `"true"`.
+Ausente é `false`; ilegível é `false`. `"1"`, `"yes"` e `"TRUE"` não liberam —
+um parser permissivo transforma erro de digitação em liberação silenciosa, e o
+padrão de uma trava de release tem de ser fechado.
+
+**Ela vive no domínio, não na rota**, e a diferença é o que a torna uma regra em
+vez de uma porta: um caller futuro — script, job, outra rota — herda a trava sem
+precisar lembrar dela.
+
+E vive nas **duas** funções que escrevem `ERPIntegration.provider`, que são as
+únicas do repositório: `activateErpProviderWithConfiguration` e
+`switchActiveErpProvider`. A segunda já recusava o SGP, mas por
+`requiresCandidateConfiguration` — um predicado que existe por outra razão. Duas
+proteções que só coincidiam por acidente: um provider futuro que precise de
+trava e não de configuração candidata passaria direto, e ninguém saberia que
+aquele `if` virara controle de release. Apontado pela auditoria independente.
+
+**E é defesa em profundidade, declarada como tal.** Remover o guarda dessa
+segunda função **não derruba nenhum teste** — foi verificado por sabotagem —,
+porque o predicado vizinho continua recusando o SGP antes dele. O valor dele é
+futuro, para o provider que ainda não existe; hoje ele não é o controle que
+carrega o peso, e afirmar o contrário seria vender proteção que não está sendo
+exercida.
+
+O guarda roda **antes de tudo**: antes da validação do candidato
+(que resolve DNS), antes do reteste (que emite requisição), antes da cifragem e
+da transação. Uma recusa não toca a rede e não deixa rastro — nem
+`ERPIntegration`, nem `ERPCredential`, nem `AuditLog`.
+
+Resposta: **409**, e a mensagem **não nomeia a variável de ambiente**. Quem
+opera precisa saber que a ativação não está liberada e o que fazer; quem sonda
+não precisa saber como ela é ligada.
+
+### O que a trava NÃO faz
+
+**Não bloqueia testar.** É diagnóstico, não persiste nada, não altera o ERP
+ativo — e é exatamente o que a homologação precisa. **Não é global.** O
+ReceitaNet, o rollback e a troca entre providers liberados seguem intactos: um
+guarda global pareceria mais seguro e quebraria a operação de quem já usa ERP,
+inclusive o caminho de volta.
+
+**E não prende ninguém dentro do SGP.** A trava é de ativação, não de uso:
+fechá-la depois de uma empresa já estar no SGP não impede a volta. Provado por
+`RC1-14`, e não afirmado — o contrário transformaria uma proteção de release
+numa armadilha, justamente para quem ativou antes dela existir.
+
+> **Correção de uma afirmação que estava aqui.** Esta seção dizia que "a
+> sabotagem que aplica a trava a todos os providers derruba apenas `RC1-08`".
+> **Era falsa**, e a auditoria independente mostrou por quê: aquela sabotagem
+> também punha o guarda em `switchActiveErpProvider`, e foi essa metade que
+> derrubou o teste. Tirar `provider === "SGP"` do predicado teria sido
+> **invisível para a suíte inteira** — nenhum teste chamava a ativação com outro
+> provider. A especificidade agora é afirmada no próprio predicado (`RC1-13`).
+
+### A tela
+
+`EM VALIDAÇÃO` no lugar de `DISPONÍVEL`, com o aviso **antes** do formulário e
+não depois do erro: sem isso a pessoa preenche Base URL, App e Token, testa com
+sucesso e só então descobre que ativar não é possível. O botão de ativar não é
+renderizado.
+
+**A tela é consequência da regra, nunca a regra.** Esconder botão não é
+controle: `RC1-11` chama a rota direto, sem tela nenhuma, e recebe 409 sem
+nenhuma mutação.
+
+### Quando liberar
+
+Depois de o SGP ser exercitado contra uma instalação real — inclusive o detalhe
+de transporte ainda aberto (`urlencoded` × `multipart/form-data`,
+`docs/ERP-SGP.md` §10). Aí `SGP_ACTIVATION_ENABLED=true`, deliberadamente.
+
+O estado documentado do SGP passa a ser: **`CODE COMPLETE`,
+`REAL TENANT VALIDATION REQUIRED`, `PRODUCTION ACTIVATION GUARDED`.**
