@@ -229,6 +229,22 @@ model Company {
   /// jornada, e nao deve nascer uma segunda.
   timezone String @default("America/Sao_Paulo")
 
+  /// A capability CTO / Rede de Distribuicao existe para esta empresa (C-02).
+  ///
+  /// Uma COLUNA, e nao um framework de feature flag: o precedente do projeto e
+  /// `pppoePasswordPolicy` e `timezone`, politicas por empresa em colunas
+  /// proprias. Uma tabela generica de flags criaria infraestrutura para um
+  /// consumidor so.
+  ///
+  /// `false` por padrao, e a migration nao habilita ninguem: empresa que nunca
+  /// ouviu falar do modulo nao o recebe por omissao.
+  ///
+  /// CAPABILITY NAO E PERMISSAO. Ligada, ela diz que o modulo existe para a
+  /// empresa; nao diz que quem chamou pode agir. As duas verificacoes sao
+  /// independentes e as duas sao obrigatorias em toda rota — inclusive de
+  /// leitura, porque desligada o modulo responde 404 e nao 403.
+  ctoNetworkEnabled Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -274,6 +290,10 @@ model Company {
   // Fila operacional de OS (PRD Parte XII)
   dispatchQueues       TechnicianDispatchQueue[]
   dispatchQueueEntries TechnicianDispatchQueueEntry[]
+
+  // CTOs e rede de distribuicao (PRD Parte XIII, CTO-1)
+  ctos     CTO[]
+  ctoPorts CTOPort[]
 
   @@map("companies")
 }
@@ -2424,4 +2444,139 @@ model TechnicianDispatchQueueEntry {
   /// posicao ao fim da transacao. Tambem e o indice de leitura ordenada.
   @@unique([queueId, position])
   @@map("technician_dispatch_queue_entries")
+}
+
+/// Estado ADMINISTRATIVO de uma porta — e so ele (CTO-0.1, secao 3).
+///
+/// Responde "esta posicao pode receber alguem?". NAO responde "tem alguem
+/// aqui agora?": ocupacao e DERIVADA da existencia de um vinculo ativo, e
+/// `OCCUPIED` nao existe como valor gravavel em lugar nenhum.
+///
+/// A especificacao chegou a listar quatro estados incluindo `OCUPADA`,
+/// enquanto a secao seguinte recusava a coluna como autoridade justamente por
+/// criar "um segundo lugar que precisa concordar com a existencia do vinculo".
+/// Persistir ocupacao E esse segundo lugar: um rollback parcial que perca o
+/// vinculo deixaria a porta marcada como ocupada sem ninguem dentro. Com a
+/// ocupacao derivada, ela volta a ficar livre por construcao.
+///
+/// `RESERVED` e `DAMAGED` ficam FORA da contagem de portas livres. Uma porta
+/// danificada nao esta livre, e nunca esteve ocupada.
+enum CtoPortAdministrativeState {
+  AVAILABLE
+  RESERVED
+  DAMAGED
+}
+
+/// Uma caixa de terminacao optica — a caixa fisica no poste (PRD Parte XIII).
+///
+/// O tecnico chega ao poste e precisa saber em qual caixa e em qual porta o
+/// cliente esta. Ate aqui o AlfaOS nao sabia: a informacao vivia na cabeca de
+/// quem instalou.
+///
+/// FRONTEIRA COM O FIBERMAP (PRD 334): isto e cadastro OPERACIONAL, nao
+/// topologia fisica. Cabo, splitter, PON e OLT continuam fora do AlfaOS. No dia
+/// em que houver FiberMap integrado, ele manda na topologia fisica e o AlfaOS
+/// no vinculo operacional — quem esta em qual porta, desde quando, por qual OS.
+model CTO {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// O nome que a operacao fala: "A16", "CTO-001", "CX-45", "NAP-12". Manual e
+  /// obrigatorio; nada nesta capability depende da nomenclatura de uma empresa
+  /// especifica. Editavel — trocar a etiqueta da caixa no poste nao muda quem
+  /// esta ligado nela.
+  name String
+
+  /// Identificador estavel opcional, IMUTAVEL depois da criacao (C-06).
+  ///
+  /// A imutabilidade e regra de SERVICO: Postgres nao tem coluna "so na
+  /// criacao". Sem a verificacao explicita no caminho de update, `code` viraria
+  /// editavel na primeira rota que aceitasse o campo inteiro do formulario — e
+  /// ele existe justamente para ser a ancora que nao muda enquanto `name` muda.
+  code String?
+
+  /// Quantas posicoes a caixa OFERECE hoje. Por empresa, nunca fixo em 8.
+  ///
+  /// NAO e a contagem de linhas de `CTOPort`: reduzir capacidade nao apaga
+  /// porta, entao depois de uma reducao existem linhas com `number > capacity`.
+  /// Elas sao historico, nao posicoes ofertaveis. Um relatorio que contar linhas
+  /// para dizer "esta CTO tem 16 portas" estara errado.
+  capacity Int
+
+  /// Onde a caixa esta. Opcionais de proposito: uma CTO sem GPS continua util,
+  /// so nao entra no mapa (que e CTO-3 e nao existe).
+  ///
+  /// Coordenada da CAIXA, nao do cliente — e a da caixa e publica por natureza,
+  /// porque ela fica no poste. Nao confundir com `CustomerLocation`, que e do
+  /// cliente, tem historico proprio e regra de precedencia propria.
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+
+  /// "Poste em frente ao numero 340". Como chegar quando a coordenada nao
+  /// basta — especialmente em area rural.
+  addressReference String?
+
+  notes String?
+
+  /// Chave da foto da caixa no storage, CONSTRUIDA NO SERVIDOR.
+  ///
+  /// O cliente nunca envia caminho: `buildStorageKey` monta a chave a partir do
+  /// tenant e do recurso. Aceitar caminho do cliente seria deixa-lo escolher
+  /// onde escrever e o que ler.
+  photoStorageKey String?
+
+  /// Inativar e a operacao suportada; apagar nao e (N-13). CTO com historico
+  /// nunca some, e as portas dela seguem com `Restrict`.
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ports CTOPort[]
+
+  /// Nome unico por empresa. Duas caixas "A16" na mesma operacao seriam
+  /// indistinguiveis para quem esta no poste.
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("ctos")
+}
+
+/// Uma posicao dentro da caixa.
+///
+/// Nasce com a CTO: `capacity = N` cria `1..N` na MESMA transacao, e nao existe
+/// caminho para cadastrar porta a porta. Uma CTO cuja gravacao de porta falhou
+/// pela metade e uma caixa que a operacao enxerga como incompleta sem saber por
+/// que.
+model CTOPort {
+  id    String @id @default(cuid())
+  ctoId String
+  /// `Restrict`, nao `Cascade`: `N-13` proibe apagar CTO com historico, e a
+  /// operacao suportada e inativar. Mesma escolha que
+  /// `Technician -> TechnicianDispatchQueue` fez na DQ-1, pelo mesmo motivo.
+  cto   CTO    @relation(fields: [ctoId], references: [id], onDelete: Restrict)
+
+  /// Redundante de proposito, como em `ServiceOrderExecution`, `TimeEntry` e
+  /// `TechnicianDispatchQueueEntry`: permite filtrar tenant num predicado SQL
+  /// em vez de navegar a FK ate a CTO.
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// A posicao. Unica por CTO — e a unique e do BANCO.
+  ///
+  /// Sem ela, duas edicoes concorrentes de capacidade criam a porta 9 duas
+  /// vezes, e a CTO passa a ter duas posicoes com o mesmo numero, cada uma com
+  /// direito ao proprio vinculo ativo quando a CTO-2 chegar.
+  number Int
+
+  administrativeState CtoPortAdministrativeState @default(AVAILABLE)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ctoId, number])
+  @@index([companyId])
+  @@map("cto_ports")
 }
