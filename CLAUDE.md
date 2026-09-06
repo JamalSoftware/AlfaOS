@@ -354,7 +354,7 @@ Quatro decisões que não podem ser desfeitas: **`Customer.ctoId` não serve** (
 
 **QR é OPCIONAL, e o padrão é desligado** — com ele off, nenhuma função principal fica indisponível.
 
-**Isto NÃO muda o próximo passo: continua sendo `DQ-6`** (Field consumindo a fila autoritativa + Android Back). CTO entra depois da sequência da fila estar concluída e publicada.
+**Isto NÃO muda o próximo passo: continua sendo `DQ-6`** (Field consumindo a fila autoritativa + Android Back). CTO entra depois da sequência da fila estar concluída e publicada. *(Registro do momento em que a Parte XIII foi escrita. A fila fechou e foi publicada na `v0.12`, o gate caiu, e a CTO é hoje a trilha ativa — ver o bloco de estado no fim deste arquivo.)*
 
 **`DQ-6` ENTREGUE — commits locais, sem tag e sem push. `DEVICE PILOT PASSED`.** O Field passou a obedecer à fila do despacho, e o `Voltar` do Android parou de fechar o aplicativo. **Flutter apenas — nenhum arquivo web, backend, schema ou migration foi tocado**; nenhuma rota nova.
 
@@ -418,7 +418,7 @@ Gates: **1578 Vitest** (era 1571), 116 Playwright, 316 Flutter, lint, tsc, build
 
 **A trilha da Fila Operacional está FECHADA e PUBLICADA: `DQ-1` a `DQ-7.2` existem em código**, com `WEB PILOT` e `DEVICE PILOT` `PASSED` e auditoria clean-room `APPROVED WITH RISKS` — 0 CRITICAL, 0 HIGH, 0 MEDIUM, **0 LOW pendente**, e três INFO aceitos (`DQV-01`, `RSP-01`, `ASG-01`). Tag anotada **`v0.12-operational-dispatch-queue`**, no commit `ce41fb7`, no remoto.
 
-**Trilha atual: `FIELD NOTIFICATION FOUNDATION` — `NF-0` PLANEJADA, nada implementado.** Plano fechado em `docs/FIELD-NOTIFICATIONS.md`; PRD §153–§157.
+**Trilha `FIELD NOTIFICATION FOUNDATION` — PUBLICADA em `v0.13`; o texto abaixo é o registro de como ela nasceu.** Plano fechado em `docs/FIELD-NOTIFICATIONS.md`; PRD §153–§157.
 
 **O levantamento derrubou a premissa de que a fundação estava por fazer.** Verificado arquivo por arquivo: o vertical slice `SERVICE_ORDER_ASSIGNED` **já é completo no backend** — `assignTechnician` grava `ServiceOrder` + `Notification` + `OutboxEvent` na **mesma transação**, o worker reivindica com lease e backoff, e o handler relê a notificação filtrando por `companyId`, busca os aparelhos `ACTIVE`/`revokedAt: null`/`pushToken != null` e limpa **só o `pushToken`** dos recusados, sem revogar o aparelho. `MobileDevice.pushToken` já existe e as rotas de login e `devices/register` já o aceitam. A abstração `PushNotificationProvider` já existe, com um `NoopPushProvider` que devolve `delivered: 0` e **não finge entrega**. A central de notificações é real, e o sino do Field consome o estado verdadeiro.
 
@@ -514,7 +514,7 @@ A política preserva `Orientation` (o AlfaOS não decodifica a imagem, então é
 
 **Auditoria de permissões do Android — CONCLUÍDA.** Matriz definitiva em `docs/SECURITY.md` §8.16. O achado que a governa: **o manifesto de fonte não é o que vai no aparelho** — declaramos 5 permissões e o APK tem 9, porque o `firebase_messaging` injeta 4 (`WAKE_LOCK`, `ACCESS_NETWORK_STATE`, `c2dm.RECEIVE`, `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`). Nenhuma é de runtime, nenhuma foi removida, nenhuma sobrava. Um teste chegou a afirmar que o app **não** usava `WAKE_LOCK`: era verdade sobre a fonte e mentira sobre o artefato, e foi corrigido. A fronteira agora é testada por **igualdade** de conjunto, na fonte e no manifesto **fundido** (`apps/field/test/android_permissions_test.dart`) — lista de proibidas só pega o que alguém já imaginou. **Nada é pedido na subida**; localização e câmera pedem dentro da própria funcionalidade, e negar não bloqueia nada (provado em aparelho: ponto registrado com a permissão negada, sem coordenada). `ACCESS_BACKGROUND_LOCATION` não existe e não deve ser acrescentada.
 
-**Trilha atual: `PLATAFORMA DE ERPs PLUGÁVEIS` — `ERP-0R` planejada, `ERP-1` e `SGP-1` ENTREGUES.** Plano em `docs/ERP-INTEGRATIONS.md` §13–§27, inventário do provider em `docs/ERP-SGP.md`, PRD §352–§361 (Parte XV).
+**Trilha `PLATAFORMA DE ERPs PLUGÁVEIS` — `ERP-1` e `SGP-1` PUBLICADAS em `v0.13`; `ERP-0R` continua só planejada.** Plano em `docs/ERP-INTEGRATIONS.md` §13–§27, inventário do provider em `docs/ERP-SGP.md`, PRD §352–§361 (Parte XV).
 
 **A regra, e ela é definitiva:** `Company → ERPIntegration 0..1 → provider`. **Cada empresa tem ZERO OU UM ERP ativo.** O AlfaOS suporta vários *tipos* de ERP globalmente — `SGP` é provider **`APPROVED / PLANNED`**, `ReceitaNet` é o existente e implementado —, mas **não existe** provider por capability, dual-provider operacional nem principal+secundário. `ERPIntegration.companyId @unique` **preservada**; não trocar por `@@unique([companyId, provider])`.
 
@@ -576,7 +576,9 @@ Gates: **1670 Vitest** (era 1634), 116 Playwright, **339 Flutter** inalterados, 
 
 **`externalProvider` é HISTÓRICO, não seleção.** OS antiga do ReceitaNet continua ReceitaNet depois da troca; OS nova nasce SGP. **Nenhum registro é convertido** — reescrever apagaria de qual sistema veio cada atendimento.
 
-Depois dela existem **três** trilhas documentadas e nenhuma promovida — **Escala de Trabalho P0** (§307), **CTOs e Rede de Distribuição** (§333–§341) e **Colaboração entre Técnicos** (§342–§351). **A ordem entre elas não foi decidida**: são addenda aprovados em momentos diferentes, e escolher agora seria decisão de produto tomada em silêncio. O CTO tinha gate explícito — entrava "depois de a sequência da fila estar concluída e **publicada**" —, então publicar a v0.12 o torna **elegível**, o que não é o mesmo que promovê-lo.
+Depois dela existiam **três** trilhas documentadas e nenhuma promovida — **Escala de Trabalho P0** (§307), **CTOs e Rede de Distribuição** (§333–§341) e **Colaboração entre Técnicos** (§342–§351). A ordem entre elas não estava decidida: são addenda aprovados em momentos diferentes, e escolher em silêncio seria decisão de produto tomada por omissão.
+
+**Decidida na `CTO-0.1`: a trilha ativa é CTOs e Rede de Distribuição** — ver o bloco de estado no fim deste arquivo. **Escala de Trabalho** e **Colaboração entre Técnicos** continuam documentadas e não promovidas, sem ordem entre si.
 
 Também sem código, **documentação apenas**: a **Parte XIV do PRD (§342–§351)** e `docs/FIELD-COLLABORATION.md` — **Colaboração entre Técnicos**. Uma OS tem **um** responsável e **0..N** colaboradores, e a regra que atravessa o módulo inteiro é: **colaborar acrescenta participante SEM trocar o responsável**; **transferir troca o responsável** e por isso mexe na fila de despacho. Nunca são sinônimos, e "repasse" não é palavra desta capability. Habilitável por empresa. **Nada disso existe em código.**
 
@@ -594,6 +596,30 @@ Sete decisões abertas (`COL-01`–`COL-07`), nenhuma resolvida em silêncio; a 
 
 A §119 continua valendo para tudo o que é só especificação: FCM real, offline no cliente, `ToolExecution`, toolbox, custódia de patrimônio, mapa operacional, Central de Despacho, rede interna do cliente, contratos, escala de trabalho e espelho de jornada, CTOs e rede de distribuição, **colaboração entre técnicos** e as **capabilities de negócio do SGP** — busca de cliente, contratos, financeiro e OS (a plataforma e o `SgpAdapter` existem em código: `ERP-1` e `SGP-1`; o adapter só faz `testConnection`). (A **fila operacional de OS** saiu desta lista: `DQ-1` a `DQ-7.2` existem em código. O **push FCM** também, do servidor ao toque que abre a OS: `NF-1` a `NF-5` existem, com piloto físico aprovado.) Duas escalas de prioridade convivem e precisam ser conferidas juntas: §117 classifica o produto (MVP/IMPORTANTE/DIFERENCIAL/FUTURO), §194 classifica a trilha Field (P0/P1/P2).
 
+
+**Baseline publicada: `v0.13-field-push-notifications`** — tag anotada no commit `3c1805e`, no remoto. Ela fecha, num checkpoint só, tudo o que estava acumulado como "commits locais, sem tag e sem push": a **Field Notification Foundation** (`NF-1` a `NF-5`, do provider FCM real ao toque que abre a OS, com **piloto físico aprovado**), a **`ERP-1`**, a **`SGP-1`**, o endurecimento de privacidade de foto (`PC-1`/`EXIF-01`, com câmera física `PASS`), a auditoria de permissões do Android e a trava de ativação do SGP (`RC-1`). As frases "sem tag e sem push" nas seções acima descrevem o estado **no momento de cada entrega** e continuam válidas como registro histórico — a publicação é esta.
+
+**A `SGP-1` é fundação publicada, não homologação.** O SGP autentica e é ativável, e a ativação em produção continua **travada** por `SGP_ACTIVATION_ENABLED` (padrão `false`, comparação exata com `"true"`). `SGP SANDBOX VALIDATION REQUIRED` e `PRODUCTION ACTIVATION GUARDED` seguem valendo: publicar a fundação não homologou o provider contra instalação real.
+
+**Trilha atual: `CTOs E REDE DE DISTRIBUIÇÃO` — `CTO-0` e `CTO-0.1` concluídas, `CTO-1` executável, NADA em código.** Especificação em `docs/CTO-NETWORK-DISTRIBUTION.md`; PRD §333–§341 (Parte XIII).
+
+**O gate histórico caiu.** A §341 condicionava a CTO a "depois de a sequência da fila estar concluída **e publicada**", e a `v0.12` está no remoto. Cair o gate não implementou nada: a §119 vale linha por linha.
+
+A **`CTO-0`** reconciliou a especificação com o código e encontrou uma contradição dentro do próprio documento oficial, mais um buraco num critério de aceite. A **`CTO-0.1`** fechou as doze decisões (`C-01`–`C-12`) e congelou o contrato de schema. **Documentação apenas — zero migration, zero Prisma, zero dependência, zero código.**
+
+Cinco decisões que não podem ser desfeitas em silêncio:
+
+* **Ocupação é DERIVADA, nunca persistida.** `CTOPort.administrativeState` tem três valores — `AVAILABLE · RESERVED · DAMAGED` — e `OCCUPIED` **não é gravável**. O documento listava quatro estados incluindo `OCUPADA` enquanto a seção seguinte recusava `CTOPort.state` como autoridade justamente por criar "um segundo lugar que precisa concordar com a existência do vínculo". Persistir `OCUPADA` **é** esse segundo lugar; a contradição foi resolvida a favor de uma fonte só.
+* **São DUAS uniques parciais**, não uma: `(ctoPortId)` e **`(customerId)`**, ambas `WHERE disconnectedAt IS NULL`. A segunda faltava — e `CTO-AC05` prometia que "o cliente fica em exatamente UMA porta ativa" sem nada no banco que garantisse isso. Duas movimentações concorrentes do mesmo cliente para portas **diferentes** satisfaziam a unique de porta e deixavam o cliente em duas caixas.
+* **`Company.ctoNetworkEnabled`, default `false`** — uma coluna, **não** um framework de feature flag; o precedente do projeto é `pppoePasswordPolicy` e `timezone`. E **capability não é permissão**: as duas verificações são independentes e as duas continuam obrigatórias em toda rota, inclusive de leitura.
+* **Nada de `equipmentId` no vínculo.** `ServiceOrderEquipment` é linha **por OS** e `serial`/`macAddress` são opcionais desde a v0.10 — não existe identidade estável de equipamento fora da OS, e amarrar a topologia a ela faria a rede herdar o ciclo de vida de uma ordem de serviço. Nenhuma entidade `Equipment` global é inventada.
+* **A foto da CTO não ganha um terceiro `stripImageMetadata`.** A `CTO-1` **primeiro extrai** a fronteira comum de upload (sniff de MIME real, teto, sanitização, tradução de falha em 400) e converte os dois pontos existentes; só então acrescenta consumidor. Foi exatamente um ponto novo nascendo fora da política que criou o `EXIF-01`.
+
+Mais quatro que valem registro: a redução de capacidade **não apaga porta** (as posições acima viram histórico, e `capacity` deixa de ser a contagem de linhas), é recusada também com `RESERVED` ou `DAMAGED` — mais estrita que o `N-12`, que continua sendo o piso; `CTO.code` é **imutável** depois da criação enquanto `name` é editável; a `CTO-2` implementa **só `source: FIELD`**, porque criar rota para `WEB`/`IMPORT` "já que o enum tem o valor" é superfície de escrita sem caso de uso; e `ServiceOrder` **não recebe** `ctoId`, `ctoPortId` nem `customerNetworkConnectionId`, como `Customer` não recebe `ctoId` — a direção é sempre `CustomerNetworkConnection → Customer/CTOPort/ServiceOrder`, e `serviceOrderId` é **procedência, não posse**.
+
+**Dois riscos que o congelamento NÃO fecha, e a implementação não pode errar.** **`R-02`** — tenancy cruzada: o vínculo cruza quatro FKs de três agregados, e `ServiceOrder.technicianId` é FK simples sem `(companyId, technicianId)`; a `DQ-7.1` já explorou esse vetor, então a verificação é do serviço, em SQL, com `companyId` da sessão. **`R-13`** — porta histórica acima da capacidade **continua sendo um `ctoPortId` válido**: a unique parcial diz "no máximo um", não "esta posição é ofertável", e se a faixa `1..capacity` for validada só na listagem, a redução de capacidade vira sugestão. **A validação é na escrita**, e não pode ser CHECK de banco (seria cross-table e contradiria a própria política de preservar histórico).
+
+**Sequência ativa: `CTO-1 → CTO-2 → CTO-4 → CTO-5`.** `CTO-3` segue bloqueada pelo Mapa Operacional (§136, sem código), `CTO-6` por estratégia de frescor (`C-03`, o teto de 10 chamadas por minuto por empresa), `CTO-7` é opcional e o QR nasce **desligado**. `C-03` e `C-04` continuam abertas, com fase dona declarada, e **nenhuma das duas bloqueia `CTO-1` ou `CTO-2`**.
 ## Princípios
 
 Integridade > velocidade

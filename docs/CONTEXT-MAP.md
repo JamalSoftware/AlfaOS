@@ -9,6 +9,8 @@ Regra geral: leia a seção "Sempre" em toda sessão nova, depois **só** as se�
 * `CLAUDE.md`
 * Estado do Git: `git status`, `git branch --show-current`, `git log --oneline --decorate -10`, `git tag`
 
+**Baseline publicada: `v0.13-field-push-notifications`.** Ela fecha a Field Notification Foundation (`NF-1`–`NF-5`, com piloto físico aprovado), a `ERP-1` e a `SGP-1`, mais o endurecimento de privacidade de foto (`PC-1`/`EXIF-01`) e a trava de ativação do SGP (`RC-1`). **Trilha de produto ativa: CTO / Rede de Distribuição** — decisões congeladas na `CTO-0.1`, `CTO-1` executável, nada em código.
+
 ## Produto / roadmap
 
 **Carregar:** `docs/PRD.md` — preferencialmente só a(s) seção(ões) relevante(s) à tarefa, não o arquivo inteiro (é longo).
@@ -60,7 +62,9 @@ Para *conduzir* uma auditoria (não apenas consultar as anteriores), use a skill
 
 **O documento tem quatro partes.** As seções **1–12** descrevem a integração ReceitaNet. As **13–27** são o plano da plataforma de ERPs plugáveis (`ERP-0R`). A **§28** registra a **`ERP-1`** e a **§29** a **`SGP-1`**. O que continua sendo só plano são as **capabilities de negócio do SGP**: o `SgpAdapter` implementa apenas `testConnection`.
 
-## ERPs plugáveis e SGP
+## ERPs plugáveis e SGP — `ERP-1` e `SGP-1` PUBLICADAS em `v0.13`
+
+> **A `SGP-1` é FUNDAÇÃO publicada, não homologação.** O provider existe, autentica e é ativável — e a ativação em produção é **travada** por `SGP_ACTIVATION_ENABLED` (padrão `false`, comparação exata com `"true"`, decidida no domínio antes de qualquer leitura, reteste, cifragem ou transação). Testar a conexão continua liberado, porque é diagnóstico e é o que a homologação precisa. **Validação contra instalação real de cliente continua pendente** — `docs/SECURITY.md` §8.18.
 
 **Carregar:** `docs/ERP-INTEGRATIONS.md` §13–§29 (regra, resolução, troca de ERP, migração, testes, roadmap e o registro das duas entregas) e `docs/ERP-SGP.md` (inventário do provider SGP). Complementa: `docs/PRD.md` §352–§361.
 **Quando:** a tarefa toca escolha de ERP por empresa, troca de provider, credencial de um ERP que não seja o ReceitaNet, ou qualquer coisa relacionada ao SGP.
@@ -449,9 +453,21 @@ Quatro coisas que a especificação fixou e são fáceis de desfazer sem percebe
 * **O diagnóstico atual não sustenta tempo real** (§337): refresh é sob demanda com gatilho na OS, e o teto é **10 chamadas por minuto por empresa** — uma CTO de 8 portas consumiria 8. Por isso a CTO mostra o último estado conhecido **com a idade da leitura**.
 
 **Quando:** a tarefa envolve CTO, porta óptica, vínculo do cliente à rede de distribuição ou o status na visão da caixa.
-**Quando NÃO:** qualquer outra coisa. **Nada disso existe em código**, e a §119 se aplica. A sequência da fila fechou (`DQ-1`–`DQ-7.2`), o que **desbloqueia** o gate do CTO assim que a v0.12 for publicada — desbloquear não é promover, e escrever a especificação não a coloca na ordem.
+**Quando NÃO:** qualquer outra coisa. **Nada disso existe em código**, e a §119 se aplica — a CTO ser a trilha ativa não a torna implementada.
 
-## Field Notification Foundation — NF-1 a NF-5 ENTREGUES, piloto físico PASSED
+**O gate CAIU e as decisões estão CONGELADAS.** A `v0.12-operational-dispatch-queue` está publicada, o que satisfez a condição da §341; a `CTO-0.1` fechou as decisões de produto e o contrato de schema. **A `CTO-1` é executável** — e é a única: `CTO-3` segue bloqueada pelo Mapa Operacional, `CTO-6` por estratégia de frescor, `CTO-7` é opcional. Sequência ativa: `CTO-1 → CTO-2 → CTO-4 → CTO-5`.
+
+Cinco coisas que a `CTO-0.1` congelou e não devem ser reabertas em silêncio (§16 e §17 da especificação):
+
+* **Ocupação é DERIVADA, nunca persistida.** `CTOPort.administrativeState` tem três valores — `AVAILABLE · RESERVED · DAMAGED` —, e `OCCUPIED` **não é gravável**. A versão anterior do documento listava quatro estados incluindo `OCUPADA` enquanto a seção seguinte recusava exatamente isso; a contradição foi resolvida a favor de uma fonte só.
+* **São DUAS uniques parciais.** `(ctoPortId)` e **`(customerId)`**, ambas `WHERE disconnectedAt IS NULL`. A segunda faltava, e sem ela `CTO-AC05` era promessa sem mecanismo.
+* **`Company.ctoNetworkEnabled`, default `false`** — coluna, não framework de feature flag; o precedente é `pppoePasswordPolicy`/`timezone`. **Capability não é permissão**, e as duas são verificadas em toda rota.
+* **Sem `equipmentId` no vínculo** (`C-05`): `ServiceOrderEquipment` é linha por OS, e série/MAC são opcionais desde a v0.10 — não existe identidade estável de equipamento fora da OS.
+* **A foto da CTO não ganha um terceiro `stripImageMetadata`.** A `CTO-1` extrai a fronteira comum de upload e converte os dois pontos existentes antes de acrescentar consumidor — foi um ponto novo nascendo fora da política que criou o `EXIF-01`.
+
+Dois riscos que o contrato **não** fecha e a implementação não pode errar: tenancy cruzada entre as quatro FKs do vínculo (`R-02`, com precedente explorado na `DQ-7.1`) e porta histórica acima da capacidade continuar sendo `ctoPortId` válido (`R-13`) — a faixa `1..capacity` é regra de **escrita**, não de listagem.
+
+## Field Notification Foundation — PUBLICADA em `v0.13`, piloto físico PASSED
 
 **Carregar:** `docs/FIELD-NOTIFICATIONS.md` (plano — inventário do que já existe, arquitetura, escolha de SDK, ciclo do token, payload, deep link, fases `NF-1`–`NF-7`, testes, plano adversarial, decisões `NP-01`–`NP-05`) e PRD §153–§157. Código: `src/lib/push/provider.ts`, `src/lib/outbox.ts`, `src/lib/outbox-handlers.ts`, `src/lib/notifications.ts`, `scripts/outbox-worker.ts`, `src/lib/field/devices.ts`.
 
