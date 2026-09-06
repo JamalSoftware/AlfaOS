@@ -11613,6 +11613,18 @@ decisão explícita em contrário. Escrever a especificação não a promove na
 ordem — a §119 vale aqui como em toda parte: estar no PRD não autoriza
 implementar.
 
+> **Atualização — o gate FOI satisfeito.** O texto acima é o registro do
+> momento em que esta Parte foi escrita. A sequência da fila fechou
+> (`DQ-1`–`DQ-7.2`) e foi publicada em `v0.12-operational-dispatch-queue`, de
+> modo que a condição desta seção está cumprida e a CTO é a trilha de produto
+> ativa.
+>
+> As decisões de produto e o contrato de schema foram congelados na fase
+> `CTO-0.1` e vivem em `docs/CTO-NETWORK-DISTRIBUTION.md` §16 e §17 — engenharia
+> mora lá, como o cabeçalho daquele documento já explicava. **Nada disto está
+> em código, e a §119 continua valendo:** a `CTO-1` ser executável não é
+> autorização automática, é a remoção do bloqueio.
+
 ## Onde CTO se encaixa nas escalas existentes
 
 Continuam valendo as duas escalas (§117, §194). A Fila Operacional (Parte XII)

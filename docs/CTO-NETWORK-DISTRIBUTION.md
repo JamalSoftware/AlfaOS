@@ -7,9 +7,16 @@ Mora aqui, e não no PRD, pelo mesmo motivo que `DISPATCH-QUEUE.md` e
 dados, concorrência de porta, matriz de teste e fases são engenharia.
 
 > **Nada disto existe em código.** Nenhuma migration, nenhuma entidade, nenhuma
-> rota, nenhuma tela. Este documento é o que uma futura fase de implementação
-> executaria — e ela **não é a próxima**: a sequência `DQ` da fila operacional
-> vem antes (PRD §341).
+> rota, nenhuma tela.
+>
+> **O gate da §341 CAIU.** Ele condicionava a CTO a "depois de a sequência da
+> fila estar concluída **e publicada**", e `v0.12-operational-dispatch-queue`
+> está no remoto. A CTO é a **trilha de produto ativa** — o que não a promove a
+> implementada: a §119 continua valendo linha por linha.
+>
+> **Decisões de produto congeladas na `CTO-0.1`** (§16) e contrato de schema
+> congelado (§17). Reabrir qualquer um dos dois exige decisão explícita e
+> registro aqui.
 
 ---
 
@@ -104,7 +111,10 @@ cliente: dado de menor confiança não sobrescreve o confirmado em campo.
 
 ## 3. Modelo conceitual
 
-`NÃO criar migration.` Proposta para uma futura fase de planejamento.
+> **CONGELADO na CTO-0.1.** Deixou de ser proposta: o contrato de schema desta
+> seção é o que a `CTO-1` implementa, e as decisões que o fecharam estão
+> registradas na §16. Continua valendo `NÃO criar migration` **fora** da fase
+> que a executa.
 
 ### Opção A — três entidades explícitas (recomendada)
 
@@ -153,9 +163,10 @@ CTO
 CTOPort
   ctoId
   companyId            redundante de propósito: filtro de tenant em SQL
-  number               posição, 1..capacity
-  state                LIVRE · OCUPADA · RESERVADA · DANIFICADA
+  number               posição; único por CTO
+  administrativeState  AVAILABLE · RESERVED · DAMAGED
   notes                opcional
+                       ← NÃO existe OCUPADA. Ver "Ocupação é derivada".
 
 CustomerNetworkConnection
   companyId
@@ -163,7 +174,7 @@ CustomerNetworkConnection
   ctoPortId
   serviceOrderId       a OS que criou o vínculo, quando houve uma
   technicianId         quem instalou
-  equipmentId          a ONT, quando houver vínculo autoritativo
+                       ← SEM equipmentId. Ver §16, decisão C-05.
   connectedAt
   disconnectedAt       NULO enquanto ativo
   source               FIELD · WEB · IMPORT
@@ -173,6 +184,36 @@ CustomerNetworkConnection
 `companyId` repetido em toda linha segue a convenção do projeto
 (`ServiceOrderExecution`, `TimeEntry`, `TechnicianDispatchQueueEntry`): permite
 filtrar tenant **num predicado SQL** em vez de navegar a FK até a CTO.
+
+### Ocupação é DERIVADA, e nunca persistida
+
+A primeira versão desta seção listava `state` com quatro valores —
+`LIVRE · OCUPADA · RESERVADA · DANIFICADA` — enquanto a §4, a duas telas de
+distância, recusava `CTOPort.state` como autoridade justamente por criar *"um
+segundo lugar que precisa concordar com a existência do vínculo"*. As duas
+coisas não convivem: persistir `OCUPADA` **é** o segundo lugar.
+
+> **`administrativeState` responde "esta posição pode receber alguém?".
+> A ocupação responde "tem alguém aqui agora?", e quem responde é a existência
+> de `CustomerNetworkConnection` com `disconnectedAt IS NULL`.**
+
+O estado que a tela mostra é calculado, sempre, nesta ordem:
+
+```text
+existe vínculo ativo nesta porta ?
+  SIM  → OCCUPIED                      (vence qualquer administrativeState)
+  NÃO  → AVAILABLE → FREE
+         RESERVED  → RESERVED
+         DAMAGED   → DAMAGED
+```
+
+`OCCUPIED` **não existe como valor gravável**. Não há coluna que o aceite, então
+não há como duas fontes divergirem: um rollback parcial que perca o vínculo
+devolve a porta a `FREE` por construção, em vez de deixar uma linha marcada
+`OCUPADA` sem ninguém dentro.
+
+`RESERVED` e `DAMAGED` continuam **fora da contagem de portas livres** (§11).
+Uma porta danificada não está livre, e nunca esteve ocupada.
 
 ---
 
@@ -184,21 +225,41 @@ juntas.
 
 ### O que garante a exclusividade
 
+São **duas** uniques parciais, e elas respondem perguntas opostas:
+
 ```text
-unique parcial: (ctoPortId) WHERE disconnectedAt IS NULL
+(ctoPortId) WHERE disconnectedAt IS NULL    uma porta, um cliente
+(customerId) WHERE disconnectedAt IS NULL   um cliente, uma porta
 ```
 
-Uma porta com vínculo ativo não aceita um segundo. É o **banco** que arbitra —
-não uma checagem de aplicação, que perde a corrida por construção.
+A primeira sempre esteve escrita aqui. **A segunda faltava**, e a ausência dela
+era um buraco no próprio critério de aceite: `CTO-AC05` promete que *"o cliente
+fica em exatamente UMA porta ativa"*, e a unique de porta não diz nada sobre
+isso. Duas movimentações concorrentes do mesmo cliente para portas
+**diferentes** satisfazem a primeira e deixam o cliente com dois vínculos
+ativos, em duas caixas. Fechado na CTO-0.1 (§16, `C-11`).
+
+É o **banco** que arbitra as duas — não uma checagem de aplicação, que perde a
+corrida por construção.
 
 > Postgres suporta unique parcial; o Prisma não a modela em `@@unique`. A
-> implementação futura escreve o índice no SQL da migration, como o projeto já
+> implementação escreve os dois índices no SQL da migration, como o projeto já
 > faz com o CHECK de identidade externa da OS
 > (`service_orders_external_identity_check`).
 
-**Alternativa se a unique parcial for descartada:** `CTOPort.state` com CAS. É
-inferior — o estado da porta passa a ser um segundo lugar que precisa concordar
-com a existência do vínculo, e os dois divergem no primeiro rollback parcial.
+A terceira unique é da porta, e não é parcial:
+
+```text
+UNIQUE (ctoId, number)
+```
+
+Sem ela, duas edições concorrentes de capacidade criam a porta 9 duas vezes, e a
+CTO passa a ter duas posições com o mesmo número — cada uma com direito ao
+próprio vínculo ativo, porque a unique parcial é por `ctoPortId`.
+
+**A alternativa `CTOPort.state` com CAS foi DESCARTADA**, não é mais uma opção
+em aberto: a coluna deixou de guardar ocupação (§3, "Ocupação é derivada"), de
+modo que não existe segundo lugar para divergir.
 
 ### A resposta ao perdedor é explícita
 
@@ -428,14 +489,47 @@ cliente vindo do ERP              o ERP origina o Customer, não a topologia
 técnico escolhe a CTO errada      corrige movendo — e a história registra as duas
 ```
 
-### Capacidade reduzida
+### Capacidade — aumentar e reduzir
 
 Baixar uma CTO de 16 para 8 portas com vínculos ativos em 9–16 **desconectaria
 oito clientes por um campo de formulário**.
 
-> Invariante: reduzir capacidade abaixo da maior porta ocupada é **recusado**.
+**Ao criar**, `capacity = N` cria as portas `1..N` **na mesma transação** da
+CTO. Não existe criação manual porta a porta: uma CTO cuja gravação de porta
+falhou pela metade é uma caixa que a operação enxerga como incompleta sem
+saber por quê. Falhou uma, a CTO inteira não nasce.
+
+**Ao aumentar**, `8 → 16` cria `9..16` na mesma transação. Se alguma dessas
+linhas já existir — porque a CTO já foi maior antes —, ela é **reutilizada**,
+nunca duplicada; `UNIQUE (ctoId, number)` é o que torna isso uma invariante em
+vez de uma esperança.
+
+**Ao reduzir, nenhuma `CTOPort` é apagada.** As posições acima da nova
+capacidade continuam no banco, com o histórico delas intacto, e apenas saem da
+seleção. Apagar linha de porta apagaria junto a resposta para *"quem já esteve
+na porta 12?"*.
+
+> Invariante: a redução é **recusada** se qualquer porta acima da nova
+> capacidade tiver vínculo ativo, estiver `RESERVED` ou estiver `DAMAGED`.
 > Liberar aquelas portas é operação administrativa explícita, com auditoria
 > própria.
+
+Isto é **mais estrito** que o `N-12` do PRD, que só falava de porta ocupada.
+`N-12` continua verdadeiro e vira o piso: uma reserva ou uma avaria são
+declarações de que alguém contava com aquela posição, e sumir com elas por um
+campo de formulário tem o mesmo defeito que desconectar cliente.
+
+**Consequência que precisa estar escrita:** `capacity` corrente **não** é a
+contagem de linhas de `CTOPort`. Depois de uma redução, existem linhas com
+`number > capacity`; elas são histórico, não posições ofertáveis. Um relatório
+que contar linhas para dizer "esta CTO tem 16 portas" estará errado.
+
+> Por isso a faixa `1..capacity` é regra de **aplicação**, e não um CHECK de
+> banco. Um CHECK entre `CTOPort.number` e `CTO.capacity` seria cross-table
+> (exigindo trigger) e, pior, seria **incompatível com a própria política
+> acima**, que exige que linhas com `number > capacity` sobrevivam. O banco
+> garante o que é imutável por linha — unicidade e `number > 0`; a faixa
+> ofertável muda com o tempo e é decidida na seleção.
 
 ---
 
@@ -501,26 +595,533 @@ CTO-AC15  o status exibido carrega a IDADE da leitura
 
 ---
 
-## 15. Pendências para o planejamento de implementação
-
-Nenhuma bloqueia a documentação; todas bloqueiam a primeira migration.
+## 15. Pendências — situação depois da CTO-0.1
 
 ```text
-C-01  unique parcial no SQL da migration, ou CAS em CTOPort.state?
-      (recomendado: unique parcial — o banco arbitra)
-
-C-02  como as capabilities por empresa são armazenadas? Não existe
-      infraestrutura de feature flag por empresa no AlfaOS hoje
-
-C-03  o teto de 10/min do diagnóstico serve à CTO, ou a capability
-      precisa de limite próprio? Depende de CTO-5 e CTO-6
-
-C-04  potência óptica entra em ServiceOrderCompletionPolicy ou em
-      política própria da CTO?
-
-C-05  a ONT vincula por ServiceOrderEquipment ou por entidade de
-      inventário? Depende de a v0.10 ter identidade estável do equipamento
-
-C-06  nome da CTO é único por empresa — e o que acontece ao renomear
-      uma caixa que já tem histórico?
+C-01  arbitragem da porta            FECHADA   §16
+C-02  capability por empresa         FECHADA   §16
+C-03  teto de 10/min do diagnóstico  ABERTA    dona: CTO-5
+C-04  potência óptica                ABERTA    dona: CTO-2 / política
+C-05  vínculo da ONT                 FECHADA   §16
+C-06  renomear CTO com histórico     FECHADA   §16
+C-07  quem gerencia a CTO            FECHADA   §16
+C-08  autorização do vínculo Field   FECHADA   §16
+C-09  criação das portas             FECHADA   §16
+C-10  alteração de capacidade        FECHADA   §16
+C-11  um cliente, uma porta          FECHADA   §16
+C-12  foto da CTO                    FECHADA   §16
 ```
+
+**As duas que continuam abertas não bloqueiam `CTO-1` nem `CTO-2`**, e cada uma
+tem fase dona declarada em vez de ficar sem endereço:
+
+* **`C-03`** — o teto de 10 chamadas por minuto por empresa serve à CTO, ou a
+  capability precisa de limite próprio? A pergunta só ganha consequência quando
+  existir tela que agregue status (`CTO-5`) e sinal de falha coletiva
+  (`CTO-6`). `CTO-1` e `CTO-2` não chamam o provider.
+* **`C-04`** — potência óptica entra em `ServiceOrderCompletionPolicy` (que já
+  tem `requiredEvidenceCategories[]`) ou em política própria da CTO? Continua
+  sendo evidência de instalação, nunca campo obrigatório universal (§7).
+
+---
+
+## 16. Decisões congeladas — CTO-0.1
+
+Fase de fechamento de produto, executada sobre `v0.13-field-push-notifications`.
+**Nenhuma linha de código, nenhuma migration, nenhuma alteração de Prisma.** O
+que segue deixou de ser recomendação e passou a ser contrato: reabrir qualquer
+item exige decisão explícita e registro aqui, não uma escolha silenciosa dentro
+de uma fase de implementação.
+
+### `C-01` — arbitragem da porta
+
+Unique parcial no SQL da migration, `(ctoPortId) WHERE disconnectedAt IS NULL`.
+**O banco arbitra.** Perdedor recebe **409** com a mensagem da §4, e **não há
+auto-retry** — reservar de novo por conta própria é decidir pelo técnico qual
+porta ele vai usar. `CTOPort` não é segunda autoridade.
+
+### `C-02` — capability por empresa
+
+```text
+Company.ctoNetworkEnabled   Boolean   default false
+```
+
+Uma coluna, e **nenhum framework genérico de feature flag**. O precedente do
+projeto é exatamente esse: `pppoePasswordPolicy` e `timezone` são políticas por
+empresa em colunas próprias. Uma tabela genérica de flags criaria infraestrutura
+para um consumidor só, e o dia em que a segunda capability aparecer é o dia de
+decidir se ela merece tabela.
+
+`default false` é o padrão seguro: empresa que nunca ouviu falar do módulo não
+o recebe por omissão. Durante o desenvolvimento, a empresa piloto é habilitada
+**explicitamente**.
+
+> **Capability não é permissão.** `ctoNetworkEnabled = true` diz que o módulo
+> existe para aquela empresa; ele **não** diz que quem chamou pode agir. As duas
+> verificações são independentes e as duas continuam obrigatórias — a
+> autorização de perfil (`C-07`) roda igual, com a capability ligada.
+
+### `C-05` — a ONT NÃO entra em `CustomerNetworkConnection`
+
+Sem `equipmentId` na `CTO-2`. O motivo é do código, não de preferência:
+`ServiceOrderEquipment` é uma linha **por OS** (`serviceOrderId` obrigatório,
+apagada em cascata com a OS) e `serial`/`macAddress` são **opcionais** desde a
+v0.10, quando a identificação passou a ser a foto da etiqueta. Não existe, hoje,
+identidade estável do equipamento fora da OS: uma troca de ONT numa segunda OS
+cria outra linha, e um aparelho sem série nem MAC não tem chave nenhuma.
+
+Amarrar o vínculo de rede a essa tabela faria a topologia herdar o ciclo de vida
+de uma ordem de serviço. **Nenhuma entidade `Equipment` global é inventada
+nesta fase.** CTO e porta funcionam sem ONT — e a CTO continua não mostrando
+série nem modelo, como a §7 já autorizava.
+
+### `C-06` — renomear a CTO
+
+`CTO.name` é **editável**; continua único por empresa. `CTO.code`, quando
+usado, é **imutável depois da criação** — é ele que serve de âncora estável
+para quem precisa de identificador que não muda.
+
+Renomear **não** cria CTO nova, **não** altera conexões históricas, **não**
+troca `id` e **não** reescreve histórico. Trocar a etiqueta da caixa no poste
+não muda quem está ligado nela. `AuditLog` registra `before`, `after`, ator,
+empresa e horário do **servidor**.
+
+### `C-07` — quem gerencia a CTO na `CTO-1`
+
+| Perfil | Na `CTO-1` |
+|---|---|
+| `ADMIN` | criar, editar, inativar, alterar capacidade, gerenciar `administrativeState`, enviar e substituir foto |
+| `DISPATCHER` | **não altera CTO** |
+| `TECHNICIAN` | **não altera CTO** |
+
+Leitura é aberta **por fase que precise dela**, não por antecipação: a `CTO-2`
+abre o que o técnico precisa para escolher porta, a `CTO-4` o que a tela de
+detalhe precisa. Conceder privilégio amplo agora, "porque depois vai precisar",
+é como um perfil ganha permissão que ninguém revisou.
+
+### `C-08` — autorização do vínculo pelo Field (fecha para a `CTO-2`)
+
+O técnico cria ou move vínculo pelo Field somente quando **todas** valem:
+
+```text
+autenticado como técnico válido e ativo
+mesma Company                          (sessão, nunca payload)
+a OS pertence à mesma Company
+a OS está IN_PROGRESS
+a OS está sob autoridade daquele técnico, pela regra que já existe
+o Customer do vínculo é EXATAMENTE o Customer da OS
+```
+
+A última linha é a que impede o vetor mais barato: uma OS legítima do próprio
+técnico usada para conectar **outro** cliente a uma porta.
+
+O predicado de posse é o que o projeto já usa — `loadInProgressOwnedOrder`
+(`src/lib/service-order-child-mutation.ts`), que chama `loadOwnedServiceOrder`
+(`src/lib/service-orders.ts`). É o mesmo portão de evidência, material,
+equipamento, assinatura e checklist. **Não se escreve um segundo:** errar essa
+função erra todas as escritas de uma vez, e é exatamente por isso que ela é
+uma só.
+
+Campos cuja autoridade é do **servidor**, e que são ignorados no payload:
+
+```text
+companyId          da sessão
+technicianId       do vínculo usuário→técnico
+serviceOrderId     do contexto da OS
+source             FIELD, definido pelo servidor
+connectedAt        horário do servidor
+disconnectedAt     horário do servidor
+```
+
+### `C-09` — criação das portas
+
+Automática: `capacity = N` cria `1..N` na **mesma transação** da CTO. Sem
+criação manual porta a porta. Falhou uma, a CTO inteira não nasce. Detalhes e
+o caso do aumento estão na §11.
+
+### `C-10` — alteração de capacidade
+
+Aumentar cria as faltantes e **reutiliza** linha histórica preexistente;
+reduzir **não apaga** nada e é recusada com vínculo ativo, `RESERVED` ou
+`DAMAGED` acima da nova capacidade. `capacity` corrente não é a contagem de
+linhas. §11.
+
+### `C-11` — um cliente, uma porta
+
+Segunda unique parcial, `(customerId) WHERE disconnectedAt IS NULL`. Fecha o
+buraco de `CTO-AC05`, que era promessa sem mecanismo. §4.
+
+> **A `CTO-2` deve provar isso por corrida real**, não por afirmação: o mesmo
+> cliente movido simultaneamente para duas portas diferentes, com asserção que
+> **proíbe** o desfecho ruim (exatamente um vínculo ativo), e a corrida
+> repetida — se o vencedor é sempre o mesmo, não houve corrida.
+
+### `C-12` — foto da CTO
+
+Opcional, e **somente pela Web/Admin** na `CTO-1`. Nenhum upload pelo Field
+nesta fase.
+
+Qualquer upload de imagem da CTO passa pela **mesma política de servidor** já
+endurecida no `PC-1`: MIME real por sniff (não o declarado), sanitização de
+metadado, GPS fora, XMP/IPTC/comentário fora, trailer depois do `EOI` fora,
+teto de tamanho e teto de segmentos.
+
+> **Nada de copiar `stripImageMetadata` para um terceiro lugar.** Hoje a
+> limpeza é chamada em exatamente dois pontos (`addEvidence` e `putSignature`,
+> em `src/lib/service-order-closing.ts`), e foi assim — um ponto novo nascendo
+> fora da política — que o `EXIF-01` existiu. A `CTO-1` **primeiro extrai** a
+> fronteira comum (sniff + teto + sanitização + tradução de falha em 400) para
+> um módulo compartilhado e converte os dois pontos existentes a ela; só então
+> acrescenta o terceiro consumidor.
+
+O cliente **não** envia caminho de armazenamento: a chave é construída no
+servidor a partir de tenant e recurso, como `buildStorageKey` já faz.
+
+### Origem do vínculo — `source`
+
+O enum permanece `FIELD · WEB · IMPORT` conceitualmente. A `CTO-2` implementa
+**`FIELD`**, e só. `WEB` e `IMPORT` ficam reservados: **não se cria endpoint
+porque o enum tem o valor** — um caminho de escrita sem caso de uso é superfície
+de ataque sem dono.
+
+### Fronteira com `ServiceOrder` e `Customer` — congelada
+
+```text
+ServiceOrder   NÃO recebe ctoId, ctoPortId nem customerNetworkConnectionId
+Customer       NÃO recebe ctoId
+```
+
+A direção é sempre a mesma, e é ela que faz o vínculo sobreviver à OS
+(`N-14`):
+
+```text
+CustomerNetworkConnection → Customer
+                          → CTOPort → CTO
+                          → ServiceOrder   (procedência, opcional)
+```
+
+`serviceOrderId` é **procedência, não posse**.
+
+### Movimentação — requisito obrigatório da `CTO-2`
+
+Mover `porta antiga → porta nova` fecha o vínculo anterior e abre o novo **na
+mesma transação**, preservando histórico. Além disso:
+
+* **travar o estado autoritativo** antes de decidir. Transação sozinha **não**
+  resolve: sem lock, duas movimentações do mesmo cliente leem o mesmo vínculo
+  aberto e as duas tentam fechá-lo;
+* **ordem determinística de locks quando duas CTOs são tocadas.** A `DQ-2` já
+  pagou esse preço: travar o destino primeiro e ordenar depois é o mesmo que
+  não ordenar. Os identificadores são descobertos e ordenados **antes** de
+  qualquer `FOR UPDATE`.
+
+Fica registrado como requisito de design da `CTO-2`. **Não se implementa
+agora.**
+
+### Offline — congelado
+
+Porta **nunca** é reservada offline. A `CTO-2` é **online-only para mutação**.
+
+Isso hoje não custa esforço nenhum: o motor offline do Field não existe —
+`apps/field/lib/core/sync/pending_operation.dart` se declara contrato preparado
+e não construído, e não há banco local no aplicativo. **Nenhum motor offline é
+construído para viabilizar a CTO.** O cache da última topologia conhecida (§12)
+pertence à fundação de offline, quando ela existir.
+
+### QR — congelado
+
+`CTO_QR_IDENTIFICATION`: opcional, **desligado por padrão**, fase `CTO-7`.
+Nenhum código de QR em fase nenhuma antes disso.
+
+### Sequência ativa
+
+```text
+CTO-1 → CTO-2 → CTO-4 → CTO-5
+```
+
+`CTO-3` continua bloqueada pelo Mapa Operacional (PRD §136, sem código);
+`CTO-6`, por estratégia de frescor (`C-03`); `CTO-7` é opcional. **Nenhuma das
+três é promovida aqui.**
+
+---
+
+## 17. Contrato de schema congelado
+
+Duas migrations separadas, uma por fase. **A `CTO-1` não cria a tabela de
+vínculo**: uma tabela sem escrita é superfície que ninguém exercita, e a unique
+parcial que a protege só se prova com o caminho que a usa.
+
+### Migration da `CTO-1` — aditiva
+
+```text
+ALTER Company
+  ctoNetworkEnabled   Boolean  NOT NULL  DEFAULT false
+
+CREATE ctos
+  id                  cuid, PK
+  companyId           FK Company        Cascade
+  name                text              obrigatório
+  code                text?             imutável após criação (regra de serviço)
+  capacity            int               > 0
+  latitude            Decimal(10,7)?
+  longitude           Decimal(10,7)?
+  addressReference    text?
+  notes               text?
+  photoStorageKey     text?             construída no servidor
+  active              Boolean           default true
+  createdAt/updatedAt
+
+  UNIQUE (companyId, name)
+  INDEX  (companyId)
+  CHECK  capacity > 0
+
+CREATE cto_ports
+  id                  cuid, PK
+  ctoId               FK CTO            Restrict
+  companyId           FK Company        Cascade
+  number              int               > 0
+  administrativeState enum              default AVAILABLE
+  notes               text?
+  createdAt/updatedAt
+
+  UNIQUE (ctoId, number)
+  INDEX  (companyId)
+  CHECK  number > 0
+
+CREATE ENUM CtoPortAdministrativeState
+  AVAILABLE · RESERVED · DAMAGED
+```
+
+`CTO → CTOPort` é **`Restrict`**, não `Cascade`: `N-13` proíbe apagar CTO com
+histórico, e a operação suportada é inativar. É a mesma escolha que
+`Technician → TechnicianDispatchQueue` fez na `DQ-1`, pelo mesmo motivo.
+
+`Company → CTO` permanece `Cascade` porque apagar a empresa inteira é a
+operação de saída do tenant, e ela já leva tudo.
+
+### Migration da `CTO-2` — aditiva
+
+```text
+CREATE customer_network_connections
+  id                  cuid, PK
+  companyId           FK Company        Cascade
+  customerId          FK Customer       Restrict
+  ctoPortId           FK CTOPort        Restrict
+  serviceOrderId      FK ServiceOrder?  SetNull    procedência
+  technicianId        FK Technician?    Restrict
+  connectedAt         timestamptz
+  disconnectedAt      timestamptz?
+  source              enum
+  reason              text?
+  createdAt/updatedAt
+
+  UNIQUE PARCIAL (ctoPortId)  WHERE "disconnectedAt" IS NULL     SQL cru
+  UNIQUE PARCIAL (customerId) WHERE "disconnectedAt" IS NULL     SQL cru
+  INDEX (companyId, customerId)
+  INDEX (companyId, ctoPortId)
+
+CREATE ENUM NetworkConnectionSource
+  FIELD · WEB · IMPORT
+```
+
+`serviceOrderId` é `SetNull` porque é **procedência**: perder a OS não pode
+apagar o vínculo de rede (`N-14`). `customerId` e `ctoPortId` são `Restrict` —
+apagar cliente ou porta com vínculo histórico destruiria a resposta que a
+capability inteira existe para dar.
+
+> Nenhum destes dois blocos autoriza escrever migration fora da sua fase. Este
+> é o contrato que a fase vai implementar, e existir aqui é o que impede que a
+> fase o invente diferente.
+
+---
+
+## 18. Revisão de segurança do contrato congelado
+
+Aplicado o checklist de `alfaos-security-review` ao **contrato**, não a código.
+
+> **Limitação declarada, e ela é dura:** não existe implementação para atacar.
+> Nada aqui foi provado por execução, corrida real ou resposta HTTP. Isto é
+> revisão de design: reclassifica o que o congelamento fecha **por
+> construção** e separa o que continua dependendo de a implementação acertar.
+> Nenhum item abaixo substitui a auditoria da fase.
+
+### Reclassificação dos riscos levantados na `CTO-0`
+
+| # | Risco | Situação |
+|---|---|---|
+| `R-01` | cliente com dois vínculos ativos | **FECHADO por construção** — segunda unique parcial `(customerId) WHERE disconnectedAt IS NULL` (`C-11`). O banco recusa; a `CTO-2` prova por corrida real |
+| `R-02` | tenancy cruzada entre as quatro FKs | **CONTINUA CRÍTICO.** O congelamento **não** fecha isto: `ServiceOrder.technicianId` é FK simples, sem `(companyId, technicianId)`, e a `DQ-7.1` já explorou esse vetor. O `C-08` exige que CTO, porta, cliente, técnico e OS sejam verificados **no serviço**, em predicado SQL com `companyId` da sessão. **Requisito número um da implementação** |
+| `R-03` | terceiro ponto de upload fora da limpeza de EXIF | **FECHADO por política** (`C-12`): a `CTO-1` extrai a fronteira comum e converte os dois pontos existentes **antes** de acrescentar o terceiro. Sem a extração, volta a abrir |
+| `R-04` | dupla fonte de verdade da ocupação | **FECHADO por construção** — `OCCUPIED` não é valor gravável (§3) |
+| `R-05` | mass assignment | **MITIGADO, não fechado.** O `C-08` lista os seis campos cuja autoridade é do servidor; a implementação ainda precisa de whitelist que **rejeita** campo desconhecido, não que o remove em silêncio |
+| `R-06` | PII na projeção da CTO | **CONTINUA.** Dono: `CTO-4`. A §10 autoriza nome e estado; um DTO por spread de `Customer` vazaria CPF, telefone e endereço de vários clientes numa tela só |
+| `R-07` | enumeração na busca por nome | **CONTINUA.** `N-03` manda 404, não 403; o filtro de tenant vai no predicado SQL, nunca por navegação de FK |
+| `R-08` | porta duplicada sob corrida | **FECHADO por construção** — `UNIQUE (ctoId, number)` mais criação na mesma transação (`C-09`) |
+| `R-09` | cascade apagando histórico | **FECHADO por construção** — `Restrict` em `CTO → CTOPort`, `Customer`, `CTOPort` e `Technician`; a operação suportada é inativar (`N-13`) |
+| `R-10` | auto-DoS do teto de 10/min | **CONTINUA, não bloqueia.** Dono: `CTO-5` via `C-03`. `CTO-1` e `CTO-2` não chamam o provider |
+| `R-11` | foto da CTO fora do ciclo de posse da OS | **FECHADO por escopo** — só `ADMIN`, só Web, na `CTO-1` (`C-07`, `C-12`) |
+
+### Três riscos NOVOS, introduzidos pelo próprio contrato
+
+Congelar decisões cria superfícies que antes não existiam. Estas são delas.
+
+**`R-13` — porta histórica acima da capacidade continua sendo um `ctoPortId`
+válido.** É o mais sério dos três, e é consequência direta do `C-10`.
+
+Reduzir a capacidade **não apaga** a porta 12; ela sobrevive como histórico.
+Nada no banco a impede de receber um vínculo novo — a unique parcial só diz
+"no máximo um", não "esta posição é ofertável". Se a validação de faixa viver
+apenas na **listagem** que a tela consome, um payload com o `ctoPortId` da
+porta 12 conecta o cliente a uma posição que a empresa declarou não existir
+mais, e a redução de capacidade vira sugestão.
+
+> **A validação `number <= capacity` é obrigatória na ESCRITA do vínculo, não
+> só na listagem.** A UI não é controle de segurança; ela é a lista de opções.
+
+E ela **não pode** ser um CHECK de banco: seria cross-table (`CTOPort.number`
+contra `CTO.capacity`) e contradiria o próprio `C-10`, que exige linhas com
+`number > capacity` sobrevivendo. O banco garante o imutável por linha
+(unicidade, positividade); a faixa ofertável muda no tempo e é decidida na
+transação que escreve.
+
+**`R-12` — capability e permissão precisam ser verificadas nas DUAS pontas.**
+O `C-02` diz que capability não é permissão, e o inverso também vale: uma rota
+que checa só o perfil opera um módulo que a empresa não contratou. Com
+`ctoNetworkEnabled = false`, toda rota do módulo — leitura inclusive — responde
+como se ele não existisse. Verificar a capability só no componente de página
+deixaria a API aberta; é o mesmo erro de tratar UI como controle.
+
+**`R-15` — `code` imutável é regra de serviço, e o schema não a expressa.**
+Postgres não tem coluna "somente escrita na criação". Sem uma verificação
+explícita no caminho de update, `code` vira editável na primeira rota que
+aceitar o campo inteiro do formulário — e ele existe justamente para ser a
+âncora que não muda (`C-06`).
+
+### O que continua sem cobertura possível nesta fase
+
+Concorrência real, IDOR real, resposta HTTP real e comportamento de transação
+**não** foram exercitados, porque não há o que exercitar. A prova de `R-01`,
+`R-02`, `R-13` e da movimentação é da auditoria das fases, com corrida real
+(`Promise.all`), controle positivo e asserção que **proíbe** o desfecho ruim.
+
+**Veredito do design:** `APPROVED WITH RISKS`. Nenhum bloqueador para iniciar a
+`CTO-1`. `R-02` e `R-13` são os dois que a implementação não pode errar, e os
+dois já têm requisito escrito.
+
+---
+
+## 19. Contrato de implementação da `CTO-1`
+
+O que a próxima fase entrega, e o que ela **não** entrega.
+
+### Escopo
+
+```text
+ENTRA   Company.ctoNetworkEnabled · CTO · CTOPort · portas automáticas
+        capacidade (criar, aumentar, reduzir) · administrativeState
+        inativação · foto opcional · tela web de ADMIN · auditoria
+
+NÃO ENTRA
+        CustomerNetworkConnection      é CTO-2
+        qualquer superfície no Field   é CTO-2
+        mapa                           é CTO-3, bloqueada
+        status ONLINE/OFFLINE          é CTO-5
+        QR                             é CTO-7
+        endpoint WEB/IMPORT de vínculo  reservado, sem caso de uso
+```
+
+### Arquivos esperados
+
+```text
+prisma/schema.prisma                          Company + CTO + CTOPort + enum
+prisma/migrations/<ts>_add_cto_network/       aditiva; SQL da §17
+
+src/lib/cto.ts                                serviço do domínio
+src/lib/media/image-upload.ts                 fronteira comum extraída (C-12)
+src/lib/service-order-closing.ts              convertido à fronteira comum
+
+src/app/api/ctos/route.ts                     GET lista · POST cria
+src/app/api/ctos/[id]/route.ts                GET detalhe · PATCH edita
+src/app/api/ctos/[id]/photo/route.ts          POST foto
+src/app/(app)/ctos/page.tsx                   lista
+src/app/(app)/ctos/[id]/page.tsx              detalhe e portas
+
+src/tests/cto.test.ts                         domínio, tenancy, capacidade
+src/tests/cto-routes.test.ts                  autorização, capability, IDOR
+e2e/ctos.spec.ts                              fluxo de ADMIN
+```
+
+Nomes são a convenção do projeto, não contrato: o que é contrato é a separação
+entre serviço, rota e tela, e o fato de a **fronteira de imagem ser extraída
+antes** de ganhar o terceiro consumidor.
+
+### Autorização — as três verificações, nesta ordem
+
+```text
+1. sessão válida                          401
+2. companyId da sessão                    nunca do payload
+3. Company.ctoNetworkEnabled === true     404 quando desligada
+4. perfil ADMIN                           403
+```
+
+A capability responde **404**, não 403: 403 confirmaria que o módulo existe
+para quem não o contratou. Recurso de outra empresa: **404** (`N-03`).
+
+### Auditoria
+
+`CTO.CREATED` · `CTO.UPDATED` · `CTO.INACTIVATED` · `CTO.CAPACITY_CHANGED` ·
+`CTO.PORT_STATE_CHANGED` · `CTO.PHOTO_UPDATED`, com ator, empresa, entidade,
+horário do **servidor** e antes/depois. Nomes de campo alterados, nunca o
+conteúdo inteiro; nenhum segredo, nenhuma coordenada de cliente.
+
+### Concorrência da `CTO-1`
+
+Duas edições simultâneas de capacidade na mesma CTO. A criação de portas é
+transacional e `UNIQUE (ctoId, number)` arbitra; o perdedor recebe conflito
+explícito, nunca porta duplicada. **A corrida precisa ser real** (`Promise.all`)
+e a asserção precisa proibir o desfecho ruim — contar portas e exigir o número
+exato, não "pelo menos".
+
+### Testes obrigatórios
+
+```text
+tenant           empresa A não lê, edita nem inativa CTO de B — 404, com
+                 controle positivo provando que o caminho autorizado devolve
+capability       desligada → 404 em TODAS as rotas, inclusive leitura
+perfil           DISPATCHER e TECHNICIAN não alteram CTO
+portas           capacity=N cria 1..N na mesma transação; falha → nada nasce
+aumento          8→16 cria 9..16 e REUTILIZA linha histórica existente
+redução          recusada com vínculo ativo, RESERVED ou DAMAGED acima
+histórico        redução não apaga CTOPort; capacity != contagem de linhas
+corrida          duas alterações de capacidade simultâneas → sem duplicata
+name             único por empresa; renomear não altera id nem histórico
+code             imutável depois da criação                        (R-15)
+imagem           EXIF/GPS/XMP/trailer removidos no servidor; MIME real;
+                 teto de tamanho; storageKey construída no servidor
+mass assignment  companyId, id, createdAt e number rejeitados no payload
+```
+
+### Gates
+
+`npm run lint` · `npx tsc --noEmit` · `npm test` · Playwright do fluxo tocado ·
+`npm run build` · `npx prisma validate` · `npx prisma migrate status`.
+Sem dependência nova, então sem `npm audit` obrigatório — **se alguma for
+proposta, ela é decisão à parte, justificada antes de instalar**.
+
+### Definition of Done
+
+```text
+1. migration aditiva aplica em banco vazio e em banco com dados; zero DROP
+2. as três verificações de autorização provadas por teste, com controle positivo
+3. R-02 e R-13 fechados com teste dedicado, não por inspeção
+4. a fronteira de imagem EXTRAÍDA e os dois pontos existentes convertidos —
+   zero cópia nova de stripImageMetadata
+5. todos os gates verdes, com os números registrados
+6. docs/CONTEXT-MAP.md e CLAUDE.md atualizados: CTO-1 deixa de ser PLANNED
+7. relatório com sabotagens e prova de reversão, no padrão das fases anteriores
+8. nenhuma tag, nenhum push, sem autorização explícita
+```
+
+**Validação física:** não se aplica à `CTO-1` (web, sem Field). Ela é
+obrigatória na `CTO-2`, onde `CTO-AC06` só se prova com dois aparelhos
+disputando a mesma porta.
