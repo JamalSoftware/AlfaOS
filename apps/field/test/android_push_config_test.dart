@@ -71,9 +71,29 @@ void main() {
   });
 
   group('NF2-15 · nenhum segredo no Android', () {
-    test('não existe google-services.json versionado', () {
-      // Ele é fornecido pelo operador, por ambiente, e fica fora do Git.
-      expect(File('android/app/google-services.json').existsSync(), isFalse);
+    test('o google-services.json não está RASTREADO pelo Git', () {
+      /*
+        A asserção mudou de forma porque a anterior dizia a coisa errada.
+
+        Ela exigia que o arquivo **não existisse em disco**, e isso só era
+        verdade enquanto o projeto Firebase não existia. No dia em que o
+        operador colocou o arquivo — que é exatamente o que a `NF-5` pede — o
+        teste ficou vermelho sem que nenhum segredo tivesse vazado.
+
+        O que ele quer garantir é que o arquivo não entre no repositório. Quem
+        responde isso é o Git, e é o Git que se pergunta.
+      */
+      final rastreados = Process.runSync('git', [
+        'ls-files',
+        '--error-unmatch',
+        'android/app/google-services.json',
+      ], workingDirectory: Directory.current.path);
+
+      expect(
+        rastreados.exitCode,
+        isNot(0),
+        reason: 'o google-services.json está versionado',
+      );
     });
 
     test('o .gitignore cobre o google-services.json', () {

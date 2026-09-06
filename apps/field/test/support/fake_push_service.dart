@@ -45,9 +45,19 @@ class FakePushService implements FieldPushService {
   /// Simula uma falha do provedor em qualquer chamada.
   bool explodir = false;
 
+  /// Quanto o provedor demora para subir.
+  ///
+  /// `Firebase.initializeApp()` é lento, e num aparelho sem Google Play pode
+  /// simplesmente não responder. Sem poder simular isso, o teste mediria só o
+  /// caso instantâneo — que é justamente o que nunca acontece em campo.
+  Duration atrasoInicializacao = Duration.zero;
+
   @override
   Future<bool> initialize() async {
     initializeCalls += 1;
+    if (atrasoInicializacao > Duration.zero) {
+      await Future<void>.delayed(atrasoInicializacao);
+    }
     if (explodir) throw StateError('firebase fora do ar');
     return disponivel;
   }
