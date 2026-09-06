@@ -282,3 +282,35 @@ test("cada bloco tem Testar conexao, Substituir e Remover proprios", async ({
   expect(html).not.toContain("token_do_callcenter_AAAA");
   expect(html).not.toContain("token_do_chatbot_BBBB");
 });
+
+/**
+ * `RC1-10` — a trava de ativação do SGP aparece na tela.
+ *
+ * A tela é consequência da regra do servidor, nunca a regra: `RC1-11` prova que
+ * um `POST` direto é recusado do mesmo jeito. O que se prova AQUI é honestidade
+ * — que a pessoa descobre o estado antes de preencher Base URL, App e Token e
+ * testar, e não depois.
+ *
+ * `SGP_ACTIVATION_ENABLED` está ausente neste ambiente, que é o padrão de
+ * produção até a homologação.
+ */
+test("RC1-10: com a ativação travada, o SGP aparece EM VALIDAÇÃO e sem botão de ativar", async ({
+  page,
+}) => {
+  await login(page, ADMIN_EMAIL);
+  await page.goto("/integracoes");
+
+  const card = page.getByTestId("provider-card-SGP");
+  await expect(card).toBeVisible();
+  await expect(card.getByTestId("sgp-status")).toHaveText("EM VALIDAÇÃO");
+  await expect(card.getByTestId("sgp-validation-notice")).toContainText(
+    "liberada após a homologação",
+  );
+
+  // Testar continua disponível: é diagnóstico, e é o que a homologação precisa.
+  await card.getByTestId("sgp-configure").click();
+  await expect(card.getByTestId("sgp-test")).toBeVisible();
+
+  // E o botão de ativar não existe — nem depois de preencher o formulário.
+  await expect(card.getByTestId("sgp-activate")).toHaveCount(0);
+});

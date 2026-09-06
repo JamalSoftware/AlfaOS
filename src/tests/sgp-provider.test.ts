@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { ERPCredentialKind, ERPProvider } from "@prisma/client";
 import { POST as candidateRoute } from "@/app/api/integrations/candidate/route";
 import { POST as switchRoute } from "@/app/api/integrations/active-provider/route";
@@ -10,9 +10,13 @@ import { SgpAdapter } from "@/integrations/SgpAdapter";
 import type { FetchLike } from "@/integrations/sgp/SgpClient";
 import { resolveCompanyAdapter, readConfiguredApp } from "@/lib/erp-adapter";
 import { getCredentialFor, saveCredentialFor } from "@/lib/erp-credential-store";
-import { getActiveIntegration } from "@/lib/erp-integration";
+import {
+  getActiveIntegration,
+  switchActiveErpProvider,
+} from "@/lib/erp-integration";
 import {
   activateErpProviderWithConfiguration,
+  assertProviderActivationAllowed,
   testCandidateConnection,
 } from "@/lib/erp-provisioning";
 import { DomainError } from "@/lib/errors";
@@ -554,6 +558,24 @@ describe("Autorização e isolamento", () => {
 // ---------------------------------------------------------------------------
 
 describe("Ativação explícita", () => {
+  /*
+    Esta suíte exercita o FLUXO que a trava de release governa, então ela abre a
+    trava de propósito.
+
+    Os testes abaixo já existiam e passaram a falhar quando a trava entrou — e
+    isso é o comportamento correto, não um efeito colateral: por padrão a
+    ativação do SGP é recusada. Quem prova o padrão é o bloco `RC1`; aqui se
+    prova que, liberado, o fluxo continua sendo o mesmo de sempre.
+  */
+  const ORIGINAL_FLAG = process.env.SGP_ACTIVATION_ENABLED;
+  beforeEach(() => {
+    process.env.SGP_ACTIVATION_ENABLED = "true";
+  });
+  afterEach(() => {
+    if (ORIGINAL_FLAG === undefined) delete process.env.SGP_ACTIVATION_ENABLED;
+    else process.env.SGP_ACTIVATION_ENABLED = ORIGINAL_FLAG;
+  });
+
   /**
    * Ativação com transporte e DNS injetados.
    *
@@ -763,6 +785,18 @@ describe("Ativação explícita", () => {
 // ---------------------------------------------------------------------------
 
 describe("Escopo e histórico", () => {
+  // `SGP1-27` ativa o SGP para provar que a identidade externa histórica não é
+  // reescrita. Mesma razão da suíte de ativação: o fluxo é o alvo, e a trava
+  // precisa estar aberta para chegar até ele.
+  const ORIGINAL_FLAG = process.env.SGP_ACTIVATION_ENABLED;
+  beforeEach(() => {
+    process.env.SGP_ACTIVATION_ENABLED = "true";
+  });
+  afterEach(() => {
+    if (ORIGINAL_FLAG === undefined) delete process.env.SGP_ACTIVATION_ENABLED;
+    else process.env.SGP_ACTIVATION_ENABLED = ORIGINAL_FLAG;
+  });
+
   it("SGP1-26: o SGP ainda não tem capability de negócio", () => {
     const adapter = getERPAdapter("SGP", {
       baseUrl: BASE_URL,
@@ -809,5 +843,389 @@ describe("Escopo e histórico", () => {
     });
     expect(depois.externalProvider).toBe("RECEITANET");
     expect(depois.externalId).toBe("RN-777");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RC1-01 … RC1-12 — a trava de ativação do SGP
+// ---------------------------------------------------------------------------
+
+/**
+ * # A ativação do SGP é bloqueada até a homologação real
+ *
+ * O SGP autentica e é ativável desde a `SGP-1`, e **nunca foi exercitado contra
+ * uma instalação real**. A revisão de checkpoint mediu a consequência de ativá-lo
+ * hoje: o adapter não declara capability de negócio nenhuma, então toda a
+ * superfície ERP da empresa passa a responder `NOT_SUPPORTED` — busca de
+ * cliente, diagnóstico, chamados —, e ninguém é avisado.
+ *
+ * **Testar continua liberado.** É diagnóstico, não muda nada, e é exatamente o
+ * que a homologação precisa fazer. O que fica travado é a ativação.
+ *
+ * A trava é do SERVIDOR. A tela é consequência dela, nunca a regra: um `POST`
+ * direto, sem passar por tela nenhuma, tem de ser recusado igual.
+ */
+describe("RC1 · trava de ativação do SGP", () => {
+  const ORIGINAL = process.env.SGP_ACTIVATION_ENABLED;
+
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.SGP_ACTIVATION_ENABLED;
+    else process.env.SGP_ACTIVATION_ENABLED = ORIGINAL;
+  });
+
+  function tentarAtivar(responder = () => ({ status: 200, body: PLANO_CONTAS })) {
+    const rec = recorder(responder);
+    return {
+      rec,
+      run: () =>
+        activateErpProviderWithConfiguration({
+          companyId: fixture.companyA.id,
+          actorUserId: fixture.adminA.id,
+          provider: "SGP",
+          candidate: { baseUrl: BASE_URL, app: APP, token: TOKEN },
+          fetchImpl: rec.fetchImpl,
+          dnsResolver: publicDns,
+        }),
+    };
+  }
+
+  it("RC1-01: flag AUSENTE bloqueia a ativação", async () => {
+    delete process.env.SGP_ACTIVATION_ENABLED;
+    await withReceitanetActive(fixture.companyA.id, fixture.adminA.id);
+
+    await expect(tentarAtivar().run()).rejects.toBeInstanceOf(DomainError);
+  });
+
+  it("RC1-02: flag em qualquer valor que não seja exatamente 'true' bloqueia", async () => {
+    /*
+      A comparação é exata, e a lista abaixo é o motivo.
+
+      `"1"`, `"yes"` e `"TRUE"` são o que alguém digita achando que está
+      ligando a coisa. Um parser permissivo transforma essa suposição em
+      liberação silenciosa — e o padrão de uma trava de release tem de ser
+      fechado, não adivinhado.
+    */
+    await withReceitanetActive(fixture.companyA.id, fixture.adminA.id);
+
+    for (const valor of ["false", "1", "yes", "TRUE", "True", " true", ""]) {
+      process.env.SGP_ACTIVATION_ENABLED = valor;
+      await expect(
+        tentarAtivar().run(),
+        `valor ${JSON.stringify(valor)} não pode liberar`,
+      ).rejects.toBeInstanceOf(DomainError);
+    }
+  });
+
+  it("RC1-03: flag 'true' preserva o fluxo já implementado", async () => {
+    process.env.SGP_ACTIVATION_ENABLED = "true";
+    await withReceitanetActive(fixture.companyA.id, fixture.adminA.id);
+
+    const change = await tentarAtivar().run();
+    expect(change.fromProvider).toBe("RECEITANET");
+    expect(change.toProvider).toBe("SGP");
+
+    const row = await integrationRow(fixture.companyA.id);
+    expect(row.provider).toBe("SGP");
+    expect(await getCredentialFor(fixture.companyA.id, "SGP", "PUBLIC_API")).toBe(
+      TOKEN,
+    );
+  });
+
+  it("RC1-04: testar conexão continua funcionando com a trava fechada", async () => {
+    delete process.env.SGP_ACTIVATION_ENABLED;
+    await withReceitanetActive(fixture.companyA.id, fixture.adminA.id);
+    const rec = recorder(() => ({ status: 200, body: PLANO_CONTAS }));
+
+    const result = await testCandidateConnection({
+      provider: "SGP",
+      candidate: { baseUrl: BASE_URL, app: APP, token: TOKEN },
+      fetchImpl: rec.fetchImpl,
+      dnsResolver: publicDns,
+    });
+
+    expect(result.ok).toBe(true);
+    // E continua sem persistir NADA: o ERP ativo é o de antes.
+    expect((await integrationRow(fixture.companyA.id)).provider).toBe(
+      "RECEITANET",
+    );
+    expect(
+      await prisma.eRPCredential.count({
+        where: { companyId: fixture.companyA.id, provider: "SGP" },
+      }),
+    ).toBe(0);
+  });
+
+  it("RC1-05, RC1-06 e RC1-07: a recusa não deixa rastro nenhum", async () => {
+    /*
+      As três asserções juntas porque descrevem UM fato: uma operação recusada
+      não escreve. Separá-las esconderia o que importa — que o guarda roda
+      antes de qualquer leitura de integração, reteste, cifragem ou transação.
+    */
+    delete process.env.SGP_ACTIVATION_ENABLED;
+    await withReceitanetActive(fixture.companyA.id, fixture.adminA.id);
+    const { rec, run } = tentarAtivar();
+
+    await expect(run()).rejects.toBeInstanceOf(DomainError);
+
+    // RC1-05: a integração é a mesma, campo por campo.
+    const row = await integrationRow(fixture.companyA.id);
+    expect(row.provider).toBe("RECEITANET");
+    expect(row.baseUrl).toBeNull();
+    expect(readConfiguredApp(row.config)).toBeNull();
+
+    // RC1-06: nenhuma credencial do SGP.
+    expect(
+      await prisma.eRPCredential.count({
+        where: { companyId: fixture.companyA.id, provider: "SGP" },
+      }),
+    ).toBe(0);
+
+    // RC1-07: nenhuma auditoria de troca de provider.
+    expect(
+      await prisma.auditLog.count({
+        where: {
+          companyId: fixture.companyA.id,
+          action: "ERP.ACTIVE_PROVIDER_CHANGED",
+        },
+      }),
+    ).toBe(0);
+
+    /*
+      E nem a REDE foi tocada. O guarda vem antes do reteste, então uma
+      operação recusada não vira um oráculo de alcançabilidade nem custo de
+      requisição para quem sonda.
+    */
+    expect(rec.calls).toHaveLength(0);
+  });
+
+  it("RC1-08: o ReceitaNet não é afetado pela trava", async () => {
+    /*
+      A trava é do SGP, não de "ativar provider". Um guarda global pareceria
+      mais seguro e quebraria a operação de quem já usa ERP — inclusive o
+      caminho de volta, que é justamente o que torna a troca reversível.
+    */
+    delete process.env.SGP_ACTIVATION_ENABLED;
+
+    // Empresa no MOCK, com credencial de ReceitaNet pronta.
+    await prisma.eRPIntegration.create({
+      data: {
+        companyId: fixture.companyA.id,
+        provider: "MOCK",
+        name: "Mock",
+        enabled: true,
+      },
+    });
+    await saveCredentialFor(
+      fixture.companyA.id,
+      fixture.adminA.id,
+      "RECEITANET",
+      "CALLCENTER",
+      "token-do-receitanet-9999",
+    );
+
+    const change = await switchActiveErpProvider({
+      companyId: fixture.companyA.id,
+      actorUserId: fixture.adminA.id,
+      provider: "RECEITANET",
+    });
+
+    expect(change.toProvider).toBe("RECEITANET");
+    expect((await integrationRow(fixture.companyA.id)).provider).toBe(
+      "RECEITANET",
+    );
+  });
+
+  it("RC1-09: DISPATCHER e TECHNICIAN continuam sem poder ativar, com a trava aberta", async () => {
+    /*
+      Com a flag LIGADA de propósito: o que se prova aqui é que a trava não
+      virou a única defesa. Perfil continua sendo perfil, e a recusa tem de
+      acontecer mesmo quando a ativação está liberada.
+    */
+    process.env.SGP_ACTIVATION_ENABLED = "true";
+    await withReceitanetActive(fixture.companyA.id, fixture.adminA.id);
+
+    for (const userId of [fixture.dispatcherA.id, fixture.techA.id]) {
+      const sessao = await createTokenFor(userId);
+      const response = await candidateRoute(
+        apiRequest(
+          "/api/integrations/candidate",
+          {
+            method: "POST",
+            body: {
+              action: "activate",
+              provider: "SGP",
+              baseUrl: BASE_URL,
+              app: APP,
+              token: TOKEN,
+            },
+          },
+          sessao,
+        ),
+      );
+      expect(response.status).toBe(403);
+    }
+
+    expect((await integrationRow(fixture.companyA.id)).provider).toBe(
+      "RECEITANET",
+    );
+  });
+
+  it("RC1-11: a API direta não contorna a tela", async () => {
+    /*
+      A regressão principal. A tela esconde o botão quando a trava está
+      fechada — e esconder botão não é controle: quem chama a rota direto não
+      passa por tela nenhuma.
+    */
+    delete process.env.SGP_ACTIVATION_ENABLED;
+    await withReceitanetActive(fixture.companyA.id, fixture.adminA.id);
+    const sessao = await createTokenFor(fixture.adminA.id);
+
+    const response = await candidateRoute(
+      apiRequest(
+        "/api/integrations/candidate",
+        {
+          method: "POST",
+          body: {
+            action: "activate",
+            provider: "SGP",
+            baseUrl: BASE_URL,
+            app: APP,
+            token: TOKEN,
+          },
+        },
+        sessao,
+      ),
+    );
+
+    expect(response.status).toBe(409);
+    // A mensagem não pode nomear a variável de ambiente.
+    const corpo = await response.text();
+    expect(corpo).not.toContain("SGP_ACTIVATION_ENABLED");
+
+    expect((await integrationRow(fixture.companyA.id)).provider).toBe(
+      "RECEITANET",
+    );
+    expect(
+      await prisma.auditLog.count({
+        where: {
+          companyId: fixture.companyA.id,
+          action: "ERP.ACTIVE_PROVIDER_CHANGED",
+        },
+      }),
+    ).toBe(0);
+  });
+
+  it("RC1-12: com a trava aberta, o CAS continua arbitrando a corrida", async () => {
+    /*
+      A trava não pode ter virado a proteção de concorrência. Duas ativações
+      simultâneas: uma vence, a outra recebe 409 do compare-and-set — e existe
+      UMA linha de auditoria, não duas.
+    */
+    process.env.SGP_ACTIVATION_ENABLED = "true";
+    await withReceitanetActive(fixture.companyA.id, fixture.adminA.id);
+
+    const resultados = await Promise.allSettled([
+      tentarAtivar().run(),
+      tentarAtivar().run(),
+    ]);
+
+    expect(resultados.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(
+      await prisma.auditLog.count({
+        where: {
+          companyId: fixture.companyA.id,
+          action: "ERP.ACTIVE_PROVIDER_CHANGED",
+        },
+      }),
+    ).toBe(1);
+    expect((await integrationRow(fixture.companyA.id)).provider).toBe("SGP");
+  });
+
+  it("RC1-13: a trava é do SGP, e isso é afirmado no PREDICADO", async () => {
+    /*
+      Achado da auditoria independente sobre a primeira versão destes testes.
+
+      Eu havia documentado que a sabotagem "aplicar a trava a todos os
+      providers" derrubava apenas `RC1-08`. Era falso: aquela sabotagem também
+      punha o guarda em `switchActiveErpProvider`, e foi ESSA metade que a
+      derrubou. Tirar `provider === "SGP"` do predicado teria sido invisível
+      para a suíte inteira — nenhum teste chamava a ativação com outro provider.
+
+      Aqui a asserção é sobre o predicado em si, que é onde a especificidade
+      vive. Sem isto, a trava poderia virar global sem ninguém notar, e a
+      operação de quem já usa ERP quebraria no release seguinte.
+    */
+    delete process.env.SGP_ACTIVATION_ENABLED;
+    expect(() => assertProviderActivationAllowed("SGP")).toThrow(DomainError);
+    expect(() => assertProviderActivationAllowed("RECEITANET")).not.toThrow();
+    expect(() => assertProviderActivationAllowed("MOCK")).not.toThrow();
+
+    process.env.SGP_ACTIVATION_ENABLED = "true";
+    for (const p of ["SGP", "RECEITANET", "MOCK"] as const) {
+      expect(() => assertProviderActivationAllowed(p)).not.toThrow();
+    }
+  });
+
+  it("RC1-14: a trava fechada não prende ninguém dentro do SGP", async () => {
+    /*
+      A trava é de ATIVAÇÃO, não de uso — e a diferença precisa de prova, não de
+      afirmação. Uma empresa que já esteja no SGP tem de conseguir sair mesmo
+      com a trava fechada; o contrário transformaria uma proteção de release
+      numa armadilha, e justamente para quem a ativou antes dela existir.
+    */
+    process.env.SGP_ACTIVATION_ENABLED = "true";
+    await withReceitanetActive(fixture.companyA.id, fixture.adminA.id);
+    await tentarAtivar().run();
+    expect((await integrationRow(fixture.companyA.id)).provider).toBe("SGP");
+
+    // A trava fecha DEPOIS de a empresa já estar no SGP.
+    delete process.env.SGP_ACTIVATION_ENABLED;
+
+    const volta = await switchActiveErpProvider({
+      companyId: fixture.companyA.id,
+      actorUserId: fixture.adminA.id,
+      provider: "RECEITANET",
+    });
+
+    expect(volta.toProvider).toBe("RECEITANET");
+    expect((await integrationRow(fixture.companyA.id)).provider).toBe(
+      "RECEITANET",
+    );
+  });
+
+  it("RC1-15: a rota genérica também não ativa o SGP, e não é por acidente", async () => {
+    /*
+      `switchActiveErpProvider` é o SEGUNDO — e último — lugar que escreve
+      `ERPIntegration.provider`. Ele já recusava o SGP, mas por
+      `requiresCandidateConfiguration`, que existe por outra razão: o SGP precisa
+      de Base URL, App e Token. Duas proteções que coincidiam por acidente.
+
+      A mensagem continua sendo a útil ("informe Base URL, App e Token"), porque
+      é o que a pessoa precisa fazer; o que este teste fixa é que o caminho
+      recusa, e o guarda agora está lá para o dia em que o predicado vizinho
+      mudar.
+    */
+    delete process.env.SGP_ACTIVATION_ENABLED;
+    await withReceitanetActive(fixture.companyA.id, fixture.adminA.id);
+
+    await expect(
+      switchActiveErpProvider({
+        companyId: fixture.companyA.id,
+        actorUserId: fixture.adminA.id,
+        provider: "SGP",
+      }),
+    ).rejects.toBeInstanceOf(DomainError);
+
+    expect((await integrationRow(fixture.companyA.id)).provider).toBe(
+      "RECEITANET",
+    );
+    expect(
+      await prisma.auditLog.count({
+        where: {
+          companyId: fixture.companyA.id,
+          action: "ERP.ACTIVE_PROVIDER_CHANGED",
+        },
+      }),
+    ).toBe(0);
   });
 });
