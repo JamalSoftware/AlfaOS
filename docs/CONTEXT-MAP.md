@@ -451,11 +451,11 @@ Quatro coisas que a especificação fixou e são fáceis de desfazer sem percebe
 **Quando:** a tarefa envolve CTO, porta óptica, vínculo do cliente à rede de distribuição ou o status na visão da caixa.
 **Quando NÃO:** qualquer outra coisa. **Nada disso existe em código**, e a §119 se aplica. A sequência da fila fechou (`DQ-1`–`DQ-7.2`), o que **desbloqueia** o gate do CTO assim que a v0.12 for publicada — desbloquear não é promover, e escrever a especificação não a coloca na ordem.
 
-## Field Notification Foundation — NF-1 a NF-4 ENTREGUES, NF-5 (piloto físico) PLANNED
+## Field Notification Foundation — NF-1 a NF-5 ENTREGUES, piloto físico PASSED
 
 **Carregar:** `docs/FIELD-NOTIFICATIONS.md` (plano — inventário do que já existe, arquitetura, escolha de SDK, ciclo do token, payload, deep link, fases `NF-1`–`NF-7`, testes, plano adversarial, decisões `NP-01`–`NP-05`) e PRD §153–§157. Código: `src/lib/push/provider.ts`, `src/lib/outbox.ts`, `src/lib/outbox-handlers.ts`, `src/lib/notifications.ts`, `scripts/outbox-worker.ts`, `src/lib/field/devices.ts`.
 
-**Servidor pronto (`NF-1`), aparelho preparado (`NF-2`), token registrado (`NF-3`) e deep link do toque (`NF-4`) — e ainda assim NENHUM push chega.** A razão deixou de ser o encanamento: sem o `google-services.json` da plataforma, o provedor não emite token nenhum. Falta o piloto físico (`NF-5`).
+**Servidor pronto (`NF-1`), aparelho preparado (`NF-2`), token registrado (`NF-3`), deep link do toque (`NF-4`) e piloto físico aprovado (`NF-5`).** O push chega ao aparelho e o toque abre a OS. O piloto encontrou dois defeitos que 400 testes verdes não viam — a permissão que nunca era pedida e o sino que não atualizava no cold start —, e ambos foram corrigidos. O `google-services.json` continua fora do Git e é pendência de configuração do operador, não de código.
 
 **O parser de payload é `PushDestination` (`core/push/push_destination.dart`), e ele é ALLOWLIST** — `type` + `resourceType` + formato do `resourceId` (`^[A-Za-z0-9_-]{1,64}$`). Nenhum listener consulta `data['type']` por conta própria. A validação do identificador é **segurança**: ele preenche UM segmento de `/orders/:id`, e sem ela `resourceId = "abc/execucao"` faria o payload ESCOLHER a tela. A central de notificações usa o mesmo parser.
 

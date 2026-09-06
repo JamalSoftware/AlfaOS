@@ -1231,6 +1231,39 @@ IPv4, e o navegador aplica a mesma canonicalização ao decidir mesma origem.
 3. Sirva por HTTPS (HSTS é emitido em produção).
 4. Aplique as migrations: `npx prisma migrate deploy`.
 
+### 9.1 O que a fundação de notificações exige fora do Git
+
+Acrescentado na revisão de checkpoint, porque a lista acima estava completa para
+a v0.12 e deixou de estar: quem seguisse só os quatro passos entregaria um
+sistema em que **o push nunca chega, em silêncio**. Nenhuma OS fica errada — a
+`Notification` existe e o técnico a vê ao abrir o aplicativo —, e é justamente
+por isso que a falha não aparece: nada alerta.
+
+**Credencial do servidor (worker).** Três variáveis de ambiente, **nunca no
+repositório**: `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` e
+`FIREBASE_PRIVATE_KEY`. Sem as três, o worker sobe com o provedor inerte e diz
+por quê — configuração pela metade é tratada como erro de operação, não como
+ausência de intenção. A conta de serviço é credencial privilegiada e **não** vai
+para dentro do aplicativo.
+
+**Configuração do aplicativo.** `apps/field/android/app/google-services.json`,
+obtido do projeto Firebase da plataforma, com o `applicationId`
+`com.jamalsoftware.alfaos.field`. Fora do Git, coberto pelo `.gitignore`, e
+injetado no momento do build. O Gradle o aplica **condicionalmente**: sem o
+arquivo o APK compila e o push fica `unavailable`, em vez de o build quebrar.
+
+**O worker precisa ser chamado.** Ele processa um lote e termina — é comando,
+não daemon, e a decisão está justificada em `scripts/outbox-worker.ts`. Execuções
+sobrepostas são seguras porque a reivindicação é um `updateMany` com predicado de
+status, e o banco arbitra. Agende:
+
+```text
+* * * * * cd /app && npm run outbox:work
+```
+
+`npm run build` compila o worker junto (`build:worker`), então `dist/` já existe
+depois do build de produção — o worker **não** depende de `devDependencies`.
+
 ## 10. Melhorias futuras rastreadas
 
 Dívida registrada na auditoria final da `v0.5.1`, deliberadamente NÃO
@@ -2209,3 +2242,60 @@ limpa as três rotas devolvem `401` JSON para requisição sem token — inclusi
 duas sob `service-orders/[id]`, que antes tinham devolvido `500` HTML. Nenhuma
 linha de rota, autorização, tenancy, posse, máquina de estados ou CAS foi
 alterada para fazer a tela carregar.
+
+---
+
+## 8.17. `SSRF-01` — IPv4 embutido em literal IPv6 escapava do filtro
+
+Achado da **auditoria independente de release**, com exploração demonstrada.
+Corrigido antes da decisão de publicação.
+
+### O defeito
+
+`assertSafeOutboundUrl` recusa endereço interno, e a verificação tinha a
+ramificação certa para IPv4 embutido em IPv6 — que **nunca disparava**. O parser
+WHATWG de `URL` normaliza `[::ffff:127.0.0.1]` para o hostname
+`[::ffff:7f00:1]`: hexadecimal, sem ponto nenhum. A regex procurava a forma
+pontuada, não casava, e a função devolvia `false`.
+
+Reproduzido de forma independente, com controle positivo:
+
+```text
+recusado    https://127.0.0.1
+recusado    https://[::1]
+ACEITO      https://[::ffff:127.0.0.1]          loopback
+ACEITO      https://[::ffff:169.254.169.254]    metadados de nuvem
+ACEITO      https://[::ffff:10.0.0.5]           RFC1918
+ACEITO      https://[64:ff9b::127.0.0.1]        NAT64
+```
+
+O host é literal, então `isIP` é verdadeiro e **o DNS nem é consultado** — não
+dependia de resolvedor hostil nem de rebinding. Um ADMIN fazia o servidor do
+AlfaOS emitir `POST` para endereço interno arbitrário pela tela do SGP, e a
+ativação **persistia** esse endereço em `ERPIntegration.baseUrl`.
+
+SSRF **cega** — o corpo do provider nunca é ecoado —, mas `reachable`,
+`latencyMs` e a classe da mensagem formam um oráculo de vivacidade suficiente
+para mapear serviço interno.
+
+### A correção
+
+A forma hexadecimal passou a ser reconhecida: `::ffff:`, `::` e `64:ff9b::`
+seguidos de dois grupos hexadecimais viram o IPv4 correspondente, e a decisão
+volta para a mesma tabela que governa o resto. Nove formas privadas recusadas,
+e **endereço público em literal IPv6 continua aceito** — sem isso, a correção
+passaria também se alguém barrasse todo IPv6, e um SGP hospedado em IPv6
+pararia de funcionar sem explicação.
+
+### A lição, que vale além deste achado
+
+**O teste existia e estava no nível errado.** A suíte de SSRF cobria
+`https://[::1]` e `https://[fe80::1]` — os dois únicos literais IPv6 que
+atravessam a normalização **inalterados**. O caso que o comentário do código
+nomeava não era exercitado em nível nenhum: teria passado em `isPrivateAddress`
+e falhado em `assertSafeOutboundUrl`.
+
+A regressão (`SGP1-11b`) vive **no nível do guarda**, não da função auxiliar,
+porque é ali que a normalização da URL já aconteceu. Ao revisar teste novo, a
+pergunta é *"o defeito conseguiria aparecer nesta asserção?"* antes de *"a
+asserção está correta?"*.

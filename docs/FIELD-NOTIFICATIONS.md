@@ -439,7 +439,7 @@ aparecem aqui.
 | **NF-2** ✅ | Flutter: `firebase_messaging`, config nativa Android, permissão com contexto | ❌ | `firebase_core`, `firebase_messaging` — **ENTREGUE, ver §25** |
 | **NF-3** ✅ | Flutter: enviar o token no `devices/register`, listener de rotação, ciclo de sessão | ❌ | — **ENTREGUE, ver §26** |
 | **NF-4** ✅ | Deep link do toque, nos três estados, atrás do guard de sessão | ❌ | — **ENTREGUE, ver §27** |
-| **NF-5** `PLANNED` | Piloto em aparelho físico e endurecimento | ❌ | depende do `google-services.json` (§15) |
+| **NF-5** ✅ | Piloto em aparelho físico e endurecimento | ❌ | **PHYSICAL PILOT PASSED**, ver §28 |
 | **NF-6** | `FUTURO` — entrega por dispositivo, se houver quem leia | ✅ provável | — |
 | **NF-7** | `FUTURO` — eventos novos, com controle de tempestade | ❌ | — |
 
