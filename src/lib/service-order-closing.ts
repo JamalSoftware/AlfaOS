@@ -18,15 +18,8 @@ import {
   claimOrderForChildMutation,
   loadInProgressOwnedOrder,
 } from "./service-order-child-mutation";
-import {
-  buildStorageKey,
-  getFileStorage,
-  MIME_EXTENSIONS,
-} from "./storage";
-import {
-  stripImageMetadata,
-  UnparseableImageError,
-} from "./media/image-metadata";
+import { buildStorageKey, getFileStorage } from "./storage";
+import { processImageUpload } from "./media/image-upload";
 
 // ---------------------------------------------------------------------------
 // Limits
@@ -83,72 +76,19 @@ export const SIGNATURE_MAX_BYTES = 2 * 1024 * 1024;
  * SVG and HTML are excluded on purpose: both can carry script and would run in
  * the browser's origin when rendered. There is no safe way to serve untrusted
  * SVG from the same origin as the app, so it is not accepted at all.
+ *
+ * Reexportado da fronteira comum (`media/image-upload`), que passou a ser o
+ * único lugar que decide o que é uma imagem aceitável. Continua saindo daqui
+ * porque rotas e testes já importam por este caminho, e mover o import de todos
+ * eles seria ruído sem ganho.
  */
-export const ACCEPTED_IMAGE_MIME = Object.keys(MIME_EXTENSIONS);
+export { ACCEPTED_IMAGE_MIME, sniffImageMime } from "./media/image-upload";
 
 export const MATERIAL_DESCRIPTION_MAX = 200;
 export const SIGNER_NAME_MAX = 120;
 /** Decimal(10,3) — quantity must stay inside what the column can hold. */
 export const MATERIAL_QUANTITY_MAX = 9_999_999;
 
-// ---------------------------------------------------------------------------
-// Content sniffing
-// ---------------------------------------------------------------------------
-
-/**
- * Decides the real type from the bytes, never from the declared mime or the
- * filename extension.
- *
- * A client can claim `image/png` for a PHP script or name an executable
- * `photo.jpg`. The magic number is the only part of an upload the client
- * cannot lie about without actually producing a valid image.
- */
-export function sniffImageMime(data: Buffer): string | null {
-  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) {
-    return "image/jpeg";
-  }
-  if (
-    data.length >= 8 &&
-    data[0] === 0x89 &&
-    data[1] === 0x50 &&
-    data[2] === 0x4e &&
-    data[3] === 0x47 &&
-    data[4] === 0x0d &&
-    data[5] === 0x0a &&
-    data[6] === 0x1a &&
-    data[7] === 0x0a
-  ) {
-    return "image/png";
-  }
-  if (
-    data.length >= 12 &&
-    data.toString("ascii", 0, 4) === "RIFF" &&
-    data.toString("ascii", 8, 12) === "WEBP"
-  ) {
-    return "image/webp";
-  }
-  return null;
-}
-
-/**
- * Tira o metadado da imagem e traduz falha estrutural em recusa do cliente.
- *
- * O sanitizador LANCA quando nao entende os bytes, e essa escolha e dele: nunca
- * devolver a entrada intacta diante de um arquivo estranho, porque isso
- * transformaria "nao entendi" em "guardei tudo o que ele tinha". Aqui a exceção
- * vira 400 — o arquivo e invalido para o AlfaOS, e dizer isso e mais honesto do
- * que gravar bytes que ninguem conseguiu ler.
- */
-function sanitizeImageBytes(data: Buffer, mimeType: string): Buffer {
-  try {
-    return stripImageMetadata(data, mimeType);
-  } catch (error) {
-    if (error instanceof UnparseableImageError) {
-      throw badRequest("Imagem inválida ou corrompida.");
-    }
-    throw error;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Public shapes
@@ -233,42 +173,28 @@ export async function addEvidence(
   orderId: string,
   input: AddEvidenceInput,
 ): Promise<PublicEvidence> {
-  if (input.data.byteLength === 0) {
-    throw badRequest("Arquivo vazio.");
-  }
-  if (input.data.byteLength > EVIDENCE_MAX_BYTES) {
-    throw badRequest(
-      `Imagem muito grande (máximo ${Math.floor(EVIDENCE_MAX_BYTES / 1024 / 1024)} MB).`,
-    );
-  }
-
-  // The declared type must be acceptable AND the bytes must agree with it.
-  // Either alone is bypassable: the header is client-controlled, and sniffing
-  // alone would happily accept a JPEG uploaded as `application/x-msdownload`.
-  const sniffed = sniffImageMime(input.data);
-  if (!sniffed) {
-    throw badRequest("Arquivo não é uma imagem JPEG, PNG ou WebP válida.");
-  }
-  if (!ACCEPTED_IMAGE_MIME.includes(input.declaredMimeType)) {
-    throw badRequest("Tipo de imagem não suportado. Use JPEG, PNG ou WebP.");
-  }
-  if (sniffed !== input.declaredMimeType) {
-    throw badRequest("O conteúdo do arquivo não corresponde ao tipo informado.");
-  }
-
   /*
-    Metadado da imagem sai AQUI, e o lugar é a metade da correção (`EXIF-01`).
+    Validação e limpeza numa etapa só, pela fronteira comum de upload.
 
-    Antes do hash, antes do tamanho, antes da transação: o que segue daqui em
-    diante — inclusive o `contentHash` que existe para conferir integridade —
-    descreve o ARQUIVO GRAVADO, não o que o cliente mandou. Sanitizar depois do
-    hash faria o campo que prova "o arquivo não mudou" acusar corrupção em toda
-    foto.
-
-    E é no servidor porque qualquer cliente pode enviar imagem. Uma limpeza só
-    no aplicativo protegeria exatamente quem já se comporta bem.
+    A sequência é exatamente a de antes — vazio, teto, sniff, allowlist,
+    concordância, sanitização —, e as mensagens continuam sendo as desta
+    superfície: elas são parâmetro da política, não texto do módulo de mídia.
+    O que mudou é que não existe mais uma segunda cópia dessa sequência.
   */
-  const data = sanitizeImageBytes(input.data, sniffed);
+  const { data, mimeType } = processImageUpload(
+    input.data,
+    input.declaredMimeType,
+    {
+      maxBytes: EVIDENCE_MAX_BYTES,
+      messages: {
+        empty: "Arquivo vazio.",
+        tooLarge: `Imagem muito grande (máximo ${Math.floor(EVIDENCE_MAX_BYTES / 1024 / 1024)} MB).`,
+        notAnImage: "Arquivo não é uma imagem JPEG, PNG ou WebP válida.",
+        unsupportedType: "Tipo de imagem não suportado. Use JPEG, PNG ou WebP.",
+      },
+    },
+  );
+  const sniffed = mimeType;
 
   const storage = getFileStorage();
   const storageKey = buildStorageKey(companyId, orderId, sniffed);
@@ -698,33 +624,31 @@ export async function putSignature(
   if (!signerName) {
     throw badRequest("Nome de quem assina é obrigatório.");
   }
-  if (input.data.byteLength === 0) {
-    throw badRequest("Assinatura vazia.");
-  }
-  if (input.data.byteLength > SIGNATURE_MAX_BYTES) {
-    throw badRequest("Imagem de assinatura muito grande.");
-  }
-
-  const sniffed = sniffImageMime(input.data);
-  if (!sniffed) {
-    throw badRequest("Assinatura deve ser uma imagem PNG válida.");
-  }
-  if (!ACCEPTED_IMAGE_MIME.includes(input.declaredMimeType)) {
-    throw badRequest("Tipo de imagem não suportado.");
-  }
-  if (sniffed !== input.declaredMimeType) {
-    throw badRequest("O conteúdo do arquivo não corresponde ao tipo informado.");
-  }
-
   /*
-    A assinatura passa pela MESMA limpeza da evidência (`EXIF-01`).
+    A assinatura passa pela MESMA fronteira da evidência (`EXIF-01`).
 
     Ela é desenhada na tela e não deveria ter metadado nenhum — mas "não
-    deveria" é premissa sobre o cliente, e a política do §3 vale para qualquer
-    origem de upload. Um cliente reimplementado, um script ou uma integração
-    futura mandam o que quiserem por aqui.
+    deveria" é premissa sobre o cliente, e a política vale para qualquer origem
+    de upload. Um cliente reimplementado, um script ou uma integração futura
+    mandam o que quiserem por aqui.
+
+    Só o teto e as mensagens são desta superfície: "Assinatura vazia." orienta
+    onde "Arquivo vazio." confundiria.
   */
-  const data = sanitizeImageBytes(input.data, sniffed);
+  const { data, mimeType } = processImageUpload(
+    input.data,
+    input.declaredMimeType,
+    {
+      maxBytes: SIGNATURE_MAX_BYTES,
+      messages: {
+        empty: "Assinatura vazia.",
+        tooLarge: "Imagem de assinatura muito grande.",
+        notAnImage: "Assinatura deve ser uma imagem PNG válida.",
+        unsupportedType: "Tipo de imagem não suportado.",
+      },
+    },
+  );
+  const sniffed = mimeType;
 
   const storage = getFileStorage();
   const storageKey = buildStorageKey(companyId, orderId, sniffed);

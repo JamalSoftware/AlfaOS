@@ -41,7 +41,13 @@ export function setFileStorage(storage: FileStorageContract | null): void {
  */
 export function buildStorageKey(
   companyId: string,
-  serviceOrderId: string,
+  /**
+   * O recurso dono do arquivo — uma OS, uma CTO. Chamava-se `serviceOrderId`
+   * quando a OS era o único dono possível; o nome passou a mentir quando a
+   * CTO-1 trouxe a foto da caixa. Só o nome mudou: a função sempre foi um
+   * concatenador de segmentos e nunca soube o que era uma OS.
+   */
+  scopeId: string,
   mimeType: string,
 ): string {
   const ext = MIME_EXTENSIONS[mimeType];
@@ -51,5 +57,5 @@ export function buildStorageKey(
   // randomUUID minus dashes: 32 lowercase hex chars, so the key always
   // satisfies STORAGE_KEY_PATTERN without pulling in a cuid dependency.
   const id = randomUUID().replace(/-/g, "");
-  return `${companyId}/${serviceOrderId}/${id}.${ext}`;
+  return `${companyId}/${scopeId}/${id}.${ext}`;
 }
