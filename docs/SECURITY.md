@@ -1867,3 +1867,225 @@ e para montar correção. Corrigido, com regressão nas duas pontas
 - **Segregação de função não é configurável por empresa.** A regra é fixa na
   Fase 1. Política por empresa — exigir dois aprovadores sempre, ou liberar
   autoaprovação em empresa de uma pessoa só — fica para a fase de configuração.
+
+---
+
+## 8.16. Permissões do Android — auditoria de pré-release
+
+Auditoria completa das permissões do AlfaOS Field, feita depois de `NF-1`…`NF-5`
+e antes do checkpoint da fundação de notificações. O que segue é o resultado,
+não a intenção: cada linha foi conferida no manifesto **fundido** e no APK.
+
+### 8.16.1 O que a auditoria descobriu
+
+**O manifesto de fonte não é o que vai no aparelho.** O Gradle funde o nosso com
+o de cada plugin e o de cada AAR. O AlfaOS declara **cinco** permissões; o APK
+tem **nove**. As quatro extras entraram com o `firebase_messaging` na `NF-2` e
+nunca foram registradas em lugar nenhum.
+
+Pior: um teste afirmava que o aplicativo **não** usava `WAKE_LOCK`. A afirmação
+era verdadeira sobre o arquivo que ele lia e falsa sobre o artefato. Um teste
+que documenta uma crença errada é pior que a ausência do teste, porque encerra a
+discussão. Corrigido, com a verdade sobre o artefato movida para um teste que lê
+o manifesto fundido.
+
+### 8.16.2 Matriz definitiva
+
+| PERMISSION | WHY | WHEN REQUESTED | RUNTIME | STATUS |
+|---|---|---|---|---|
+| `INTERNET` | falar com a API do AlfaOS | instalação | não | **KEEP** |
+| `CAMERA` | evidência fotográfica do atendimento (PRD §162) | ao acionar a foto, pelo `image_picker` | sim | **KEEP** |
+| `POST_NOTIFICATIONS` | avisar OS atribuída (`NF-2`…`NF-5`) | depois do primeiro login, com contexto | sim | **KEEP** |
+| `ACCESS_FINE_LOCATION` | ponto e check-in, enquanto em uso | ao bater ponto / fazer check-in | sim | **KEEP** |
+| `ACCESS_COARSE_LOCATION` | idem, e sustenta a escolha "Aproximada" | no mesmo pedido | sim | **KEEP** |
+| `WAKE_LOCK` | `firebase_messaging` acorda o aparelho para entregar | — | não | **KEEP (plugin)** |
+| `ACCESS_NETWORK_STATE` | `firebase_messaging` decide quando repetir | — | não | **KEEP (plugin)** |
+| `com.google.android.c2dm.permission.RECEIVE` | receber do Google Play Services | — | não | **KEEP (plugin)** |
+| `…field.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` | `androidx.core`, nível `signature`, escopada ao pacote | — | não | **KEEP (plugin)** |
+
+**Nenhuma permissão foi removida** — nenhuma sobrava. E nenhuma foi acrescentada.
+
+Ausentes e que continuam ausentes, por decisão: `ACCESS_BACKGROUND_LOCATION`,
+`FOREGROUND_SERVICE*`, `RECORD_AUDIO`, `BLUETOOTH_*`, `READ_MEDIA_IMAGES`,
+`READ/WRITE_EXTERNAL_STORAGE`, `MANAGE_EXTERNAL_STORAGE`, `SYSTEM_ALERT_WINDOW`,
+`REQUEST_INSTALL_PACKAGES`, `PACKAGE_USAGE_STATS`, `SCHEDULE_EXACT_ALARM`,
+`RECEIVE_BOOT_COMPLETED`, e todas as de telefonia, SMS e contatos.
+
+### 8.16.3 A política de pedido
+
+**Nada é pedido na subida.** Não existe `requestAllPermissionsOnStartup()`, e a
+sua ausência é testada: a subida (`lib/app/app.dart`) não pode nem mencionar
+sensor ou pedido de permissão.
+
+Três pontos pedem, e cada um dentro da própria funcionalidade:
+
+- **localização** — em `GeolocatorLocationService.current()`, chamado pelo ponto
+  e pelo check-in;
+- **notificação** — no `PushCoordinator`, depois do primeiro login, com a folha
+  de contexto;
+- **câmera** — pelo próprio `image_picker`, no instante em que a foto é
+  acionada. A declaração de `CAMERA` no manifesto é o que faz o plugin pedir:
+  `ImagePickerUtils.needRequestCameraPermission()` é literalmente "a permissão
+  está no manifesto?". Sem a declaração ele dispensaria o pedido; com ela, pede
+  no lugar certo.
+
+**Negar não bloqueia nada**, e isto foi provado em aparelho, não afirmado.
+
+### 8.16.4 Fronteira testada — `android_permissions_test.dart`
+
+Quatro grupos, e a forma importa:
+
+- **PERM-01** — o conjunto da fonte é comparado por **igualdade**, não por
+  ausência. Uma lista de proibidas só pega o que alguém já imaginou; a igualdade
+  obriga quem acrescentar qualquer permissão a escrever aqui por que ela existe.
+- **PERM-02** — nenhuma proibida, na fonte **e** no fundido.
+- **PERM-03** — o fundido é exatamente a fonte mais as injeções declaradas, nos
+  **dois** sentidos: sobrando significa plugin novo não registrado; faltando
+  significa que a lista está descrevendo um mundo que não existe mais.
+- **PERM-04** — só três arquivos podem conter `requestPermission()`, e a subida
+  não menciona sensor.
+
+Limite declarado: `flutter clean` apaga o manifesto fundido, e sem ele PERM-02
+(fundido) e PERM-03 **pulam** em vez de falhar. Elas são gate de build, não de
+teste isolado — a ordem correta é `flutter build apk` antes de `flutter test`.
+
+### 8.16.5 Provas físicas
+
+Aparelho real, permissões partindo de `granted=false`.
+
+**Localização** — o prompt nativo apareceu ao bater ponto, **não na subida**, com
+as opções `Exata`/`Aproximada` e `Durante o uso do app`; **não** havia opção "o
+tempo todo", que é a confirmação visível de que `ACCESS_BACKGROUND_LOCATION` não
+está declarada. Resultado no banco, do prompt até a linha gravada:
+
+| Batida | Permissão | Coordenada | Precisão |
+|---|---|---|---|
+| `CLOCK_IN` | negada | não | — |
+| `BREAK_START` | aproximada | sim | 2000 m |
+| `BREAK_END` | aproximada | sim | 2000 m |
+| `CLOCK_OUT` | aproximada | sim | 2000 m |
+
+A primeira linha é a prova de que **negar não bloqueia**: o ponto foi registrado
+sem coordenada. As demais provam por que as duas permissões de localização são
+declaradas juntas — com só `FINE`, escolher "Aproximada" negaria tudo. Os 2000 m
+são a assinatura da localização aproximada do Android.
+
+`POST_NOTIFICATIONS` estava `granted=true`, confirmando o piloto da `NF-5`.
+
+**Câmera: NÃO EXECUTADO.** O único gatilho de câmera é a tela de Execução, e ela
+não carregou contra o servidor local — falha **pré-existente e alheia a
+permissões**, registrada em §8.16.6. `CAMERA` seguiu em `granted=false`; nenhum
+`pm grant` foi usado em teste nenhum.
+
+### 8.16.6 Achado fora do escopo, não corrigido
+
+A tela de **Execução** não carrega contra o servidor de desenvolvimento. O
+domínio está sadio — `getFieldExecutionBundle` devolve o pacote completo quando
+chamado direto, com os identificadores reais. A falha está acima dele, e um
+sintoma adjacente foi observado: sem token, `/api/field/v1/notifications`
+responde `401` com o envelope JSON correto, enquanto as duas rotas sob
+`service-orders/[id]` respondem **500 com HTML**. Merece investigação própria;
+não é regressão desta auditoria e não toca permissão.
+
+### 8.16.7 Pendência de produto: o seletor de fotos
+
+`image_picker` expõe `useAndroidPhotoPicker`, e o padrão do plugin é `false` — o
+AlfaOS nunca o liga. A galeria abre por `ACTION_GET_CONTENT`, não pelo seletor
+moderno do Android.
+
+**Isto não é questão de permissão.** Nenhum dos dois caminhos exige permissão de
+armazenamento: ambos são Intent para um app do sistema, e a URI devolvida vem
+com acesso por item. Nada foi declarado nem é necessário — `READ_MEDIA_IMAGES` e
+`READ/WRITE_EXTERNAL_STORAGE` estão ausentes e continuam proibidos pelo teste.
+
+É preferência de produto, e fica registrada em vez de aplicada: ligar o seletor
+moderno muda o comportamento da tela de foto, que é exatamente o caminho que
+esta auditoria **não conseguiu exercitar em aparelho** (§8.16.5). Mudança de UX
+não verificável não entra numa auditoria.
+
+### 8.16.8 `EXIF-01` — coordenada GPS viaja na foto de evidência
+
+**Achado da auditoria independente. Pré-existente desde a v0.10. NÃO corrigido
+nesta tarefa, e a razão está no fim desta seção.**
+
+Toda foto de evidência sobe com o bloco GPS do EXIF intacto. A cadeia foi
+verificada no fonte resolvido deste projeto, não presumida:
+
+- `ExifDataCopier` do `image_picker_android 0.8.13+21` tem **32** referências a
+  `TAG_GPS_*` e as copia para o arquivo redimensionado;
+- o ramo que **não** redimensiona (`ImageResizer.shouldScale == false`) devolve
+  o arquivo original, com o EXIF completo — os dois caminhos preservam GPS;
+- o servidor grava o buffer verbatim (`src/lib/storage/local.ts`), e o
+  `package.json` **não tem** nenhuma biblioteca de imagem. Nada remove o EXIF em
+  ponto nenhum da cadeia.
+
+**Por que isto importa mais que uma permissão a mais.** O GPS do EXIF é escrito
+pelo aplicativo de câmera, sob a permissão **dele**. O técnico que **negou**
+localização ao AlfaOS continua enviando coordenada em cada foto — a recusa dele
+não tem efeito nenhum sobre esta coleta, que é a definição de consentimento
+contornado. E `pickFromGallery()` é pior: sobe coordenada de outro tempo e outro
+lugar, como a casa do técnico numa foto tirada no fim de semana. Colide com a
+§138 do PRD, que trata localização de pessoa como dado sensível.
+
+Não é vazamento entre empresas nem falha de autorização — o dado fica dentro do
+tenant. É coleta e retenção de dado pessoal fora da política que o próprio
+projeto escreveu.
+
+**Por que não foi corrigido aqui.** Não existe correção sem dependência nova, e
+o mandato desta tarefa proíbe uma. Foi verificado: `requestFullMetadata`, que
+resolveria no iOS, **não tem implementação Java** no plugin — o Android o ignora.
+Remover `maxWidth`/`imageQuality` também não resolve, porque o ramo sem
+redimensionamento preserva o EXIF igual. As duas saídas reais são uma biblioteca
+de EXIF no aparelho ou uma de imagem no servidor. Some-se a isso que o caminho
+da foto é justamente o que esta auditoria **não conseguiu exercitar em
+aparelho**, e corrigir às cegas o ponto de saída da evidência — com risco de
+perder `TAG_ORIENTATION` e passar a exibir foto girada — seria pior que
+registrar.
+
+**Falta o controle positivo:** ler o EXIF de uma foto realmente capturada pelo
+aplicativo. Ele deve preceder o dimensionamento da correção.
+
+`ACCESS_MEDIA_LOCATION` — a permissão que destravaria o GPS de EXIF em foto de
+galeria no Android 10+ — entrou na lista de proibidas do teste de fronteira,
+para que a superfície não cresça enquanto a coleta não for cortada.
+
+### 8.16.9 O que a auditoria independente corrigiu no próprio teste de fronteira
+
+A revisão independente devolveu `APPROVED WITH RISKS` — 0 CRITICAL, 0 HIGH, 2
+MEDIUM — e **o segundo MEDIUM era sobre o teste escrito nesta mesma tarefa**.
+
+As duas asserções que leem o manifesto fundido — as únicas do repositório
+capazes de ver injeção por plugin — chamavam `markTestSkipped` quando o artefato
+faltava. `build/` é ignorado pelo Git, então em clone novo, em CI ou depois de
+`flutter clean` elas **não rodavam**, e o resumo dizia `~2`, que ninguém lê como
+"a asserção de segurança não aconteceu". Pior: o `README` do próprio app mandava
+rodar `flutter test` **antes** de `flutter build apk` — exatamente a ordem em que
+a proteção não existia.
+
+É o mesmo erro que esta auditoria corrigiu no `NF2-13`, com outra roupa:
+concluir sobre o artefato a partir de algo que não é o artefato. Pular em
+silêncio é a forma mais educada de fazer isso.
+
+Corrigido em três frentes: a ausência do artefato agora **falha**, com mensagem
+dizendo o que rodar; o `README` inverteu a ordem, com o motivo escrito; e entrou
+uma conferência de **frescor**, porque manifesto obsoleto é pior que ausente —
+ele passa, comparando com o mundo de ontem.
+
+**A primeira versão do frescor estava errada, e o gate a derrubou.** Ela
+comparava com o `pubspec.lock`, que qualquer `flutter pub get` reescreve mesmo
+sem mudança — enquanto o Gradle **não** reescreve o manifesto quando considera a
+tarefa atualizada. O resultado era vermelho depois de um `pub get` inocente, e
+gate que grita à toa é gate que as pessoas aprendem a ignorar. O sinal passou a
+ser o `pubspec.yaml`, que é o arquivo que uma **pessoa** edita para acrescentar
+plugin e que nenhuma ferramenta reescreve sozinha.
+
+Também da auditoria: a asserção dizia "o manifesto fundido, que é o que vai no
+aparelho" e lia o de **debug** — o que vai para a loja é o de release. O texto
+foi corrigido e o de release passou a ser conferido quando existe (este
+repositório não produz APK assinado, então ele costuma não existir, e o pulo
+aparece no resumo). E `ACCESS_MEDIA_LOCATION` e `QUERY_ALL_PACKAGES` entraram na
+lista de proibidas.
+
+**Ressalva que fica de pé:** os testes passarem não prova que o APK de *release*
+está limpo. Eles rodam contra o fundido de **debug**, e o de release nunca foi
+gerado neste repositório.

@@ -4,10 +4,15 @@ Plano da fase descrita no PRD **§153–§157**. Mora aqui, e não no PRD, pelo
 mesmo motivo que `DISPATCH-QUEUE.md`: o PRD é visão de produto, e provider,
 ciclo do token, política de retry e contrato de payload são engenharia.
 
-> **Estado: `NF-1` a `NF-4` ENTREGUES. `NF-5` — piloto em aparelho físico — em
-> curso: dois defeitos reais encontrados e corrigidos (permissão do Android e
-> sino no cold start, §28), com o piloto completo ainda dependendo da conta de
-> serviço do Firebase no worker.**
+> **Estado: `NF-1` a `NF-5` ENTREGUES. `NF-5` — piloto em aparelho físico —
+> `PHYSICAL PILOT PASSED`.**
+>
+> O piloto encontrou dois defeitos reais, ambos corrigidos: a permissão do
+> Android que nunca era pedida, e o sino que não atualizava no cold start
+> (§28). A auditoria de permissões que fechou a trilha está em
+> `docs/SECURITY.md` §8.16 — e o achado dela é que **o manifesto de fonte não é
+> o que vai no aparelho**: o `firebase_messaging` injeta quatro permissões que
+> este documento nunca registrou.
 >
 > O provider real do FCM existe, a seleção por configuração existe, e o defeito
 > de logout que a §2 registrou foi corrigido (§24). O Flutter inicializa o

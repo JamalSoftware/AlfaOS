@@ -81,14 +81,24 @@ flutter analyze
 ```
 
 ```bash
-flutter test
-```
-
-```bash
 flutter build apk --debug
 ```
 
+```bash
+flutter test
+```
+
 O APK sai em `build/app/outputs/flutter-apk/app-debug.apk`.
+
+**O build vem ANTES do teste, e a ordem não é estética.** `android_permissions_test`
+compara o manifesto **fundido** — o único lugar onde permissão injetada por
+plugin aparece — e o Gradle é quem o escreve. Rodando o teste primeiro, num
+clone novo ou depois de `flutter clean`, o artefato não existe: a asserção mais
+importante da fronteira de permissões não teria o que ler. Hoje ela **falha**
+nesse caso, com a mensagem dizendo o que fazer; antes, pulava em silêncio, e foi
+uma auditoria independente que encontrou o buraco. Ela também recusa artefato
+mais antigo que o `pubspec.lock`, porque manifesto obsoleto passa em verde
+comparando com o mundo de ontem.
 
 Instalar num aparelho conectado:
 
