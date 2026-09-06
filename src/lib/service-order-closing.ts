@@ -23,6 +23,10 @@ import {
   getFileStorage,
   MIME_EXTENSIONS,
 } from "./storage";
+import {
+  stripImageMetadata,
+  UnparseableImageError,
+} from "./media/image-metadata";
 
 // ---------------------------------------------------------------------------
 // Limits
@@ -124,6 +128,26 @@ export function sniffImageMime(data: Buffer): string | null {
     return "image/webp";
   }
   return null;
+}
+
+/**
+ * Tira o metadado da imagem e traduz falha estrutural em recusa do cliente.
+ *
+ * O sanitizador LANCA quando nao entende os bytes, e essa escolha e dele: nunca
+ * devolver a entrada intacta diante de um arquivo estranho, porque isso
+ * transformaria "nao entendi" em "guardei tudo o que ele tinha". Aqui a exceção
+ * vira 400 — o arquivo e invalido para o AlfaOS, e dizer isso e mais honesto do
+ * que gravar bytes que ninguem conseguiu ler.
+ */
+function sanitizeImageBytes(data: Buffer, mimeType: string): Buffer {
+  try {
+    return stripImageMetadata(data, mimeType);
+  } catch (error) {
+    if (error instanceof UnparseableImageError) {
+      throw badRequest("Imagem inválida ou corrompida.");
+    }
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +256,20 @@ export async function addEvidence(
     throw badRequest("O conteúdo do arquivo não corresponde ao tipo informado.");
   }
 
+  /*
+    Metadado da imagem sai AQUI, e o lugar é a metade da correção (`EXIF-01`).
+
+    Antes do hash, antes do tamanho, antes da transação: o que segue daqui em
+    diante — inclusive o `contentHash` que existe para conferir integridade —
+    descreve o ARQUIVO GRAVADO, não o que o cliente mandou. Sanitizar depois do
+    hash faria o campo que prova "o arquivo não mudou" acusar corrupção em toda
+    foto.
+
+    E é no servidor porque qualquer cliente pode enviar imagem. Uma limpeza só
+    no aplicativo protegeria exatamente quem já se comporta bem.
+  */
+  const data = sanitizeImageBytes(input.data, sniffed);
+
   const storage = getFileStorage();
   const storageKey = buildStorageKey(companyId, orderId, sniffed);
   let wrote = false;
@@ -245,7 +283,7 @@ export async function addEvidence(
     de sucesso-sem-escrita que enfraqueceria a garantia de corrida do teto
     logo abaixo — ver o comentário do campo em `schema.prisma`.
   */
-  const contentHash = createHash("sha256").update(input.data).digest("hex");
+  const contentHash = createHash("sha256").update(data).digest("hex");
 
   try {
     const created = await prisma.$transaction(async (tx) => {
@@ -286,7 +324,7 @@ export async function addEvidence(
         );
       }
 
-      await storage.put(storageKey, input.data, sniffed);
+      await storage.put(storageKey, data, sniffed);
       wrote = true;
 
       /*
@@ -323,7 +361,7 @@ export async function addEvidence(
           // bloat the row. It never touches the filesystem path.
           originalName: input.originalName.slice(0, 255),
           mimeType: sniffed,
-          sizeBytes: input.data.byteLength,
+          sizeBytes: data.byteLength,
         },
       });
     });
@@ -678,6 +716,16 @@ export async function putSignature(
     throw badRequest("O conteúdo do arquivo não corresponde ao tipo informado.");
   }
 
+  /*
+    A assinatura passa pela MESMA limpeza da evidência (`EXIF-01`).
+
+    Ela é desenhada na tela e não deveria ter metadado nenhum — mas "não
+    deveria" é premissa sobre o cliente, e a política do §3 vale para qualquer
+    origem de upload. Um cliente reimplementado, um script ou uma integração
+    futura mandam o que quiserem por aqui.
+  */
+  const data = sanitizeImageBytes(input.data, sniffed);
+
   const storage = getFileStorage();
   const storageKey = buildStorageKey(companyId, orderId, sniffed);
   let wrote = false;
@@ -719,7 +767,7 @@ export async function putSignature(
       const signedContentHash = await closingContentHash(tx, companyId, orderId);
       const signedOrderVersion = order.version + 1;
 
-      await storage.put(storageKey, input.data, sniffed);
+      await storage.put(storageKey, data, sniffed);
       wrote = true;
 
       if (existing) {
@@ -729,7 +777,7 @@ export async function putSignature(
             signerName: signerName.slice(0, SIGNER_NAME_MAX),
             storageKey,
             mimeType: sniffed,
-            sizeBytes: input.data.byteLength,
+            sizeBytes: data.byteLength,
             signedAt: new Date(),
             capturedByUserId: actorUserId,
             signedContentHash,
@@ -744,7 +792,7 @@ export async function putSignature(
           signerName: signerName.slice(0, SIGNER_NAME_MAX),
           storageKey,
           mimeType: sniffed,
-          sizeBytes: input.data.byteLength,
+          sizeBytes: data.byteLength,
           capturedByUserId: actorUserId,
           signedContentHash,
           signedOrderVersion,
