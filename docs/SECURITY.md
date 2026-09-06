@@ -2398,3 +2398,145 @@ de transporte ainda aberto (`urlencoded` × `multipart/form-data`,
 
 O estado documentado do SGP passa a ser: **`CODE COMPLETE`,
 `REAL TENANT VALIDATION REQUIRED`, `PRODUCTION ACTIVATION GUARDED`.**
+
+---
+
+## 8.19. `CTO-1` — capability, isolamento e a fronteira única de imagem
+
+Fase de cadastro de CTOs e portas. Três decisões de segurança e uma correção de
+concorrência achada durante a implementação.
+
+### A capability é a primeira verificação, e responde 404
+
+`Company.ctoNetworkEnabled`, padrão `false`, e nenhuma empresa é habilitada pela
+migration. `requireCtoAccess` (`src/lib/cto-access.ts`) é o único portão, e a
+ordem é fixa:
+
+```text
+1. sessão ausente          401
+2. capability desligada    404
+3. perfil não autorizado   403
+4. recurso de outra empresa 404   (no domínio, por predicado SQL)
+```
+
+**A capability é verificada ANTES do perfil, e inverter a ordem vaza
+informação.** Com o perfil primeiro, um `DISPATCHER` de empresa que não
+contratou o módulo receberia 403 — que significa *"isto existe, você é que não
+pode"* — e a empresa descobriria pela resposta de erro que há um módulo CTO.
+Com a capability primeiro, quem não a tem vê o mesmo que veria se a rota não
+existisse.
+
+Um par de testes fixa isso: o **mesmo** perfil recebe 404 com a capability
+desligada e 403 com ela ligada. Sem o segundo, o primeiro passaria mesmo que o
+404 viesse do lugar errado.
+
+**Capability não é permissão**, e o inverso também vale: perfil correto numa
+empresa sem a capability continua sendo 404. A verificação existe na API **e**
+na página; esconder o item do menu é conveniência, nunca controle, e há teste
+de acesso direto à URL provando isso.
+
+A leitura é do **banco** a cada requisição, nunca da sessão: o token é emitido
+no login e carregaria o valor de então, de modo que desligar o módulo só teria
+efeito quando cada pessoa reautenticasse.
+
+### Isolamento de tenant
+
+`companyId` sempre da sessão. Nenhum schema de entrada tem o campo, e todos são
+`.strict()` — um `companyId` enviado assim mesmo é **rejeitado** com 400, não
+descartado em silêncio. Descartar deixaria quem tentou achando que funcionou, e
+apagaria o sinal de que alguém está tentando.
+
+O filtro vai no **predicado SQL**, nunca por navegação de FK: o módulo não tem
+um `findUnique({ id })` sequer. Recurso de outra empresa é **404** em leitura,
+edição, capacidade, inativação, estado de porta e foto — cada um com controle
+positivo provando que o caminho autorizado devolve o dado.
+
+Uma verificação a mais que não é sobre tenant: o `ctoId` do caminho participa do
+predicado do estado da porta. Sem ele, o id de uma porta de **outra caixa da
+mesma empresa** seria aceito — não é cross-tenant, mas é escrever num recurso
+diferente do que a URL nomeia.
+
+### A foto da CTO não é evidência de OS
+
+Ela não passa por `loadInProgressOwnedOrder`, não tem `serviceOrderId` e não
+conta em política de conclusão nenhuma. A caixa é infraestrutura do provedor: a
+autorização é a da infraestrutura — ADMIN da empresa dona —, e criar uma OS só
+para permitir a foto inventaria um vínculo que não existe.
+
+**A fronteira de upload foi extraída ANTES deste terceiro consumidor**
+(`src/lib/media/image-upload.ts`). Até aqui a política vivia duplicada em
+`addEvidence` e `putSignature`; acrescentar a CTO como terceira cópia é
+exatamente a forma como o `EXIF-01` aconteceu — um ponto de upload nascendo
+fora da política, sem ninguém notar porque não havia política, havia repetição.
+
+A fronteira decide, nesta ordem: vazio, teto, sniff do tipo **real**, allowlist
+do declarado, concordância entre os dois, e a sanitização de metadado
+(EXIF/GPS, XMP/IPTC, comentários, trailer depois do `EOI`, teto de segmentos).
+O teto vem antes do sniff porque as duas etapas seguintes percorrem o arquivo;
+a sanitização vem por último porque é a única que **produz** bytes, e é sobre
+eles que hash e tamanho são calculados.
+
+> **Prova de que a fronteira é uma só:** devolver os bytes originais em
+> `processImageUpload` derruba **12 testes** de uma vez — evidência, assinatura
+> e foto de CTO. Nenhum consumidor ficou fora.
+
+A chave do storage é construída no servidor (`buildStorageKey`), e **nunca sai
+na resposta**: o DTO expõe `hasPhoto`, não o caminho. Servir os bytes exige
+sessão, capability e tenant; saber o id da CTO não basta para ler a foto de
+outra empresa. `Content-Disposition: attachment` e `X-Content-Type-Options:
+nosniff` fecham a segunda metade da defesa que começa recusando SVG no upload.
+
+### `CTO-CONC-01` — a corrida entre estado de porta e redução de capacidade
+
+Encontrada durante a implementação, não relatada depois.
+
+Mudar o estado de uma porta parece isolado — um campo, numa linha — e disputa
+com a redução de capacidade, que decide se pode reduzir olhando o estado de
+**todas** as portas acima do novo limite:
+
+```text
+redução      lê a porta 12 como AVAILABLE
+estado       grava RESERVED na porta 12
+redução      commita capacity = 8
+             → porta reservada ACIMA da capacidade
+```
+
+Cada operação respondeu por metade da pergunta e nenhuma respondeu pela caixa —
+o mesmo formato do problema que a fila operacional resolveu com `version`
+própria mais `FOR UPDATE` (PRD §318).
+
+**Correção:** as duas travam a **CTO** com `FOR UPDATE`, e a leitura da porta
+acontece **depois** do lock. O estado lido antes de travar é uma fotografia que
+já envelheceu quando se age sobre ela — e é dela que sai o "de → para" da
+auditoria, que passaria a mentir.
+
+Depois da redução, marcar como reservada uma posição já fora da capacidade
+continua permitido: é linha real, e registrar que ela está danificada é
+legítimo. O que não pode é a redução acontecer *apesar* da reserva.
+
+### O teto de capacidade é controle de recurso
+
+O banco garante `capacity > 0`, e sozinho isso aceita `capacity = 1_000_000`:
+a criação abre uma transação que insere um milhão de linhas e segura o lock
+enquanto isso, no mesmo processo Node que atende todos os tenants. Não é
+hipótese exótica — é um campo numérico num formulário, e um zero a mais o
+produz sem má intenção. `CTO_MAX_CAPACITY = 256`, validado no zod e no domínio.
+
+### O que NÃO é apagado
+
+Não existe `DELETE` de CTO em rota nenhuma, e `CTO → CTOPort` é `Restrict` no
+schema: mesmo um `delete` escrito por engano num caminho futuro esbarra no
+banco. Reduzir capacidade **não** apaga porta — as posições acima viram
+histórico e apenas saem da faixa ofertável.
+
+**A faixa `1..capacity` é regra de aplicação, e isso é uma consequência
+declarada, não uma omissão.** Um CHECK entre `cto_ports.number` e
+`ctos.capacity` seria cross-table (exigiria trigger) e contradiria a própria
+política, que exige que linhas com `number > capacity` sobrevivam. Por isso
+`isPortOfferable` é função exportada e testada diretamente: quando a `CTO-2`
+receber um `ctoPortId` num payload, ela precisa decidir na **transação que
+escreve**, e não confiar na lista que a tela mostrou.
+
+O blob da foto anterior também não é apagado numa substituição — comportamento
+conservador declarado, sem política de remoção. Órfão custa disco; apagar por
+suposição custa dado.

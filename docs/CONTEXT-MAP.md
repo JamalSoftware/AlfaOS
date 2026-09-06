@@ -9,7 +9,7 @@ Regra geral: leia a seção "Sempre" em toda sessão nova, depois **só** as se�
 * `CLAUDE.md`
 * Estado do Git: `git status`, `git branch --show-current`, `git log --oneline --decorate -10`, `git tag`
 
-**Baseline publicada: `v0.13-field-push-notifications`.** Ela fecha a Field Notification Foundation (`NF-1`–`NF-5`, com piloto físico aprovado), a `ERP-1` e a `SGP-1`, mais o endurecimento de privacidade de foto (`PC-1`/`EXIF-01`) e a trava de ativação do SGP (`RC-1`). **Trilha de produto ativa: CTO / Rede de Distribuição** — decisões congeladas na `CTO-0.1`, `CTO-1` executável, nada em código.
+**Baseline publicada: `v0.13-field-push-notifications`.** Ela fecha a Field Notification Foundation (`NF-1`–`NF-5`, com piloto físico aprovado), a `ERP-1` e a `SGP-1`, mais o endurecimento de privacidade de foto (`PC-1`/`EXIF-01`) e a trava de ativação do SGP (`RC-1`). **Trilha de produto ativa: CTO / Rede de Distribuição** — decisões congeladas na `CTO-0.1`, e a **`CTO-1` existe em código** (cadastro de caixas e portas). Da `CTO-2` em diante, nada.
 
 ## Produto / roadmap
 
@@ -439,7 +439,7 @@ Duas decisões que o PRD já fixou e não devem ser desfeitas na implementação
 * **`equipmentType` e `networkRole` são campos diferentes** (§235). Nem toda ONT roteia, e o tipo não muda quando o modo de operação muda.
 * **O padrão de repetidor da Alfa Telecom é configuração, não código** (§237). Hardcode transformaria a regra de um provedor em regra do produto.
 
-## CTOs e Rede de Distribuição — PLANNED, nada em código
+## CTOs e Rede de Distribuição — `CTO-1` IMPLEMENTADA; `CTO-2`+ PLANNED
 
 **Carregar:** `docs/CTO-NETWORK-DISTRIBUTION.md` (especificação técnica — modelo, concorrência de porta, fluxos, fases `CTO-1`–`CTO-7`, aceite, casos de borda) e PRD §333–§341 (visão, invariantes e a revisão da §202). Para entender a fonte de status, também `src/lib/customer-diagnostics.ts` e o modelo `CustomerDiagnosticSnapshot`.
 
@@ -453,9 +453,13 @@ Quatro coisas que a especificação fixou e são fáceis de desfazer sem percebe
 * **O diagnóstico atual não sustenta tempo real** (§337): refresh é sob demanda com gatilho na OS, e o teto é **10 chamadas por minuto por empresa** — uma CTO de 8 portas consumiria 8. Por isso a CTO mostra o último estado conhecido **com a idade da leitura**.
 
 **Quando:** a tarefa envolve CTO, porta óptica, vínculo do cliente à rede de distribuição ou o status na visão da caixa.
-**Quando NÃO:** qualquer outra coisa. **Nada disso existe em código**, e a §119 se aplica — a CTO ser a trilha ativa não a torna implementada.
+**Quando NÃO:** qualquer outra coisa. Só a `CTO-1` existe em código; da `CTO-2` em diante a §119 se aplica inteira.
 
-**O gate CAIU e as decisões estão CONGELADAS.** A `v0.12-operational-dispatch-queue` está publicada, o que satisfez a condição da §341; a `CTO-0.1` fechou as decisões de produto e o contrato de schema. **A `CTO-1` é executável** — e é a única: `CTO-3` segue bloqueada pelo Mapa Operacional, `CTO-6` por estratégia de frescor, `CTO-7` é opcional. Sequência ativa: `CTO-1 → CTO-2 → CTO-4 → CTO-5`.
+**Código da `CTO-1`:** `src/lib/cto.ts` (domínio), `src/lib/cto-access.ts` (o portão de autorização), `src/lib/media/image-upload.ts` (fronteira de upload, compartilhada com evidência e assinatura), `src/app/api/ctos/**`, `src/app/(app)/ctos/**`, `src/tests/cto.test.ts`, `src/tests/cto-routes.test.ts`, `e2e/ctos.spec.ts`. Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §20 e `docs/SECURITY.md` §8.19.
+
+**O que a `CTO-1` NÃO trouxe:** `CustomerNetworkConnection`, vínculo cliente↔porta, qualquer superfície no Field, mapa, status `ONLINE/OFFLINE` e QR. `ServiceOrder` e `Customer` não foram tocados. Sequência ativa daqui: `CTO-2 → CTO-4 → CTO-5`; `CTO-3` segue bloqueada pelo Mapa Operacional, `CTO-6` por estratégia de frescor, `CTO-7` é opcional.
+
+**Três coisas da `CTO-1` que a `CTO-2` precisa herdar, não reinventar:** o portão é `requireCtoAccess` (a ordem sessão → **capability** → perfil não é estética: capability depois do perfil faz um `DISPATCHER` de empresa sem o módulo receber 403, que confirma a existência dele); `isPortOfferable` é a autoridade da faixa `1..capacity` e precisa ser chamada **na transação que escreve**, porque a redução de capacidade preserva linhas com `number > capacity`; e toda operação que decide olhando o conjunto de portas trava a **CTO** com `FOR UPDATE` — foi uma corrida entre mudar o estado de uma porta e reduzir a capacidade que impôs isso.
 
 Cinco coisas que a `CTO-0.1` congelou e não devem ser reabertas em silêncio (§16 e §17 da especificação):
 

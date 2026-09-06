@@ -6,17 +6,19 @@ Mora aqui, e não no PRD, pelo mesmo motivo que `DISPATCH-QUEUE.md` e
 `FIELD-API.md` moram fora dele: o PRD é **visão de produto**, e modelo de
 dados, concorrência de porta, matriz de teste e fases são engenharia.
 
-> **Nada disto existe em código.** Nenhuma migration, nenhuma entidade, nenhuma
-> rota, nenhuma tela.
+> **Estado: `CTO-1` IMPLEMENTADA (§20).** Cadastro de CTO, portas, capacidade,
+> localização, estados administrativos da porta, foto e tela de ADMIN existem em
+> código.
 >
-> **O gate da §341 CAIU.** Ele condicionava a CTO a "depois de a sequência da
-> fila estar concluída **e publicada**", e `v0.12-operational-dispatch-queue`
-> está no remoto. A CTO é a **trilha de produto ativa** — o que não a promove a
-> implementada: a §119 continua valendo linha por linha.
+> **`CTO-2` a `CTO-7` NÃO existem.** Sem `CustomerNetworkConnection`, sem
+> vínculo cliente↔porta, sem Field, sem mapa, sem status `ONLINE/OFFLINE`, sem
+> QR. Onde este documento fala do vínculo, ele descreve o que a `CTO-2` vai
+> fazer — não o que o sistema faz hoje.
 >
 > **Decisões de produto congeladas na `CTO-0.1`** (§16) e contrato de schema
 > congelado (§17). Reabrir qualquer um dos dois exige decisão explícita e
-> registro aqui.
+> registro aqui. A §119 continua valendo: as fases seguintes não estão
+> autorizadas por estarem escritas.
 
 ---
 
@@ -1125,3 +1127,154 @@ proposta, ela é decisão à parte, justificada antes de instalar**.
 **Validação física:** não se aplica à `CTO-1` (web, sem Field). Ela é
 obrigatória na `CTO-2`, onde `CTO-AC06` só se prova com dois aparelhos
 disputando a mesma porta.
+
+---
+
+## 20. `CTO-1` — IMPLEMENTADA
+
+Cadastro de CTO, portas, capacidade, localização, estados administrativos da
+porta, foto opcional, tela de ADMIN e auditoria. **Uma migration aditiva.**
+
+**O que continua não existindo:** `CustomerNetworkConnection`, vínculo de
+cliente a porta, qualquer superfície no Field, mapa, status `ONLINE/OFFLINE` e
+QR. `ServiceOrder` e `Customer` não foram tocados.
+
+> **`OCCUPIED` permanece DERIVADO.** Ele existe como valor de apresentação
+> (`CtoPortEffectiveState`) e **não** existe no enum do Prisma — não há coluna
+> capaz de recebê-lo. Ele só passa a ser produzido quando a `CTO-2` trouxer
+> `CustomerNetworkConnection`, a partir de `disconnectedAt IS NULL`. Até lá,
+> a contagem de ocupadas é `0` e a tela diz por quê, em vez de esconder a linha.
+
+### O contrato de rotas foi COMPLETADO, e o registro importa
+
+A §19 previa três arquivos de rota — `/api/ctos`, `/api/ctos/[id]` e
+`.../photo` — e a fase precisou de três operações que nenhum deles endereçava:
+**alterar capacidade**, **inativar** e **mudar o estado administrativo de uma
+porta**. A lacuna era do contrato, não do enunciado da fase, que pede as três.
+
+Elas **não** entraram como campos de um `PATCH` genérico. O projeto não tem
+endpoint de mudança de estado que aceite `{ status }` ao lado de qualquer outro
+campo — é assim que `companyId` e `status` entram de carona —, e o precedente é
+`POST /api/service-orders/:id/priority` (DQ-3) e
+`POST /api/dispatch/technicians/:id/queue/reorder`. Ações explícitas, cada uma
+com auditoria própria.
+
+Superfície final:
+
+```text
+GET    /api/ctos                                lista
+POST   /api/ctos                                cria (com as portas)
+GET    /api/ctos/:id                            detalhe + portas
+PATCH  /api/ctos/:id                            campos descritivos
+POST   /api/ctos/:id/capacity                   aumentar / reduzir
+POST   /api/ctos/:id/active                     inativar / reativar
+POST   /api/ctos/:id/ports/:portId/state        AVAILABLE · RESERVED · DAMAGED
+POST   /api/ctos/:id/photo                      enviar / substituir
+GET    /api/ctos/:id/photo                      servir os bytes
+```
+
+**Não existe `DELETE`**, em rota nenhuma. A ausência é a `N-13` expressa em
+superfície, e o schema a reforça com `Restrict` em `CTO → CTOPort`.
+
+### A sequência de autorização vive num lugar só
+
+`requireCtoAccess` (`src/lib/cto-access.ts`), e todas as rotas passam por ela.
+Espalhá-la por seis arquivos garantiria que o sétimo esquecesse uma etapa.
+
+```text
+sessão ausente        401
+capability desligada  404      ← antes do perfil
+perfil errado         403
+recurso de outra empresa 404   (no domínio, por predicado SQL)
+```
+
+**A capability vem antes do perfil, e inverter vaza informação:** com o perfil
+primeiro, um `DISPATCHER` de empresa que não contratou o módulo receberia 403 —
+"isto existe, você é que não pode" —, e a empresa descobriria pela mensagem de
+erro que há um módulo CTO. Há um par de testes para isso: o mesmo perfil recebe
+404 com a capability desligada e 403 com ela ligada, o que prova de qual das
+duas verificações cada resposta veio.
+
+A capability é lida do **banco** a cada requisição, nunca da sessão: o token é
+emitido no login e carregaria o valor de então, de modo que desligar o módulo
+só teria efeito quando cada pessoa reautenticasse.
+
+### A fronteira de imagem foi EXTRAÍDA antes do terceiro consumidor
+
+`src/lib/media/image-upload.ts` passou a ser o único lugar que decide o que é
+uma imagem aceitável e o que sai dela: vazio, teto, sniff do tipo real,
+allowlist, concordância declarado × detectado, e a sanitização de metadado.
+`addEvidence` e `putSignature` foram **convertidos** a ela; a foto da CTO é o
+terceiro consumidor, e não a terceira cópia.
+
+As mensagens continuam sendo de cada superfície, por parâmetro: "Assinatura
+vazia." orienta onde "Arquivo vazio." confundiria. Unificá-las teria trocado
+uma duplicação de lógica por uma regressão de texto em superfícies homologadas.
+
+**A prova de que a fronteira é uma só:** devolver os bytes originais em
+`processImageUpload` derruba **12 testes de uma vez** — os de evidência, os de
+assinatura e o da foto da CTO.
+
+### O que a implementação encontrou e o plano não previa
+
+**Uma corrida entre mudar o estado de uma porta e reduzir a capacidade.** A
+mudança de estado parece isolada — um campo, numa linha — e disputa com a
+redução, que decide se pode reduzir olhando o estado de todas as portas acima do
+novo limite:
+
+```text
+redução lê a porta 12 como AVAILABLE
+estado da porta grava RESERVED na 12
+redução commita capacity = 8
+→ porta reservada ACIMA da capacidade
+```
+
+Cada uma respondeu por metade da pergunta e ninguém respondeu pela caixa — é o
+mesmo formato do problema que a fila operacional resolveu com `version` própria
+mais `FOR UPDATE`. Aqui as duas operações passaram a travar a **CTO**, e a
+leitura da porta acontece **depois** do lock: o estado lido antes de travar é
+uma fotografia que já envelheceu quando se age sobre ela, e é dela que sai o
+"de → para" da auditoria.
+
+Depois da redução, marcar como reservada uma posição já fora da capacidade
+continua permitido — é linha real, e registrar que ela está danificada é
+legítimo. O que não pode é a redução acontecer *apesar* da reserva.
+
+**Um teto de capacidade que o contrato não tinha.** O banco garante
+`capacity > 0`, e sozinho isso aceita `capacity = 1_000_000`: a criação abre uma
+transação que insere um milhão de linhas e segura o lock enquanto isso. Não é
+hipótese exótica — é um campo numérico num formulário, e um zero a mais o
+produz sem nenhuma má intenção. `CTO_MAX_CAPACITY = 256`.
+
+**O tipo da foto não ganhou coluna.** Ele é derivado da extensão da chave, que
+`buildStorageKey` escolheu a partir do tipo já sniffado — a chave é registro do
+servidor sobre o servidor. Uma coluna separada seria uma segunda memória do
+mesmo fato.
+
+**`buildStorageKey` teve um parâmetro renomeado.** Chamava-se `serviceOrderId`
+quando a OS era o único dono possível, e o nome passou a mentir. Só o nome
+mudou: a função sempre foi um concatenador de segmentos.
+
+### Riscos do design, na implementação
+
+| | |
+|---|---|
+| `R-02` tenancy | `companyId` **sempre** da sessão; filtro em predicado SQL, nunca por navegação de FK. Nenhum `findUnique({ id })` sem tenant no módulo. Cross-tenant → 404 em leitura, edição, capacidade, inativação, porta e foto, cada um com controle positivo |
+| `R-12` capability | verificada na API **e** na página; a página usa `notFound()` em vez de uma tela de "indisponível", que anunciaria o módulo a quem não o tem |
+| `R-13` ofertabilidade | `isPortOfferable` é função exportada e testada **diretamente**, não um `where` de listagem. A `CTO-2` a chama na transação que escreve |
+| `R-05` mass assignment | todo schema é `.strict()`: campo desconhecido é **rejeitado**, não descartado em silêncio — descartar deixaria quem tentou achando que funcionou |
+| `R-15` `code` imutável | recusa explícita, inclusive ao **preencher** um código que era nulo; reenviar o mesmo valor é aceito, senão salvar sem mexer no código viraria erro |
+
+### Limite declarado
+
+A verificação de **vínculo ativo** na redução de capacidade não existe, porque
+`CustomerNetworkConnection` não existe. Criar a tabela agora só para poder
+consultá-la seria antecipar a `CTO-2` com uma superfície que nenhum caminho
+escreve. O ponto exato onde a condição entra está marcado no código, ao lado
+das duas que já valem.
+
+**O blob da foto anterior não é apagado.** Substituir aponta a linha para a
+chave nova e a antiga fica órfã. É o comportamento conservador: não há política
+documentada de remoção, e apagar por suposição é como se perde evidência. O
+custo é disco, uma imagem por substituição; a alternativa custaria dado. Um
+coletor de órfãos é trabalho próprio, com política própria.
