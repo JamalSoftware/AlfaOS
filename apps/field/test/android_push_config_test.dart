@@ -29,14 +29,27 @@ void main() {
       expect(manifesto, contains('android.permission.POST_NOTIFICATIONS'));
     });
 
-    test('não pede permissão que o push não precisa', () {
+    test('não pede permissão de agendamento que o push não precisa', () {
       final manifesto = _arquivo('android/app/src/main/AndroidManifest.xml')
           .readAsStringSync();
 
-      // Cada permissão a mais é uma pergunta a mais na loja e no aparelho.
+      /*
+        `WAKE_LOCK` SAIU desta lista, e a razão é uma correção, não uma
+        flexibilização.
+
+        A asserção afirmava que o aplicativo não usava `WAKE_LOCK`. Ela era
+        verdadeira sobre o arquivo que este teste lê e **falsa sobre o APK**:
+        o `firebase_messaging` a injeta no manifesto fundido desde a `NF-2`,
+        e é assim que o FCM acorda o aparelho para entregar a mensagem. O
+        teste passava enquanto documentava uma crença errada — e é o pior tipo
+        de teste, porque encerra a discussão.
+
+        A verdade sobre o artefato mora agora em `android_permissions_test`,
+        que compara o manifesto FUNDIDO com a lista do que cada plugin injeta.
+        Aqui ficam as duas que continuam ausentes das duas pontas.
+      */
       expect(manifesto, isNot(contains('RECEIVE_BOOT_COMPLETED')));
       expect(manifesto, isNot(contains('SCHEDULE_EXACT_ALARM')));
-      expect(manifesto, isNot(contains('WAKE_LOCK')));
     });
   });
 
