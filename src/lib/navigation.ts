@@ -13,6 +13,7 @@ export type IconName =
   | "dispatch"
   | "settings"
   | "myorders"
+  | "cto"
   | "profile";
 
 export interface NavItem {
@@ -20,6 +21,20 @@ export interface NavItem {
   label: string;
   icon: IconName;
   profiles: AccessProfile[];
+  /**
+   * Capability da empresa que este item exige, quando exige alguma.
+   *
+   * Esconder o item é conveniência, **não** controle: a rota responde 404 por
+   * conta própria quando a capability está desligada. As duas coisas existem
+   * porque servem a públicos diferentes — o menu evita oferecer o que a empresa
+   * não tem, e o 404 é o que sobra quando alguém chama a API direto.
+   */
+  requires?: "ctoNetwork";
+}
+
+/** O que a empresa tem contratado. Vem do banco, nunca da sessão. */
+export interface CompanyFeatures {
+  ctoNetworkEnabled: boolean;
 }
 
 export const NAVIGATION: NavItem[] = [
@@ -83,6 +98,15 @@ export const NAVIGATION: NavItem[] = [
     profiles: [AccessProfile.ADMIN, AccessProfile.DISPATCHER],
   },
   {
+    // Cadastro de infraestrutura, e por isso fica perto dos outros cadastros —
+    // longe de Despacho, que é operação do dia.
+    href: "/ctos",
+    label: "CTOs",
+    icon: "cto",
+    profiles: [AccessProfile.ADMIN],
+    requires: "ctoNetwork",
+  },
+  {
     href: "/dispositivos",
     label: "Dispositivos",
     icon: "devices",
@@ -112,8 +136,18 @@ export const NAVIGATION: NavItem[] = [
   },
 ];
 
-export function navigationFor(profile: AccessProfile): NavItem[] {
-  return NAVIGATION.filter((item) => item.profiles.includes(profile));
+export function navigationFor(
+  profile: AccessProfile,
+  features: CompanyFeatures = { ctoNetworkEnabled: false },
+): NavItem[] {
+  return NAVIGATION.filter((item) => {
+    if (!item.profiles.includes(profile)) return false;
+    // Padrão FECHADO: um item com `requires` que ninguém informou fica de fora.
+    // Se a assinatura ganhar uma capability nova e algum chamador não for
+    // atualizado, o item some do menu — em vez de aparecer para todo mundo.
+    if (item.requires === "ctoNetwork") return features.ctoNetworkEnabled;
+    return true;
+  });
 }
 
 export const PROFILE_LABELS: Record<AccessProfile, string> = {

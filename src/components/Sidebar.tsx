@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { AccessProfile } from "@prisma/client";
-import { navigationFor, PROFILE_LABELS } from "@/lib/navigation";
+import { navigationFor, PROFILE_LABELS, type CompanyFeatures } from "@/lib/navigation";
 import { Icon } from "./icons";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -12,18 +12,22 @@ interface SidebarProps {
   profile: AccessProfile;
   userName: string;
   companyName: string;
+  /** O que a empresa tem contratado — decide os itens com `requires`. */
+  features: CompanyFeatures;
 }
 
 function NavList({
   profile,
+  features,
   pathname,
   onNavigate,
 }: {
   profile: AccessProfile;
+  features: CompanyFeatures;
   pathname: string;
   onNavigate?: () => void;
 }) {
-  const items = navigationFor(profile);
+  const items = navigationFor(profile, features);
   return (
     <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
       {items.map((item) => {
@@ -63,7 +67,10 @@ function Brand({ companyName }: { companyName: string }) {
   );
 }
 
-function UserFooter({ userName, profile }: SidebarProps) {
+function UserFooter({
+  userName,
+  profile,
+}: Pick<SidebarProps, "userName" | "profile">) {
   return (
     <div className="border-t border-border px-5 py-4">
       <div className="flex items-center justify-between gap-2">
@@ -93,7 +100,7 @@ function UserFooter({ userName, profile }: SidebarProps) {
   );
 }
 
-export function Sidebar({ profile, userName, companyName }: SidebarProps) {
+export function Sidebar({ profile, userName, companyName, features }: SidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -159,10 +166,11 @@ export function Sidebar({ profile, userName, companyName }: SidebarProps) {
             </div>
             <NavList
               profile={profile}
+              features={features}
               pathname={pathname}
               onNavigate={() => setMobileOpen(false)}
             />
-            <UserFooter profile={profile} userName={userName} companyName={companyName} />
+            <UserFooter profile={profile} userName={userName} />
           </aside>
         </div>
       )}
@@ -170,8 +178,8 @@ export function Sidebar({ profile, userName, companyName }: SidebarProps) {
       {/* Desktop sidebar */}
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-surface md:flex">
         <Brand companyName={companyName} />
-        <NavList profile={profile} pathname={pathname} />
-        <UserFooter profile={profile} userName={userName} companyName={companyName} />
+        <NavList profile={profile} features={features} pathname={pathname} />
+        <UserFooter profile={profile} userName={userName} />
       </aside>
     </>
   );

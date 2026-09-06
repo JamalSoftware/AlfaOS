@@ -17,6 +17,14 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="M9 7h11M9 12h11M9 17h11" />
     </>
   ),
+  // Caixa com posicoes: a CTO e um contineer com portas numeradas. Os quatro
+  // quadrados internos leem como posicoes, nao como itens de lista.
+  cto: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M8 9v6M12 9v6M16 9v6" />
+    </>
+  ),
   // Relogio: a jornada e sobre TEMPO, nao sobre pessoas nem sobre OS.
   workday: (
     <>

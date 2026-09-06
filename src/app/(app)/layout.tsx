@@ -19,6 +19,10 @@ export default async function AppLayout({
         profile={session.profile}
         userName={session.name}
         companyName={company?.name ?? "Empresa"}
+        // Do BANCO, e não da sessão: o token é emitido no login e carregaria o
+        // valor de então, de modo que desligar uma capability só sumiria do
+        // menu quando cada pessoa reautenticasse.
+        features={{ ctoNetworkEnabled: company?.ctoNetworkEnabled ?? false }}
       />
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">
