@@ -36,17 +36,28 @@ export const CTO_NOTES_MAX_LENGTH = 500;
 export const CTO_PORT_NOTES_MAX_LENGTH = 200;
 
 /**
- * Teto de posições por caixa.
+ * A faixa de posições por caixa, `1..256`.
  *
- * O banco só garante `capacity > 0`, e sozinho isso permite `capacity =
- * 1_000_000`: a criação abre uma transação que insere um milhão de linhas e
- * segura o lock enquanto isso. Não é hipótese exótica — é um campo numérico num
- * formulário, e um zero a mais o produz sem nenhuma má intenção.
+ * O teto é **controle de recurso**, não preferência de produto. Sem ele,
+ * `capacity = 1_000_000` abre uma transação que insere um milhão de linhas e
+ * segura o lock da CTO enquanto isso, no mesmo processo Node que atende todos
+ * os tenants. Não é hipótese exótica: é um campo numérico num formulário, e um
+ * zero a mais o produz sem nenhuma má intenção.
  *
  * 256 é folgado para o mundo real (caixas têm 8, 16, 32) e mantém a operação
  * dentro do que uma transação fecha rápido.
+ *
+ * **A faixa vale em TRÊS camadas, e nenhuma substitui a outra:** o `zod` das
+ * rotas recusa o payload, `assertCapacity` recusa a chamada direta ao serviço,
+ * e o banco tem `CHECK`. A do banco é a que sobrevive a um caminho novo que
+ * esqueça as duas primeiras — e a que torna o limite um fato da tabela em vez
+ * de uma convenção da aplicação.
+ *
+ * Mudar `CTO_CAPACITY_MAX` exige migration, de propósito: um teto que a
+ * aplicação pode afrouxar sozinha não é teto.
  */
-export const CTO_MAX_CAPACITY = 256;
+export const CTO_CAPACITY_MIN = 1;
+export const CTO_CAPACITY_MAX = 256;
 
 /** 8 MB, o mesmo teto da evidência de OS: é uma foto de caixa, não um álbum. */
 export const CTO_PHOTO_MAX_BYTES = 8 * 1024 * 1024;
@@ -245,12 +256,20 @@ function assertName(name: string): void {
   }
 }
 
+/**
+ * A faixa, verificada ANTES de qualquer trabalho proporcional ao valor.
+ *
+ * `Number.isInteger` cobre `NaN`, `Infinity` e fracionário de uma vez — os três
+ * são não-inteiros. A ordem importa: esta função roda antes da transação e
+ * antes do `Array.from({ length: capacity })`, de modo que um valor absurdo é
+ * recusado sem alocar nada e sem segurar lock nenhum.
+ */
 function assertCapacity(capacity: number): void {
-  if (!Number.isInteger(capacity) || capacity < 1) {
+  if (!Number.isInteger(capacity) || capacity < CTO_CAPACITY_MIN) {
     throw badRequest("Capacidade deve ser um número inteiro maior que zero.");
   }
-  if (capacity > CTO_MAX_CAPACITY) {
-    throw badRequest(`Capacidade máxima é ${CTO_MAX_CAPACITY} portas.`);
+  if (capacity > CTO_CAPACITY_MAX) {
+    throw badRequest(`Capacidade máxima é ${CTO_CAPACITY_MAX} portas.`);
   }
 }
 
@@ -270,6 +289,28 @@ function assertCoordinates(
   if (hasLat !== hasLon) {
     throw badRequest("Informe latitude e longitude juntas, ou nenhuma das duas.");
   }
+
+  /*
+    Finitude ANTES da faixa, e não é redundância.
+
+    Comparação com `NaN` é sempre falsa: `NaN < -90` e `NaN > 90` são os dois
+    `false`, então um teste de faixa sozinho DEIXA `NaN` PASSAR. A verificação
+    de faixa parece cobrir tudo e não cobre o único valor que não se compara.
+
+    `Infinity` seria pego pela faixa, mas entra aqui pela mesma porta, e
+    separá-los produziria duas mensagens para o mesmo defeito de entrada.
+
+    O `zod` das rotas já recusa os dois — esta guarda existe para a chamada
+    direta ao serviço, que é superfície pública do módulo e será o caminho da
+    `CTO-2`.
+  */
+  if (hasLat && !Number.isFinite(latitude)) {
+    throw badRequest("Latitude deve ser um número.");
+  }
+  if (hasLon && !Number.isFinite(longitude)) {
+    throw badRequest("Longitude deve ser um número.");
+  }
+
   if (hasLat && (latitude! < -90 || latitude! > 90)) {
     throw badRequest("Latitude deve estar entre -90 e 90.");
   }

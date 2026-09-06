@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { jsonError, jsonOk, runApi } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
-import { CTO_MAX_CAPACITY, changeCtoCapacity } from "@/lib/cto";
+import {
+  CTO_CAPACITY_MAX,
+  CTO_CAPACITY_MIN,
+  changeCtoCapacity,
+} from "@/lib/cto";
 import { requireCtoAccess } from "@/lib/cto-access";
 
 /**
@@ -18,7 +22,7 @@ import { requireCtoAccess } from "@/lib/cto-access";
  * com o valor travado dentro da transação, nunca com um valor lido antes.
  */
 const capacitySchema = z
-  .object({ capacity: z.number().int().min(1).max(CTO_MAX_CAPACITY) })
+  .object({ capacity: z.number().int().min(CTO_CAPACITY_MIN).max(CTO_CAPACITY_MAX) })
   .strict();
 
 export async function POST(

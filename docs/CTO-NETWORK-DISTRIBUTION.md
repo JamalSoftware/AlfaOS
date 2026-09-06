@@ -1278,3 +1278,61 @@ chave nova e a antiga fica órfã. É o comportamento conservador: não há pol�
 documentada de remoção, e apagar por suposição é como se perde evidência. O
 custo é disco, uma imagem por substituição; a alternativa custaria dado. Um
 coletor de órfãos é trabalho próprio, com política própria.
+
+### `CTO-1.1` — a faixa no banco, e a metade que faltava da guarda de coordenada
+
+Patch focal sobre duas ambiguidades que a `CTO-1` deixou. As duas tinham
+**metade** fechada, e é a metade aberta que interessa.
+
+**A faixa de capacidade agora vale em três camadas.** Ela existia no `zod` das
+rotas e em `assertCapacity`, ambas de aplicação. Entrou o `CHECK` do banco
+(`ctos_capacity_max_check`), que é o que sobrevive a um caminho de escrita novo
+que esqueça as duas primeiras — e o que torna o limite fato da tabela em vez de
+convenção. Mudar `CTO_CAPACITY_MAX` passa a exigir migration, de propósito: um
+teto que a aplicação afrouxa sozinha não é teto.
+
+> **Migration NOVA, não edição da anterior.** `20260906120000_add_cto_network`
+> já fora aplicada em bancos locais, e reescrever o SQL de uma migration
+> aplicada quebra o checksum e obriga a resetar. `20260906210000` é aditiva:
+> aplica em base vazia e em base com dados pelo mesmo caminho.
+
+**A guarda de coordenada do cliente estava pela metade, e a metade aberta era
+minha.** Ela usava `Number.isNaN`, que fecha `"abc"` e **deixa `"Infinity"`
+passar inteiro** — `Number.isNaN(Infinity)` é `false`.
+
+O motivo de a guarda existir no cliente é do transporte, não da tela:
+
+```text
+JSON.stringify(NaN)       → null
+JSON.stringify(Infinity)  → null
+null nos dois campos      → "remova a coordenada", que é legítimo
+```
+
+O servidor recebe os dois casos como a mesma coisa e **não tem como
+distingui-los**. Por isso a validação precisa acontecer antes de o JSON ser
+montado, e o predicado correto é `Number.isFinite` — o único que corresponde ao
+que o `JSON.stringify` de fato descarta. Provado por reversão: voltar para
+`Number.isNaN` derruba o caso `Infinity` do E2E, que é o único teste capaz de
+alcançar essa guarda.
+
+**E o domínio tinha uma lacuna própria, por um motivo diferente.** Comparação
+com `NaN` é sempre falsa: `NaN < -90` e `NaN > 90` são os dois `false`, então um
+teste de faixa **sozinho deixa `NaN` passar**. A verificação parecia cobrir tudo
+e não cobria o único valor que não se compara. `assertCoordinates` passou a
+verificar finitude **antes** da faixa. O `zod` já recusava os dois; a guarda
+existe para a chamada direta ao serviço, que é superfície pública do módulo e
+será o caminho da `CTO-2`.
+
+**Nenhum valor inválido vira `null` em lugar nenhum**, e nenhuma coordenada
+gravada é apagada por entrada malformada.
+
+**Recusa antes do trabalho.** `assertCapacity` roda antes da transação e antes
+do `Array.from({ length: capacity })`, então `capacity = 1_000_000` é recusado
+sem alocar nada e sem segurar lock. Testado pelas duas pontas: zero linhas
+criadas e recusa imediata.
+
+**Limite declarado:** a migration do `CHECK` **falharia** num banco que já
+tivesse linha com `capacity` fora da faixa — verificado por ataque, não por
+suposição. Hoje o risco é nulo: há zero linhas assim, a aplicação sempre
+limitou a 256, e a `CTO-1` nunca foi publicada. Fica registrado para quem
+aplicar a migration num banco de origem desconhecida.

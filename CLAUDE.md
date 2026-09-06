@@ -643,6 +643,18 @@ Três decisões menores que não devem ser desfeitas: o tipo da foto é derivado
 
 Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §20 e `docs/SECURITY.md` §8.19.
 
+**`CTO-1.1` ENTREGUE — commits locais, sem tag e sem push.** Patch focal sobre as duas ambiguidades que a `CTO-1` deixou, e as duas tinham **metade** fechada. Uma migration aditiva (`20260906210000`, um `ADD CONSTRAINT`), zero dependência, zero Dart.
+
+**A faixa de capacidade passou a valer em três camadas.** Ela existia no `zod` e em `assertCapacity`, as duas de aplicação; entrou o `CHECK` do banco, que é o que sobrevive a um caminho de escrita novo e o que torna `CTO_CAPACITY_MAX` fato da tabela — mudá-lo passa a exigir migration, porque um teto que a aplicação afrouxa sozinha não é teto. **Migration nova, não edição da anterior:** a de CTO-1 já fora aplicada em bancos locais, e reescrever o SQL de uma migration aplicada quebra o checksum e obriga a resetar.
+
+**A guarda de coordenada do cliente estava pela metade, e a metade aberta era minha.** Ela usava `Number.isNaN`, que fecha `"abc"` e **deixa `"Infinity"` passar inteiro**. O motivo de a guarda viver no cliente é do transporte: `JSON.stringify` converte `NaN` **e** `Infinity` em `null`, e `null` é a forma legítima de dizer "remova a coordenada" — o servidor recebe os dois casos como a mesma mensagem e **não tem como distingui-los**. O predicado correto é `Number.isFinite`, o único que corresponde ao que o `JSON.stringify` descarta. O E2E é o único teste capaz de alcançar essa camada, e a reversão o derruba no caso `Infinity`.
+
+**O domínio tinha uma lacuna própria, por outro motivo:** comparação com `NaN` é sempre falsa, então `NaN < -90` e `NaN > 90` são os dois `false` e um teste de faixa **sozinho deixa `NaN` passar** — a verificação parecia total e não cobria o único valor que não se compara.
+
+**Limite declarado:** a migration do `CHECK` **falharia** num banco que já tivesse `capacity` fora da faixa, verificado por ataque e não por suposição. Hoje o risco é nulo — zero linhas assim, a aplicação sempre limitou, e a `CTO-1` nunca foi publicada.
+
+Gates: **1840 Vitest** (era 1817), **121 Playwright** (era 120), lint, tsc, build, `build:worker`, `prisma validate`, **26 migrations**. Três sabotagens (`J`, `K`, `L`), três detectadas.
+
 ## Princípios
 
 Integridade > velocidade

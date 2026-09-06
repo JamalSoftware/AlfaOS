@@ -1,0 +1,21 @@
+-- Teto de capacidade da CTO, no BANCO (CTO-1.1).
+--
+-- A migration anterior (20260906120000_add_cto_network) trouxe apenas
+-- `capacity > 0`. A faixa completa vivia no `zod` das rotas e em
+-- `assertCapacity` — duas camadas de aplicacao, nenhuma no banco.
+--
+-- Isto e uma migration NOVA, e nao uma edicao da anterior, de proposito: aquela
+-- ja foi aplicada em bancos locais, e reescrever o SQL de uma migration
+-- aplicada quebra o checksum e obriga a resetar o banco. Aditiva nao obriga
+-- nada: aplica em base vazia e em base com dados pelo mesmo caminho.
+--
+-- Por que no banco, se a aplicacao ja valida: um caminho de escrita novo que
+-- esqueca as duas validacoes ainda esbarra aqui. E o limite passa a ser fato da
+-- tabela em vez de convencao da aplicacao — mudar o teto exige migration, que e
+-- exatamente o que se quer de um controle de recurso.
+--
+-- 256 e o mesmo valor de `CTO_CAPACITY_MAX` em `src/lib/cto.ts`. Os dois
+-- precisam mudar juntos; o literal existe aqui porque SQL nao importa constante
+-- de TypeScript.
+ALTER TABLE "ctos"
+  ADD CONSTRAINT "ctos_capacity_max_check" CHECK ("capacity" <= 256);

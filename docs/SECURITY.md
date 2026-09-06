@@ -2540,3 +2540,48 @@ escreve**, e não confiar na lista que a tela mostrou.
 O blob da foto anterior também não é apagado numa substituição — comportamento
 conservador declarado, sem política de remoção. Órfão custa disco; apagar por
 suposição custa dado.
+
+### `CTO-1.1` — o teto no banco e a coordenada não-finita
+
+Duas ambiguidades da `CTO-1` fechadas. O registro completo, com a decisão de
+migration e o comportamento documentado, está em
+`docs/CTO-NETWORK-DISTRIBUTION.md` §20. Aqui fica o que é de segurança.
+
+**O teto de capacidade passou a existir no banco.** Ele vivia só no `zod` e em
+`assertCapacity` — duas camadas de aplicação. `ctos_capacity_max_check` é a que
+sobrevive a um caminho de escrita novo que esqueça as duas, e a que torna
+`CTO_CAPACITY_MAX` um fato da tabela: mudá-lo passa a exigir migration. O
+controle é de **recurso**: sem ele, `capacity = 1_000_000` abre uma transação
+que insere um milhão de linhas segurando o lock da CTO, no mesmo processo que
+atende todos os tenants.
+
+A recusa acontece **antes** de qualquer trabalho proporcional à entrada —
+antes da transação e antes do `Array.from({ length: capacity })`. Testado pelas
+duas pontas: zero linhas criadas e recusa imediata.
+
+**A validação de coordenada tinha uma lacuna que um teste de faixa não pega.**
+Comparação com `NaN` é sempre falsa: `NaN < -90` e `NaN > 90` são os dois
+`false`, então verificar `-90..90` **sozinho deixa `NaN` passar**. A checagem
+parecia total e não cobria o único valor que não se compara.
+`assertCoordinates` passou a exigir finitude **antes** da faixa; o `zod` já
+recusava, e esta guarda cobre a chamada direta ao serviço, que é superfície
+pública do módulo.
+
+**E há um caso que o servidor não consegue defender**, o que vale registrar
+como fronteira e não como defeito:
+
+```text
+JSON.stringify(NaN)      → null
+JSON.stringify(Infinity) → null
+null nos dois campos     → "remova a coordenada", que é legítimo
+```
+
+O servidor recebe entrada malformada e remoção deliberada como a **mesma**
+mensagem. A defesa é do cliente, antes de o JSON ser montado, e o predicado é
+`Number.isFinite` — o único que corresponde ao que `JSON.stringify` descarta.
+A primeira versão usava `Number.isNaN`, que fecha `"abc"` e deixa `"Infinity"`
+passar; provado por reversão, com o E2E sendo o único teste capaz de alcançar
+essa camada.
+
+Nenhum valor inválido vira `null`, e nenhuma coordenada gravada é apagada por
+entrada malformada.

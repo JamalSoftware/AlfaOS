@@ -70,17 +70,24 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
       return;
     }
     /*
-      Texto que não é número precisa ser barrado AQUI.
+      Texto que não é número FINITO precisa ser barrado AQUI, e a razão é do
+      transporte, não da tela.
 
-      `Number("abc")` é `NaN`, e `JSON.stringify(NaN)` é `null` — então mandar o
-      valor cru transformaria "digitei errado" em "apague as coordenadas", em
-      silêncio e com resposta 200. O servidor nunca veria o erro para poder
-      recusá-lo.
+      `JSON.stringify` converte `NaN` **e** `Infinity` em `null`. O servidor
+      recebe `null`, que é a forma legítima de dizer "remova a coordenada" — e
+      não tem como distinguir uma da outra. Mandar o valor cru transformaria
+      "digitei errado" em "apague as coordenadas", em silêncio e com resposta
+      200.
+
+      A primeira versão desta guarda usava `Number.isNaN`, o que fechava
+      `"abc"` e deixava `"Infinity"` passar inteiro — `Number.isNaN(Infinity)`
+      é `false`. `Number.isFinite` cobre os dois, e é o único predicado que
+      corresponde ao que o `JSON.stringify` de fato descarta.
     */
     const lat = hasLat ? Number(latitude) : null;
     const lon = hasLon ? Number(longitude) : null;
-    if (Number.isNaN(lat) || Number.isNaN(lon)) {
-      setError("Latitude e longitude devem ser números.");
+    if ((hasLat && !Number.isFinite(lat)) || (hasLon && !Number.isFinite(lon))) {
+      setError("Latitude e longitude devem ser números válidos.");
       return;
     }
     await send(

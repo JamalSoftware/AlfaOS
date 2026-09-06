@@ -171,6 +171,50 @@ test("ADMIN cadastra, opera as portas, muda capacidade e inativa", async ({
   await expect(page.getByRole("button", { name: "Reativar CTO" })).toBeVisible();
 });
 
+test("coordenada inválida é barrada antes do envio e não apaga a existente", async ({
+  page,
+}) => {
+  /*
+    Este é o ÚNICO lugar que consegue provar esta guarda.
+
+    `JSON.stringify` converte `NaN` e `Infinity` em `null`, e `null` é a forma
+    legítima de dizer "remova a coordenada". O servidor recebe os dois casos
+    como a mesma coisa — então a validação tem de acontecer antes de o JSON ser
+    montado, no cliente, e nenhum teste de rota alcança isso.
+
+    `Infinity` está aqui de propósito: a primeira versão da guarda usava
+    `Number.isNaN`, que fecha "abc" e deixa "Infinity" passar inteiro.
+  */
+  await setCapability(true);
+  await login(page, ADMIN_EMAIL);
+
+  const nome = `E2E-GEO-${Date.now()}`;
+  await page.goto("/ctos");
+  await page.getByLabel("Nome").fill(nome);
+  await page.getByLabel("Capacidade (portas)").fill("4");
+  await page.getByRole("button", { name: "Cadastrar CTO" }).click();
+  await page.getByRole("link", { name: nome }).click();
+
+  // Grava uma coordenada válida primeiro: sem ela, "não apagou" seria vácuo.
+  await page.getByLabel("Latitude").fill("-23.5505199");
+  await page.getByLabel("Longitude").fill("-46.6333094");
+  await page.getByRole("button", { name: "Salvar" }).click();
+  await expect(page.getByLabel("Latitude")).toHaveValue("-23.5505199");
+
+  for (const invalido of ["abc", "Infinity", "1,2,3"]) {
+    await page.getByLabel("Latitude").fill(invalido);
+    await page.getByRole("button", { name: "Salvar" }).click();
+    await expect(page.getByTestId("cto-error")).toContainText(
+      "devem ser números válidos",
+    );
+
+    // A coordenada gravada sobreviveu: recarregar mostra a antiga, não vazio.
+    await page.reload();
+    await expect(page.getByLabel("Latitude")).toHaveValue("-23.5505199");
+    await expect(page.getByLabel("Longitude")).toHaveValue("-46.6333094");
+  }
+});
+
 test("DISPATCHER não alcança o módulo", async ({ page }) => {
   await setCapability(true);
   await login(page, DISPATCHER_EMAIL);
