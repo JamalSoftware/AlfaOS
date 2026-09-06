@@ -454,7 +454,7 @@ describe("central de notificações do técnico", () => {
       unreadCount: number;
     };
     expect(data.items).toHaveLength(1);
-    expect(data.items[0].title).toBe("Nova OS atribuída");
+    expect(data.items[0].title).toBe("Nova OS");
     expect(data.unreadCount).toBe(1);
   });
 

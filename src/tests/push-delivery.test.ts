@@ -97,7 +97,7 @@ async function notificacao(options: { companyId?: string; userId?: string } = {}
       companyId,
       userId: options.userId ?? fixture.techA.id,
       type: NOTIFICATION_TYPES.SERVICE_ORDER_ASSIGNED,
-      title: "Nova OS atribuída",
+      title: "Nova OS",
       body: "OS Nº 42 · Instalação",
       resourceType: "ServiceOrder",
       resourceId: "os-42",
@@ -348,7 +348,7 @@ describe("o payload não cresce", () => {
       A prévia aparece sobre a tela bloqueada, sem autenticação, e fica dias na
       central do sistema. O número operacional identifica sem revelar.
     */
-    expect(enviado.title).toBe("Nova OS atribuída");
+    expect(enviado.title).toBe("Nova OS");
     expect(enviado.body).toBe("OS Nº 42 · Instalação");
   });
 });

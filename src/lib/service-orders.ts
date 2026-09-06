@@ -1071,7 +1071,7 @@ export async function assignTechnician(
         userId: technician.userId,
         technicianId: technician.id,
         type: NOTIFICATION_TYPES.SERVICE_ORDER_ASSIGNED,
-        title: "Nova OS atribuída",
+        title: "Nova OS",
         body: `${formatServiceOrderNumber(os)} · ${os.type}`,
         resourceType: "ServiceOrder",
         resourceId: os.id,

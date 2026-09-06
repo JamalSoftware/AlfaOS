@@ -97,7 +97,7 @@ async function eventoPara(userId: string) {
       companyId: fixture.companyA.id,
       userId,
       type: NOTIFICATION_TYPES.SERVICE_ORDER_ASSIGNED,
-      title: "Nova OS atribuída",
+      title: "Nova OS",
       body: "OS Nº 7 · Instalação",
       resourceType: "ServiceOrder",
       resourceId: "os-7",
