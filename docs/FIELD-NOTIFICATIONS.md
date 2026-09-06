@@ -1417,6 +1417,34 @@ logout.
 produção e quatro asserções de teste; nenhuma superfície web renderiza
 `Notification`, que é dado exclusivo do Field.
 
+Depois dela, a urgência entrou no título:
+
+| Prioridade | Título |
+|---|---|
+| `URGENT` | `Nova OS · Urgente` |
+| `HIGH`, `NORMAL`, `LOW` | `Nova OS` |
+
+**Uma igualdade com `URGENT`, não uma negação de `NORMAL`.** A diferença é o
+teste de `HIGH`, que não estava no enunciado e é o único que separa as duas
+implementações: `priority !== "NORMAL"` passaria em `NORMAL` e `LOW` e marcaria
+`HIGH`, que o produto não pediu para destacar. Marcar `LOW` seria pior que
+inútil — a prévia é lida de relance, e dizer "baixa" ali convida a adiar um
+atendimento que o despacho não pediu para adiar.
+
+A prioridade vem da **linha**, lida dentro da transação de `assignTechnician` e
+filtrada por `companyId`; nenhum caminho aceita valor do cliente. E ela é a
+vigente no momento do evento: mudar prioridade incrementa `version`, então um
+despachante que leu a OS `NORMAL` e manda atribuir depois de outra pessoa a ter
+promovido bate no compare-and-set e recebe 409 — **não existe aviso publicado
+com prioridade vencida**, e isso tem teste com controle positivo (nenhuma
+notificação criada pela tentativa recusada).
+
+O **payload de deep link não mudou**: `type`, `resourceType` e `resourceId`,
+exatamente os três. Um teste afirma o conjunto de chaves, e a sabotagem que
+acrescenta um quarto campo cai nele — a prioridade não pode virar algo que o
+Flutter passe a interpretar. A central de notificações mostra o mesmo título,
+porque lê a mesma linha; nenhum código dela foi tocado.
+
 ### 28.8 Pendência NÃO corrigida: token só após reiniciar
 
 O piloto observou que, depois de conceder `POST_NOTIFICATIONS`, o token do FCM

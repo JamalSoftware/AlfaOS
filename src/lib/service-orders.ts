@@ -883,6 +883,26 @@ async function withRelations(
 // ---------------------------------------------------------------------------
 
 /**
+ * Titulo do aviso de atribuicao, na tela bloqueada do aparelho.
+ *
+ * SO `URGENT` ganha marca, e as outras tres nao ganham nenhuma. Marcar `NORMAL`
+ * seria ruido: e a maioria das OS, e um rotulo que aparece sempre nao distingue
+ * coisa alguma. Marcar `LOW` seria pior — a previa do push e lida de relance, e
+ * dizer "baixa" ali convida a adiar um atendimento que o despacho nao pediu
+ * para adiar. `HIGH` fica de fora porque a decisao de produto nomeou um unico
+ * nivel de destaque; promove-lo aqui seria inventar politica.
+ *
+ * A prioridade vem da LINHA, lida dentro da transacao e filtrada por
+ * `companyId` — nunca de valor enviado pelo cliente. E se ela mudar entre a
+ * leitura e a gravacao, o compare-and-set de `version` recusa a atribuicao com
+ * 409 (mudar prioridade tambem incrementa `version`), de modo que nao existe
+ * aviso publicado com prioridade vencida.
+ */
+function assignmentNotificationTitle(priority: ServiceOrderPriority): string {
+  return priority === "URGENT" ? "Nova OS · Urgente" : "Nova OS";
+}
+
+/**
  * Assigns (or changes) the technician of an order.
  *
  * `expectedVersion` is the `version` the CALLER read — the one it had on screen
@@ -1071,7 +1091,7 @@ export async function assignTechnician(
         userId: technician.userId,
         technicianId: technician.id,
         type: NOTIFICATION_TYPES.SERVICE_ORDER_ASSIGNED,
-        title: "Nova OS",
+        title: assignmentNotificationTitle(os.priority),
         body: `${formatServiceOrderNumber(os)} · ${os.type}`,
         resourceType: "ServiceOrder",
         resourceId: os.id,

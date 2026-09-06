@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { GET as listNotificationsRoute, POST as markReadRoute } from "@/app/api/field/v1/notifications/route";
-import { assignTechnician } from "@/lib/service-orders";
+import {
+  assignTechnician,
+  changeServiceOrderPriority,
+} from "@/lib/service-orders";
+import { formatServiceOrderNumber } from "@/lib/service-order-labels";
 import { DomainError } from "@/lib/errors";
 import {
   OUTBOX_MAX_ATTEMPTS,
@@ -521,5 +525,187 @@ describe("central de notificações do técnico", () => {
       fieldRequest("/api/field/v1/notifications"),
     );
     expect(response.status).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Prioridade no título do aviso
+// ---------------------------------------------------------------------------
+
+/**
+ * A urgência aparece no título, e SÓ ela.
+ *
+ * A prévia do push é lida de relance, muitas vezes sobre a tela bloqueada, e é
+ * o único momento em que o técnico decide se para o que está fazendo. Marcar
+ * `NORMAL` seria ruído — é a maioria das OS —, e um rótulo que aparece sempre
+ * não distingue nada.
+ *
+ * A propriedade que estes testes protegem não é a string: é **de onde ela
+ * vem**. A prioridade é lida da linha do banco dentro da transação, filtrada
+ * por `companyId`, e nenhum caminho aceita o valor do cliente.
+ */
+describe("prioridade no título da notificação de atribuição", () => {
+  async function atribuirCom(priority: "LOW" | "NORMAL" | "HIGH" | "URGENT") {
+    const s = await scenario();
+    if (priority !== "NORMAL") {
+      // Pelo caminho REAL de mudança de prioridade, não por UPDATE cru: é ele
+      // que a operação usa, e é ele que precisa alimentar o título.
+      const atual = await prisma.serviceOrder.findFirstOrThrow({
+        where: { id: s.order.id },
+        select: { version: true },
+      });
+      await changeServiceOrderPriority(
+        fixture.companyA.id,
+        fixture.adminA.id,
+        s.order.id,
+        { priority, expectedVersion: atual.version },
+      );
+    }
+    const depois = await prisma.serviceOrder.findFirstOrThrow({
+      where: { id: s.order.id },
+      select: { version: true },
+    });
+    await registerTestDevice(fixture.techA.id, { pushToken: "tok-do-tecnico" });
+    await assignTechnician(
+      fixture.companyA.id,
+      fixture.adminA.id,
+      s.order.id,
+      s.technicianA.id,
+      depois.version,
+    );
+    const notification = await prisma.notification.findFirstOrThrow({
+      where: { companyId: fixture.companyA.id, technicianId: s.technicianA.id },
+    });
+    return { ...s, notification };
+  }
+
+  it("NORMAL não ganha marca", async () => {
+    const { notification } = await atribuirCom("NORMAL");
+    expect(notification.title).toBe("Nova OS");
+  });
+
+  it("LOW não ganha marca", async () => {
+    const { notification } = await atribuirCom("LOW");
+    expect(notification.title).toBe("Nova OS");
+  });
+
+  it("HIGH também não ganha marca", async () => {
+    /*
+      Não está no enunciado, e é o teste que separa a regra certa da errada.
+
+      `priority !== "NORMAL"` passaria nos dois testes acima e marcaria `HIGH`
+      — que o produto não pediu para destacar. A regra é uma igualdade com
+      `URGENT`, não uma negação de `NORMAL`.
+    */
+    const { notification } = await atribuirCom("HIGH");
+    expect(notification.title).toBe("Nova OS");
+  });
+
+  it("URGENT ganha a marca", async () => {
+    const { notification } = await atribuirCom("URGENT");
+    expect(notification.title).toBe("Nova OS · Urgente");
+  });
+
+  // `scenario()` cria um `Technician` por chamada, e `userId` é unique — cada
+  // teste monta o cenário UMA vez.
+  it("o corpo do aviso urgente continua sendo número e tipo", async () => {
+    const { notification, order } = await atribuirCom("URGENT");
+    // A prioridade mora no título. Duplicá-la no corpo gastaria a linha que
+    // carrega o número operacional.
+    expect(notification.body).toBe(
+      `${formatServiceOrderNumber(order)} · Instalação`,
+    );
+  });
+
+  it("o corpo do aviso normal é idêntico ao do urgente", async () => {
+    const { notification, order } = await atribuirCom("NORMAL");
+    expect(notification.body).toBe(
+      `${formatServiceOrderNumber(order)} · Instalação`,
+    );
+  });
+
+  it("o payload de deep link não muda com a prioridade", async () => {
+    const urgente = await atribuirCom("URGENT");
+    await processOutboxBatch(handleOutboxEvent);
+
+    expect(push.sent).toHaveLength(1);
+    const enviado = push.sent[0];
+    expect(enviado.title).toBe("Nova OS · Urgente");
+    expect(enviado.data?.type).toBe("SERVICE_ORDER_ASSIGNED");
+    expect(enviado.data?.resourceType).toBe("ServiceOrder");
+    expect(enviado.data?.resourceId).toBe(urgente.order.id);
+    // O Flutter roteia por estes três, e só por eles. A prioridade não pode
+    // ter virado um quarto campo que o aplicativo passe a interpretar.
+    expect(Object.keys(enviado.data ?? {}).sort()).toEqual([
+      "resourceId",
+      "resourceType",
+      "type",
+    ]);
+  });
+
+  it("a marca não traz nenhum dado sensível junto", async () => {
+    const urgente = await atribuirCom("URGENT");
+    await processOutboxBatch(handleOutboxEvent);
+
+    const texto = JSON.stringify(push.sent[0]);
+    /*
+      A prévia não passa por autenticação e fica dias na central do sistema
+      operacional (docs/SECURITY.md §8.9). O que existe no cenário e NÃO pode
+      aparecer: nome, documento, telefone e endereço do cliente.
+    */
+    expect(texto).not.toContain("Maria da Silva");
+    expect(texto).not.toContain("12345678901");
+    expect(texto).not.toContain("99999-0001");
+    expect(texto).not.toContain("Rua das Flores");
+    expect(texto).not.toContain(urgente.customer.id);
+  });
+
+  it("vale a prioridade VIGENTE no momento do evento, não a da criação", async () => {
+    // A OS nasce NORMAL e é promovida antes de existir técnico.
+    const { notification } = await atribuirCom("URGENT");
+    expect(notification.title).toBe("Nova OS · Urgente");
+
+    const os = await prisma.serviceOrder.findFirstOrThrow({
+      where: { id: notification.resourceId! },
+      select: { priority: true },
+    });
+    expect(os.priority).toBe("URGENT");
+  });
+
+  it("promover entre a leitura e a gravação recusa a atribuição, sem aviso vencido", async () => {
+    /*
+      A garantia que sustenta o teste acima, e que eu afirmei no comentário da
+      função — então ela precisa de prova.
+
+      Mudar a prioridade incrementa `version`. Um despachante que leu a OS
+      NORMAL e manda atribuir depois de outra pessoa a ter promovido bate no
+      compare-and-set e recebe 409. Não existe caminho em que o aviso saia
+      dizendo "Nova OS" para uma OS que já é urgente.
+    */
+    const s = await scenario();
+    const lidaPeloDespachante = s.order.version;
+
+    await changeServiceOrderPriority(
+      fixture.companyA.id,
+      fixture.adminA.id,
+      s.order.id,
+      { priority: "URGENT", expectedVersion: lidaPeloDespachante },
+    );
+
+    await expect(
+      assignTechnician(
+        fixture.companyA.id,
+        fixture.adminA.id,
+        s.order.id,
+        s.technicianA.id,
+        lidaPeloDespachante,
+      ),
+    ).rejects.toBeInstanceOf(DomainError);
+
+    // Controle positivo: nenhuma notificação foi criada pela tentativa
+    // recusada — nem certa, nem errada.
+    expect(
+      await prisma.notification.count({ where: { companyId: fixture.companyA.id } }),
+    ).toBe(0);
   });
 });
