@@ -1336,3 +1336,53 @@ tivesse linha com `capacity` fora da faixa — verificado por ataque, não por
 suposição. Hoje o risco é nulo: há zero linhas assim, a aplicação sempre
 limitou a 256, e a `CTO-1` nunca foi publicada. Fica registrado para quem
 aplicar a migration num banco de origem desconhecida.
+
+### `CTO-1.2` — a coordenada fantasma era o placeholder
+
+Achado da validação humana em navegador real: uma CTO criada **sem** coordenada
+aparentava, na tela de detalhe, ter latitude `-23.5505199` e longitude
+`-46.6333094`.
+
+**Não havia coordenada persistida.** O banco tinha `NULL` nas duas, confirmado
+por duas leituras independentes — o client do Prisma e SQL cru — e com
+`createdAt == updatedAt` provando que a linha nunca fora editada depois de
+criada. Doze testes escritos **antes** de qualquer correção passaram de
+primeira, o que é a prova de que o backend nunca inventou coordenada: nem no
+`create` sem os campos, nem ao editar nome, observações ou referência, nem ao
+alterar capacidade, nem ao gravar foto.
+
+O que a tela mostrava era o `placeholder`. Tecnicamente correto — `placeholder`
+não é serializado no submit e o servidor recebia `NULL` —, e ainda assim o
+defeito é real:
+
+> **Um exemplo que se parece com o dado não é exemplo, é ambiguidade.** O
+> placeholder usava uma coordenada real, completa e plausível. Em texto cinza,
+> num campo que a pessoa não preencheu, isso é indistinguível de um valor
+> gravado — e levou quem validava a concluir que o sistema inventara
+> localização.
+
+**A correção é de apresentação, e tem duas metades.** Os placeholders passaram
+a ser prefixados por `ex.:`, o que os torna impossíveis de ler como valor; e a
+tela passou a **dizer** que a caixa não tem coordenada, em vez de deixar a
+conclusão por conta do contraste do texto. A segunda metade é a que fecha o
+defeito de verdade: a primeira remove a ambiguidade, a segunda entrega a
+informação que faltava.
+
+O mesmo prefixo foi aplicado aos demais campos opcionais, pela mesma razão —
+qualquer campo não preenchido tinha o mesmo problema, e só as coordenadas o
+manifestaram porque foram as únicas que o operador deixou em branco.
+
+**A prova está no valor, não no que se vê.** O teste que fixa isso é de
+navegador e afirma `toHaveValue("")`: é o valor do campo que iria no submit,
+enquanto o texto do placeholder é atributo. Um `defaultValue` com coordenada
+real derruba essa asserção; o placeholder, não. Provado por reversão,
+reintroduzindo o fallback no estado inicial do componente.
+
+**Nada foi corrigido no dado**, porque não havia o que corrigir. A `CTO QA 01`
+criada durante a validação tem `latitude = NULL` e `longitude = NULL` desde a
+criação.
+
+Revisão focada de privacidade de localização, no mesmo passo: a web **não usa**
+`navigator.geolocation` em lugar nenhum, não existe default de coordenada em
+código de produção, e nenhuma operação além da edição explícita de coordenada
+escreve nesses dois campos.

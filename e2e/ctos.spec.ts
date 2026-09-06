@@ -171,6 +171,65 @@ test("ADMIN cadastra, opera as portas, muda capacidade e inativa", async ({
   await expect(page.getByRole("button", { name: "Reativar CTO" })).toBeVisible();
 });
 
+test("CTO criada sem coordenada mostra campos VAZIOS, não o exemplo", async ({
+  page,
+}) => {
+  /*
+    O achado da validação humana: uma CTO criada sem coordenada aparentava ter
+    latitude -23.5505199 e longitude -46.6333094 na tela de detalhe.
+
+    O banco tinha NULL nas duas — o que se via era o `placeholder`, que usava
+    uma coordenada real e completa e por isso é indistinguível de um valor
+    gravado a olho nu.
+
+    Este é o único teste capaz de fazer essa distinção: `toHaveValue("")`
+    verifica o VALOR do campo, que é o que seria enviado no submit, enquanto o
+    texto cinza do placeholder é atributo e não valor. Um `defaultValue` com
+    coordenada real derrubaria esta asserção; o placeholder não.
+  */
+  await setCapability(true);
+  await login(page, ADMIN_EMAIL);
+
+  const nome = `E2E-SEMGPS-${Date.now()}`;
+  await page.goto("/ctos");
+  await page.getByLabel("Nome").fill(nome);
+  await page.getByLabel("Capacidade (portas)").fill("8");
+  await page
+    .getByLabel("Referência de endereço (opcional)")
+    .fill("Poste QA em frente ao nº 340");
+  await page.getByRole("button", { name: "Cadastrar CTO" }).click();
+
+  await page.getByRole("link", { name: nome }).click();
+  await expect(page.getByRole("heading", { name: nome })).toBeVisible();
+
+  // O VALOR é vazio nas duas — é ele que iria no submit.
+  await expect(page.getByLabel("Latitude")).toHaveValue("");
+  await expect(page.getByLabel("Longitude")).toHaveValue("");
+
+  // E a tela DIZ que não há coordenada, em vez de deixar a dúvida por conta do
+  // contraste do texto cinza.
+  await expect(page.getByTestId("cto-geo-state")).toContainText(
+    "não tem coordenada cadastrada",
+  );
+
+  // O exemplo continua visível como exemplo, e prefixado para não ser lido
+  // como dado.
+  await expect(page.getByLabel("Latitude")).toHaveAttribute(
+    "placeholder",
+    /^ex\.:/,
+  );
+
+  // Salvar sem tocar nas coordenadas não pode inventar nenhuma.
+  await page.getByLabel("Observações").fill("editado sem mexer em GPS");
+  await page.getByRole("button", { name: "Salvar" }).click();
+  await page.reload();
+  await expect(page.getByLabel("Latitude")).toHaveValue("");
+  await expect(page.getByLabel("Longitude")).toHaveValue("");
+  await expect(page.getByTestId("cto-geo-state")).toContainText(
+    "não tem coordenada cadastrada",
+  );
+});
+
 test("coordenada inválida é barrada antes do envio e não apaga a existente", async ({
   page,
 }) => {

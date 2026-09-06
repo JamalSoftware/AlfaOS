@@ -90,7 +90,7 @@ export function CtoListManager({ ctos }: { ctos: CtoRow[] }) {
               className={inputClass}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="A16"
+              placeholder="ex.: A16"
               maxLength={60}
             />
           </div>
@@ -136,7 +136,7 @@ export function CtoListManager({ ctos }: { ctos: CtoRow[] }) {
               className={inputClass}
               value={addressReference}
               onChange={(e) => setAddressReference(e.target.value)}
-              placeholder="Poste em frente ao nº 340"
+              placeholder="ex.: Poste em frente ao nº 340"
               maxLength={200}
             />
           </div>

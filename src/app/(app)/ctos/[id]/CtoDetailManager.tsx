@@ -328,6 +328,19 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
               O código não pode ser alterado depois da criação.
             </p>
           </div>
+          {/*
+            O placeholder NÃO pode parecer um valor gravado.
+
+            Ele era `-23.5505199` e `-46.6333094`: coordenada real, completa e
+            plausível. Tecnicamente correto — `placeholder` não é serializado e
+            o banco recebia `NULL` —, e mesmo assim levou a validação humana a
+            relatar que "o sistema inventou coordenada". Um exemplo que se
+            parece com o dado não é exemplo, é ambiguidade.
+
+            Agora o prefixo `ex.:` torna impossível ler como valor, e a nota
+            abaixo dos campos diz explicitamente que a caixa não tem coordenada
+            — a informação que faltava para desfazer a dúvida sem abrir o banco.
+          */}
           <div>
             <label className={labelClass} htmlFor="cto-lat">
               Latitude
@@ -337,7 +350,7 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
               className={inputClass}
               value={latitude}
               onChange={(e) => setLatitude(e.target.value)}
-              placeholder="-23.5505199"
+              placeholder="ex.: -23.5505199"
             />
           </div>
           <div>
@@ -349,8 +362,15 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
               className={inputClass}
               value={longitude}
               onChange={(e) => setLongitude(e.target.value)}
-              placeholder="-46.6333094"
+              placeholder="ex.: -46.6333094"
             />
+          </div>
+          <div className="md:col-span-2 -mt-2">
+            <p className="text-xs text-fg-muted" data-testid="cto-geo-state">
+              {cto.latitude === null && cto.longitude === null
+                ? "Esta CTO não tem coordenada cadastrada. Os campos acima estão vazios; o texto em cinza é apenas um exemplo de formato."
+                : `Coordenada cadastrada: ${cto.latitude}, ${cto.longitude}.`}
+            </p>
           </div>
           <div className="md:col-span-2">
             <label className={labelClass} htmlFor="cto-address-edit">

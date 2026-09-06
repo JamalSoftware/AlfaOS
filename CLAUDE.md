@@ -655,6 +655,12 @@ Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §20 e `docs/SECURITY.md` §8.19.
 
 Gates: **1840 Vitest** (era 1817), **121 Playwright** (era 120), lint, tsc, build, `build:worker`, `prisma validate`, **26 migrations**. Três sabotagens (`J`, `K`, `L`), três detectadas.
 
+**`CTO-1.2` — a coordenada fantasma da validação humana era o PLACEHOLDER.** O operador criou uma CTO sem coordenada e viu `-23.5505199` / `-46.6333094` no detalhe. **Não havia nada persistido:** o banco tinha `NULL` nas duas, confirmado por client do Prisma e por SQL cru, com `createdAt == updatedAt` provando que a linha nunca fora editada. Doze testes escritos **antes** de qualquer correção passaram de primeira — é essa a prova de que o backend nunca inventou coordenada, em nenhum caminho (create sem os campos, edição de nome/observações/referência, alteração de capacidade, gravação de foto). Nenhuma migration, nenhuma mudança de backend, zero Dart.
+
+**E ainda assim o defeito é real, e é de apresentação:** o placeholder usava uma coordenada real, completa e plausível, o que em texto cinza num campo não preenchido é indistinguível de valor gravado. **Um exemplo que se parece com o dado não é exemplo, é ambiguidade.** A correção tem duas metades: prefixo `ex.:` nos placeholders, que remove a leitura como valor, e uma nota que **diz** que a caixa não tem coordenada — a segunda é a que fecha o defeito, porque a primeira só tira a dúvida e a segunda entrega a informação.
+
+O teste que fixa isso é de navegador e afirma `toHaveValue("")`: é o valor que iria no submit, e não o texto do placeholder, que é atributo. Um `defaultValue` com coordenada derruba a asserção; o placeholder não — provado por reversão. **Nada foi corrigido no dado**, porque não havia o que corrigir. Revisão focada junto: a web não usa `navigator.geolocation` em lugar nenhum, e não existe default de coordenada em produção.
+
 ## Princípios
 
 Integridade > velocidade
