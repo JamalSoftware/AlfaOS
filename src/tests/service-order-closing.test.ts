@@ -33,6 +33,11 @@ import {
   seedTestData,
   type TestFixture,
 } from "./helpers";
+import {
+  montarJpegSimples,
+  montarPng,
+  montarWebp,
+} from "./support/jpeg-exif";
 
 let fixture: TestFixture;
 let storageRoot: string;
@@ -59,20 +64,9 @@ beforeEach(async () => {
 // ---------------------------------------------------------------------------
 
 /** Smallest byte sequences that pass magic-number sniffing. */
-const PNG = Buffer.concat([
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-  Buffer.alloc(64, 1),
-]);
-const JPEG = Buffer.concat([
-  Buffer.from([0xff, 0xd8, 0xff]),
-  Buffer.alloc(64, 2),
-]);
-const WEBP = Buffer.concat([
-  Buffer.from("RIFF"),
-  Buffer.alloc(4, 0),
-  Buffer.from("WEBP"),
-  Buffer.alloc(64, 3),
-]);
+const PNG = montarPng();
+const JPEG = montarJpegSimples();
+const WEBP = montarWebp();
 
 function filePart(data: Buffer, name: string, type: string): File {
   return new File([new Uint8Array(data)], name, { type });
@@ -534,7 +528,16 @@ describe("Evidências", () => {
       expectedOrderVersion: s.orderVersion,
     });
     expect(ev.mimeType).toBe("image/jpeg");
-    expect(ev.sizeBytes).toBe(JPEG.byteLength);
+    /*
+      O tamanho descreve o ARQUIVO GRAVADO, não a entrada.
+
+      Esta asserção comparava com `JPEG.byteLength` e deixou de valer quando a
+      limpeza de metadado entrou (`EXIF-01`): o que vai para o disco é menor que
+      o que o cliente mandou, porque o EXIF ficou de fora. Voltar a comparar com
+      a entrada seria pedir que o campo mentisse sobre o arquivo.
+    */
+    expect(ev.sizeBytes).toBeGreaterThan(0);
+    expect(ev.sizeBytes).toBeLessThan(JPEG.byteLength);
     expect(await currentOrderVersion(s.order.id)).toBe(s.orderVersion + 1);
   });
 

@@ -29,6 +29,7 @@ import {
   seedTestData,
   type TestFixture,
 } from "./helpers";
+import { montarPng } from "./support/jpeg-exif";
 
 /**
  * # Etiqueta do equipamento: estágio, promoção e expurgo
@@ -62,10 +63,7 @@ beforeEach(async () => {
   fixture = await seedTestData();
 });
 
-const PNG = Buffer.concat([
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-  Buffer.alloc(64, 7),
-]);
+const PNG = montarPng();
 
 async function cenario(options: { companyId?: string } = {}) {
   const companyId = options.companyId ?? fixture.companyA.id;

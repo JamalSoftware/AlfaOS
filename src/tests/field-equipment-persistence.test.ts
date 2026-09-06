@@ -11,6 +11,7 @@ import {
   seedTestData,
   type TestFixture,
 } from "./helpers";
+import { montarPng } from "./support/jpeg-exif";
 
 /**
  * # Persistência do equipamento instalado
@@ -123,10 +124,7 @@ async function bundleOf(orderId: string, token: string) {
   };
 }
 
-const PNG = Buffer.concat([
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-  Buffer.alloc(64, 7),
-]);
+const PNG = montarPng();
 
 /**
  * Anexa a foto da etiqueta pela rota real e devolve o id dela.

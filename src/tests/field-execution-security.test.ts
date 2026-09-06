@@ -24,6 +24,7 @@ import {
   seedTestData,
   type TestFixture,
 } from "./helpers";
+import { montarPng } from "./support/jpeg-exif";
 
 /**
  * # Ataques à execução em campo (v0.10)
@@ -57,10 +58,7 @@ beforeEach(async () => {
   fixture = await seedTestData();
 });
 
-const PNG = Buffer.concat([
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-  Buffer.alloc(64, 1),
-]);
+const PNG = montarPng();
 
 /** Um executável de verdade (cabeçalho MZ), que será renomeado para .jpg. */
 const WINDOWS_EXE = Buffer.concat([

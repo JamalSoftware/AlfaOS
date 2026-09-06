@@ -195,10 +195,20 @@ const MATERIAL_NAME = "Conector SC/APC";
 const SIGNER_NAME = "Maria Cliente";
 
 /** Minimal valid PNG bytes, enough to pass magic-number sniffing. */
-const PNG_BYTES = Buffer.concat([
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-  Buffer.alloc(256, 7),
-]);
+/**
+ * PNG 1x1 VALIDO — assinatura, IHDR e IEND, com os CRC corretos.
+ *
+ * Era assinatura mais 256 bytes de enchimento, o que passava no sniff e nao
+ * era imagem nenhuma. Deixou de bastar quando o servidor passou a PERCORRER a
+ * estrutura para remover metadado (EXIF-01): um "tamanho de chunk" de
+ * 0x07070707 estoura o buffer, e o upload passou a ser recusado com 400.
+ */
+const PNG_BYTES = Buffer.from(
+  "89504e470d0a1a0a" +
+    "0000000d49484452000000010000000108060000001f15c489" +
+    "0000000049454e44ae426082",
+  "hex",
+);
 
 async function login(page: Page, email: string) {
   await page.goto("/login");
