@@ -3,7 +3,10 @@ import { isIntegrationError } from "@/integrations/errors";
 import { logAuditWithin } from "./audit";
 import { assertProviderUsableAfterSwitch } from "./erp-adapter";
 import { badRequest, conflict, notFound } from "./errors";
-import { requiresCandidateConfiguration } from "./erp-provisioning";
+import {
+  assertProviderActivationAllowed,
+  requiresCandidateConfiguration,
+} from "./erp-provisioning";
 import { prisma } from "./prisma";
 
 /**
@@ -132,6 +135,26 @@ export async function switchActiveErpProvider(params: {
       `Ativar ${provider} exige informar Base URL, App e Token na tela do provedor.`,
     );
   }
+
+  /*
+    A trava de release, TAMBÉM aqui.
+
+    Esta função e `activateErpProviderWithConfiguration` são as duas únicas que
+    escrevem `ERPIntegration.provider`. A trava vivia só na outra, e o SGP era
+    barrado aqui por `requiresCandidateConfiguration` — um predicado que existe
+    por OUTRA razão. Duas proteções que só coincidem por acidente: um provider
+    futuro que precise de trava e não de configuração candidata passaria direto,
+    e ninguém saberia que aquele `if` acima virou controle de release.
+
+    Depois do bloco anterior, e não antes, para não trocar a mensagem que o SGP
+    já recebe hoje — a resposta continua sendo "informe Base URL, App e Token",
+    que é o que a pessoa precisa fazer.
+
+    Apontado pela auditoria independente, que também mostrou que o comentário
+    de `assertProviderActivationAllowed` prometia exatamente esta cobertura e
+    não a tinha.
+  */
+  assertProviderActivationAllowed(provider);
 
   try {
     await assertProviderUsableAfterSwitch(companyId, provider);

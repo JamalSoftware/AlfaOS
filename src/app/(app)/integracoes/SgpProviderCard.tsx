@@ -30,7 +30,19 @@ interface TestResult {
   credentialValidated?: boolean;
 }
 
-export function SgpProviderCard({ isActive }: { isActive: boolean }) {
+export function SgpProviderCard({
+  isActive,
+  activationEnabled,
+}: {
+  isActive: boolean;
+  /**
+   * A ativação está liberada nesta instalação? Vem do SERVIDOR, e a tela é
+   * consequência da regra — não a regra. Com `false`, o servidor recusa a
+   * ativação de qualquer forma; esconder o botão evita que a pessoa descubra
+   * isso depois de preencher o formulário inteiro.
+   */
+  activationEnabled: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
@@ -104,9 +116,26 @@ export function SgpProviderCard({ isActive }: { isActive: boolean }) {
           }`}
           data-testid="sgp-status"
         >
-          {isActive ? "ATIVO" : "DISPONÍVEL"}
+          {isActive ? "ATIVO" : activationEnabled ? "DISPONÍVEL" : "EM VALIDAÇÃO"}
         </span>
       </div>
+
+      {/*
+        O aviso vem ANTES do formulário, não depois do erro.
+
+        Sem ele, a pessoa preenche Base URL, App e Token, testa com sucesso e
+        só então descobre que ativar não é possível. Dizer antes é a diferença
+        entre uma tela honesta e uma que desperdiça o trabalho de quem a usa.
+      */}
+      {!isActive && !activationEnabled && (
+        <p
+          data-testid="sgp-validation-notice"
+          className="mb-4 rounded-lg border border-border bg-surface-muted px-3 py-2 text-sm text-fg-secondary"
+        >
+          Conexão SGP disponível para validação. A ativação operacional será
+          liberada após a homologação com uma instalação real.
+        </p>
+      )}
 
       {isActive ? (
         <p className="text-sm text-fg-muted">
@@ -199,8 +228,9 @@ export function SgpProviderCard({ isActive }: { isActive: boolean }) {
               {loading ? "Testando..." : "Testar conexão"}
             </button>
 
-            {/* `ATIVAR` só existe depois de um teste bem-sucedido. */}
-            {testedOk && !confirming && (
+            {/* `ATIVAR` só existe depois de um teste bem-sucedido — e só
+                quando a ativação está liberada nesta instalação. */}
+            {testedOk && !confirming && activationEnabled && (
               <button
                 type="button"
                 onClick={() => setConfirming(true)}

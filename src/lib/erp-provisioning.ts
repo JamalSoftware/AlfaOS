@@ -80,6 +80,57 @@ export function requiresCandidateConfiguration(provider: ERPProvider): boolean {
 }
 
 /**
+ * A ativação do SGP está liberada nesta instalação?
+ *
+ * ## Por que a trava existe
+ *
+ * O SGP autentica e é ativável desde a `SGP-1`, e **nunca foi exercitado contra
+ * uma instalação real**. A revisão de checkpoint mediu a consequência de ativá-lo
+ * hoje: o adapter não declara capability de negócio nenhuma, então toda a
+ * superfície ERP da empresa passa a responder `NOT_SUPPORTED` — busca de
+ * cliente, diagnóstico, chamados. É reversível, e ninguém é avisado.
+ *
+ * Testar continua liberado: é diagnóstico, não muda nada e é justamente o que a
+ * homologação precisa. O que fica travado é a ativação.
+ *
+ * ## Comparação exata com `"true"`
+ *
+ * Mesma convenção de `TRUST_PROXY_HEADERS` (`csrf.ts`), e a escolha é
+ * deliberada: `"1"`, `"yes"` e `"TRUE"` **não** ligam a trava. Um parser
+ * permissivo transforma erro de digitação em liberação silenciosa, e o padrão
+ * de uma trava de release tem de ser fechado — ausente é `false`, ilegível é
+ * `false`.
+ */
+export function isSgpActivationEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.SGP_ACTIVATION_ENABLED === "true";
+}
+
+/**
+ * Recusa a ativação de um provider ainda não liberado nesta instalação.
+ *
+ * Vive no DOMÍNIO, e não na rota, porque a rota é uma porta e o domínio é a
+ * regra: um caller futuro — script, job, outra rota — herda a trava sem
+ * precisar lembrar dela. A verificação acontece antes de qualquer leitura de
+ * integração, reteste, cifragem ou transação, então uma recusa não deixa
+ * rastro: nem `ERPIntegration`, nem `ERPCredential`, nem `AuditLog`.
+ *
+ * A mensagem não nomeia a variável de ambiente. Quem opera precisa saber que a
+ * ativação não está liberada e o que fazer; quem sonda não precisa saber como
+ * ela é ligada.
+ */
+export function assertProviderActivationAllowed(provider: ERPProvider): void {
+  if (provider === "SGP" && !isSgpActivationEnabled()) {
+    throw conflict(
+      "A ativação do SGP ainda não está liberada nesta instalação. " +
+        "A conexão pode ser testada; a ativação operacional é liberada após a " +
+        "homologação com uma instalação real.",
+    );
+  }
+}
+
+/**
  * Valida a configuração candidata e devolve a `baseUrl` normalizada.
  *
  * A validação de SSRF acontece **antes de qualquer requisição** — é ela que
@@ -188,6 +239,17 @@ export async function activateErpProviderWithConfiguration(params: {
   result: ERPConnectionResult;
 }> {
   const { companyId, actorUserId, provider } = params;
+
+  /*
+    A trava vem PRIMEIRO, antes até da validação do candidato.
+
+    Não é ordem estética: `validateCandidate` resolve DNS para checar SSRF, e o
+    reteste logo abaixo emite uma requisição de verdade. Verificar depois faria
+    uma operação recusada ainda assim tocar a rede — e um endpoint que trabalha
+    para depois dizer "não" é um oráculo e um custo.
+  */
+  assertProviderActivationAllowed(provider);
+
   const candidate = await validateCandidate(
     provider,
     params.candidate,

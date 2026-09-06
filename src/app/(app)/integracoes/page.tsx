@@ -8,6 +8,7 @@ import { TestConnectionButton } from "./TestConnectionButton";
 import { IntegrationToggle } from "./IntegrationToggle";
 import { ErpCredentialForm } from "./ErpCredentialForm";
 import { ActiveProviderSwitch } from "./ActiveProviderSwitch";
+import { isSgpActivationEnabled } from "@/lib/erp-provisioning";
 import { SgpProviderCard } from "./SgpProviderCard";
 
 export const metadata: Metadata = {
@@ -221,7 +222,10 @@ export default async function IntegrationsPage() {
         `ATIVO` depois da troca confirmada — "disponível no AlfaOS" não é "em uso
         nesta empresa".
       */}
-      <SgpProviderCard isActive={integration?.provider === "SGP"} />
+      <SgpProviderCard
+        isActive={integration?.provider === "SGP"}
+        activationEnabled={isSgpActivationEnabled()}
+      />
 
       <div className="mt-6 max-w-2xl rounded-2xl border border-border bg-surface p-6 shadow-sm">
         <h3 className="mb-2 text-sm font-semibold text-fg">
