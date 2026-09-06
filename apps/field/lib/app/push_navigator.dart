@@ -50,18 +50,18 @@ class PushNavigator {
     required CurrentLocation currentLocation,
     required Navigate navigate,
     required SessionActive sessionActive,
-    required PushRefresh onForeground,
+    required PushRefresh onPushEvent,
   }) : _coordinator = coordinator,
        _currentLocation = currentLocation,
        _navigate = navigate,
        _sessionActive = sessionActive,
-       _onForeground = onForeground;
+       _atualizar = onPushEvent;
 
   final PushCoordinator _coordinator;
   final CurrentLocation _currentLocation;
   final Navigate _navigate;
   final SessionActive _sessionActive;
-  final PushRefresh _onForeground;
+  final PushRefresh _atualizar;
 
   StreamSubscription<PushDestination>? _toques;
   StreamSubscription<PushDestination>? _recebidas;
@@ -90,7 +90,7 @@ class PushNavigator {
       // pode chegar depois do logout, e recarregar três listas sem credencial
       // só produz três requisições recusadas.
       if (!_sessionActive()) return;
-      _onForeground(destino);
+      _atualizar(destino);
     });
 
     // O toque que abriu o aplicativo fechado. Depois das assinaturas, para
@@ -120,6 +120,20 @@ class PushNavigator {
       _pendente = destino;
       return;
     }
+    /*
+      O toque relê o MESMO que a chegada em primeiro plano relê.
+
+      Foi aqui que o piloto físico quebrou: o aplicativo encerrado recebia o
+      push, o técnico tocava, chegava na OS — e o sino continuava no número
+      antigo. A tela de detalhe se carrega sozinha, então o destino parecia
+      certo; o que ficava velho era todo o resto.
+
+      A diferença entre "chegou com o app aberto" e "chegou com o app
+      fechado" é só se havia alguém olhando. Deixar os dados do aplicativo
+      dependerem disso seria arbitrário — por isso é a mesma releitura, e não
+      uma segunda menor.
+    */
+    _atualizar(destino);
     _navegar(destino);
   }
 

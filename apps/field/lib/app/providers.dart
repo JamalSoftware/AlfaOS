@@ -169,15 +169,19 @@ final pushNavigatorProvider = Provider<PushNavigator>((ref) {
       WidgetsBinding.instance.ensureVisualUpdate();
     },
     sessionActive: () => ref.read(sessionControllerProvider).isAuthenticated,
-    onForeground: (_) {
+    onPushEvent: (_) {
       /*
-        Chegou com o aplicativo aberto: atualiza o que aquele evento muda, e
-        SÓ isso.
+        Um evento de push chegou — recebido com o app aberto, ou tocado com
+        ele em segundo plano. Atualiza o que aquele evento muda, e SÓ isso.
 
         `SERVICE_ORDER_ASSIGNED` mexe na fila do despacho, na lista de OS e na
         contagem do sino. Recarregar o aplicativo inteiro puxaria jornada,
         estoque e sessão junto — tráfego e latência em cima de um técnico que
         muitas vezes está em borda de sinal, para responder a um aviso.
+
+        Repetir isto não duplica nada: os três controladores recusam uma
+        segunda carga enquanto a primeira está em voo, e nenhum deles soma —
+        todos SUBSTITUEM o estado pela resposta do backend.
       */
       ref.read(dispatchQueueControllerProvider.notifier).load();
       ref.read(ordersControllerProvider.notifier).load(refresh: true);

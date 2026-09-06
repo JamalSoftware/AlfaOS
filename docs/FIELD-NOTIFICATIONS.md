@@ -4,8 +4,10 @@ Plano da fase descrita no PRD **§153–§157**. Mora aqui, e não no PRD, pelo
 mesmo motivo que `DISPATCH-QUEUE.md`: o PRD é visão de produto, e provider,
 ciclo do token, política de retry e contrato de payload são engenharia.
 
-> **Estado: `NF-1` a `NF-4` ENTREGUES. `NF-5` — piloto em aparelho físico —
-> continua `PLANNED`.**
+> **Estado: `NF-1` a `NF-4` ENTREGUES. `NF-5` — piloto em aparelho físico — em
+> curso: dois defeitos reais encontrados e corrigidos (permissão do Android e
+> sino no cold start, §28), com o piloto completo ainda dependendo da conta de
+> serviço do Firebase no worker.**
 >
 > O provider real do FCM existe, a seleção por configuração existe, e o defeito
 > de logout que a §2 registrou foi corrigido (§24). O Flutter inicializa o
@@ -1296,3 +1298,151 @@ iOS                           fora
 **Falta o piloto físico (`NF-5`).** Gesto de sistema, toque em notificação real
 e ordem de subida não se aprovam por teste de widget — e a §27.5 é a prova
 disso: o caminho de produção estava quebrado com 34 testes verdes.
+
+---
+
+## 28. `NF-5` — o sino no cold start
+
+O piloto físico entregou o cenário completo e ele falhou num ponto só:
+aplicativo **encerrado**, OS atribuída, worker `provider=fcm reivindicados=1
+processados=1`, notificação nativa entregue, aplicativo aberto, **OS presente**
+— e o contador do sino no número antigo.
+
+### 28.1 A causa
+
+O contador só era lido em dois lugares, e nenhum deles é a subida:
+
+```text
+providers.dart  onForeground    push chegando com o app ABERTO
+notifications_screen.dart       ao visitar a própria tela de notificações
+```
+
+Não havia caminho de leitura em `bootstrap`, em `authenticated`, nem no
+tratamento do toque. **Um aplicativo aberto do zero mostrava zero, sempre.** Não
+por decisão de exibir zero: por nunca ter perguntado.
+
+E a regra estava documentada como intencional no `notifications_bell.dart`, que
+dizia ser honesto ficar em zero até a tela ser visitada, porque buscar em
+segundo plano gastaria bateria "antes de o push real existir (§153)". O push
+real passou a existir na `NF-1`–`NF-4`. A mesma regra deixou de ser honestidade
+e virou o defeito: o aviso chegava ao aparelho e a tela dizia, com número, que
+não havia nada. O comentário foi **revisto, não apagado**.
+
+### 28.2 Dois gatilhos, e a distinção é o ponto
+
+| Gatilho | Onde | Cobre |
+|---|---|---|
+| Sessão vira `authenticated` | `app.dart` | cold start com toque, cold start sem toque, login comum |
+| Toque tratado com sessão viva | `push_navigator.dart` | abertura em segundo plano |
+
+O primeiro **não é sobre push**: a pergunta que ele responde é "existe alguém
+autenticado aqui?". Pendurá-lo num callback do Firebase faria o sino depender de
+um provedor que, num aparelho sem Google Play, nunca fala. Ele acontece depois
+do `/me`, então o token já está no cofre.
+
+O segundo existe porque a abertura em segundo plano **não muda fase nenhuma** —
+a sessão já estava autenticada. Sem ele, o toque levava à OS com todo o resto
+velho.
+
+O toque relê o **mesmo** que a chegada em primeiro plano relê. A diferença entre
+"chegou com o app aberto" e "chegou com o app fechado" é só se havia alguém
+olhando; fazer os dados dependerem disso seria arbitrário.
+
+### 28.3 O backend continua sendo a autoridade
+
+Nada soma. `load()` **substitui** o estado pela resposta, e é por isso que o
+sino desce quando alguém lê os avisos noutro aparelho — coisa que um `count++`
+jamais faria. Repetir a leitura não duplica: os três controladores recusam uma
+segunda carga enquanto a primeira está em voo.
+
+Medido, não presumido: na subida por toque a leitura é **uma**.
+`getInitialMessage()` resolve por microtask enquanto o `/me` espera a rede, de
+modo que o toque sempre encontra a sessão em `bootstrapping`, o destino fica
+pendente e quem relê é o gatilho de fase, sozinho.
+
+### 28.4 Achado próprio: a contagem sobrevivia ao logout
+
+Não estava no enunciado. **Nada invalidava o estado de notificações quando a
+sessão terminava**: o técnico seguinte no mesmo aparelho entrava e o sino trazia
+o número do anterior até a releitura responder — e um toque nesse intervalo
+abriria a **lista** do anterior, com número de OS e nome de cliente na tela.
+`clear()` na saída, coberto por `NF5-BELL-09`.
+
+### 28.5 A prova física
+
+Mesmo aparelho, mesma sessão, mesmo servidor, cold start sem push nenhum:
+
+```text
+banco          Tecnico Alfa, 6 notificações não lidas
+ANTES (build sem a correção)   sino SEM badge
+DEPOIS (build com a correção)  sino com badge 6
+```
+
+O resto da tela ficou idêntico — mesmas OS, mesma ordem, mesmo layout. Só o sino
+mudou, que é o controle do experimento.
+
+**Os dois caminhos de callback não foram validados fisicamente**
+(`NF5-BELL-02` terminado-com-toque e `NF5-BELL-03` segundo-plano-com-toque):
+eles exigem o worker com a conta de serviço do Firebase, que não está no
+`.env` do repositório. Ambos têm regressão, e a reversão prova cada um
+separadamente.
+
+### 28.6 Provas de reversão e sabotagens
+
+```text
+R1  gatilho de sessão removido       9 testes falham, todos com Actual: <0>
+R2  releitura no toque removida      NF5-BELL-03 falha, Actual: <0>
+S-A load soma em vez de substituir   NF5-BELL-06 (2) e NF5-BELL-07 caem
+S-B1 allowlist aceita qualquer type          NF5-BELL-08 cai
+S-B2 allowlist aceita qualquer resourceType  NF5-BELL-08 cai
+S-B3 allowlist aceita qualquer resourceId    NF5-BELL-08 cai
+S-C logout não limpa                 NF5-BELL-09 cai
+S-D lê em toda fase                  NF5-BELL-09 cai
+```
+
+Duas correções que as próprias provas impuseram. A `NF5-BELL-08` original
+mandava payloads errados em **três** campos ao mesmo tempo, e teria passado com
+a allowlist relaxada em dois deles — agora cada payload erra em um campo só. E
+a `NF5-BELL-07` afirmava `lessThanOrEqualTo(2)`, que **tolerava** a segunda
+requisição; o número foi medido e a afirmação virou exata.
+
+A `S-D` não foi pega pela contagem de requisições da `NF5-BELL-04`, e a razão é
+o Riverpod: `ref.listen` só dispara em **mudança**, e o estado inicial já é
+`bootstrapping` — ler em toda fase é indistinguível na subida. Quem a pega é o
+logout.
+
+### 28.7 Copy
+
+`"Nova OS atribuída"` → `"Nova OS"` (`src/lib/service-orders.ts`). Uma linha de
+produção e quatro asserções de teste; nenhuma superfície web renderiza
+`Notification`, que é dado exclusivo do Field.
+
+### 28.8 Pendência NÃO corrigida: token só após reiniciar
+
+O piloto observou que, depois de conceder `POST_NOTIFICATIONS`, o token do FCM
+só apareceu no backend na reabertura do aplicativo.
+
+Leitura do código: `requestNow()` faz a sequência certa — pede a permissão,
+obtém o token e entrega. A hipótese é que `getToken()` responda `null` logo após
+a concessão, com o registro no FCM ainda em voo; `_entregar(null)` corretamente
+não envia nada, **e nada retenta**. Na reabertura, `startSession()` pergunta de
+novo e o token existe.
+
+**É hipótese, não diagnóstico provado** — confirmá-la exige o aparelho com o
+Firebase configurado, e corrigir às cegas violaria a regra de não adivinhar. A
+correção seria uma política de retentativa nova, com testes próprios, e não
+pertence a esta alteração.
+
+### 28.9 Gates
+
+```text
+1694 Vitest        inalterado
+ 116 Playwright    inalterado
+ 423 Flutter       era 411
+lint, tsc, build, build:worker, dart format, flutter analyze
+prisma validate, 24 migrations — NENHUMA nova
+APK debug construído e instalado em aparelho físico
+```
+
+Nenhuma migration, nenhuma dependência, nenhum endpoint novo. O diff de servidor
+é uma string e quatro asserções.

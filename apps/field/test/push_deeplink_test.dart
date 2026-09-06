@@ -79,7 +79,7 @@ Cenario montar({bool autenticado = true, String em = '/inicio'}) {
       currentLocation: () => router.atual,
       navigate: router.push,
       sessionActive: () => sessao,
-      onForeground: refresh.add,
+      onPushEvent: refresh.add,
     ),
   );
 }
@@ -104,7 +104,7 @@ Cenario montar({bool autenticado = true, String em = '/inicio'}) {
     currentLocation: () => router.atual,
     navigate: router.push,
     sessionActive: () => sessao,
-    onForeground: refresh.add,
+    onPushEvent: refresh.add,
   );
 
   return (

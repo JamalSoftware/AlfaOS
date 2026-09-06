@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/auth/state/session_controller.dart';
+import '../features/notifications/state/notifications_controller.dart';
 import 'providers.dart';
 import 'router.dart';
 import 'theme/app_theme.dart';
@@ -67,6 +68,33 @@ class _AlfaOsFieldAppState extends ConsumerState<AlfaOsFieldApp> {
           realmente depende, e este ponto sobrevive a qualquer troca de tela.
         */
       ref.read(pushPermissionPromptProvider).onSessionPhase(fase);
+
+      /*
+        E o SINO acompanha a sessão, não o push (`NF-5`).
+
+        Até aqui a contagem só era lida em dois lugares: quando um push chegava
+        com o aplicativo ABERTO, e quando a tela de notificações era visitada.
+        Quem abrisse o aplicativo encerrado — com ou sem toque num aviso — via
+        o sino em zero, mesmo com avisos não lidos esperando no servidor. Foi o
+        que o piloto físico encontrou.
+
+        O gatilho é a fase da sessão porque a pergunta não é sobre push: é
+        "existe alguém autenticado aqui?". Isso vale para o cold start com
+        toque, para o cold start sem toque nenhum e para o login comum, com uma
+        regra só — e não deixa o sino depender de um callback do Firebase, que
+        num aparelho sem Google Play nunca chega.
+
+        `authenticated` acontece depois do `/me`, então o token já está no
+        cofre e a leitura sai autenticada.
+      */
+      final notificacoes = ref.read(notificationsControllerProvider.notifier);
+      if (fase == SessionPhase.authenticated) {
+        notificacoes.load();
+      } else if (fase == SessionPhase.unauthenticated ||
+          fase == SessionPhase.revoked) {
+        // A sessão acabou. O que era dela não pode aparecer para a próxima.
+        notificacoes.clear();
+      }
     });
 
     final router = ref.watch(routerProvider);

@@ -71,6 +71,17 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     }
   }
 
+  /// Esquece tudo. Chamado quando a sessão termina.
+  ///
+  /// Sem isto, o estado de quem saiu sobrevive à troca de pessoa no mesmo
+  /// aparelho: o técnico seguinte entra e o sino mostra o número do anterior
+  /// até a releitura responder — e um toque nesse intervalo abre a LISTA do
+  /// anterior, com número de OS e nome de cliente na tela. Notificação é
+  /// estado de UMA sessão, e morre com ela.
+  void clear() {
+    state = const NotificationsState();
+  }
+
   /// Marca como lidas, com atualização otimista.
   ///
   /// É seguro ser otimista aqui porque a operação é idempotente no servidor e
