@@ -105,9 +105,39 @@ function isPrivateIPv6(ip: string): boolean {
   /**
    * IPv4 mapeado/embutido (`::ffff:127.0.0.1`, `64:ff9b::7f00:1`). Sem esta
    * ramificação, o loopback entraria por IPv6 e passaria pelas regras acima.
+   *
+   * ## As DUAS formas, e por que a pontuada sozinha não bastava
+   *
+   * Esta função recebia só a forma pontuada, e a auditoria de release mostrou
+   * que é justamente a forma que **nunca chega aqui** vinda de uma URL: o
+   * parser WHATWG normaliza `[::ffff:127.0.0.1]` para o hostname
+   * `[::ffff:7f00:1]` — hexadecimal, sem ponto nenhum. A regex não casava, a
+   * função devolvia `false`, e `https://[::ffff:127.0.0.1]` era ACEITO.
+   *
+   * Reproduzido: loopback, `169.254.169.254` (metadados de nuvem), RFC1918 e
+   * NAT64 atravessavam, enquanto `127.0.0.1` e `[::1]` eram corretamente
+   * recusados — o teste existia, mas no nível da função auxiliar, onde o
+   * defeito não aparece.
    */
-  const embutido = v.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-  if (embutido) return isPrivateIPv4(embutido[1]);
+  const pontuado = v.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (pontuado) return isPrivateIPv4(pontuado[1]);
+
+  /*
+    A forma hexadecimal: os 32 bits baixos de um endereço que embute IPv4.
+
+    `::ffff:a.b.c.d` (mapeado), `::a.b.c.d` (compatível, obsoleto e ainda
+    roteável em pilhas antigas) e `64:ff9b::a.b.c.d` (NAT64) — os três chegam
+    como dois grupos hexadecimais no fim. Reconstruímos o IPv4 e devolvemos a
+    decisão para a mesma tabela que já governa o resto.
+  */
+  const hex = v.match(/^(?:::ffff:|::|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hex) {
+    const alto = parseInt(hex[1], 16);
+    const baixo = parseInt(hex[2], 16);
+    const ipv4 = [alto >> 8, alto & 0xff, baixo >> 8, baixo & 0xff].join(".");
+    return isPrivateIPv4(ipv4);
+  }
+
   return false;
 }
 
