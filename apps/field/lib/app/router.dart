@@ -14,7 +14,12 @@ import '../features/timeclock/ui/time_clock_screen.dart';
 import 'home_shell.dart';
 import 'providers.dart';
 
-final _rootKey = GlobalKey<NavigatorState>();
+/// O navegador RAIZ do aplicativo.
+///
+/// Público porque a folha de permissão (`NF-5`) precisa de um contexto que
+/// **sobreviva ao redirect**: o login bem-sucedido troca `/login` por
+/// `/inicio` e descarta a tela, enquanto este navegador permanece.
+final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellKey = GlobalKey<NavigatorState>();
 
 /// Navegação declarativa, com a sessão como guarda.
@@ -27,7 +32,7 @@ final routerProvider = Provider<GoRouter>((ref) {
   final phase = ref.watch(sessionControllerProvider.select((s) => s.phase));
 
   return GoRouter(
-    navigatorKey: _rootKey,
+    navigatorKey: rootNavigatorKey,
     initialLocation: '/inicio',
     refreshListenable: _PhaseListenable(ref),
     redirect: (context, state) {
@@ -60,20 +65,20 @@ final routerProvider = Provider<GoRouter>((ref) {
         // Fora da barra principal, alcançável pelo sino do cabeçalho ou pela
         // gaveta (PRD §255: "não ocupa vaga na barra principal"). Empilha por
         // cima da aba atual — o back volta para onde a pessoa estava.
-        parentNavigatorKey: _rootKey,
+        parentNavigatorKey: rootNavigatorKey,
         path: '/notifications',
         builder: (_, _) => const NotificationsScreen(),
       ),
       GoRoute(
         // Mesma razão: item de CONTA na gaveta, não destino de trabalho.
-        parentNavigatorKey: _rootKey,
+        parentNavigatorKey: rootNavigatorKey,
         path: '/settings',
         builder: (_, _) => const SettingsScreen(),
       ),
       GoRoute(
         // Detalhe fora do shell: em campo ele ocupa a tela inteira, e a barra
         // de abas embaixo só disputaria espaço com a ação principal.
-        parentNavigatorKey: _rootKey,
+        parentNavigatorKey: rootNavigatorKey,
         path: '/orders/:id',
         builder: (_, state) =>
             OrderDetailScreen(orderId: state.pathParameters['id']!),
@@ -82,7 +87,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             // Execução também fora do shell, e pelo mesmo motivo: ela é uma
             // sequência longa de seções, e a barra de abas embaixo roubaria a
             // linha onde fica o botão de concluir.
-            parentNavigatorKey: _rootKey,
+            parentNavigatorKey: rootNavigatorKey,
             path: 'execucao',
             builder: (_, state) =>
                 ExecutionScreen(orderId: state.pathParameters['id']!),

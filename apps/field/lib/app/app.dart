@@ -50,10 +50,24 @@ class _AlfaOsFieldAppState extends ConsumerState<AlfaOsFieldApp> {
       de aplicação — e porque o controlador de sessão não pode passar a
       conhecer rotas.
     */
-    ref.listen<SessionPhase>(
-      sessionControllerProvider.select((s) => s.phase),
-      (_, fase) => ref.read(pushNavigatorProvider).onSessionPhase(fase),
-    );
+    ref.listen<SessionPhase>(sessionControllerProvider.select((s) => s.phase), (
+      _,
+      fase,
+    ) {
+      ref.read(pushNavigatorProvider).onSessionPhase(fase);
+      /*
+          E é aqui que a permissão de notificação é oferecida (`NF-5`).
+
+          Antes ela morava no `State` da tela de login — a única tela que o
+          login bem-sucedido garantidamente destrói. A oferta chegava a
+          consultar o estado da permissão e parava na conferência de `mounted`,
+          sem exceção e sem log: o técnico entrava e nunca era perguntado.
+
+          O gatilho certo é a FASE DA SESSÃO, que é o fato que a oferta
+          realmente depende, e este ponto sobrevive a qualquer troca de tela.
+        */
+      ref.read(pushPermissionPromptProvider).onSessionPhase(fase);
+    });
 
     final router = ref.watch(routerProvider);
     final themeMode = ref.watch(themeControllerProvider);

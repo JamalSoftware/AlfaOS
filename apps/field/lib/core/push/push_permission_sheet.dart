@@ -76,6 +76,30 @@ Future<bool> showPushPermissionSheet(BuildContext context) async {
                   const SizedBox(width: AlfaSpacing.sm),
                   FilledButton(
                     key: const Key('push-permission-enable'),
+                    /*
+                      A altura é a do design system; a LARGURA mínima precisa
+                      cair, e isso é correção, não estilo.
+
+                      O tema define `minimumSize: Size.fromHeight(56)`, e
+                      `Size.fromHeight` é `Size(double.infinity, 56)`: toda
+                      ação primária do aplicativo exige largura infinita. Numa
+                      `Column` esticada isso é exatamente o que se quer, e é
+                      como o resto do app a usa. Dentro de uma `Row`, que
+                      oferece largura ilimitada aos filhos sem flex, vira
+                      `BoxConstraints forces an infinite width` e o layout
+                      estoura.
+
+                      A folha nunca havia sido renderizada sob o tema real —
+                      nenhum teste a montava, e no aparelho ela nem chegava a
+                      ser pedida por causa do defeito de gatilho. Os dois
+                      apareceram juntos, no mesmo piloto.
+                    */
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(
+                        0,
+                        AlfaSizing.primaryActionHeight,
+                      ),
+                    ),
                     onPressed: () => Navigator.of(sheetContext).pop(true),
                     child: const Text('ATIVAR'),
                   ),

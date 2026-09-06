@@ -16,7 +16,9 @@ import '../features/orders/data/orders_repository.dart';
 import '../features/notifications/state/notifications_controller.dart';
 import '../features/orders/state/dispatch_queue_controller.dart';
 import '../features/orders/state/orders_controller.dart';
+import '../core/push/push_permission_sheet.dart';
 import 'push_navigator.dart';
+import 'push_permission_prompt.dart';
 import 'router.dart';
 import 'theme/theme_controller.dart';
 
@@ -180,6 +182,40 @@ final pushNavigatorProvider = Provider<PushNavigator>((ref) {
       ref.read(dispatchQueueControllerProvider.notifier).load();
       ref.read(ordersControllerProvider.notifier).load(refresh: true);
       ref.read(notificationsControllerProvider.notifier).load();
+    },
+  );
+});
+
+/// Quem oferece a permissão de notificação depois do login (`NF-5`).
+///
+/// `read` e não `watch`, pela mesma razão do `pushNavigatorProvider`: este
+/// objeto guarda estado de sessão e não pode renascer no instante em que a
+/// fase muda — que é exatamente quando ele precisa agir.
+final pushPermissionPromptProvider = Provider<PushPermissionPrompt>((ref) {
+  return PushPermissionPrompt(
+    coordinator: ref.read(pushCoordinatorProvider),
+    showSheet: () async {
+      /*
+        O contexto é o da CASCA — o `Scaffold` do App Shell —, e a escolha foi
+        medida, não deduzida.
+
+        A folha morava na tela de login, que o `redirect` descarta assim que a
+        sessão vira `authenticated`: o pedido era feito contra uma árvore que
+        já não existia. Trocar por um contexto de raiz parecia o oposto certo,
+        e não é: tanto o contexto do `Navigator` raiz quanto o do overlay dele
+        fazem a folha ser medida com **largura infinita**, e o `FilledButton`
+        estoura o layout. Foi observado, não presumido.
+
+        A casca é o contexto certo por ser o inverso exato da tela de login:
+        ela não é destruída pelo login, ela é CRIADA por ele. É uma página de
+        verdade, com restrições de verdade, e vive enquanto durar a sessão.
+
+        Se ela ainda não existir, a oferta não acontece e **não é marcada** —
+        a próxima entrada tenta de novo.
+      */
+      final context = ref.read(shellScaffoldKeyProvider).currentContext;
+      if (context == null || !context.mounted) return null;
+      return showPushPermissionSheet(context);
     },
   );
 });

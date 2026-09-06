@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/providers.dart';
 import '../../../app/theme/tokens.dart';
 import '../../../core/errors/field_error.dart';
-import '../../../core/push/push_permission_sheet.dart';
 import '../state/session_controller.dart';
 
 /// A frase que a pessoa lê quando o login falha.
@@ -132,38 +131,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
     }
 
-    // Só depois de entrar, e só quando entrou mesmo.
-    if (_error == null && mounted) {
-      await _oferecerNotificacoes();
-    }
-  }
+    /*
+      A oferta de notificações NÃO mora mais aqui (`NF-5`).
 
-  /// Pergunta sobre notificações **depois** do primeiro login (`NF-2`).
-  ///
-  /// Fora do `try` do login de propósito: falha de push não pode virar erro de
-  /// entrada. O técnico entrou; se o Firebase não existe, se a permissão é
-  /// recusada ou se o provedor cai, ele continua com OS, Jornada e execução —
-  /// push é capability, não requisito.
-  ///
-  /// A folha explica antes de o Android perguntar. Pedido sem contexto é
-  /// recusado, e no Android a recusa é lembrada: perguntar mal não adianta a
-  /// permissão, gasta a única boa chance de obtê-la.
-  Future<void> _oferecerNotificacoes() async {
-    try {
-      final coordinator = ref.read(pushCoordinatorProvider);
-      final estado = await coordinator.prepareAfterLogin();
-      if (!estado.shouldPrompt || !mounted) return;
+      Ela morava, e era o defeito que o piloto físico encontrou: o login
+      bem-sucedido faz o `redirect` trocar `/login` por `/inicio` e DESCARTAR
+      esta tela. A oferta rodava depois disso, no `State` de um widget que já
+      não existia, e parava na conferência de `mounted` — sem exceção e sem
+      log. O técnico entrava e nunca era perguntado.
 
-      if (await showPushPermissionSheet(context)) {
-        await coordinator.requestNow();
-      } else {
-        // "Agora não" também marca que perguntamos: insistir a cada login
-        // ensina a tocar "não" sem ler.
-        await coordinator.declineNow();
-      }
-    } catch (_) {
-      // Push indisponível é um estado previsto, e não uma falha do login.
-    }
+      Quem oferece agora é o `PushPermissionPrompt`, acionado pela FASE DA
+      SESSÃO em `app.dart`. O gatilho certo é o fato de existir alguém
+      autenticado, e esse fato não pertence a nenhuma tela — muito menos à que
+      está sendo substituída no mesmo instante.
+    */
   }
 
   @override
