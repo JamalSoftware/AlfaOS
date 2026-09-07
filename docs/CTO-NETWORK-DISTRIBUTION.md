@@ -1808,3 +1808,98 @@ chamada dentro da transação que grava o vínculo.
 
 O `A2` chegou ao mesmo desfecho que um teste permanente já cobria — a
 concordância independente é o resultado desejado, não redundância.
+
+## 23. `CTO-1.9` — porta fora da capacidade é histórica e read-only
+
+**Decisão do dono, fechando o `CTO1-INFO-01` do §22.** A pergunta que o contrato
+congelado não respondia — *uma porta danificada continua danificada quando deixa
+de ser ofertada?* — foi respondida: **não se edita histórico.**
+
+### A regra
+
+> Uma `CTOPort` com `number > CTO.capacity` é histórica, não ofertável e
+> **read-only**. Enquanto estiver fora da capacidade não aceita mutação
+> administrativa nenhuma — nem reservar, nem danificar, **nem liberar**. Voltando
+> a capacidade a cobri-la, a mesma linha volta a ser operável, com o estado que
+> tinha.
+
+A linha **nunca** é apagada, resetada, recriada ou duplicada (`N-13`).
+
+### São dois predicados, e trocá-los quebra a tela
+
+```ts
+isPortWithinCapacity(port, capacity)  // só a faixa: number <= capacity
+isPortOfferable(port, capacity)       // faixa E administrativeState === AVAILABLE
+```
+
+A autorização da mutação administrativa usa **o primeiro**. Usar o segundo
+pareceria mais rigoroso e congelaria toda porta reservada ou danificada no
+estado em que está: `RESERVED` dentro da capacidade não é ofertável, e liberar
+uma reserva é exatamente o que a operação precisa poder fazer. A tela perderia a
+capacidade de desfazer o que ela mesma fez.
+
+A faixa tem **uma** definição — `isPortWithinCapacity` — e `isPortOfferable` a
+consome. Três testes (`CTO1-HIST-06/07/08`) existem para derrubar a troca.
+
+### A capacidade vem do lock, não de antes dele
+
+`setPortAdministrativeState` já travava a CTO com `FOR UPDATE`; `lockCto`
+devolve `{ id, capacity }`, e é **esse** valor que a comparação usa. Nenhuma
+arquitetura nova — é o mesmo par que a redução de capacidade sempre usou.
+
+A janela que isso fecha é real: reduzir 16 → 8 e reservar a porta 12 ao mesmo
+tempo, as duas lendo 16, produziria a porta histórica reservada. `CTO1-HIST-12`
+roda a corrida seis vezes e **proíbe** o desfecho híbrido em vez de tolerá-lo;
+qualquer ordem de chegada é aceitável, e o par final tem de ser coerente
+(`8` + `AVAILABLE`, ou `16` + `RESERVED` com a redução recusada).
+
+### A ordem das verificações
+
+```text
+tenant → CTO → porta pertencente à CTO → capacidade travada → mutação
+```
+
+Outro tenant e porta de outra CTO continuam respondendo **404**, e não 409: a
+mensagem de faixa nomeia a posição e a capacidade, e confirmaria a existência
+dos recursos para quem não deveria saber que existem. Um teste fixa isso.
+
+### Recusa
+
+`conflict` → **409**, o mesmo mapeamento da recusa de redução. A mensagem nomeia
+a posição e a capacidade atual, que é o que resolve o problema, e nada mais —
+sem id, sem tenant, sem SQL, sem caminho. Um teste afirma cada ausência.
+
+O `no-op` foi movido para **depois** da regra de faixa. Uma porta histórica cujo
+estado pedido é o que ela já tem sairia com `200`, e a tela concluiria que a
+ação está disponível: read-only precisa não depender do estado guardado.
+
+### Tela
+
+A linha histórica continua visível, com o selo **"Fora da capacidade"**. As três
+ações ficam `disabled`, e o motivo não fica só na opacidade nem só no `title`
+(que leitor de tela não anuncia de forma confiável em botão desabilitado): o
+`aria-label` carrega a explicação inteira. O E2E afirma `toBeDisabled`, que lê a
+propriedade do elemento — não a classe.
+
+### Efeito sobre um teste existente
+
+`"o estado administrativo de uma linha reutilizada NÃO é resetado"` marcava a
+porta 12 como danificada **estando fora da capacidade** — caminho que deixou de
+existir. A afirmação continua válida e o preparo mudou: agora a porta marcada
+está dentro da capacidade que sobrevive à redução, e o teste prova que o passo
+de criação do reaumento não reescreve linha existente, mais a identidade da
+linha histórica (`id` e `createdAt`) e que ela atravessa liberada.
+
+### Fronteira com a `CTO-2`
+
+**Este endurecimento não substitui o `R-13`.** `CustomerNetworkConnection` só
+poderá usar porta **ofertável** — dentro da capacidade **e** `AVAILABLE` —,
+verificada com `isPortOfferable` **dentro da transação que grava o vínculo**.
+Estar dentro da capacidade é condição necessária e não suficiente.
+
+### Estado do achado
+
+| | |
+|---|---|
+| `CTO1-INFO-01` | **CLOSED — OWNER DECISION** |
+| blobs órfãos de fotos substituídas | **INFO aceito**, sem cleanup |

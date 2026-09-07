@@ -152,8 +152,42 @@ export function isPortOfferable(
   port: { number: number; administrativeState: CtoPortAdministrativeState },
   capacity: number,
 ): boolean {
-  if (port.number > capacity) return false;
+  if (!isPortWithinCapacity(port, capacity)) return false;
   return port.administrativeState === "AVAILABLE";
+}
+
+/**
+ * Esta posição ainda faz parte da caixa que a empresa oferece hoje?
+ *
+ * **Só a faixa, e é por isso que ela é uma função separada.** `isPortOfferable`
+ * responde uma pergunta maior — *"pode receber um cliente?"* — e uma porta
+ * `RESERVED` dentro da capacidade responde `false` a ela enquanto continua
+ * perfeitamente operável: liberar uma reserva é exatamente o que a operação
+ * precisa poder fazer. Usar a ofertabilidade como autorização de mutação
+ * administrativa congelaria toda porta reservada ou danificada no estado em que
+ * está, e a tela deixaria de ter como desfazer o que ela mesma fez.
+ *
+ * A faixa tem UMA definição, aqui, e `isPortOfferable` a consome. Duas cópias
+ * do mesmo `>` divergiriam no dia em que a regra ganhasse uma exceção.
+ *
+ * ## A decisão de produto que ela implementa
+ *
+ * Reduzir a capacidade não apaga porta: as posições acima viram **histórico**.
+ * Histórico é registro do que houve, e registro não se edita — enquanto estiver
+ * fora da capacidade, a porta não aceita mutação administrativa nenhuma, nem
+ * para reservar nem para liberar. Voltando a capacidade, a mesma linha volta a
+ * ser operável, com o estado que tinha.
+ *
+ * A `CTO-2` **não** herda autorização daqui. Uma porta dentro da capacidade
+ * pode estar reservada ou danificada, e nenhuma das duas recebe vínculo: quem
+ * responde por isso continua sendo `isPortOfferable`, chamada na transação que
+ * grava o vínculo (`R-13`).
+ */
+export function isPortWithinCapacity(
+  port: { number: number },
+  capacity: number,
+): boolean {
+  return port.number <= capacity;
 }
 
 /**
@@ -867,10 +901,25 @@ export async function setCtoActive(
  * outra caixa da MESMA empresa seria aceito — o que não é cross-tenant, mas é
  * uma porta que não pertence ao recurso que o chamador abriu.
  *
- * Uma posição acima da capacidade corrente pode ter o estado alterado (é uma
- * linha real, e marcar histórico como danificado é legítimo), e isso **não** a
- * torna ofertável: quem decide isso é `isPortOfferable`, que compara com a
- * capacidade e não com o estado.
+ * ## Posição acima da capacidade é HISTÓRICO, e histórico não se edita
+ *
+ * Esta função afirmava o contrário, e a afirmação era minha: *"uma posição
+ * acima da capacidade corrente pode ter o estado alterado (é uma linha real, e
+ * marcar histórico como danificado é legítimo)"*. O checkpoint final da `CTO-1`
+ * reproduziu o que isso produz — uma porta exibida com o selo "Fora da
+ * capacidade" aceitando `RESERVED`, e a reserva passando a **bloquear a redução
+ * seguinte**. Uma posição que a empresa declarou não oferecer mais decidindo se
+ * a capacidade pode ou não mudar.
+ *
+ * A decisão do dono fechou a pergunta que o contrato congelado não respondia:
+ * enquanto estiver fora da capacidade, a porta é **read-only**. Nem reservar,
+ * nem danificar, nem liberar — a linha permanece exatamente como a redução a
+ * deixou. Voltando a capacidade, ela volta a ser operável com o mesmo estado.
+ *
+ * A verificação é de FAIXA, não de ofertabilidade (`isPortWithinCapacity`, e
+ * não `isPortOfferable`): uma porta reservada dentro da capacidade não é
+ * ofertável e precisa continuar podendo ser liberada. Confundir as duas
+ * trancaria toda reserva no lugar.
  */
 export async function setPortAdministrativeState(
   companyId: string,
@@ -905,7 +954,7 @@ export async function setPortAdministrativeState(
       ordem determinística por caixa é mais simples de raciocinar do que um lock
       por linha que ainda teria de coexistir com o da capacidade.
     */
-    await lockCto(tx, companyId, ctoId);
+    const cto = await lockCto(tx, companyId, ctoId);
 
     const port = await tx.cTOPort.findFirst({
       where: { id: portId, ctoId, companyId },
@@ -913,6 +962,36 @@ export async function setPortAdministrativeState(
     if (!port) {
       throw notFound("Porta não encontrada.");
     }
+
+    /*
+      A capacidade é a que o `FOR UPDATE` acabou de travar, e não uma lida
+      antes.
+
+      Sem isso a regra teria uma janela real: alguém reduz a capacidade de 16
+      para 8 enquanto outra pessoa reserva a porta 12. As duas leem 16, as duas
+      concluem que 12 está dentro, e o resultado é uma porta histórica reservada
+      — o estado que esta regra existe para não produzir. `lockCto` serializa as
+      duas operações por caixa, e a comparação usa o valor que veio do lock.
+
+      É o mesmo par que a redução de capacidade já usava; nada de arquitetura
+      nova.
+    */
+    if (!isPortWithinCapacity(port, cto.capacity)) {
+      throw conflict(
+        `A porta ${port.number} está fora da capacidade atual da CTO ` +
+          `(${cto.capacity} portas) e é apenas histórica. ` +
+          "Aumente a capacidade para voltar a operá-la.",
+      );
+    }
+
+    /*
+      O no-op vem DEPOIS da regra de faixa, e a ordem é decisão.
+
+      Uma porta histórica cujo estado pedido é o que ela já tem sairia daqui com
+      `200`, e a tela concluiria que a ação está disponível. Recusar as duas do
+      mesmo jeito é o que faz "read-only" ser observável: a resposta não depende
+      de qual estado a linha guarda.
+    */
     if (port.administrativeState === state) {
       return;
     }

@@ -435,57 +435,88 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
       <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
         <h2 className="mb-4 text-base font-semibold text-fg">Portas</h2>
         <div className="space-y-2">
-          {cto.ports.map((port) => (
-            <div
-              key={port.id}
-              className="flex flex-wrap items-center gap-3 rounded-lg border border-border px-3 py-2"
-              data-testid="cto-port-row"
-            >
-              <span className="w-16 text-sm font-medium text-fg">
-                {String(port.number).padStart(2, "0")}
-              </span>
-              <span
-                className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATE_CLASSES[port.effectiveState]}`}
-                data-testid={`cto-port-state-${port.number}`}
+          {cto.ports.map((port) => {
+            /*
+              Histórica: a posição existe na linha do tempo da caixa e não na
+              caixa que a empresa oferece hoje.
+
+              A condição é só a FAIXA. Uma porta reservada dentro da capacidade
+              também não é ofertável, e continua tendo de aceitar "Liberar" —
+              usar `offerable` aqui trancaria toda reserva no lugar. É a mesma
+              distinção que o domínio faz entre `isPortWithinCapacity` e
+              `isPortOfferable`, e ela precisa ser a mesma nos dois lados.
+            */
+            const historica = port.number > cto.capacity;
+            const acoes: Array<[string, string]> = [
+              ["Liberar", "AVAILABLE"],
+              ["Reservar", "RESERVED"],
+              ["Danificada", "DAMAGED"],
+            ];
+            return (
+              <div
+                key={port.id}
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-border px-3 py-2"
+                data-testid="cto-port-row"
               >
-                {STATE_LABELS[port.effectiveState]}
-              </span>
-              {!port.offerable && port.number > cto.capacity && (
-                <span
-                  className="rounded-full bg-surface-muted px-2 py-0.5 text-xs font-medium text-fg-muted"
-                  title="Acima da capacidade atual. Mantida para preservar o histórico."
-                >
-                  Fora da capacidade
+                <span className="w-16 text-sm font-medium text-fg">
+                  {String(port.number).padStart(2, "0")}
                 </span>
-              )}
-              <div className="ml-auto flex gap-2">
-                <button
-                  type="button"
-                  disabled={busy || port.administrativeState === "AVAILABLE"}
-                  onClick={() => handlePortState(port.id, "AVAILABLE")}
-                  className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-fg-secondary transition-colors hover:bg-surface-muted disabled:opacity-40"
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATE_CLASSES[port.effectiveState]}`}
+                  data-testid={`cto-port-state-${port.number}`}
                 >
-                  Liberar
-                </button>
-                <button
-                  type="button"
-                  disabled={busy || port.administrativeState === "RESERVED"}
-                  onClick={() => handlePortState(port.id, "RESERVED")}
-                  className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-fg-secondary transition-colors hover:bg-surface-muted disabled:opacity-40"
-                >
-                  Reservar
-                </button>
-                <button
-                  type="button"
-                  disabled={busy || port.administrativeState === "DAMAGED"}
-                  onClick={() => handlePortState(port.id, "DAMAGED")}
-                  className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-fg-secondary transition-colors hover:bg-surface-muted disabled:opacity-40"
-                >
-                  Danificada
-                </button>
+                  {STATE_LABELS[port.effectiveState]}
+                </span>
+                {historica && (
+                  <span
+                    className="rounded-full bg-surface-muted px-2 py-0.5 text-xs font-medium text-fg-muted"
+                    title="Acima da capacidade atual. Mantida para preservar o histórico."
+                    data-testid={`cto-port-historic-${port.number}`}
+                  >
+                    Fora da capacidade
+                  </span>
+                )}
+                <div className="ml-auto flex gap-2">
+                  {acoes.map(([rotulo, alvo]) => (
+                    <button
+                      key={alvo}
+                      type="button"
+                      /*
+                        A desabilitação da porta histórica é EXPLÍCITA e vem
+                        primeiro. O servidor recusa de qualquer forma — a tela
+                        não é a autoridade —, mas um botão que parece disponível
+                        e responde 409 ensina a pessoa que o sistema é errático.
+                      */
+                      disabled={
+                        busy || historica || port.administrativeState === alvo
+                      }
+                      onClick={() => handlePortState(port.id, alvo)}
+                      title={
+                        historica
+                          ? "Porta fora da capacidade atual. Aumente a capacidade para voltar a operá-la."
+                          : undefined
+                      }
+                      /*
+                        O motivo não fica só no `title`, que leitor de tela não
+                        anuncia de forma confiável em botão desabilitado, e não
+                        fica só na opacidade, que é cor. O rótulo acessível
+                        carrega a explicação inteira.
+                      */
+                      aria-label={
+                        historica
+                          ? `${rotulo} — indisponível: porta ${port.number} está fora da capacidade atual`
+                          : `${rotulo} porta ${port.number}`
+                      }
+                      className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-fg-secondary transition-colors hover:bg-surface-muted disabled:opacity-40"
+                      data-testid={`cto-port-${alvo.toLowerCase()}-${port.number}`}
+                    >
+                      {rotulo}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Falha ao mudar o estado de uma porta aparece na seção das portas. */}

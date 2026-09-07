@@ -709,6 +709,18 @@ Mudança de produto, uma só: **foto que não abre passou a dizer que não abriu
 
 **Checkpoint final da `CTO-1` — `APPROVED WITH INFO RISKS`.** Consolidação sobre `7011180` (`3c1805e..7011180`, 16 commits), com bateria adversarial própria de oito ataques — **declaradamente não clean-room**, já que quem auditou implementou. Sete barrados; o oitavo virou o único achado, `CTO1-INFO-01`: `setPortAdministrativeState` **não consulta `isPortOfferable`**, então uma porta histórica exibida com o selo "Fora da capacidade" aceita `RESERVED` — e passa a bloquear a redução seguinte. Tenancy e integridade intactas, direção do erro conservadora (recusa, nunca apaga). **Não corrigido de propósito:** é pergunta de produto que o contrato congelado não respondeu — *uma porta danificada continua danificada quando deixa de ser ofertada?* —, e responder em silêncio seria decidir produto por omissão. **A `CTO-2` não pode herdar a suposição de que um estado administrativo prova checagem de faixa**: o `R-13` continua exigindo `isPortOfferable` dentro da transação que grava o vínculo. Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §22.
 
+**`CTO-1.9` — porta fora da capacidade é histórica e READ-ONLY.** Decisão do dono, fechando o `CTO1-INFO-01`. Enquanto `number > capacity`, a porta não aceita mutação administrativa nenhuma — nem reservar, nem danificar, **nem liberar**; a linha nunca é apagada nem resetada, e voltando a capacidade ela volta a ser operável com o estado que tinha.
+
+**São DOIS predicados, e trocá-los quebra a tela.** `isPortWithinCapacity` responde só a faixa e autoriza a mutação; `isPortOfferable` a consome e acrescenta `AVAILABLE`, respondendo se a porta pode receber cliente. Usar a ofertabilidade como autorização pareceria mais rigoroso e **congelaria toda porta reservada ou danificada**: `RESERVED` dentro da capacidade não é ofertável, e liberar uma reserva é exatamente o que a operação precisa poder fazer. A faixa tem **uma** definição, e três testes existem para derrubar a troca.
+
+**A capacidade vem do lock.** `lockCto` já devolvia `{ id, capacity }`, e é esse valor que a comparação usa — nada de arquitetura nova. A janela fechada é real: reduzir 16→8 e reservar a porta 12 ao mesmo tempo, as duas lendo 16, produziria a histórica reservada. O teste roda a corrida seis vezes e **proíbe** o híbrido em vez de tolerá-lo. Ordem preservada: tenant → CTO → porta → faixa, porque o 409 de faixa nomeia posição e capacidade e confirmaria existência a quem não deveria saber.
+
+**O `no-op` foi movido para depois da regra**: uma porta histórica cujo estado pedido é o que ela já tem sairia com 200, e a tela concluiria que a ação existe.
+
+**Um teste existente mudou de preparo, não de afirmação:** ele marcava a porta 12 como danificada estando fora da capacidade, apoiado numa frase que eu escrevera no domínio — *"marcar histórico como danificado é legítimo"*. Esse caminho deixou de existir; a afirmação ("reaumento não reseta linha reutilizada") continua, agora provada com a porta marcada **dentro** da capacidade que sobrevive à redução.
+
+**Isto NÃO substitui o `R-13`:** a `CTO-2` só pode vincular porta **ofertável**, com `isPortOfferable` dentro da transação que grava. Estar na faixa é necessário e não suficiente. Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §23.
+
 ## Princípios
 
 Integridade > velocidade

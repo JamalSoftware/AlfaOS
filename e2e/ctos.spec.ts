@@ -259,6 +259,103 @@ test("ADMIN cadastra, opera as portas, muda capacidade e inativa", async ({
   await expect(page.getByRole("button", { name: "Reativar CTO" })).toBeVisible();
 });
 
+test("CTO1-HIST — porta fora da capacidade é histórica e READ-ONLY", async ({
+  page,
+}) => {
+  /*
+    Decisão de produto do dono, fechando o `CTO1-INFO-01` do checkpoint final:
+    posição acima da capacidade é histórico, e histórico não se edita.
+
+    O checkpoint reproduziu o oposto — a porta 12, exibida com o selo "Fora da
+    capacidade", aceitava `RESERVED`, e a reserva passava a bloquear a redução
+    seguinte. Uma posição que a empresa declarou não oferecer mais decidindo se
+    a capacidade pode mudar.
+
+    Este teste prova os dois lados pela TELA: a porta histórica não tem ação
+    acionável, e a porta dentro da capacidade continua tendo. Sem o segundo, um
+    predicado trocado por `isPortOfferable` trancaria toda reserva no lugar e
+    ninguém notaria.
+  */
+  await setCapability(true);
+  await login(page, ADMIN_EMAIL);
+
+  const nome = `E2E-HIST-${Date.now()}`;
+  await page.goto("/ctos");
+  await page.getByLabel("Nome").fill(nome);
+  await page.getByLabel("Capacidade (portas)").fill("16");
+  await page.getByRole("button", { name: "Cadastrar CTO" }).click();
+  await page.getByRole("link", { name: nome }).click();
+  await esperarHidratacao(page);
+  await expect(page.getByTestId("cto-port-row")).toHaveCount(16);
+
+  const acoesDa = (numero: number) => ({
+    liberar: page.getByTestId(`cto-port-available-${numero}`),
+    reservar: page.getByTestId(`cto-port-reserved-${numero}`),
+    danificar: page.getByTestId(`cto-port-damaged-${numero}`),
+  });
+
+  // --- antes da redução: a porta 12 é operável ----------------------------
+  await expect(acoesDa(12).reservar).toBeEnabled();
+  await expect(page.getByTestId("cto-port-historic-12")).toHaveCount(0);
+
+  // --- redução válida 16 -> 8 ---------------------------------------------
+  await alterarCapacidade(page, "8", async () => {
+    await expect(page.getByTestId("cto-port-historic-16")).toBeVisible();
+  });
+
+  // As linhas continuam: reduzir não apaga porta.
+  await expect(page.getByTestId("cto-port-row")).toHaveCount(16);
+  await expect(page.getByText("Fora da capacidade")).toHaveCount(8);
+
+  // --- a porta histórica não tem ação acionável ---------------------------
+  const historica = acoesDa(12);
+  /*
+    `toBeDisabled` lê a propriedade do elemento, não a classe. Uma opacidade
+    reduzida com o botão ainda clicável passaria numa asserção de aparência e
+    reprovaria na vida real.
+  */
+  await expect(historica.liberar).toBeDisabled();
+  await expect(historica.reservar).toBeDisabled();
+  await expect(historica.danificar).toBeDisabled();
+  // O motivo não fica só na cor nem só no `title`.
+  await expect(historica.reservar).toHaveAttribute(
+    "aria-label",
+    /fora da capacidade atual/,
+  );
+
+  // Tentar mesmo assim não produz mutação nenhuma.
+  await historica.reservar.click({ force: true }).catch(() => {});
+  await historica.danificar.click({ force: true }).catch(() => {});
+  await expect(page.getByTestId("cto-port-state-12")).toHaveText("Livre");
+  await page.reload();
+  await esperarHidratacao(page);
+  await expect(page.getByTestId("cto-port-state-12")).toHaveText("Livre");
+  await expect(page.getByTestId("cto-port-historic-12")).toBeVisible();
+
+  // --- a porta DENTRO da capacidade continua inteira ----------------------
+  const operavel = acoesDa(5);
+  await expect(operavel.reservar).toBeEnabled();
+  await operavel.reservar.click();
+  await expect(page.getByTestId("cto-port-state-5")).toHaveText("Reservada");
+  // E reservada ela ainda pode ser liberada — a regra é de FAIXA, não de
+  // ofertabilidade.
+  await expect(acoesDa(5).liberar).toBeEnabled();
+  await acoesDa(5).liberar.click();
+  await expect(page.getByTestId("cto-port-state-5")).toHaveText("Livre");
+
+  // --- reexpansão devolve a operação --------------------------------------
+  await alterarCapacidade(page, "16", async () => {
+    await expect(page.getByText("Fora da capacidade")).toHaveCount(0);
+  });
+  await expect(page.getByTestId("cto-port-row")).toHaveCount(16);
+  await expect(page.getByTestId("cto-port-historic-12")).toHaveCount(0);
+
+  const devolvida = acoesDa(14);
+  await expect(devolvida.reservar).toBeEnabled();
+  await devolvida.reservar.click();
+  await expect(page.getByTestId("cto-port-state-14")).toHaveText("Reservada");
+});
+
 test("CTO criada sem coordenada mostra campos VAZIOS, não o exemplo", async ({
   page,
 }) => {

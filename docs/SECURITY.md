@@ -2502,6 +2502,21 @@ nosniff` fecham a segunda metade da defesa que começa recusando SVG no upload.
 > storage (`BYTES-03`), e o `Content-Type` acompanha o formato real — não é
 > `image/jpeg` fixo (`BYTES-02`).
 
+### `CTO-1.9` — a faixa é verificada com a capacidade que o lock travou
+
+Porta acima da capacidade é histórica e **read-only** (decisão de produto, §23 da
+especificação). A verificação vive no domínio, dentro da transação, e compara com
+a `capacity` que `lockCto` devolveu — não com uma lida antes.
+
+A janela que isso fecha: reduzir 16 → 8 e reservar a porta 12 ao mesmo tempo, as
+duas operações lendo 16 e concluindo que 12 está dentro. O teste de corrida
+**proíbe** o desfecho híbrido, e a sabotagem que move a leitura para fora da
+transação o reproduz.
+
+A ordem continua sendo tenant → CTO → porta → faixa: outro tenant e porta de
+outra CTO respondem **404**, nunca o 409 de faixa — que nomeia a posição e a
+capacidade, e confirmaria a existência dos recursos.
+
 ### `CTO-CONC-01` — a corrida entre estado de porta e redução de capacidade
 
 Encontrada durante a implementação, não relatada depois.

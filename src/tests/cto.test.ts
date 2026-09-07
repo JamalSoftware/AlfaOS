@@ -274,40 +274,60 @@ describe("CTO1-08 / CTO1-09 / CTO1-12 · capacidade", () => {
   });
 
   it("o estado administrativo de uma linha reutilizada NÃO é resetado", async () => {
+    /*
+      ## O preparo mudou; a afirmação não
+
+      A versão anterior marcava a porta 12 como danificada ENQUANTO ela estava
+      fora da capacidade, apoiada numa frase que eu havia escrito no domínio:
+      "marcar histórico como danificado é legítimo". A `CTO-1.9` fechou essa
+      pergunta na direção oposta, por decisão de produto — porta fora da
+      capacidade é histórica e **read-only** —, e o caminho que este teste usava
+      deixou de existir.
+
+      Sob a regra nova, uma linha histórica é sempre `AVAILABLE`: a redução só
+      é aceita quando as posições acima do novo limite estão liberadas, e depois
+      disso nada mais as toca. O risco que este teste sempre guardou continua de
+      pé e é outro — o passo que CRIA as posições faltantes no reaumento não
+      pode reescrever as linhas que já existem.
+    */
     const cto = await novaCto(undefined, undefined, { capacity: 16 });
-    const porta12 = (await portasDe(cto.id)).find((p) => p.number === 12)!;
+    const antes = await portasDe(cto.id);
+    const porta5 = antes.find((p) => p.number === 5)!;
+    const porta12 = antes.find((p) => p.number === 12)!;
+
+    // Dentro da capacidade que SOBREVIVE à redução: por estar abaixo de 8, ela
+    // não bloqueia nada e atravessa o ciclo inteiro marcada.
     await setPortAdministrativeState(
       fixture.companyA.id,
       fixture.adminA.id,
       cto.id,
-      porta12.id,
+      porta5.id,
       "DAMAGED",
     );
 
-    // Libera a 12 para poder reduzir; o teste aqui é sobre o reaumento.
-    await setPortAdministrativeState(
-      fixture.companyA.id,
-      fixture.adminA.id,
-      cto.id,
-      porta12.id,
-      "AVAILABLE",
-    );
     await changeCtoCapacity(fixture.companyA.id, fixture.adminA.id, cto.id, 8);
 
-    // Marca como danificada ENQUANTO está fora da capacidade — é linha real.
-    await setPortAdministrativeState(
-      fixture.companyA.id,
-      fixture.adminA.id,
-      cto.id,
-      porta12.id,
-      "DAMAGED",
-    );
+    // A histórica atravessa a redução exatamente como estava: liberada.
+    expect(
+      (await prisma.cTOPort.findUniqueOrThrow({ where: { id: porta12.id } }))
+        .administrativeState,
+    ).toBe("AVAILABLE");
+
     await changeCtoCapacity(fixture.companyA.id, fixture.adminA.id, cto.id, 16);
 
-    const depois = await prisma.cTOPort.findUniqueOrThrow({
-      where: { id: porta12.id },
-    });
-    expect(depois.administrativeState).toBe("DAMAGED");
+    const depois = await portasDe(cto.id);
+    expect(depois).toHaveLength(16);
+
+    // O que o reaumento NÃO pode fazer: resetar quem já estava lá.
+    expect(depois.find((p) => p.number === 5)!.administrativeState).toBe(
+      "DAMAGED",
+    );
+
+    // E a linha histórica é a MESMA, não uma recriada com o mesmo número.
+    const doze = depois.find((p) => p.number === 12)!;
+    expect(doze.id).toBe(porta12.id);
+    expect(doze.createdAt.getTime()).toBe(porta12.createdAt.getTime());
+    expect(doze.administrativeState).toBe("AVAILABLE");
   });
 });
 
