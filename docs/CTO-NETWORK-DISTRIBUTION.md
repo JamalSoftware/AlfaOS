@@ -2477,3 +2477,130 @@ trabalho dela —, `damaged` cai para `0` se a contagem continuar derivando de
 `diff --check` · `prisma validate` · `migrate status` (**27**) · lint · tsc ·
 **1937 Vitest** (era 1897, 93 arquivos) · **132 Playwright** · build ·
 build:worker.
+
+## 26. `CTO-2.2` — API administrativa e read models
+
+**Nenhuma migration, nenhuma tela, nenhum Field, nenhum Dart.** O modelo da
+`CTO-2.1` continua autoritativo e não ganhou campo nenhum.
+
+### Rotas
+
+```text
+POST /api/cto-connections                  conectar
+GET  /api/cto-connections?customerId=      onde está e onde esteve
+POST /api/cto-connections/:id/disconnect   encerrar ESTE vínculo
+POST /api/cto-connections/:id/move         mover ESTE vínculo
+```
+
+Namespace próprio e não `customers/:id/connections` — aquele caminho já existe
+e é a credencial **PPPoE**. Pendurar topologia ao lado do segredo de acesso
+faria as duas parecerem a mesma capability.
+
+Precedente reutilizado sem inventar convenção paralela: `POST` de ação com
+`.strict()`, `assertSameOrigin`, `requireCtoAccess` (sessão → capability →
+perfil), `parseIdempotencyKey` + `withIdempotency`, `runApi` e `jsonOk/jsonError`
+— o mesmo desenho de `POST /api/service-orders/:id/priority`.
+
+As rotas são **adaptadores finos**: autenticam, validam forma, montam a
+procedência `WEB` e chamam o domínio. Nenhuma regra vive nelas.
+
+### A guarda de obsolescência — a única regra que nasceu aqui
+
+O `:id` no caminho **é** a identidade esperada do vínculo ativo. A operação não
+é *"desconecte o que este cliente tiver agora"*, é *"encerre ESTE vínculo"*.
+
+A diferença decide um desastre real: o operador vê o cliente na porta A, outra
+pessoa o move para B, e o clique na tela velha chega. Sem a identidade, o
+servidor encerraria B — um vínculo que ninguém viu.
+
+Isso exigiu **endurecer o domínio da `CTO-2.1`**: `expectedConnectionId` passou
+a ser **obrigatório** em `disconnect` e `move`. Opcional seria pior que ausente —
+quem esquecesse de mandar reabriria o buraco sem nenhum sinal. A comparação
+acontece **depois** do lock do cliente, então lê o estado autoritativo e não uma
+fotografia. Tornar obrigatório fez o compilador apontar todos os chamadores, que
+era o objetivo.
+
+### As duas dimensões
+
+`src/lib/cto-read-model.ts` existe separado porque `cto-connections.ts` já
+importa `cto.ts`: se `cto.ts` passasse a importar o vínculo, o ciclo fecharia.
+`getCto` — publicado na `v0.14` — não mudou.
+
+```text
+withinCapacity · administrativeState · occupied · availableForConnection
+activeConnection? · effectiveState (rótulo, LOSSY)
+```
+
+`availableForConnection` é **advisory**: a transação revalida tudo com a caixa
+travada, e um cliente que confiasse nele estaria autorizando com uma fotografia.
+
+**O resumo passou a contar por `administrativeState`:**
+
+```text
+damaged   administrativeState = DAMAGED    (ocupada ou não)
+reserved  administrativeState = RESERVED   (ocupada ou não)
+occupied  existe vínculo ativo
+free      AVAILABLE E sem vínculo ativo
+```
+
+`free + reserved + damaged + occupied` **pode passar de `capacity`**, e há teste
+afirmando isso. Uma tela que apresente as quatro como fatias de um todo estará
+errada — anotado para a `CTO-2.3`, único consumidor restante.
+
+`RESERVED + ocupada` legado conta nas duas e não é corrigido automaticamente:
+esconder inconsistência é pior que exibi-la.
+
+### Dois defeitos que a implementação encontrou em mim
+
+**`effectiveState` sobrevivia ao `spread`.** O read model montava a porta com
+`...p`, e `p.effectiveState` vinha de `getCto`, calculado com
+`hasActiveConnection = false`. A tela mostraria **"Livre" numa porta com cliente
+dentro**, e nada acusaria. Passou a ser recalculado com a ocupação real.
+
+**As rotas de mutação devolviam o DTO menor.** A tela substitui o estado inteiro
+pela resposta, então `occupied` e `activeConnection` sumiriam depois de salvar —
+e o defeito só apareceria quando a `CTO-2.3` os exibisse: um selo que desaparece
+ao clicar em salvar. As cinco mutações da CTO passaram a responder pelo mesmo
+read model da leitura.
+
+### Sem `N+1`
+
+Uma `findMany` por caixa, e não uma por porta — 256 posições seriam 257
+requisições. A prova é **estrutural e afirmada sobre o fonte**: o corpo do `map`
+de portas não pode conter `await prisma`, e o módulo faz exatamente duas
+`findMany`. A sabotagem que move a consulta para dentro do laço derruba o teste.
+
+### Reversões
+
+| | sabotagem | quem cai |
+|---|---|---|
+| `AG` | `damaged` volta a contar por `effectiveState` | o teste de `DAMAGED + ocupada`, com `expected +0 to be 1` |
+| `AH` | remover a guarda de obsolescência | 4 testes, incluindo os dois cenários de tela velha |
+| `AI` | tirar o `.strict()` | os dois testes de mass assignment |
+| `AJ` | `MOVE` sem `withIdempotency` | o replay vira `409` em vez de `200` |
+| `AK` | resolver vínculo sem `companyId` | **passou** na primeira rodada — ver abaixo |
+| `AL` | consulta de ocupação dentro do laço | o teste estrutural de `N+1` |
+
+**`AK` passou porque faltava uma asserção, não porque o código estivesse certo.**
+Sem o tenant no resolvedor, o domínio ainda barra pelo `lockCustomer` — mas as
+mensagens **divergem**: id inexistente responde *"Vínculo não encontrado"*, id de
+outra empresa responde *"Cliente não encontrado"*. Dois `404` com corpos
+diferentes formam um **oráculo de enumeração**: basta comparar o texto para
+descobrir quais ids existem. Eu só afirmava o status. O ataque `A1` passou a
+comparar o **corpo** com o de um id inventado, e aí a sabotagem cai mostrando as
+duas frases lado a lado.
+
+Restauração conferida por `diff` byte a byte nos cinco arquivos.
+
+### Limites mantidos
+
+`setPortAdministrativeState` **não** ganhou a regra de `RESERVED` com vínculo
+ativo, e `changeCtoCapacity` **não** ganhou a de vínculo acima do limite: as
+duas são `CTO-2.6`, e antecipá-las violaria a fatia congelada. Os marcadores de
+contrato continuam de pé.
+
+### Gates
+
+`diff --check` · `prisma validate` · `migrate status` (**27, nenhuma nova**) ·
+lint · tsc · **1976 Vitest** (era 1937, 95 arquivos) · **132 Playwright** ·
+build · build:worker.
