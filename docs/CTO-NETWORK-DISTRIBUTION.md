@@ -1386,3 +1386,59 @@ Revisão focada de privacidade de localização, no mesmo passo: a web **não us
 `navigator.geolocation` em lugar nenhum, não existe default de coordenada em
 código de produção, e nenhuma operação além da edição explícita de coordenada
 escreve nesses dois campos.
+
+### `CTO-1.3` — a recusa silenciosa da redução de capacidade
+
+Achado da validação humana: com capacidade 16 e a porta 14 reservada, o
+operador tentou reduzir para 8, clicou em **Alterar capacidade** e **nada
+aconteceu na tela**.
+
+**O backend estava certo.** Reproduzido contra o estado real, sem alterá-lo:
+`409`, mensagem em português sem detalhe interno, `capacity` ainda 16, porta 14
+ainda `RESERVED`, 16 portas, `updatedAt` **inalterado** e nenhum
+`CTO.CAPACITY_CHANGED` novo. A recusa era total e correta.
+
+**O erro era renderizado — num bloco único no topo do componente.** Entre ele e
+o botão ficam o cartão de ocupação e a lista de portas, que pode ter até 256
+linhas. A mensagem nascia fora da viewport de quem acabara de clicar.
+
+> **Uma recusa invisível é indistinguível de um botão quebrado.** O operador
+> não relatou "a mensagem está no lugar errado"; relatou "não funcionou" — que
+> é a única leitura possível de uma tela que não reage.
+
+**A correção é a boundary comum, não um remendo.** O estado de erro passou a
+carregar o escopo (`details`, `capacity`, `ports`, `photo`, `active`) e cada
+seção renderiza o seu, ao lado do botão que o provocou. Todas as quatro ações
+da tela ganharam isso de uma vez — o problema nunca foi só da capacidade.
+
+Mais três decisões no mesmo passo:
+
+* **Depois da recusa o campo volta ao valor autoritativo**, e a seção passou a
+  escrever quantas portas a caixa oferece hoje. Um input dizendo 8 ao lado de
+  uma caixa que tem 16 é a mesma ambiguidade do placeholder de coordenada: a
+  tela mostrando um número que o servidor não tem.
+* **A validação nativa do navegador foi desligada no formulário** (`noValidate`).
+  Com `min`/`max` no input, o navegador bloqueava o submit sozinho e mostrava um
+  balão próprio — só em alguns casos, sumindo sozinho, sem `role="alert"` e no
+  idioma dele. A tela falava ora pelo padrão do AlfaOS, ora pelo do Chrome. Os
+  atributos ficam pela dica visual e pelos limites do spinner; o que sai é a
+  interceptação.
+* **A mensagem do domínio concorda em número.** "as portas 14 estão" saía errado
+  justamente no caso mais comum, o de uma porta só.
+
+**Duas coisas que a investigação corrigiu em mim**, e as duas eram hipóteses
+minhas que os dados derrubaram:
+
+1. Achei que a mensagem sumia porque `SectionError` era um componente declarado
+   dentro do pai — anti-padrão real, e **não** era a causa. Virou função que
+   devolve JSX de qualquer forma, mas o sintoma continuou.
+2. O que de fato quebrava o teste era **hidratação**: um `fill` disparado
+   milissegundos após a navegação escreve no DOM, não chega ao estado do React,
+   e o primeiro render do cliente devolve o campo ao valor inicial — o
+   formulário submetia o número antigo. Um operador humano nunca digita nos
+   300 ms seguintes ao carregamento; um teste digita. Instrumentei o componente
+   para ler o estado (`cap=16|err=null`) em vez de continuar supondo.
+
+A prova de que a hipótese da viewport era a certa veio por reversão: devolver o
+erro ao bloco do topo derruba o teste **exatamente** em `toBeInViewport` — a
+mensagem existe, e não está onde a pessoa olha.

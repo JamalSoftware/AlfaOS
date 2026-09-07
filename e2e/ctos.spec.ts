@@ -63,6 +63,53 @@ test.afterAll(async () => {
   await prisma.$disconnect();
 });
 
+/**
+ * Preenche um campo e só segue quando o valor SOBREVIVE.
+ *
+ * A tela de detalhe é renderizada no servidor e hidratada depois. Um `fill`
+ * disparado antes da hidratação escreve no DOM, não chega ao estado do React, e
+ * o primeiro render do cliente devolve o campo ao valor inicial — o formulário
+ * então submete o número antigo, e o teste falha acusando um defeito que não
+ * existe. Um operador humano nunca digita nos 300 ms seguintes ao carregamento;
+ * um teste digita.
+ *
+ * `toPass` refaz o preenchimento até o valor persistir, que é o sinal de que o
+ * React assumiu o controle do campo.
+ */
+async function preencherEstavel(page: Page, rotulo: string, valor: string) {
+  const campo = page.getByLabel(rotulo);
+  await expect(async () => {
+    await campo.fill(valor);
+    await expect(campo).toHaveValue(valor);
+  }).toPass({ timeout: 10_000 });
+}
+
+/**
+ * Preenche a capacidade e submete, repetindo até a tela reagir.
+ *
+ * `preencherEstavel` sozinho não bastou, e a razão é sutil: sem hidratação
+ * nada re-renderiza, então o valor escrito no DOM **persiste** e a asserção de
+ * valor passa mesmo com o React ainda ausente. O clique seguinte submetia o
+ * número antigo, que o React devolvia ao campo, e o teste acusava um erro que
+ * não existe.
+ *
+ * O sinal confiável é o EFEITO: a tela mudou ou apareceu uma mensagem. Repetir
+ * a operação inteira é seguro porque submeter capacidade é idempotente — o
+ * mesmo valor duas vezes produz o mesmo estado, e um valor recusado não produz
+ * estado nenhum.
+ */
+async function alterarCapacidade(
+  page: Page,
+  valor: string,
+  esperado: () => Promise<void>,
+) {
+  await expect(async () => {
+    await preencherEstavel(page, "Portas", valor);
+    await page.getByRole("button", { name: "Alterar capacidade" }).click();
+    await esperado();
+  }).toPass({ timeout: 20_000 });
+}
+
 async function login(page: Page, email: string) {
   await page.goto("/login");
   await page.getByLabel("E-mail").fill(email);
@@ -132,20 +179,20 @@ test("ADMIN cadastra, opera as portas, muda capacidade e inativa", async ({
   await expect(page.getByTestId("cto-free")).toHaveText("8");
 
   // --- aumentar capacidade -------------------------------------------------
-  await page.getByLabel("Portas").fill("12");
-  await page.getByRole("button", { name: "Alterar capacidade" }).click();
-  await expect(page.getByTestId("cto-port-row")).toHaveCount(12);
+  await alterarCapacidade(page, "12", async () => {
+    await expect(page.getByTestId("cto-port-row")).toHaveCount(12);
+  });
 
   // --- redução recusada por porta reservada acima do limite ---------------
   const porta12 = page.getByTestId("cto-port-row").nth(11);
   await porta12.getByRole("button", { name: "Reservar" }).click();
   await expect(page.getByTestId("cto-port-state-12")).toHaveText("Reservada");
 
-  await page.getByLabel("Portas").fill("8");
-  await page.getByRole("button", { name: "Alterar capacidade" }).click();
-  await expect(page.getByTestId("cto-error")).toContainText(
-    "Não é possível reduzir a capacidade",
-  );
+  await alterarCapacidade(page, "8", async () => {
+    await expect(page.getByTestId("cto-capacity-error")).toContainText(
+      "Não é possível reduzir a capacidade",
+    );
+  });
   // A recusa é total: continuam 12 portas.
   await expect(page.getByTestId("cto-port-row")).toHaveCount(12);
 
@@ -155,8 +202,9 @@ test("ADMIN cadastra, opera as portas, muda capacidade e inativa", async ({
   }).click();
   await expect(page.getByTestId("cto-port-state-12")).toHaveText("Livre");
 
-  await page.getByLabel("Portas").fill("8");
-  await page.getByRole("button", { name: "Alterar capacidade" }).click();
+  await alterarCapacidade(page, "8", async () => {
+    await expect(page.getByText("Fora da capacidade")).toHaveCount(4);
+  });
 
   /*
     Reduzir NÃO apaga porta: as doze linhas continuam na tela, e as quatro
@@ -263,7 +311,7 @@ test("coordenada inválida é barrada antes do envio e não apaga a existente", 
   for (const invalido of ["abc", "Infinity", "1,2,3"]) {
     await page.getByLabel("Latitude").fill(invalido);
     await page.getByRole("button", { name: "Salvar" }).click();
-    await expect(page.getByTestId("cto-error")).toContainText(
+    await expect(page.getByTestId("cto-details-error")).toContainText(
       "devem ser números válidos",
     );
 
@@ -271,6 +319,142 @@ test("coordenada inválida é barrada antes do envio e não apaga a existente", 
     await page.reload();
     await expect(page.getByLabel("Latitude")).toHaveValue("-23.5505199");
     await expect(page.getByLabel("Longitude")).toHaveValue("-46.6333094");
+  }
+});
+
+test("redução recusada mostra o motivo ONDE a pessoa clicou", async ({
+  page,
+}) => {
+  /*
+    Achado da validação humana: com capacidade 16 e a porta 14 reservada, o
+    operador tentou reduzir para 8, clicou em "Alterar capacidade" e **nada
+    aconteceu na tela**.
+
+    O backend rejeitava corretamente — 409, zero mutação, `updatedAt` intacto.
+    O erro era renderizado, e num bloco único no TOPO do componente: com 16
+    portas listadas entre ele e o botão, a mensagem nascia fora da viewport de
+    quem acabara de clicar. Uma recusa invisível é indistinguível de um botão
+    quebrado.
+
+    `toBeInViewport` é a asserção que importa aqui, e não `toBeVisible`: o
+    elemento sempre esteve visível no sentido do DOM. O que faltava era estar
+    onde a pessoa está olhando.
+  */
+  await setCapability(true);
+  await login(page, ADMIN_EMAIL);
+
+  const nome = `E2E-CAP-${Date.now()}`;
+  await page.goto("/ctos");
+  await page.getByLabel("Nome").fill(nome);
+  await page.getByLabel("Capacidade (portas)").fill("16");
+  await page.getByRole("button", { name: "Cadastrar CTO" }).click();
+  await page.getByRole("link", { name: nome }).click();
+
+  // Reserva a porta 14 — acima do limite que será tentado.
+  await page
+    .getByTestId("cto-port-row")
+    .nth(13)
+    .getByRole("button", { name: "Reservar" })
+    .click();
+  await expect(page.getByTestId("cto-port-state-14")).toHaveText("Reservada");
+
+  const erroLoc = page.getByTestId("cto-capacity-error");
+  await alterarCapacidade(page, "8", async () => {
+    await expect(erroLoc).toBeVisible();
+  });
+
+  // 1. A recusa aparece, e aparece ONDE se clicou.
+  await expect(erroLoc).toBeInViewport();
+  await expect(erroLoc).toContainText("Não é possível reduzir a capacidade");
+  await expect(erroLoc).toContainText("14");
+
+  // 2. Nada foi alterado: as 16 portas continuam e a 14 segue reservada.
+  await expect(page.getByTestId("cto-port-row")).toHaveCount(16);
+  await expect(page.getByTestId("cto-port-state-14")).toHaveText("Reservada");
+  await expect(page.getByTestId("cto-capacity-current")).toContainText("16");
+
+  // 3. O campo volta ao valor AUTORITATIVO. Deixá-lo em 8 ao lado de um
+  //    cabeçalho que diz 16 é a mesma ambiguidade do placeholder: a tela
+  //    mostrando um número que o servidor não tem.
+  await expect(page.getByLabel("Portas")).toHaveValue("16");
+
+  // 4. E o mesmo bloco não pode ter erro e sucesso ao mesmo tempo.
+  await expect(page.getByTestId("cto-capacity-success")).toHaveCount(0);
+
+  // --- porta DANIFICADA bloqueia igual ------------------------------------
+  await page
+    .getByTestId("cto-port-row")
+    .nth(13)
+    .getByRole("button", { name: "Liberar" })
+    .click();
+  await expect(page.getByTestId("cto-port-state-14")).toHaveText("Livre");
+  await page
+    .getByTestId("cto-port-row")
+    .nth(12)
+    .getByRole("button", { name: "Danificada" })
+    .click();
+  await expect(page.getByTestId("cto-port-state-13")).toHaveText("Danificada");
+
+  await alterarCapacidade(page, "8", async () => {
+    await expect(erroLoc).toContainText("13");
+  });
+  await expect(erroLoc).toBeInViewport();
+  await expect(page.getByTestId("cto-port-row")).toHaveCount(16);
+
+  // --- controle positivo: liberado, reduz --------------------------------
+  await page
+    .getByTestId("cto-port-row")
+    .nth(12)
+    .getByRole("button", { name: "Liberar" })
+    .click();
+  await expect(page.getByTestId("cto-port-state-13")).toHaveText("Livre");
+
+  await alterarCapacidade(page, "8", async () => {
+    await expect(page.getByTestId("cto-capacity-current")).toContainText("8");
+  });
+  await expect(page.getByTestId("cto-capacity-error")).toHaveCount(0);
+  // Reduzir não apaga porta: as 16 linhas continuam, 8 delas fora da faixa.
+  await expect(page.getByTestId("cto-port-row")).toHaveCount(16);
+  await expect(page.getByText("Fora da capacidade")).toHaveCount(8);
+});
+
+test("capacidade inválida também mostra o motivo no lugar certo", async ({
+  page,
+}) => {
+  // O formulário perdia TODO erro da mesma forma, não só o conflito de portas.
+  await setCapability(true);
+  await login(page, ADMIN_EMAIL);
+
+  const nome = `E2E-CAPINV-${Date.now()}`;
+  await page.goto("/ctos");
+  await page.getByLabel("Nome").fill(nome);
+  await page.getByLabel("Capacidade (portas)").fill("16");
+  await page.getByRole("button", { name: "Cadastrar CTO" }).click();
+  await page.getByRole("link", { name: nome }).click();
+
+  /*
+    Os três casos que o campo consegue produzir.
+
+    "abc" não está na lista porque não é representável: num `input
+    type="number"`, digitar letras deixa o campo VAZIO — o valor textual nunca
+    chega ao formulário. O caso equivalente e alcançável é o campo em branco,
+    que é o que o operador vê quando apaga tudo.
+
+    `test.step` dá nome a cada iteração: sem ele, uma falha no loop aponta a
+    linha e não diz qual valor a causou, que foi exatamente o que me custou
+    tempo aqui.
+  */
+  for (const invalido of ["0", "257", ""]) {
+    await test.step(`capacidade "${invalido}"`, async () => {
+      await alterarCapacidade(page, invalido, async () => {
+        await expect(page.getByTestId("cto-capacity-error")).toBeInViewport();
+      });
+
+      await expect(page.getByTestId("cto-capacity-current")).toContainText("16");
+      await expect(page.getByTestId("cto-port-row")).toHaveCount(16);
+      // E o campo volta ao autoritativo, como na recusa do servidor.
+      await expect(page.getByLabel("Portas")).toHaveValue("16");
+    });
   }
 });
 

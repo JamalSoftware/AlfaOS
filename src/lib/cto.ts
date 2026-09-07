@@ -738,10 +738,24 @@ export async function changeCtoCapacity(
         .sort((a, b) => a.number - b.number);
 
       if (blocking.length > 0) {
-        const numbers = blocking.map((p) => p.number).join(", ");
+        /*
+          A mensagem é lida por quem está operando a tela, e o texto diz
+          exatamente O QUE fazer para destravar.
+
+          Ela nomeia as portas porque é a informação que resolve o problema, e
+          não expõe nada além do número da posição: nenhum id, nenhum tenant,
+          nenhum detalhe interno. A concordância acompanha a quantidade —
+          "as portas 12, 14 estão" quando são várias e "a porta 14 está" quando
+          é uma só, que era o caso da validação humana e saía errado.
+        */
+        const numeros = blocking.map((p) => p.number).join(", ");
+        const trecho =
+          blocking.length === 1
+            ? `a porta ${numeros} está reservada ou danificada`
+            : `as portas ${numeros} estão reservadas ou danificadas`;
         throw conflict(
-          `Não é possível reduzir a capacidade: as portas ${numbers} estão reservadas ou danificadas. ` +
-            "Libere essas portas antes de reduzir.",
+          `Não é possível reduzir a capacidade para ${newCapacity}: ${trecho}. ` +
+            "Libere e tente de novo.",
         );
       }
     } else {

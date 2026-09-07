@@ -23,9 +23,27 @@ const STATE_CLASSES: Record<string, string> = {
   DAMAGED: "bg-danger-bg text-danger-text",
 };
 
+/**
+ * Onde a mensagem de erro pertence.
+ *
+ * A página tem quatro ações independentes e é LONGA — a lista de portas pode
+ * ter 256 linhas. Um bloco único de erro no topo funcionava para quem estava
+ * no topo, e desaparecia da vista de quem clicou lá embaixo. Foi assim que uma
+ * recusa de redução de capacidade, respondida corretamente com 409, chegou à
+ * validação humana como "cliquei e não aconteceu nada".
+ *
+ * Uma recusa invisível é indistinguível de um botão quebrado.
+ */
+type ErrorScope = "details" | "capacity" | "ports" | "photo" | "active";
+
+interface ScopedError {
+  scope: ErrorScope;
+  message: string;
+}
+
 export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ScopedError | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [name, setName] = useState(cto.name);
@@ -37,7 +55,43 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
   const [longitude, setLongitude] = useState(cto.longitude ?? "");
   const [capacity, setCapacity] = useState(String(cto.capacity));
 
-  async function send(url: string, body: unknown, method = "POST") {
+  /**
+   * A mensagem da seção, ou nada.
+   *
+   * É uma FUNÇÃO que devolve JSX, e não um componente declarado aqui dentro. A
+   * primeira versão era um componente interno (`function SectionError(...)`), e
+   * ele não renderizava: declarado dentro do pai, ele é uma referência nova a
+   * cada render, o React o trata como outro tipo de componente e desmonta e
+   * remonta o nó — e a mensagem, que só existe entre dois renders, não
+   * sobrevivia a esse ciclo. O campo voltava ao valor autoritativo, provando
+   * que o handler rodara, e o erro não aparecia.
+   *
+   * Chamá-la (`sectionError("capacity")`) em vez de montá-la (`<SectionError/>`)
+   * a torna o que ela sempre foi: um trecho de JSX condicional.
+   *
+   * `role="alert"` é o padrão que o resto do AlfaOS usa: leitores de tela
+   * anunciam sem precisar de foco, e a mensagem não depende de cor para ser
+   * percebida — tem borda, fundo e texto próprios.
+   */
+  function sectionError(scope: ErrorScope) {
+    if (error?.scope !== scope) return null;
+    return (
+      <p
+        className="mt-4 rounded-lg border border-danger-border bg-danger-bg px-4 py-3 text-sm text-danger-text"
+        role="alert"
+        data-testid={`cto-${scope}-error`}
+      >
+        {error.message}
+      </p>
+    );
+  }
+
+  async function send(
+    scope: ErrorScope,
+    url: string,
+    body: unknown,
+    method = "POST",
+  ) {
     setError(null);
     setBusy(true);
     try {
@@ -48,13 +102,22 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(payload?.error ?? "Não foi possível concluir a operação.");
+        /*
+          A mensagem vem do servidor, e é ele quem decide o que é seguro dizer.
+          O domínio já responde em português, sem id, sem SQL e sem detalhe
+          interno — repassá-la é melhor que reescrevê-la aqui, onde a razão da
+          recusa não é conhecida.
+        */
+        setError({
+          scope,
+          message: payload?.error ?? "Não foi possível concluir a operação.",
+        });
         return false;
       }
       router.refresh();
       return true;
     } catch {
-      setError("Erro de conexão. Tente novamente.");
+      setError({ scope, message: "Erro de conexão. Tente novamente." });
       return false;
     } finally {
       setBusy(false);
@@ -66,7 +129,7 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
     const hasLat = latitude.trim().length > 0;
     const hasLon = longitude.trim().length > 0;
     if (hasLat !== hasLon) {
-      setError("Informe latitude e longitude juntas, ou nenhuma das duas.");
+      setError({ scope: "details", message: "Informe latitude e longitude juntas, ou nenhuma das duas." });
       return;
     }
     /*
@@ -87,10 +150,11 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
     const lat = hasLat ? Number(latitude) : null;
     const lon = hasLon ? Number(longitude) : null;
     if ((hasLat && !Number.isFinite(lat)) || (hasLon && !Number.isFinite(lon))) {
-      setError("Latitude e longitude devem ser números válidos.");
+      setError({ scope: "details", message: "Latitude e longitude devem ser números válidos." });
       return;
     }
     await send(
+      "details",
       `/api/ctos/${cto.id}`,
       {
         name,
@@ -107,14 +171,44 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
     e.preventDefault();
     const parsed = Number(capacity);
     if (!Number.isInteger(parsed) || parsed < 1) {
-      setError("Capacidade deve ser um número inteiro maior que zero.");
+      setError({
+        scope: "capacity",
+        message: "Capacidade deve ser um número inteiro maior que zero.",
+      });
+      // Mesmo na recusa local o campo volta ao autoritativo: a regra é uma só,
+      // e não "depende de quem recusou".
+      setCapacity(String(cto.capacity));
       return;
     }
-    await send(`/api/ctos/${cto.id}/capacity`, { capacity: parsed });
+    if (parsed > 256) {
+      // O teto também é verificado aqui, e não só pelo `max` do input: com a
+      // validação nativa desligada (ver `noValidate`), esta é a mensagem que a
+      // pessoa vê, e ela precisa dizer o limite.
+      setError({
+        scope: "capacity",
+        message: "Capacidade máxima é 256 portas.",
+      });
+      setCapacity(String(cto.capacity));
+      return;
+    }
+    const ok = await send("capacity", `/api/ctos/${cto.id}/capacity`, {
+      capacity: parsed,
+    });
+    if (!ok) {
+      /*
+        A tela não pode fingir que passou.
+
+        Recusada a mudança, a caixa continua com a capacidade que tinha, e o
+        campo precisa dizer isso — junto com o motivo, que fica logo abaixo.
+        Deixar o número tentado no input, com a nota acima informando outro
+        valor, obriga a pessoa a adivinhar qual dos dois é real.
+      */
+      setCapacity(String(cto.capacity));
+    }
   }
 
   async function handlePortState(portId: string, state: string) {
-    await send(`/api/ctos/${cto.id}/ports/${portId}/state`, {
+    await send("ports", `/api/ctos/${cto.id}/ports/${portId}/state`, {
       administrativeState: state,
     });
   }
@@ -133,12 +227,12 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(payload?.error ?? "Falha ao enviar a foto.");
+        setError({ scope: "photo", message: payload?.error ?? "Falha ao enviar a foto." });
         return;
       }
       router.refresh();
     } catch {
-      setError("Erro de conexão. Tente novamente.");
+      setError({ scope: "photo", message: "Erro de conexão. Tente novamente." });
     } finally {
       setBusy(false);
       e.target.value = "";
@@ -147,16 +241,6 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
 
   return (
     <div className="space-y-6">
-      {error && (
-        <p
-          className="rounded-lg border border-danger-border bg-danger-bg px-4 py-3 text-sm text-danger-text"
-          role="alert"
-          data-testid="cto-error"
-        >
-          {error}
-        </p>
-      )}
-
       {/*
         Ocupação é honesta: não há vínculo de cliente no produto ainda, então o
         contador de ocupadas é zero e a nota diz por quê. Inventar um número, ou
@@ -257,13 +341,42 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
             </div>
           ))}
         </div>
+
+        {/* Falha ao mudar o estado de uma porta aparece na seção das portas. */}
+        {sectionError("ports")}
       </section>
 
+      {/*
+        `noValidate`: a validação nativa do navegador é DESLIGADA aqui de
+        propósito.
+
+        Com `min`/`max` no input, o navegador bloqueia o submit por conta
+        própria e mostra um balão nativo — que aparece só em alguns casos,
+        some sozinho, não é `role="alert"` e vem no idioma do navegador. O
+        resultado era uma tela que às vezes fala pelo padrão do AlfaOS e às
+        vezes pelo do Chrome, para o mesmo formulário.
+
+        Os atributos ficam: eles dão os limites do spinner e a dica visual. O
+        que sai é a interceptação do submit, para que a mensagem seja sempre a
+        nossa, sempre no mesmo lugar e sempre anunciável.
+      */}
       <form
+        noValidate
         onSubmit={handleCapacity}
         className="rounded-2xl border border-border bg-surface p-5 shadow-sm"
       >
-        <h2 className="mb-4 text-base font-semibold text-fg">Capacidade</h2>
+        <h2 className="mb-1 text-base font-semibold text-fg">Capacidade</h2>
+        {/*
+          A capacidade AUTORITATIVA, escrita ao lado do campo.
+
+          Depois de uma recusa o campo volta a este valor, e não fica no número
+          tentado: um input dizendo 8 ao lado de uma caixa que tem 16 é a mesma
+          ambiguidade do placeholder de coordenada — a tela mostrando um número
+          que o servidor não tem.
+        */}
+        <p className="mb-4 text-xs text-fg-muted" data-testid="cto-capacity-current">
+          Esta CTO oferece {cto.capacity} portas hoje.
+        </p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="w-40">
             <label className={labelClass} htmlFor="cto-capacity-edit">
@@ -287,6 +400,10 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
             Alterar capacidade
           </button>
         </div>
+
+        {/* O motivo da recusa nasce AQUI, ao lado do botão que a provocou. */}
+        {sectionError("capacity")}
+
         <p className="mt-3 text-xs text-fg-muted">
           Aumentar cria as portas que faltam. Reduzir não apaga portas: as que
           ficam acima da capacidade são preservadas como histórico e deixam de
@@ -405,6 +522,7 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
         >
           Salvar
         </button>
+        {sectionError("details")}
       </form>
 
       <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
@@ -422,6 +540,7 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
           className="text-sm text-fg-secondary"
           data-testid="cto-photo-input"
         />
+        {sectionError("photo")}
       </section>
 
       <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
@@ -434,12 +553,13 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
           type="button"
           disabled={busy}
           onClick={() =>
-            send(`/api/ctos/${cto.id}/active`, { active: !cto.active })
+            send("active", `/api/ctos/${cto.id}/active`, { active: !cto.active })
           }
           className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-fg-secondary transition-colors hover:bg-surface-muted disabled:opacity-60"
         >
           {cto.active ? "Inativar CTO" : "Reativar CTO"}
         </button>
+        {sectionError("active")}
       </section>
     </div>
   );

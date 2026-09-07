@@ -661,6 +661,14 @@ Gates: **1840 Vitest** (era 1817), **121 Playwright** (era 120), lint, tsc, buil
 
 O teste que fixa isso é de navegador e afirma `toHaveValue("")`: é o valor que iria no submit, e não o texto do placeholder, que é atributo. Um `defaultValue` com coordenada derruba a asserção; o placeholder não — provado por reversão. **Nada foi corrigido no dado**, porque não havia o que corrigir. Revisão focada junto: a web não usa `navigator.geolocation` em lugar nenhum, e não existe default de coordenada em produção.
 
+**`CTO-1.3` — a recusa silenciosa da redução de capacidade.** O operador tentou reduzir 16 → 8 com a porta 14 reservada, clicou, e **nada apareceu**. O backend estava certo: `409`, `capacity` ainda 16, porta 14 ainda `RESERVED`, `updatedAt` inalterado, zero auditoria nova. O erro era renderizado — **num bloco único no topo**, com a lista de portas (até 256 linhas) entre ele e o botão. Nascia fora da viewport de quem clicou. **Uma recusa invisível é indistinguível de um botão quebrado**, e foi assim que o operador a leu.
+
+A correção é da boundary comum: o estado de erro passou a carregar o **escopo** e cada seção renderiza o seu, ao lado do botão que o provocou — as quatro ações da tela ganharam isso de uma vez, porque o problema nunca foi só da capacidade. Junto: depois da recusa o campo volta ao valor autoritativo (com a capacidade atual escrita ao lado), a validação nativa do navegador foi desligada no formulário (`noValidate` — o balão do Chrome aparecia só em alguns casos, sem `role="alert"` e no idioma dele, fazendo a tela falar ora pelo padrão do AlfaOS ora pelo do navegador), e a mensagem do domínio passou a concordar em número.
+
+**Duas hipóteses minhas foram derrubadas pelos dados durante a investigação:** o componente declarado dentro do pai era anti-padrão real e **não** era a causa; o que quebrava era **hidratação** — um `fill` disparado logo após a navegação escreve no DOM, não chega ao estado do React, e o primeiro render devolve o campo ao valor inicial. Instrumentei o componente para ler o estado (`cap=16|err=null`) em vez de seguir supondo. A hipótese da viewport ficou provada por reversão: devolver o erro ao topo derruba o teste **exatamente** em `toBeInViewport`.
+
+Gates: **1852 Vitest**, **124 Playwright** (era 122), lint, tsc, build, `build:worker`, 26 migrations. Zero migration, zero schema, zero Dart.
+
 ## Princípios
 
 Integridade > velocidade
