@@ -2373,3 +2373,107 @@ fatia, não na última.
 
 > **`CTO-2` DOMAIN FREEZE — APROVADO.** Nenhuma decisão de produto pendente.
 > Nada disto existe em código: a §119 do PRD vale linha por linha até a `CTO-2.1`.
+
+## 25. `CTO-2.1` — persistência e domínio transacional
+
+Implementa o §24. **Nenhuma rota, nenhuma tela, nenhum Field, nenhum Dart**: ao
+final desta fase o domínio existe e não é alcançável por usuário nenhum.
+
+### Migration
+
+`20260907214839_add_customer_network_connections`, **aditiva**: um enum, uma
+tabela, 4 índices normais, 5 FKs e os **2 índices únicos parciais** em SQL cru.
+Revisão do SQL antes de aplicar: **zero `DROP`, zero `TRUNCATE`, zero `DELETE`,
+zero `RENAME`**, e os 5 `ALTER TABLE` são todos sobre a tabela nova. **27
+migrations**, nenhuma publicada editada, zero backfill.
+
+### Índices — o que cada um faz, e o mais fraco declarado
+
+| índice | por quê |
+|---|---|
+| `(companyId, customerId)` | o histórico do cliente, que é a leitura da `CTO-2.2` |
+| `(companyId, ctoPortId)` | ocupação de todas as portas de uma CTO numa consulta — evita o `N+1` numa caixa de até 256 posições |
+| `active_port_key` parcial | *a* barreira contra dois clientes na mesma porta |
+| `active_customer_key` parcial | *a* barreira contra um cliente em duas portas |
+| `serviceOrderId` | procedência, e o `SET NULL` da FK |
+| `technicianId` | **o mais fraco**: hoje só serve à checagem da FK `Restrict`, e `Technician` não é apagado em produção. Fica declarado como candidato a remoção se a `CTO-2.2` não encontrar leitor |
+
+### O que os testes descobriram sobre QUEM protege o quê
+
+As sabotagens não confirmaram o desenho — corrigiram a leitura dele.
+
+**A unique parcial de porta não é o que faz `C1` passar.** Derrubar
+`active_port_key` e rodar a corrida "dois clientes, a mesma porta" continua
+dando exatamente um vencedor: o pré-check dentro do `lockCto` já serializa quem
+passa pelo serviço. Quem detecta a queda do índice é o **`CN-27`**, que insere
+direto no banco. O índice é a barreira para o que **não** passa pelo serviço, e
+é assim que ele deve ser descrito — não como a proteção da corrida.
+
+**O lock de cliente é, hoje, principalmente o portão de TENANT.** Removê-lo não
+derrubou `C2` nem `C3` (a unique parcial de `customerId` os carrega); derrubou o
+**`CN-18`**, porque `lockCustomer` é também a única resolução tenant-safe do
+cliente. A contribuição dele à concorrência é converter violação de índice em
+erro de domínio limpo; a contribuição à segurança é impedir que um `customerId`
+de outra empresa seja alcançado. As duas são reais, e são diferentes do que eu
+teria afirmado sem medir.
+
+**O `CN-30` passou com a sabotagem `AE` aplicada, e a culpa era dele.** Ele
+rodava **uma** vez. Medido depois: sem `sort()` nas CTOs, **19 de 20** rodadas
+produzem `40P01 deadlock detected` — a rodada única caiu justamente na exceção.
+Passou a rodar seis vezes, e aí a sabotagem cai com a mensagem do Postgres.
+
+### Reversões
+
+| | sabotagem | quem cai |
+|---|---|---|
+| `AA` | derrubar `active_port_key` | `CN-27` (INSERT direto). **Não** `C1` — ver acima |
+| `AB` | derrubar `active_customer_key` | `CN-27`, na linha exata do segundo vínculo do mesmo cliente |
+| `AC` | `MOVE` vira `UPDATE ctoPortId` | `CN-14`: a linha antiga fica sem `disconnectedAt` |
+| `AD` | remover o lock de cliente | `CN-18` — **tenancy**, não concorrência |
+| `AE` | não ordenar as CTOs | `CN-30`, com `deadlock detected` |
+| `AF` | ignorar `isPortOfferable` | `CN-08/09`: conexão nasce em `RESERVED`/`DAMAGED` |
+
+Restauradas por `diff` byte a byte. `AA` e `AB` deixaram linhas duplicadas na
+base de teste — limpas antes de reconferir, senão a falha seguinte não provaria
+nada.
+
+### Efeito no harness
+
+`onDelete: Restrict` em `Customer`, `CTOPort` e `Technician` **quebrou a limpeza
+da fixture**, e isso é a constraint funcionando: histórico operacional não some
+porque alguém apagou o cliente. `resetDatabase` passou a apagar o vínculo — e,
+por consequência, portas e CTOs — antes de técnico e cliente, por escopo e na
+ordem que as FKs exigem.
+
+### Limites declarados, não escondidos
+
+**`C4` (conectar × reduzir capacidade)** prova apenas o que hoje é provável: o
+lock da CTO serializa as duas, e não se cria vínculo olhando capacidade velha. A
+regra "redução recusa porta com vínculo ativo acima do limite" **não existe
+ainda** — é `CTO-2.6`, e sem endpoint exposto nada a alcança. A corrida está
+escrita e proíbe o único desfecho realmente ruim.
+
+**`C5` (conectar × mudar estado)** idem: a serialização existe, e
+`RESERVED + ocupada` continua alcançável quando a reserva chega **depois**. É a
+`CTO-2.6` que fecha isso em `setPortAdministrativeState`.
+
+Os dois requisitos têm **marcadores de contrato** em
+`src/tests/cto-connections-contract-markers.test.ts`, que afirmam o
+comportamento de hoje e dizem, no lugar onde alguém vai olhar, o que precisa
+mudar. Um requisito registrado só em documento se perde; um teste que já falha
+vira ruído que se desabilita.
+
+### A obrigação da `CTO-2.2`
+
+O marcador do resumo mostra que a contagem de danificadas **acerta hoje pelo
+motivo errado**: o read model da `CTO-1` não consulta vínculo, então
+`hasActiveConnection` é sempre `false` e `effectiveState` nunca colapsa. No
+instante em que a `CTO-2.2` ligar a ocupação real ao read model — que é o
+trabalho dela —, `damaged` cai para `0` se a contagem continuar derivando de
+`effectiveState`. A contagem tem de passar a vir de `administrativeState`.
+
+### Gates
+
+`diff --check` · `prisma validate` · `migrate status` (**27**) · lint · tsc ·
+**1937 Vitest** (era 1897, 93 arquivos) · **132 Playwright** · build ·
+build:worker.
