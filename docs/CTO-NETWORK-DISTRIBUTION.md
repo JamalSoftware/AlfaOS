@@ -1749,3 +1749,62 @@ operador encontrou.
 O blob substituído continua **órfão**, como no §20 — a `CTO-1.8` acrescentou
 mais um a essa lista ao restaurar a foto do operador. Não há política de
 remoção, e apagar por suposição é como se perde evidência.
+
+## 22. Checkpoint final da `CTO-1` — auditoria de consolidação
+
+Revisão de fechamento antes da decisão de publicação, sobre `7011180`
+(`3c1805e..7011180`, 16 commits). **Não é clean-room**: quem a conduziu
+implementou a fase, e a compensação foi escrever e executar ataques novos, não
+reler o que já passava. A limitação fica declarada, como a skill de auditoria
+exige.
+
+### `CTO1-INFO-01` — estado administrativo em porta fora da capacidade
+
+**Reproduzido, não deduzido.** Numa CTO reduzida de 16 para 8, a porta 12 —
+histórica, exibida na tela com o selo **"Fora da capacidade"** — aceita
+`RESERVED`. `setPortAdministrativeState` valida CTO, tenant e existência da
+porta, e **não** consulta `isPortOfferable`. A tela mantém `Liberar`,
+`Reservar` e `Danificar` habilitados nessas linhas.
+
+A consequência prática é uma segunda: a redução seguinte (8 → 4) passa a ser
+**recusada** por causa da porta 12, que já estava fora da capacidade antes e
+depois. O guarda de redução pergunta "existe porta acima do novo limite em
+`RESERVED` ou `DAMAGED`?", e a porta 12 satisfaz literalmente.
+
+| | |
+|---|---|
+| severidade | `INFO` |
+| tenancy | intacta — ADMIN da empresa dona, no próprio recurso |
+| integridade | intacta — valor legítimo do enum, em linha legítima |
+| direção do erro | **conservadora**: recusa a redução, nunca apaga histórico |
+
+**Por que não foi corrigido aqui.** Não é defeito de implementação contra o
+contrato congelado, é uma pergunta de produto que o contrato não respondeu:
+*uma porta danificada continua danificada quando deixa de ser ofertada?* As duas
+respostas são defensáveis — a etiqueta física da caixa não some porque a
+capacidade cadastrada mudou —, e escolher uma em silêncio dentro de um
+checkpoint seria decidir produto por omissão. Fica registrado para o operador
+decidir.
+
+**O que a `CTO-2` NÃO pode herdar disto.** O `R-13` do §17 exige que a faixa
+`1..capacity` seja validada **na escrita do vínculo**. Este achado prova que
+`administrativeState` não faz essa validação hoje, então a `CTO-2` não pode
+assumir que "a porta já passou por checagem de faixa" só porque tem um estado
+administrativo. `isPortOfferable` continua sendo a autoridade, e precisa ser
+chamada dentro da transação que grava o vínculo.
+
+### Ataques executados neste checkpoint
+
+| | ataque | resultado |
+|---|---|---|
+| `A1` | `companyId` no corpo do `PATCH` | `400` pelo `.strict()`; empresa e nome intactos |
+| `A2` | porta de outra CTO da **mesma** empresa pelo id | `404`, estado inalterado |
+| `A3` | porta de **outro tenant** | `404`, estado inalterado |
+| `A4` | `TECHNICIAN` nas seis rotas | `403` nas seis, com controle positivo de ADMIN |
+| `A5` | travessia de caminho no `[id]` da foto | `404` sem vazar caminho, `ENOENT` ou barra invertida |
+| `A6` | três criações concorrentes do mesmo nome | exatamente **uma** vence, com as 4 portas |
+| `A7` | SVG com `<script>` declarado `image/png` | `400`, `photoStorageKey` continua nulo |
+| `A8` | estado em porta fora da capacidade | **passou** → `CTO1-INFO-01` |
+
+O `A2` chegou ao mesmo desfecho que um teste permanente já cobria — a
+concordância independente é o resultado desejado, não redundância.

@@ -487,7 +487,9 @@ Quatro coisas que a especificação fixou e são fáceis de desfazer sem percebe
 **Quando:** a tarefa envolve CTO, porta óptica, vínculo do cliente à rede de distribuição ou o status na visão da caixa.
 **Quando NÃO:** qualquer outra coisa. Só a `CTO-1` existe em código; da `CTO-2` em diante a §119 se aplica inteira.
 
-**Código da `CTO-1`:** `src/lib/cto.ts` (domínio), `src/lib/cto-access.ts` (o portão de autorização), `src/lib/media/image-upload.ts` (fronteira de upload, compartilhada com evidência e assinatura), `src/app/api/ctos/**`, `src/app/(app)/ctos/**`, `src/tests/cto.test.ts`, `src/tests/cto-routes.test.ts`, `e2e/ctos.spec.ts`. Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §20 e `docs/SECURITY.md` §8.19.
+**Código da `CTO-1`:** `src/lib/cto.ts` (domínio), `src/lib/cto-access.ts` (o portão de autorização), `src/lib/media/image-upload.ts` (fronteira de upload, compartilhada com evidência e assinatura), `src/app/api/ctos/**`, `src/app/(app)/ctos/**`, `src/tests/cto.test.ts`, `src/tests/cto-routes.test.ts`, `src/tests/cto-photo-bytes.test.ts`, `e2e/ctos.spec.ts`. Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §20–§22 e `docs/SECURITY.md` §8.19.
+
+**Fixture de imagem: escolha o certo.** `src/tests/support/jpeg-exif.ts` monta um JPEG que o servidor aceita e **nenhum navegador abre** — ele existe para afirmar sobre EXIF, e o docstring sempre disse que não precisava ser decodificável. Isso deixou de bastar quando a `CTO-1.7` acrescentou o preview, o primeiro consumidor que **decodifica**: para qualquer afirmação sobre a imagem ABRIR, use `montarPngReal` (`src/tests/support/png-real.ts`) ou pinte uma no navegador com `canvas.toDataURL`. E **nunca** envie o fixture de EXIF a um ambiente onde alguém vai olhar a tela — foi assim que a `CTO-1.8` nasceu.
 
 **O que a `CTO-1` NÃO trouxe:** `CustomerNetworkConnection`, vínculo cliente↔porta, qualquer superfície no Field, mapa, status `ONLINE/OFFLINE` e QR. `ServiceOrder` e `Customer` não foram tocados. Sequência ativa daqui: `CTO-2 → CTO-4 → CTO-5`; `CTO-3` segue bloqueada pelo Mapa Operacional, `CTO-6` por estratégia de frescor, `CTO-7` é opcional.
 
