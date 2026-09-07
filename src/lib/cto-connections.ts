@@ -115,6 +115,24 @@ function assertProvenance(provenance: ConnectionProvenance): void {
   }
 }
 
+/**
+ * O vínculo ativo AGORA é o mesmo que quem chamou estava olhando?
+ *
+ * A comparação é feita DEPOIS do lock do cliente, então o que ela lê é o estado
+ * autoritativo, e não uma fotografia. Recusar aqui é o que impede a operação de
+ * acertar um vínculo que nasceu entre a leitura da tela e o clique.
+ *
+ * A mensagem não devolve o id correto: quem está com a tela velha precisa
+ * recarregar, e entregar o id novo convidaria a repetir o comando sem olhar.
+ */
+function assertNotStale(currentId: string, expectedId: string): void {
+  if (currentId !== expectedId) {
+    throw conflict(
+      "Este vínculo mudou desde que a tela foi carregada. Recarregue e tente de novo.",
+    );
+  }
+}
+
 function provenanceColumns(provenance: ConnectionProvenance) {
   return provenance.source === "FIELD"
     ? {
@@ -498,6 +516,18 @@ export async function connectCustomerToPort(
 
 export interface DisconnectInput {
   customerId: string;
+  /**
+   * QUAL vínculo se está encerrando. Obrigatório, e a obrigatoriedade é a regra.
+   *
+   * Sem ele a operação seria "desconecte o que este cliente tiver agora", e uma
+   * tela desatualizada bastaria para o desastre: o operador vê o cliente na
+   * porta A, outra pessoa o move para B, o primeiro clica em desconectar e o
+   * servidor encerra B — um vínculo que ele nunca viu.
+   *
+   * Opcional seria pior que ausente: quem esquecesse de mandar reabriria o
+   * buraco sem nenhum sinal.
+   */
+  expectedConnectionId: string;
   reason?: string | null;
 }
 
@@ -529,6 +559,7 @@ export async function disconnectCustomer(
     if (!current) {
       throw conflict("Este cliente não está conectado a nenhuma porta.");
     }
+    assertNotStale(current.id, input.expectedConnectionId);
 
     const port = await resolvePort(tx, ctx.companyId, current.ctoPortId);
     await lockCtos(tx, ctx.companyId, [port.ctoId]);
@@ -567,6 +598,8 @@ export async function disconnectCustomer(
 
 export interface MoveInput {
   customerId: string;
+  /** Qual vínculo se está movendo. Ver `DisconnectInput.expectedConnectionId`. */
+  expectedConnectionId: string;
   targetCtoPortId: string;
   reason?: string | null;
 }
@@ -606,6 +639,7 @@ export async function moveCustomerToPort(
         "Este cliente não está conectado a nenhuma porta. Use a conexão.",
       );
     }
+    assertNotStale(current.id, input.expectedConnectionId);
 
     const origin = await resolvePort(tx, ctx.companyId, current.ctoPortId);
     const target = await resolvePort(tx, ctx.companyId, input.targetCtoPortId);

@@ -71,6 +71,20 @@ async function ativasDaPorta(ctoPortId: string) {
   });
 }
 
+/**
+ * O id do vínculo ativo, que `disconnect` e `move` agora exigem.
+ *
+ * Os testes que provam a guarda de obsolescência passam um id ERRADO de
+ * propósito; estes ajudantes servem aos demais, onde a identidade do vínculo é
+ * detalhe e não o assunto.
+ */
+async function ativoDe(customerId: string): Promise<string> {
+  const linha = await prisma.customerNetworkConnection.findFirstOrThrow({
+    where: { customerId, disconnectedAt: null },
+  });
+  return linha.id;
+}
+
 async function ativasDoCliente(customerId: string) {
   return prisma.customerNetworkConnection.count({
     where: { customerId, disconnectedAt: null },
@@ -144,8 +158,8 @@ describe("C3 · dois moves do mesmo cliente", () => {
       });
 
       const r = await Promise.allSettled([
-        moveCustomerToPort(ctx, { customerId: c.id, targetCtoPortId: d1.id }),
-        moveCustomerToPort(ctx, { customerId: c.id, targetCtoPortId: d2.id }),
+        moveCustomerToPort(ctx, { customerId: c.id, expectedConnectionId: await ativoDe(c.id), targetCtoPortId: d1.id }),
+        moveCustomerToPort(ctx, { customerId: c.id, expectedConnectionId: await ativoDe(c.id), targetCtoPortId: d2.id }),
       ]);
 
       /*
@@ -262,8 +276,8 @@ describe("C6 · desconectar × mover", () => {
       });
 
       const r = await Promise.allSettled([
-        disconnectCustomer(ctx, { customerId: c.id }),
-        moveCustomerToPort(ctx, { customerId: c.id, targetCtoPortId: destino.id }),
+        disconnectCustomer(ctx, { customerId: c.id, expectedConnectionId: await ativoDe(c.id) }),
+        moveCustomerToPort(ctx, { customerId: c.id, expectedConnectionId: await ativoDe(c.id), targetCtoPortId: destino.id }),
       ]);
 
       const { ok } = contar(r);

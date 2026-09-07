@@ -100,6 +100,20 @@ async function fieldCtx(customerId: string): Promise<ConnectionContext> {
   };
 }
 
+/**
+ * O id do vínculo ativo, que `disconnect` e `move` agora exigem.
+ *
+ * Os testes que provam a guarda de obsolescência passam um id ERRADO de
+ * propósito; estes ajudantes servem aos demais, onde a identidade do vínculo é
+ * detalhe e não o assunto.
+ */
+async function ativoDe(customerId: string): Promise<string> {
+  const linha = await prisma.customerNetworkConnection.findFirstOrThrow({
+    where: { customerId, disconnectedAt: null },
+  });
+  return linha.id;
+}
+
 async function ativasDoCliente(customerId: string) {
   return prisma.customerNetworkConnection.count({
     where: { customerId, disconnectedAt: null },
@@ -324,7 +338,9 @@ describe("CN · história", () => {
     });
 
     const fechada = await disconnectCustomer(webCtx, {
-      customerId: cliente.id, reason: "mudança de endereço",
+      customerId: cliente.id,
+      expectedConnectionId: aberta.id,
+      reason: "mudança de endereço",
     });
 
     expect(fechada.id).toBe(aberta.id);
@@ -341,7 +357,11 @@ describe("CN · história", () => {
   it("CN-12b — desconectar sem vínculo ativo é conflito, não sucesso mudo", async () => {
     const cliente = await novoCliente("Kléber");
     await expect(
-      disconnectCustomer(webCtx, { customerId: cliente.id }),
+      // Sem vínculo ativo, o id esperado é irrelevante: a recusa vem antes.
+      disconnectCustomer(webCtx, {
+        customerId: cliente.id,
+        expectedConnectionId: "qualquer-um",
+      }),
     ).rejects.toMatchObject({ status: 409 });
   });
 
@@ -352,13 +372,17 @@ describe("CN · história", () => {
     const primeira = await connectCustomerToPort(webCtx, {
       customerId: cliente.id, ctoPortId: p1.id,
     });
-    await disconnectCustomer(webCtx, { customerId: cliente.id });
+    await disconnectCustomer(webCtx, { customerId: cliente.id, expectedConnectionId: await ativoDe(cliente.id) });
     const carimbo = (
       await prisma.customerNetworkConnection.findUniqueOrThrow({ where: { id: primeira.id } })
     ).disconnectedAt;
 
+    // O id da linha JÁ FECHADA: nem mesmo ele reabre a operação.
     await expect(
-      disconnectCustomer(webCtx, { customerId: cliente.id }),
+      disconnectCustomer(webCtx, {
+        customerId: cliente.id,
+        expectedConnectionId: primeira.id,
+      }),
     ).rejects.toMatchObject({ status: 409 });
 
     const depois = await prisma.customerNetworkConnection.findUniqueOrThrow({
@@ -374,7 +398,7 @@ describe("CN · história", () => {
     const antiga = await connectCustomerToPort(webCtx, {
       customerId: cliente.id, ctoPortId: p1.id,
     });
-    await disconnectCustomer(webCtx, { customerId: cliente.id });
+    await disconnectCustomer(webCtx, { customerId: cliente.id, expectedConnectionId: await ativoDe(cliente.id) });
 
     const nova = await connectCustomerToPort(webCtx, {
       customerId: cliente.id, ctoPortId: p1.id,
@@ -400,7 +424,9 @@ describe("CN · história", () => {
     });
 
     const r = await moveCustomerToPort(webCtx, {
-      customerId: cliente.id, targetCtoPortId: p2.id,
+      customerId: cliente.id,
+      expectedConnectionId: await ativoDe(cliente.id),
+      targetCtoPortId: p2.id,
     });
 
     expect(r.from.id).toBe(antes.id);
@@ -424,7 +450,7 @@ describe("CN · história", () => {
     const auditAntes = await auditoria("CTO_CONNECTION.MOVED");
 
     await expect(
-      moveCustomerToPort(webCtx, { customerId: cliente.id, targetCtoPortId: p1.id }),
+      moveCustomerToPort(webCtx, { customerId: cliente.id, expectedConnectionId: await ativoDe(cliente.id), targetCtoPortId: p1.id }),
     ).rejects.toMatchObject({ status: 409 });
 
     expect(await auditoria("CTO_CONNECTION.MOVED")).toBe(auditAntes);
@@ -440,7 +466,9 @@ describe("CN · história", () => {
     await connectCustomerToPort(webCtx, { customerId: cliente.id, ctoPortId: pa.id });
 
     const r = await moveCustomerToPort(webCtx, {
-      customerId: cliente.id, targetCtoPortId: pb.id,
+      customerId: cliente.id,
+      expectedConnectionId: await ativoDe(cliente.id),
+      targetCtoPortId: pb.id,
     });
 
     expect(r.to.ctoId).toBe(b.id);
@@ -460,7 +488,9 @@ describe("CN · história", () => {
     // A origem é desativada com o cliente dentro: desativar não pode prender.
     await setCtoActive(fixture.companyA.id, fixture.adminA.id, origem.id, false);
     const r = await moveCustomerToPort(webCtx, {
-      customerId: cliente.id, targetCtoPortId: pd.id,
+      customerId: cliente.id,
+      expectedConnectionId: await ativoDe(cliente.id),
+      targetCtoPortId: pd.id,
     });
     expect(r.to.ctoId).toBe(destino.id);
 
@@ -468,7 +498,7 @@ describe("CN · história", () => {
     await setCtoActive(fixture.companyA.id, fixture.adminA.id, destino.id, true);
     await setCtoActive(fixture.companyA.id, fixture.adminA.id, origem.id, false);
     await expect(
-      moveCustomerToPort(webCtx, { customerId: cliente.id, targetCtoPortId: po.id }),
+      moveCustomerToPort(webCtx, { customerId: cliente.id, expectedConnectionId: await ativoDe(cliente.id), targetCtoPortId: po.id }),
     ).rejects.toMatchObject({ status: 409 });
   });
 
@@ -479,7 +509,7 @@ describe("CN · história", () => {
     await connectCustomerToPort(webCtx, { customerId: cliente.id, ctoPortId: p1.id });
     await setCtoActive(fixture.companyA.id, fixture.adminA.id, cto.id, false);
 
-    const fechada = await disconnectCustomer(webCtx, { customerId: cliente.id });
+    const fechada = await disconnectCustomer(webCtx, { customerId: cliente.id, expectedConnectionId: await ativoDe(cliente.id) });
     expect(fechada.disconnectedAt).not.toBeNull();
   });
 });
@@ -542,10 +572,10 @@ describe("CN · auditoria e timeline", () => {
     await connectCustomerToPort(webCtx, { customerId: cliente.id, ctoPortId: p1.id });
     expect(await auditoria("CTO_CONNECTION.CONNECTED")).toBe(1);
 
-    await moveCustomerToPort(webCtx, { customerId: cliente.id, targetCtoPortId: p2.id });
+    await moveCustomerToPort(webCtx, { customerId: cliente.id, expectedConnectionId: await ativoDe(cliente.id), targetCtoPortId: p2.id });
     expect(await auditoria("CTO_CONNECTION.MOVED")).toBe(1);
 
-    await disconnectCustomer(webCtx, { customerId: cliente.id });
+    await disconnectCustomer(webCtx, { customerId: cliente.id, expectedConnectionId: await ativoDe(cliente.id) });
     expect(await auditoria("CTO_CONNECTION.DISCONNECTED")).toBe(1);
 
     const registros = await prisma.auditLog.findMany({
@@ -567,8 +597,8 @@ describe("CN · auditoria e timeline", () => {
     const osId = (ctx.provenance as { serviceOrderId: string }).serviceOrderId;
 
     await connectCustomerToPort(ctx, { customerId: cliente.id, ctoPortId: p1.id });
-    await moveCustomerToPort(ctx, { customerId: cliente.id, targetCtoPortId: p2.id });
-    await disconnectCustomer(ctx, { customerId: cliente.id });
+    await moveCustomerToPort(ctx, { customerId: cliente.id, expectedConnectionId: await ativoDe(cliente.id), targetCtoPortId: p2.id });
+    await disconnectCustomer(ctx, { customerId: cliente.id, expectedConnectionId: await ativoDe(cliente.id) });
 
     const eventos = await prisma.serviceOrderEvent.findMany({
       where: { serviceOrderId: osId, event: { startsWith: "CTO_PORT_" } },
@@ -699,7 +729,7 @@ describe("CN · estrutura", () => {
     await connectCustomerToPort(webCtx, { customerId: outro.id, ctoPortId: p2.id });
 
     await expect(
-      moveCustomerToPort(webCtx, { customerId: cliente.id, targetCtoPortId: p2.id }),
+      moveCustomerToPort(webCtx, { customerId: cliente.id, expectedConnectionId: await ativoDe(cliente.id), targetCtoPortId: p2.id }),
     ).rejects.toMatchObject({ status: 409 });
 
     // Nada de "fechou a antiga e não abriu a nova".
@@ -736,8 +766,8 @@ describe("CN · estrutura", () => {
       await connectCustomerToPort(webCtx, { customerId: dois.id, ctoPortId: pb1.id });
 
       const r = await Promise.allSettled([
-        moveCustomerToPort(webCtx, { customerId: um.id, targetCtoPortId: pb2.id }),
-        moveCustomerToPort(webCtx, { customerId: dois.id, targetCtoPortId: pa2.id }),
+        moveCustomerToPort(webCtx, { customerId: um.id, expectedConnectionId: await ativoDe(um.id), targetCtoPortId: pb2.id }),
+        moveCustomerToPort(webCtx, { customerId: dois.id, expectedConnectionId: await ativoDe(dois.id), targetCtoPortId: pa2.id }),
       ]);
 
       for (const x of r) {
@@ -762,7 +792,7 @@ describe("CN · leitura interna", () => {
     const p2 = await porta(cto.id, 2);
     const cliente = await novoCliente("Alfa");
     await connectCustomerToPort(webCtx, { customerId: cliente.id, ctoPortId: p1.id });
-    await moveCustomerToPort(webCtx, { customerId: cliente.id, targetCtoPortId: p2.id });
+    await moveCustomerToPort(webCtx, { customerId: cliente.id, expectedConnectionId: await ativoDe(cliente.id), targetCtoPortId: p2.id });
 
     const ativa = await findActiveConnectionForCustomer(fixture.companyA.id, cliente.id);
     expect(ativa?.ctoPortId).toBe(p2.id);
