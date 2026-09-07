@@ -99,6 +99,17 @@ export async function resetDatabase(): Promise<void> {
   await prisma.checklistTemplate.deleteMany();
   await prisma.serviceOrderCompletionPolicy.deleteMany();
   await prisma.serviceOrderType.deleteMany();
+  /*
+    O vinculo de rede sai ANTES de tecnico, porta e cliente.
+
+    As tres FKs sao `Restrict` de proposito — historico operacional nao pode
+    sumir porque alguem apagou o cliente. A limpeza da fixture e o unico lugar
+    do projeto que apaga essas linhas, e apaga por ESCOPO, na ordem que as
+    constraints exigem.
+  */
+  await prisma.customerNetworkConnection.deleteMany();
+  await prisma.cTOPort.deleteMany();
+  await prisma.cTO.deleteMany();
   await prisma.technician.deleteMany();
   await prisma.customerConnection.deleteMany();
   await prisma.customer.deleteMany();

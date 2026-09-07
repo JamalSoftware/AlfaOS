@@ -294,6 +294,7 @@ model Company {
   // CTOs e rede de distribuicao (PRD Parte XIII, CTO-1)
   ctos     CTO[]
   ctoPorts CTOPort[]
+  customerNetworkConnections CustomerNetworkConnection[]
 
   @@map("companies")
 }
@@ -456,6 +457,7 @@ model Customer {
   serviceOrders       ServiceOrder[]
   diagnosticSnapshots CustomerDiagnosticSnapshot[]
   connections         CustomerConnection[]
+  networkConnections  CustomerNetworkConnection[]
 
   /// Ponto físico confirmável (v0.10, §134). As colunas `latitude`/`longitude`
   /// acima continuam existindo e são mantidas em sincronia como PROJEÇÃO de
@@ -591,6 +593,7 @@ model Technician {
 
   // Fila operacional de OS (PRD Parte XII). Uma por (empresa, técnico).
   dispatchQueue TechnicianDispatchQueue?
+  networkConnections CustomerNetworkConnection[]
 
   @@unique([userId])
   @@index([companyId])
@@ -669,6 +672,7 @@ model ServiceOrder {
 
   // Fila operacional (PRD Parte XII). Opcional: só OS ASSIGNED entra na fila.
   dispatchEntry TechnicianDispatchQueueEntry?
+  networkConnections CustomerNetworkConnection[]
 
   @@unique([companyId, externalProvider, externalId])
   @@unique([companyId, number])
@@ -2576,7 +2580,125 @@ model CTOPort {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  networkConnections CustomerNetworkConnection[]
+
   @@unique([ctoId, number])
   @@index([companyId])
   @@map("cto_ports")
+}
+
+/// De onde partiu a mutacao do vinculo.
+///
+/// `FIELD` e `WEB`, e so. `IMPORT` chegou a ser reservado num rascunho e foi
+/// removido pela decisao do dono na `CTO-2.0.1`: enum nao ganha valor "para o
+/// futuro", porque o valor puxa o endpoint e um caminho de escrita sem caso de
+/// uso e superficie sem dono.
+///
+/// O SERVIDOR deriva este campo. Ele nunca vem do payload — assim como
+/// `companyId`, `technicianId`, `serviceOrderId` e os carimbos de tempo.
+enum CustomerNetworkConnectionSource {
+  /// Aplicativo do tecnico, SEMPRE por uma OS `IN_PROGRESS` elegivel.
+  FIELD
+  /// Painel administrativo, pelo ADMIN da empresa.
+  WEB
+}
+
+/// O registro HISTORICO da relacao operacional entre um cliente e uma porta.
+///
+/// "Este cliente esteve nesta porta durante este intervalo." Nao e a CTO, nao e
+/// a porta, nao e a OS, nao e credencial PPPoE (isso e `CustomerConnection`,
+/// outra tabela e outro assunto), nao e equipamento e nao e topologia optica.
+///
+/// ## Ocupacao vive AQUI, e em nenhum outro lugar
+///
+/// `CTOPort.administrativeState` responde "esta posicao pode receber alguem?".
+/// A ocupacao responde "tem alguem aqui agora?", e quem responde e a EXISTENCIA
+/// de uma linha desta tabela com `disconnectedAt IS NULL`. Nao existe `OCCUPIED`
+/// gravavel em lugar nenhum: um rollback parcial que perca o vinculo devolve a
+/// porta a livre por construcao, em vez de deixar uma coluna mentindo.
+///
+/// ## Historico nao se edita
+///
+/// Desconectar PREENCHE `disconnectedAt`; nunca apaga. Reconectar cria linha
+/// nova. Mover fecha a antiga e abre a nova na mesma transacao. `ctoPortId` de
+/// uma linha existente NUNCA e atualizado — fazer isso faria o passado afirmar
+/// que o cliente sempre esteve na porta nova.
+///
+/// ## As duas uniques que importam NAO estao aqui
+///
+/// "No maximo um vinculo ativo por porta" e "no maximo um vinculo ativo por
+/// cliente" sao INDICES UNICOS PARCIAIS (`WHERE "disconnectedAt" IS NULL`),
+/// criados por SQL cru na migration `20260907214839`. O DSL do Prisma nao
+/// expressa a clausula `WHERE`, e `@@unique([ctoPortId])` seria uma regra
+/// DIFERENTE e errada: proibiria o historico, que e a razao de a tabela existir.
+///
+/// Mesmo precedente de `checklist_templates_company_default_key`. Elas sao a
+/// ultima barreira: o lock protege quem passa pelo servico, o indice protege
+/// contra todo o resto.
+model CustomerNetworkConnection {
+  id String @id @default(cuid())
+
+  /// Redundante de proposito, como em `CTOPort`, `ServiceOrderExecution` e
+  /// `TimeEntry`: permite filtrar tenant num predicado SQL em vez de navegar a
+  /// FK ate a CTO.
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// `Restrict`: apagar um cliente nao pode apagar o registro de onde ele
+  /// esteve ligado. A operacao suportada e desativar.
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  /// `Restrict` pelo mesmo motivo, e coerente com `CTO -> CTOPort`, que ja e
+  /// `Restrict` desde a `CTO-1`.
+  ctoPortId String
+  ctoPort   CTOPort @relation(fields: [ctoPortId], references: [id], onDelete: Restrict)
+
+  /// PROCEDENCIA, nunca posse: a OS que originou o vinculo, quando houve uma.
+  ///
+  /// `SetNull` e a unica politica coerente — perder a OS nao pode apagar o
+  /// vinculo, e o vinculo sobrevive a ela por construcao (`N-14`). Nulo para
+  /// `source = WEB`, que nao tem visita.
+  serviceOrderId String?
+  serviceOrder   ServiceOrder? @relation(fields: [serviceOrderId], references: [id], onDelete: SetNull)
+
+  /// Quem instalou. `Technician`, JAMAIS `User`: conta de acesso e identidade
+  /// operacional sao conceitos separados no AlfaOS.
+  ///
+  /// Nulo para `source = WEB`. Preencher com o usuario do ADMIN seria afirmar
+  /// que alguem foi ao poste; o ator administrativo e auditavel pelo
+  /// `AuditLog`, que ja grava `userId`.
+  technicianId String?
+  technician   Technician? @relation(fields: [technicianId], references: [id], onDelete: Restrict)
+
+  /// Horario do SERVIDOR. O cliente nao carimba quando conectou.
+  connectedAt DateTime
+
+  /// NULO enquanto ativo. E o predicado das duas uniques parciais.
+  disconnectedAt DateTime?
+
+  source CustomerNetworkConnectionSource
+
+  /// Texto livre e opcional, do ENCERRAMENTO — por que o cliente saiu daquela
+  /// posicao. Nao e descricao da operacao inteira, e nao existe enum: o freeze
+  /// o deixou deliberadamente opcional, e inventar um vocabulario fechado aqui
+  /// seria decidir produto por conta propria.
+  reason String?
+
+  createdAt DateTime @default(now())
+
+  /// SEM `updatedAt`: a linha e escrita duas vezes — nasce e fecha —, e
+  /// `disconnectedAt` ja carimba a segunda. Seria uma segunda memoria do mesmo
+  /// fato, que e como duas colunas passam a discordar.
+  ///
+  /// SEM `version`: nao ha sessao multi-escrita aqui. `ServiceOrder.version`
+  /// existe porque o Field faz muitas escritas-filhas entre uma leitura e a
+  /// seguinte; esta tabela le e escreve dentro da mesma transacao travada, e a
+  /// duplicidade e proibida pelo banco.
+
+  @@index([companyId, customerId])
+  @@index([companyId, ctoPortId])
+  @@index([serviceOrderId])
+  @@index([technicianId])
+  @@map("customer_network_connections")
 }
