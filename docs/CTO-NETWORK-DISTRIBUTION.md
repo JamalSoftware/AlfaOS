@@ -1903,3 +1903,33 @@ Estar dentro da capacidade é condição necessária e não suficiente.
 |---|---|
 | `CTO1-INFO-01` | **CLOSED — OWNER DECISION** |
 | blobs órfãos de fotos substituídas | **INFO aceito**, sem cleanup |
+
+### `CTO1-INFO-02` — dado legado com porta histórica não liberada
+
+Levantado no checkpoint de release, verificado, **não bloqueante**.
+
+Antes da `CTO-1.9`, reservar ou danificar uma porta já fora da capacidade era
+permitido. Uma linha assim, sobrevivente, bloquearia a redução de capacidade
+(o guarda a vê acima do novo limite e não liberada) **e** não poderia mais ser
+liberada (é histórica, e histórica é read-only).
+
+**A saída existe e é operação normal**, medida e não suposta:
+
+```text
+reduzir     409   (bloqueado pela porta histórica reservada)
+liberar     409   (read-only)
+reexpandir  200   ← a porta volta à capacidade
+liberar     200   ← e aí sim
+```
+
+Aumentar a capacidade até cobrir a posição, liberar, reduzir. Dois passos, os
+dois pela tela, nenhum caminho especial.
+
+**Nenhum caminho de código produz o estado a partir de agora:** a redução só é
+aceita com as posições de cima liberadas, e depois disso nada as toca. O vetor é
+exclusivamente dado anterior à `CTO-1.9` — e a varredura da base alcançável
+devolveu **zero** portas históricas, quaisquer que fossem seus estados.
+
+Nenhum código foi alterado por causa disto. Documentar a saída é o que o achado
+pede; uma exceção no guarda de redução criaria um segundo caminho para editar
+histórico, que é exatamente o que a `CTO-1.9` fechou.
