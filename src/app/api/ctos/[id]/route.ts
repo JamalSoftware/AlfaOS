@@ -6,10 +6,10 @@ import {
   CTO_CODE_MAX_LENGTH,
   CTO_NAME_MAX_LENGTH,
   CTO_NOTES_MAX_LENGTH,
-  getCto,
   updateCto,
 } from "@/lib/cto";
 import { requireCtoAccess } from "@/lib/cto-access";
+import { getOperationalCtoDetail } from "@/lib/cto-read-model";
 
 /**
  * Só o que é DESCRITIVO da caixa.
@@ -46,7 +46,13 @@ export async function GET(
     const access = await requireCtoAccess(request);
     if (!access.ok) return access.response;
 
-    const cto = await getCto(access.session.companyId, context.params.id);
+    // `CTO-2.2`: o detalhe passou a carregar ocupação real. `getCto` continua
+    // sendo a fonte do estado administrativo; o read model compõe as duas
+    // dimensões sem que nenhum dos dois módulos conheça o outro.
+    const cto = await getOperationalCtoDetail(
+      access.session.companyId,
+      context.params.id,
+    );
     if (!cto) {
       // 404 e não 403: id de outra empresa não pode ser distinguido de id
       // inexistente, senão a resposta de erro vira um oráculo de existência.
@@ -84,7 +90,7 @@ export async function PATCH(
     // que preserva essa distinção — `parsed.data` já a perde para quem
     // desestrutura sem cuidado.
     const raw = body as Record<string, unknown>;
-    const cto = await updateCto(
+    await updateCto(
       access.session.companyId,
       access.session.id,
       context.params.id,
@@ -103,6 +109,19 @@ export async function PATCH(
         ...("notes" in raw ? { notes: parsed.data.notes ?? null } : {}),
       },
     );
-    return jsonOk({ cto });
+    /*
+      A resposta de toda mutação passa pelo MESMO read model da leitura.
+
+      As funções de domínio da `CTO-1` devolvem o detalhe administrativo, sem
+      ocupação — e a tela substitui o estado inteiro pela resposta. Devolver a
+      forma menor faria `occupied` e `activeConnection` sumirem depois de
+      salvar, e o defeito só apareceria quando a `CTO-2.3` os exibisse: um
+      selo que desaparece ao clicar em salvar.
+    */
+    const detail = await getOperationalCtoDetail(
+      access.session.companyId,
+      context.params.id,
+    );
+    return jsonOk({ cto: detail });
   });
 }

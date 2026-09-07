@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCto, isCtoNetworkEnabled } from "@/lib/cto";
+import { isCtoNetworkEnabled } from "@/lib/cto";
+import { getOperationalCtoDetail } from "@/lib/cto-read-model";
 import { requirePageProfile } from "@/lib/guards";
 import { CtoDetailManager } from "./CtoDetailManager";
 
@@ -22,7 +23,7 @@ export default async function CtoDetailPage({
 
   // `getCto` já filtra por `companyId` no predicado. Id de outra empresa cai
   // aqui como inexistente — que é exatamente o que ele deve parecer.
-  const cto = await getCto(session.companyId, params.id);
+  const cto = await getOperationalCtoDetail(session.companyId, params.id);
   if (!cto) {
     notFound();
   }
