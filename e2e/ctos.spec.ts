@@ -348,8 +348,18 @@ test("coordenada inválida é barrada antes do envio e não apaga a existente", 
   for (const invalido of ["abc", "Infinity", "1,2,3"]) {
     await page.getByLabel("Latitude").fill(invalido);
     await page.getByRole("button", { name: "Salvar" }).click();
+    // A mensagem passou a nomear o CAMPO, e não mais os dois de uma vez: só a
+    // latitude está errada aqui.
     await expect(page.getByTestId("cto-details-error")).toContainText(
-      "devem ser números válidos",
+      "Informe uma latitude válida.",
+    );
+    await expect(page.locator("#cto-lat")).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    await expect(page.locator("#cto-lon")).toHaveAttribute(
+      "aria-invalid",
+      "false",
     );
 
     // A coordenada gravada sobreviveu: recarregar mostra a antiga, não vazio.
@@ -619,6 +629,137 @@ test("os estados das portas também têm cor, não só fundo", async ({ page }) 
     .click();
   await expect(page.getByTestId("cto-port-state-1")).toHaveText("Reservada");
   expect(await corDoSelo(1)).not.toBe(corComum);
+});
+
+test("coordenada inválida marca O CAMPO responsável, e diz por quê", async ({
+  page,
+}) => {
+  /*
+    Achado da validação humana: latitude 91 com longitude válida era recusada
+    corretamente — e a tela dizia só "Dados inválidos.", sem apontar campo,
+    problema ou faixa.
+
+    Este teste cobre as três coisas que faltavam: mensagem específica, campo
+    destacado, e associação acessível. As asserções visuais comparam a borda do
+    campo em erro com a de um campo normal, sem fixar hex — hex quebraria a cada
+    ajuste de tema, e o que precisa ser verdade é que os dois estados sejam
+    distinguíveis.
+  */
+  await setCapability(true);
+  await login(page, ADMIN_EMAIL);
+
+  const nome = `E2E-COORD-${Date.now()}`;
+  await page.goto("/ctos");
+  await page.getByLabel("Nome").fill(nome);
+  await page.getByLabel("Capacidade (portas)").fill("4");
+  await page.getByRole("button", { name: "Cadastrar CTO" }).click();
+  await page.getByRole("link", { name: nome }).click();
+  await esperarHidratacao(page);
+
+  const lat = page.locator("#cto-lat");
+  const lon = page.locator("#cto-lon");
+  const alerta = page.getByTestId("cto-details-error");
+  const borda = (l: typeof lat) =>
+    l.evaluate((el) => getComputedStyle(el).borderTopColor);
+
+  /**
+   * A borda do campo em erro precisa ser VERMELHA, não apenas diferente.
+   *
+   * A primeira versão comparava com a borda normal e exigia que mudasse. Isso
+   * é fraco: trocar a classe de erro por uma inexistente também "muda" a
+   * borda — ela cai para o padrão do navegador, porque a classe normal não
+   * está mais lá. A sabotagem passou por essa fresta.
+   *
+   * Exigir o canal vermelho dominando é o que amarra a asserção ao token de
+   * verdade, sem fixar hex (que quebraria a cada ajuste de tema).
+   */
+  async function esperarBordaDeErro(l: typeof lat) {
+    const cor = await borda(l);
+    const [r, g, b] = cor.match(/\d+/g)!.map(Number);
+    expect(r, `borda deveria ser avermelhada, veio ${cor}`).toBeGreaterThan(
+      g + 20,
+    );
+    expect(r).toBeGreaterThan(b + 20);
+  }
+
+  // Referência: como é a borda de um campo que NÃO está em erro.
+  const bordaNormal = await borda(lat);
+
+  async function digitar(campo: typeof lat, valor: string) {
+    await campo.click();
+    await page.keyboard.press("Control+A");
+    if (valor) await page.keyboard.type(valor);
+    else await page.keyboard.press("Delete");
+  }
+
+  async function salvar() {
+    await page.getByRole("button", { name: "Salvar" }).click();
+  }
+
+  // --- E2E-01: latitude fora da faixa -------------------------------------
+  await digitar(lat, "91");
+  await digitar(lon, "-46.6333094");
+  await salvar();
+
+  await expect(alerta).toBeVisible();
+  await expect(alerta).toBeInViewport();
+  await expect(alerta).toHaveText("A latitude deve estar entre -90 e 90.");
+  await expect(lat).toHaveAttribute("aria-invalid", "true");
+  await expect(lat).toHaveAttribute("aria-describedby", "cto-details-error");
+  // Só a latitude. A longitude está correta e não pode ser acusada junto.
+  await expect(lon).toHaveAttribute("aria-invalid", "false");
+  await esperarBordaDeErro(lat);
+  expect(await borda(lon)).toBe(bordaNormal);
+
+  // --- E2E-02: longitude fora da faixa ------------------------------------
+  await digitar(lat, "-23.5505199");
+  await digitar(lon, "181");
+  await salvar();
+
+  await expect(alerta).toHaveText("A longitude deve estar entre -180 e 180.");
+  await expect(lon).toHaveAttribute("aria-invalid", "true");
+  await expect(lat).toHaveAttribute("aria-invalid", "false");
+  await esperarBordaDeErro(lon);
+  expect(await borda(lat)).toBe(bordaNormal);
+
+  // --- E2E-03/04: par incompleto marca OS DOIS ----------------------------
+  for (const [a, b] of [
+    ["-23.5505199", ""],
+    ["", "-46.6333094"],
+  ] as const) {
+    await digitar(lat, a);
+    await digitar(lon, b);
+    await salvar();
+
+    await expect(alerta).toHaveText(
+      "Informe latitude e longitude juntas, ou nenhuma das duas.",
+    );
+    await expect(lat).toHaveAttribute("aria-invalid", "true");
+    await expect(lon).toHaveAttribute("aria-invalid", "true");
+    await esperarBordaDeErro(lat);
+    await esperarBordaDeErro(lon);
+  }
+
+  // --- E2E-05: corrigir limpa o destaque ----------------------------------
+  await digitar(lat, "91");
+  await digitar(lon, "-46.6333094");
+  await salvar();
+  await expect(lat).toHaveAttribute("aria-invalid", "true");
+
+  await digitar(lat, "-23.5505199");
+  await salvar();
+  await expect(alerta).toHaveCount(0);
+  await expect(lat).toHaveAttribute("aria-invalid", "false");
+  await expect(lon).toHaveAttribute("aria-invalid", "false");
+  expect(await borda(lat)).toBe(bordaNormal);
+
+  // --- E2E-06: a coordenada válida foi de fato gravada --------------------
+  await page.reload();
+  await expect(page.locator("#cto-lat")).toHaveValue("-23.5505199");
+  await expect(page.locator("#cto-lon")).toHaveValue("-46.6333094");
+  await expect(page.getByTestId("cto-geo-state")).toContainText(
+    "Coordenada cadastrada",
+  );
 });
 
 test("DISPATCHER não alcança o módulo", async ({ page }) => {

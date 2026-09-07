@@ -28,8 +28,8 @@ const updateCtoSchema = z
   .object({
     name: z.string().min(1).max(CTO_NAME_MAX_LENGTH).optional(),
     code: z.string().max(CTO_CODE_MAX_LENGTH).nullish(),
-    latitude: z.number().min(-90).max(90).nullish(),
-    longitude: z.number().min(-180).max(180).nullish(),
+    latitude: z.number().finite().nullish(),
+    longitude: z.number().finite().nullish(),
     addressReference: z
       .string()
       .max(CTO_ADDRESS_REFERENCE_MAX_LENGTH)

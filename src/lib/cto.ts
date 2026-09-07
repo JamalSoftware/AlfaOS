@@ -291,7 +291,27 @@ function assertCoordinates(
 ): void {
   const hasLat = latitude !== null && latitude !== undefined;
   const hasLon = longitude !== null && longitude !== undefined;
+
+  /*
+    O DOMÍNIO é a autoridade da faixa, e o `zod` das rotas valida só a FORMA.
+
+    Antes as duas camadas conheciam `-90..90`, e a da rota chegava primeiro:
+    latitude `91` era barrada pelo `zod` com "Invalid input" e a resposta saía
+    como "Dados inválidos.", enquanto a mensagem boa — que existia aqui — nunca
+    era alcançada. Duas autoridades para a mesma regra, e quem falava era a que
+    tinha menos a dizer.
+
+    Agora o `zod` responde "isto é um número finito?" e esta função responde
+    "este número é uma coordenada?". Nada foi relaxado: todo caminho de escrita
+    passa por aqui, inclusive a chamada direta ao serviço.
+
+    Cada recusa nomeia o CAMPO, para a tela destacar o input responsável sem
+    interpretar o texto da mensagem.
+  */
   if (hasLat !== hasLon) {
+    // O erro é da COMBINAÇÃO, não de um campo: sem `field`, e a tela marca os
+    // dois. Escolher um seria apontar o dedo para o lado errado metade das
+    // vezes.
     throw badRequest("Informe latitude e longitude juntas, ou nenhuma das duas.");
   }
 
@@ -301,26 +321,20 @@ function assertCoordinates(
     Comparação com `NaN` é sempre falsa: `NaN < -90` e `NaN > 90` são os dois
     `false`, então um teste de faixa sozinho DEIXA `NaN` PASSAR. A verificação
     de faixa parece cobrir tudo e não cobre o único valor que não se compara.
-
-    `Infinity` seria pego pela faixa, mas entra aqui pela mesma porta, e
-    separá-los produziria duas mensagens para o mesmo defeito de entrada.
-
-    O `zod` das rotas já recusa os dois — esta guarda existe para a chamada
-    direta ao serviço, que é superfície pública do módulo e será o caminho da
-    `CTO-2`.
+    `Infinity` entra pela mesma porta.
   */
   if (hasLat && !Number.isFinite(latitude)) {
-    throw badRequest("Latitude deve ser um número.");
+    throw badRequest("Informe uma latitude válida.", "latitude");
   }
   if (hasLon && !Number.isFinite(longitude)) {
-    throw badRequest("Longitude deve ser um número.");
+    throw badRequest("Informe uma longitude válida.", "longitude");
   }
 
   if (hasLat && (latitude! < -90 || latitude! > 90)) {
-    throw badRequest("Latitude deve estar entre -90 e 90.");
+    throw badRequest("A latitude deve estar entre -90 e 90.", "latitude");
   }
   if (hasLon && (longitude! < -180 || longitude! > 180)) {
-    throw badRequest("Longitude deve estar entre -180 e 180.");
+    throw badRequest("A longitude deve estar entre -180 e 180.", "longitude");
   }
 }
 

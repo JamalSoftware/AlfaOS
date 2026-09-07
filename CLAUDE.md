@@ -685,6 +685,18 @@ O teste passou a **digitar como gente** — foco, `Ctrl+A`, teclas — depois de
 
 Gates: **1852 Vitest**, **126 Playwright** (era 124), lint, tsc, build, `build:worker`, 26 migrations.
 
+**`CTO-1.6` — a recusa de coordenada passou a dizer QUAL campo e POR QUÊ.** Latitude `91` com longitude válida era recusada corretamente e a tela dizia só **"Dados inválidos."**. A causa era **autoridade duplicada**: rota e domínio conheciam a faixa `-90..90`, e a da rota chegava primeiro — o `zod` barrava com `"Invalid input"`, a resposta saía genérica, e a mensagem boa, que já existia no domínio, nunca era alcançada. Duas camadas sabiam a mesma regra, e quem falava era a que tinha menos a dizer.
+
+Agora o **`zod` valida FORMA** (número finito) e o **domínio valida REGRA** (faixa), nomeando o campo. Nada foi relaxado — todo caminho de escrita atravessa o domínio, e há teste provando pelas duas portas. `DomainError` ganhou **`field`**, que carrega o nome do campo público que o cliente enviou, nunca coluna, id ou caminho; a alternativa seria a tela adivinhar pelo texto da mensagem, e parsing de frase humana quebra na primeira melhoria de redação. O **par incompleto não nomeia campo** de propósito: o erro é da combinação, e apontar um dos dois sugeriria que o problema está nele.
+
+Campo inválido ganhou `aria-invalid`, `aria-describedby` e borda de erro — a cor nunca é o único sinal.
+
+**Duas armadilhas de Tailwind nesta fase, e as duas custam o mesmo: uma classe que não pinta nada.** A primeira é a da `CTO-1.5` (classe inexistente); aqui os tokens foram conferidos antes, e o CSS gerado confirma que as quatro usadas existem e que nenhuma inventada aparece. A segunda é nova e mais sutil: **concatenar `border-danger-border` a uma base que já traz `border-input-border` não pinta a borda de vermelho** — as duas produzem `border-color`, e vence a ordem em que o Tailwind as emite no CSS, não a ordem na string. O campo ficava com `aria-invalid="true"` e borda cinza.
+
+**E o teste que escrevi primeiro era fraco:** ele exigia que a borda *mudasse*, e a sabotagem `Q` passou por essa fresta — sem a classe normal, a borda cai para o padrão e "muda" mesmo assim. Passou a exigir o **canal vermelho dominando**, e aí a sabotagem cai dizendo o porquê.
+
+Gates: **1868 Vitest** (era 1852), **127 Playwright** (era 126), lint, tsc, build, `build:worker`, 26 migrations. Zero migration, zero schema, zero Dart.
+
 ## Princípios
 
 Integridade > velocidade

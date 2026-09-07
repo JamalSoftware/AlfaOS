@@ -4,8 +4,22 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { PublicCtoDetail } from "@/lib/cto";
 
-const inputClass =
-  "w-full rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft";
+/*
+  A classe do campo é montada em DUAS partes, e a separação é necessária.
+
+  Concatenar `border-danger-border` a uma base que já traz
+  `border-input-border` não pinta a borda de vermelho: as duas produzem
+  `border-color`, e quem vence é a ordem em que o Tailwind as emite no CSS, não
+  a ordem na string de classes. O campo em erro ficava com `aria-invalid="true"`
+  e borda cinza — visualmente idêntico a um campo correto.
+
+  Separando a base da borda, só uma das duas entra em cada render, e não há
+  conflito a resolver.
+*/
+const inputBaseClass =
+  "w-full rounded-lg border px-3 py-2 text-sm text-fg focus:outline-none focus:ring-2";
+const inputNormalClass = "border-input-border focus:border-focus focus:ring-focus-soft";
+const inputClass = `${inputBaseClass} ${inputNormalClass}`;
 
 const labelClass = "mb-1 block text-sm font-medium text-fg-secondary";
 
@@ -39,7 +53,26 @@ type ErrorScope = "details" | "capacity" | "ports" | "photo" | "active";
 interface ScopedError {
   scope: ErrorScope;
   message: string;
+  /**
+   * Quais campos ficam destacados. Vazio quando a recusa não é de um input.
+   *
+   * É uma LISTA porque o par de coordenadas é uma regra da combinação: quando
+   * falta metade dele, os dois campos estão envolvidos e marcar só um apontaria
+   * o dedo para o lado errado metade das vezes.
+   */
+  fields?: string[];
 }
+
+/**
+ * A borda do campo em erro, com os tokens que o design system realmente tem.
+ *
+ * `danger.border` e `danger.bg` existem em `tailwind.config.ts`; `danger.text`
+ * não existe, e foi exatamente uma classe inventada assim que fez a mensagem da
+ * `CTO-1.5` sair preta sobre rosa e passar despercebida na validação humana.
+ * Antes de escrever qualquer classe aqui, os tokens foram conferidos no config.
+ */
+const inputErrorClass =
+  "border-danger-border bg-danger-bg ring-1 ring-danger-border focus:ring-danger-border";
 
 export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
   const router = useRouter();
@@ -80,10 +113,35 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
         className="mt-4 rounded-lg border border-danger-border bg-danger-bg px-4 py-3 text-sm text-danger-fg"
         role="alert"
         data-testid={`cto-${scope}-error`}
+        id={`cto-${scope}-error`}
       >
         {error.message}
       </p>
     );
+  }
+
+  /** Este campo está marcado como responsável pela recusa atual? */
+  function campoInvalido(nome: string) {
+    return error?.fields?.includes(nome) ?? false;
+  }
+
+  /**
+   * Atributos de um input que pode entrar em estado de erro.
+   *
+   * `aria-invalid` e `aria-describedby` juntos: o primeiro anuncia que o campo
+   * está errado, o segundo diz **por quê**, apontando para a mensagem da seção.
+   * Sem o segundo, um leitor de tela informa que há erro e não informa qual —
+   * e a borda colorida não ajuda quem não a enxerga. A cor nunca é o único
+   * sinal.
+   */
+  function atributosDeCampo(nome: string, scope: ErrorScope) {
+    const invalido = campoInvalido(nome);
+    return {
+      "aria-invalid": invalido,
+      "aria-describedby": invalido ? `cto-${scope}-error` : undefined,
+      // Uma das duas, nunca as duas: ver a nota em `inputBaseClass`.
+      className: `${inputBaseClass} ${invalido ? inputErrorClass : inputNormalClass}`,
+    };
   }
 
   async function send(
@@ -103,14 +161,23 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
         /*
-          A mensagem vem do servidor, e é ele quem decide o que é seguro dizer.
-          O domínio já responde em português, sem id, sem SQL e sem detalhe
-          interno — repassá-la é melhor que reescrevê-la aqui, onde a razão da
-          recusa não é conhecida.
+          A mensagem e o CAMPO vêm do servidor, e é ele quem decide o que é
+          seguro dizer. O domínio responde em português, sem id, sem SQL e sem
+          detalhe interno — repassar é melhor que reescrever aqui, onde a razão
+          da recusa não é conhecida.
+
+          O campo vem do SERVIDOR, quando ele sabe qual é.
+
+          Nada aqui interpreta o texto da mensagem para adivinhar o input — isso
+          quebraria na primeira melhoria de redação. Quando `field` não vem, a
+          recusa não é de um campo (uma porta reservada, um conflito de nome) e
+          nenhum input é marcado.
         */
         setError({
           scope,
           message: payload?.error ?? "Não foi possível concluir a operação.",
+          fields:
+            typeof payload?.field === "string" ? [payload.field] : undefined,
         });
         return false;
       }
@@ -129,7 +196,13 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
     const hasLat = latitude.trim().length > 0;
     const hasLon = longitude.trim().length > 0;
     if (hasLat !== hasLon) {
-      setError({ scope: "details", message: "Informe latitude e longitude juntas, ou nenhuma das duas." });
+      // Os DOIS marcados: o erro é da combinação, e apontar só o preenchido
+      // sugeriria que o problema está nele.
+      setError({
+        scope: "details",
+        message: "Informe latitude e longitude juntas, ou nenhuma das duas.",
+        fields: ["latitude", "longitude"],
+      });
       return;
     }
     /*
@@ -149,8 +222,23 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
     */
     const lat = hasLat ? Number(latitude) : null;
     const lon = hasLon ? Number(longitude) : null;
-    if ((hasLat && !Number.isFinite(lat)) || (hasLon && !Number.isFinite(lon))) {
-      setError({ scope: "details", message: "Latitude e longitude devem ser números válidos." });
+
+    // Cada campo responde por si: quem digitou letra na latitude não deve ver a
+    // longitude marcada junto.
+    if (hasLat && !Number.isFinite(lat)) {
+      setError({
+        scope: "details",
+        message: "Informe uma latitude válida.",
+        fields: ["latitude"],
+      });
+      return;
+    }
+    if (hasLon && !Number.isFinite(lon)) {
+      setError({
+        scope: "details",
+        message: "Informe uma longitude válida.",
+        fields: ["longitude"],
+      });
       return;
     }
     await send(
@@ -465,7 +553,7 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
             </label>
             <input
               id="cto-lat"
-              className={inputClass}
+              {...atributosDeCampo("latitude", "details")}
               value={latitude}
               onChange={(e) => setLatitude(e.target.value)}
               placeholder="ex.: -23.5505199"
@@ -477,7 +565,7 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
             </label>
             <input
               id="cto-lon"
-              className={inputClass}
+              {...atributosDeCampo("longitude", "details")}
               value={longitude}
               onChange={(e) => setLongitude(e.target.value)}
               placeholder="ex.: -46.6333094"

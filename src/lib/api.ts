@@ -45,7 +45,22 @@ export async function runApi(
     return await handler();
   } catch (error) {
     if (error instanceof DomainError) {
-      return jsonError(error.message, error.status);
+      /*
+        `field` viaja junto quando a regra é de um campo só.
+
+        É o que permite a tela destacar o input responsável sem interpretar o
+        texto da mensagem — parsing de frase humana quebra na primeira melhoria
+        de redação. O nome é o do campo público que o próprio cliente enviou;
+        nada interno acompanha.
+      */
+      return NextResponse.json(
+        {
+          ok: false,
+          error: error.message,
+          ...(error.field ? { field: error.field } : {}),
+        },
+        { status: error.status },
+      );
     }
     const message =
       error instanceof Error ? error.message : "Erro desconhecido";

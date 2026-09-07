@@ -1494,3 +1494,67 @@ Eram duas — "maior que zero" para o piso e "máxima é 256 portas" para o teto
 Quem digitava `0` ficava sabendo que precisa de mais, e não de quanto. Agora é
 uma só, no domínio e nas duas telas: **"A capacidade deve ser um número inteiro
 entre 1 e 256 portas."**
+
+### `CTO-1.5` — a recusa passou a dizer QUAL campo e POR QUÊ
+
+Achado da validação humana: latitude `91` com longitude válida era recusada
+corretamente — e a tela dizia apenas **"Dados inválidos."**
+
+**A causa era autoridade duplicada.** Rota e domínio conheciam a faixa
+`-90..90`, e a da rota chegava primeiro:
+
+```text
+zod  latitude: z.number().min(-90).max(90)
+     → "Invalid input"  →  jsonError("Dados inválidos.", 400, details)
+client  lê payload.error  →  "Dados inválidos."
+domínio "A latitude deve estar entre -90 e 90."  ← nunca alcançada
+```
+
+Duas camadas sabiam a mesma regra, e quem falava era a que tinha menos a dizer.
+O detalhe existia em `details.fieldErrors`, em inglês e sem a faixa, e o cliente
+nem o lia.
+
+**Agora o `zod` valida FORMA e o domínio valida REGRA.** O schema pergunta
+"isto é um número finito?"; `assertCoordinates` pergunta "este número é uma
+coordenada?". Nada foi relaxado — todo caminho de escrita atravessa o domínio,
+inclusive a chamada direta ao serviço, e há teste provando pelas duas portas.
+
+**`DomainError` ganhou `field`.** A recusa carrega o nome do campo público que o
+próprio cliente enviou — `latitude`, `longitude` —, nunca uma coluna, um id ou
+um caminho. A alternativa seria a tela adivinhar o campo pelo texto da
+mensagem, e parsing de frase humana quebra na primeira melhoria de redação.
+
+O par incompleto **não** nomeia campo, de propósito: o erro é da combinação, e
+apontar um dos dois sugeriria que o problema está nele. A tela marca os dois.
+
+### O campo em erro é visível, e não só pela cor
+
+`aria-invalid` no input, `aria-describedby` apontando para a mensagem da seção,
+borda e fundo de erro. A cor nunca é o único sinal.
+
+**Duas armadilhas de Tailwind foram atravessadas nesta fase**, e as duas custam
+o mesmo: uma classe que não pinta nada.
+
+A primeira é a de `CTO-1.4` — classe inexistente. Aqui os tokens foram
+conferidos no `tailwind.config.ts` **antes** de escrever, e o CSS gerado
+confirma que as quatro classes usadas existem (`border-danger-border`,
+`bg-danger-bg`, `ring-danger-border`, `text-danger-fg`) e que nenhuma inventada
+aparece.
+
+A segunda é nova e mais sutil: **concatenar `border-danger-border` a uma base
+que já traz `border-input-border` não pinta a borda de vermelho.** As duas
+produzem `border-color`, e quem vence é a ordem em que o Tailwind as emite no
+CSS — não a ordem na string de classes. O campo ficava com `aria-invalid="true"`
+e borda cinza, visualmente idêntico a um campo correto. A classe passou a ser
+montada em duas partes, com apenas uma das bordas entrando em cada render.
+
+### O teste que eu escrevi primeiro era fraco
+
+A asserção original comparava a borda do campo em erro com a de um campo normal
+e exigia que **mudasse**. A sabotagem `Q` passou por essa fresta: trocar a
+classe de erro por uma inexistente também muda a borda — ela cai para o padrão
+do navegador, porque a classe normal não está mais lá.
+
+A asserção passou a exigir o **canal vermelho dominando**, sem fixar hex (hex
+quebraria a cada ajuste de tema). Com isso a sabotagem cai, e cai dizendo o
+porquê: *"borda deveria ser avermelhada, veio rgb(229, 231, 235)"*.

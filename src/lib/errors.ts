@@ -8,10 +8,28 @@
 export class DomainError extends Error {
   readonly status: number;
 
-  constructor(status: number, message: string) {
+  /**
+   * Qual campo do formulário causou a recusa, quando é UM campo.
+   *
+   * Existe para que a tela consiga destacar o input responsável em vez de
+   * mostrar só um texto solto. É deliberadamente um NOME DE CAMPO da entrada
+   * pública — `latitude`, `longitude` —, nunca uma coluna interna, um id ou um
+   * caminho: o cliente já conhece esses nomes porque foi ele quem os enviou.
+   *
+   * Opcional porque a maioria das regras não é de um campo só: "a porta 14
+   * está reservada" fala do estado da caixa, não de um input.
+   *
+   * A alternativa seria a tela adivinhar o campo pelo texto da mensagem, e
+   * fazer parsing de mensagem humana é frágil por construção — quebra na
+   * primeira vez que alguém melhora a redação.
+   */
+  readonly field?: string;
+
+  constructor(status: number, message: string, field?: string) {
     super(message);
     this.name = "DomainError";
     this.status = status;
+    this.field = field;
   }
 }
 
@@ -19,8 +37,8 @@ export function notFound(message: string): DomainError {
   return new DomainError(404, message);
 }
 
-export function badRequest(message: string): DomainError {
-  return new DomainError(400, message);
+export function badRequest(message: string, field?: string): DomainError {
+  return new DomainError(400, message, field);
 }
 
 export function conflict(message: string): DomainError {

@@ -29,8 +29,8 @@ const createCtoSchema = z
     name: z.string().min(1, "Nome é obrigatório.").max(CTO_NAME_MAX_LENGTH),
     code: z.string().max(CTO_CODE_MAX_LENGTH).nullish(),
     capacity: z.number().int().min(CTO_CAPACITY_MIN).max(CTO_CAPACITY_MAX),
-    latitude: z.number().min(-90).max(90).nullish(),
-    longitude: z.number().min(-180).max(180).nullish(),
+    latitude: z.number().finite().nullish(),
+    longitude: z.number().finite().nullish(),
     addressReference: z
       .string()
       .max(CTO_ADDRESS_REFERENCE_MAX_LENGTH)
