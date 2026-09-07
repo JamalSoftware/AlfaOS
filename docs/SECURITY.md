@@ -2486,6 +2486,22 @@ sessão, capability e tenant; saber o id da CTO não basta para ler a foto de
 outra empresa. `Content-Disposition: attachment` e `X-Content-Type-Options:
 nosniff` fecham a segunda metade da defesa que começa recusando SVG no upload.
 
+> **`CTO-1.8` — `attachment` foi MEDIDO, não presumido.** A `CTO-1.7` justificou
+> o preview por precedente (a evidência de OS já usava `<img src="/api/...">`
+> com o mesmo cabeçalho). A `CTO-1.8` fechou a lacuna com prova própria: com uma
+> imagem decodificável de dimensões conhecidas, o navegador reporta
+> `naturalWidth`/`naturalHeight` corretos na primeira foto, na substituição e
+> depois do F5 — navegadores aplicam `Content-Disposition` a navegação de topo,
+> não a subrecurso. **A troca para `inline` foi avaliada e recusada**: não
+> corrige nada e enfraquece a defesa. Trocar cabeçalho de segurança para
+> resolver um sintoma que ele não causa é como uma proteção some sem que
+> ninguém decida removê-la.
+>
+> Os cabeçalhos passaram a ser afirmados por teste, junto com a ausência da
+> chave e do `companyId` neles (`BYTES-09`). O corpo servido é byte a byte o do
+> storage (`BYTES-03`), e o `Content-Type` acompanha o formato real — não é
+> `image/jpeg` fixo (`BYTES-02`).
+
 ### `CTO-CONC-01` — a corrida entre estado de porta e redução de capacidade
 
 Encontrada durante a implementação, não relatada depois.

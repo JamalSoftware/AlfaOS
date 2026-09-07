@@ -1624,3 +1624,128 @@ subrecursos. A defesa extra fica de pé e o preview funciona.
 substituição aponta a linha para a chave nova e não apaga a anterior. Sem
 política de remoção, apagar por suposição é como se perde evidência; o custo é
 disco, uma imagem por troca.
+
+### `CTO-1.7` — o cache-buster do preview NÃO é cosmético
+
+Registro corrigido pela `CTO-1.8`, que o mediu em vez de afirmá-lo. A frase
+acima diz que sem o `updatedAt` "o navegador **poderia** reexibir a cópia que já
+tinha". O condicional era prudência a mais: sem ele o navegador **não chega a
+ser consultado**. Com o `src` inalterado, o React não toca o elemento e nenhuma
+requisição é emitida, de modo que `Cache-Control: private, no-store` nunca entra
+na conversa — ele governa o que se faz com uma resposta, e aqui não há resposta.
+
+Provado por reversão na `CTO-1.8` (sabotagem `W`): removido o `?v=`, a
+substituição de uma foto 48×24 por outra 30×60 deixa o preview em **48×24**.
+
+### `CTO-1.8` — a foto que respondia 200 e não abria
+
+O operador encontrou, na CTO de QA, uma foto cadastrada cuja rota respondia
+`200` com `Content-Type: image/jpeg` e cujo `<img>` ficava quebrado: quadro
+vazio, `alt` dentro, preview do DevTools sem renderizar.
+
+**A rota estava certa, e isso foi medido antes de qualquer correção.** O corpo
+HTTP é byte a byte o arquivo do storage — mesmo SHA-256, mesmo tamanho —, o
+`Content-Type` acompanha o formato real, e um teste de navegador com imagem de
+verdade mede `naturalWidth`/`naturalHeight` corretos, na primeira foto, na
+substituição e depois do F5. **`Content-Disposition: attachment` não impede um
+subrecurso de renderizar**: a afirmação da `CTO-1.7` era verdadeira, e agora tem
+prova própria em vez de precedente.
+
+#### O defeito era o dado, e o dado fui eu que pus lá
+
+O blob corrente tinha **141 bytes**:
+
+```text
+SOI → APP0(16) → APP1/Exif(34) → DQT(67) → SOS → 12 34 56 78 → EOI
+```
+
+Assinatura correta, contêiner que fecha, segmentos plausíveis — e **nenhum
+`SOF`, nenhuma tabela de Huffman**, com quatro bytes de scan inventados. Não há
+quadro para decodificar. É a saída sanitizada de `montarJpeg`, o fixture de
+sondagem de EXIF, que **eu enviei à CTO de QA durante a verificação da
+`CTO-1.7`** para provar que o GPS saía na substituição — e deixei como foto
+corrente ao declarar o ambiente pronto para validação.
+
+O relatório da `CTO-1.7` chegou a citar a mudança de hash
+(`95b35a75… → ef85cbe8…`) **como prova de que a substituição funcionava**. A
+substituição funcionava mesmo; o que ninguém verificou é que o destino era um
+arquivo que nunca foi imagem.
+
+Os três blobs órfãos da mesma CTO — os uploads reais do operador — são PNGs
+íntegros (527×879, 951×410, 975×900, CRC de todos os chunks conferindo, zero
+bytes de sobra). **A pipeline não corrompeu nada**, e a foto do operador foi
+restaurada pelo caminho de domínio, com auditoria.
+
+#### Por que 129 testes verdes não viam isso
+
+O `montarJpeg` diz, no próprio docstring, que **não precisa ser
+decodificável** — *"nada no AlfaOS decodifica imagem"*. Era verdade: a pipeline
+valida assinatura, tipo e estrutura de contêiner, e nunca abre a imagem.
+
+A `CTO-1.7` acrescentou o primeiro consumidor que **abre**. A partir dela,
+"os bytes chegaram" e "a imagem apareceu" deixaram de ser a mesma afirmação, e
+todo teste existente respondia só a primeira: presença (`toBeVisible`), atributo
+(`alt`), identidade de bytes. **Um `<img>` de origem quebrada satisfaz os
+três** — continua visível, continua tendo `alt`, continua devolvendo bytes
+estáveis.
+
+A asserção que separa os dois casos é a **dimensão natural**, que só existe
+depois da decodificação. Ela agora existe, com imagem pintada pelo próprio
+navegador (`canvas.toDataURL`) para que a dimensão esperada seja um número que o
+teste possa exigir, e não "algum número".
+
+#### O que mudou no produto
+
+Uma coisa só, e é a §14 do enunciado: **foto que não abre passou a dizer que não
+abriu**. Antes, o retângulo vazio com `alt` dentro era indistinguível de um bug
+de layout ou de uma tela ainda carregando — foi assim que o operador o
+encontrou, sem ter como interpretá-lo. Agora o `onError` do `<img>` produz um
+aviso nomeado, com a ação de substituir logo ao lado, e o elemento **permanece
+montado** para que um carregamento posterior possa desmentir o diagnóstico sem
+exigir F5.
+
+Não é máscara: o aviso aparece porque o arquivo realmente não abriu, e some
+porque outra imagem realmente abriu.
+
+#### Decisão sobre `Content-Disposition`
+
+**Mantido `attachment`.** O enunciado autorizava avaliar `inline` como
+semanticamente mais apropriado, e a evidência tirou a base do argumento: o
+preview decodifica com `attachment`, então trocar não corrige nada e enfraquece
+a metade da defesa que começa recusando SVG e HTML no upload (`SECURITY.md`
+§8.19). Corrigir o corpo primeiro, como o enunciado pedia, mostrou que não havia
+corpo a corrigir.
+
+#### `Content-Type` não é presumido
+
+Ele vem da extensão da chave, que vem do tipo **sniffado** no upload — PNG entra
+e `image/png` sai. Um `image/jpeg` fixo passaria despercebido em qualquer teste
+que só enviasse JPEG, e o AlfaOS aceita três formatos; a sabotagem `V` fixa o
+header e cai em exatamente um teste.
+
+#### Testes
+
+Dez no nível de rota (`src/tests/cto-photo-bytes.test.ts`), sobre o corpo HTTP:
+não-vazio, magic byte concordando com o header, hash igual ao do storage,
+binário que não passa por string (provado pelo byte **alto**, não pelo tamanho:
+uma conversão UTF-8 o trocaria por `EF BF BD`), estrutura completa com dimensões
+reais, substituição, preservação na falha, tenant cruzado com controle positivo,
+chave e caminho fora dos cabeçalhos, e GPS ausente com `Orientation` preservada.
+
+Dois de navegador (`e2e/ctos.spec.ts`): decodificação real com dimensões
+conhecidas, e o estado de falha exercitado com o **mesmo tipo de arquivo** que o
+operador encontrou.
+
+#### Reversões
+
+| | sabotagem | o que cai |
+|---|---|---|
+| `U` | corpo vazio com `200 image/jpeg` | 9 de 10 testes de bytes, `BYTES-01` à frente |
+| `V` | `Content-Type` fixo em `image/jpeg` | só `BYTES-02` — o sinal é estreito de propósito |
+| `W` | preview sem o cache-buster | o E2E de decodificação: 48×24 sobrevive à troca por 30×60 |
+
+#### Limite declarado
+
+O blob substituído continua **órfão**, como no §20 — a `CTO-1.8` acrescentou
+mais um a essa lista ao restaurar a foto do operador. Não há política de
+remoção, e apagar por suposição é como se perde evidência.

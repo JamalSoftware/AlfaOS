@@ -100,6 +100,19 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
    * aconteceu; a miniatura mostra o resultado.
    */
   const [photoOk, setPhotoOk] = useState<string | null>(null);
+  /*
+    A foto está cadastrada e o navegador NÃO conseguiu abri-la.
+
+    Não é hipótese: a validação humana viu exatamente isto. A rota respondia
+    200 com `image/jpeg` e o quadro ficava vazio, mostrando só o `alt` — e um
+    `<img>` quebrado não é distinguível, para quem olha, de um bug de layout ou
+    de uma tela ainda carregando. O estado existe porque o blob pode ser
+    ilegível por razões que a rota não tem como perceber: um arquivo truncado
+    por escrita parcial, um formato que aquele navegador não abre, um conteúdo
+    que nunca foi imagem. A tela precisa DIZER isso e oferecer a saída, em vez
+    de ficar quebrada em silêncio.
+  */
+  const [photoBroken, setPhotoBroken] = useState(false);
 
   /**
    * A mensagem da seção, ou nada.
@@ -358,6 +371,8 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
           ? "Foto atualizada com sucesso."
           : "Foto enviada com sucesso.",
       );
+      // A foto trocou: o veredito do navegador sobre a ANTERIOR não vale mais.
+      setPhotoBroken(false);
       // Limpa a escolha só no SUCESSO: se falhou, o arquivo continua
       // selecionado e a pessoa tenta de novo sem procurá-lo outra vez.
       setPhotoFile(null);
@@ -679,20 +694,53 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
                 cópia que já tinha e a troca pareceria não ter acontecido — que
                 é exatamente o defeito relatado.
               */}
+              {/*
+                O `<img>` permanece montado mesmo quando falha, e é isso que
+                permite ao próprio navegador desmentir o diagnóstico: se um
+                carregamento posterior der certo, `onLoad` devolve o quadro sem
+                exigir F5. Trocar o elemento por texto no erro apagaria a única
+                fonte capaz de dizer que a imagem voltou a abrir.
+              */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={`/api/ctos/${cto.id}/photo?v=${new Date(cto.updatedAt).getTime()}`}
                 alt="Foto atual da CTO"
                 className="h-28 w-40 rounded-lg border border-border bg-surface-muted object-cover"
                 data-testid="cto-photo-preview"
+                hidden={photoBroken}
+                onLoad={() => setPhotoBroken(false)}
+                onError={() => setPhotoBroken(true)}
               />
-              <p className="text-sm text-fg-secondary">
-                Foto atual cadastrada.
-                <br />
-                <span className="text-xs text-fg-muted">
-                  Enviar outra substitui esta.
-                </span>
-              </p>
+              {photoBroken ? (
+                /*
+                  O que a pessoa vê quando os bytes não abrem.
+
+                  Diz o que houve, não esconde, e aponta a saída — o botão de
+                  substituir está logo abaixo. Um quadro vazio com `alt` dentro
+                  não comunica nada: foi assim que a validação humana encontrou
+                  o problema e não teve como interpretá-lo.
+                */
+                <p
+                  className="max-w-xs rounded-lg border border-warning-border bg-warning-bg px-4 py-3 text-sm text-warning-fg"
+                  role="status"
+                  data-testid="cto-photo-broken"
+                >
+                  Não foi possível carregar a foto atual.
+                  <br />
+                  <span className="text-xs">
+                    O arquivo cadastrado não pôde ser exibido. Envie outra
+                    imagem para substituí-la.
+                  </span>
+                </p>
+              ) : (
+                <p className="text-sm text-fg-secondary">
+                  Foto atual cadastrada.
+                  <br />
+                  <span className="text-xs text-fg-muted">
+                    Enviar outra substitui esta.
+                  </span>
+                </p>
+              )}
             </div>
           ) : (
             <p

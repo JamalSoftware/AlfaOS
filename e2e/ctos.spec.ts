@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { assertTestDatabase } from "./test-db-guard";
@@ -863,6 +866,254 @@ test("a foto tem preview, botão próprio e confirma a substituição", async ({
   await page.getByTestId("cto-photo-submit").click();
   await expect(page.getByTestId("cto-photo-error")).toBeVisible();
   expect(await bytesDe()).toBe(conteudoB);
+});
+
+/**
+ * Uma imagem REAL, pintada pelo próprio navegador.
+ *
+ * `JPEG_A`/`JPEG_B` provam identidade de conteúdo e bastam para isso. O que
+ * elas NÃO provam é que o navegador consegue DECODIFICAR o que a rota devolve,
+ * e é essa a lacuna que a validação humana encontrou. O `montarJpeg` dos
+ * testes de servidor diz no próprio docstring que não precisa ser
+ * decodificável — "nada no AlfaOS decodifica imagem". Era verdade até existir
+ * um preview; o preview é exatamente o consumidor que decodifica.
+ *
+ * `canvas.toDataURL` produz um JPEG de verdade, com SOF e tabelas de Huffman,
+ * de dimensões conhecidas — então `naturalWidth` deixa de ser "algum número" e
+ * passa a ser um valor que o teste pode exigir.
+ */
+async function imagemReal(
+  page: Page,
+  largura: number,
+  altura: number,
+  cor: string,
+): Promise<Buffer> {
+  const base64 = await page.evaluate(
+    ({ largura, altura, cor }) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = largura;
+      canvas.height = altura;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = cor;
+      ctx.fillRect(0, 0, largura, altura);
+      // Um quadrante escuro: cor chapada comprime a quase nada, e duas fotos
+      // diferentes poderiam coincidir em tamanho.
+      ctx.fillStyle = "#101010";
+      ctx.fillRect(0, 0, Math.ceil(largura / 2), Math.ceil(altura / 2));
+      return canvas.toDataURL("image/jpeg", 0.92).split(",")[1];
+    },
+    { largura, altura, cor },
+  );
+  return Buffer.from(base64, "base64");
+}
+
+/** O que o navegador conseguiu fazer com os bytes — não o que o DOM contém. */
+async function medirPreview(page: Page) {
+  return page.getByTestId("cto-photo-preview").evaluate((el) => {
+    const img = el as HTMLImageElement;
+    return {
+      complete: img.complete,
+      naturalWidth: img.naturalWidth,
+      naturalHeight: img.naturalHeight,
+    };
+  });
+}
+
+async function enviarFoto(page: Page, bytes: Buffer, nome: string) {
+  await page.setInputFiles("[data-testid='cto-photo-input']", {
+    name: nome,
+    mimeType: "image/jpeg",
+    buffer: bytes,
+  });
+  await page.getByTestId("cto-photo-submit").click();
+}
+
+test("CTO1PV-PHOTO-DECODE — o preview é DECODIFICADO, não apenas exibido", async ({
+  page,
+}) => {
+  /*
+    Achado da validação humana: a rota respondia 200 com `image/jpeg` e a
+    imagem aparecia quebrada.
+
+    Nenhum teste anterior podia pegar isso. Todos afirmavam presença
+    (`toBeVisible`), atributo (`alt`) ou identidade de bytes — e um `<img>` de
+    origem quebrada continua visível, continua tendo `alt` e continua devolvendo
+    bytes estáveis. A única asserção que separa "chegou" de "abriu" é a dimensão
+    natural, que só existe depois da decodificação.
+
+    Este teste também é o que decide, empiricamente, se
+    `Content-Disposition: attachment` impede um subrecurso de renderizar.
+  */
+  await setCapability(true);
+  await login(page, ADMIN_EMAIL);
+
+  const nome = `E2E-DECODE-${Date.now()}`;
+  await page.goto("/ctos");
+  await page.getByLabel("Nome").fill(nome);
+  await page.getByLabel("Capacidade (portas)").fill("4");
+  await page.getByRole("button", { name: "Cadastrar CTO" }).click();
+  await page.getByRole("link", { name: nome }).click();
+  await esperarHidratacao(page);
+
+  // --- foto A: 48x24 ------------------------------------------------------
+  await enviarFoto(page, await imagemReal(page, 48, 24, "#c83232"), "a.jpg");
+  await expect(page.getByTestId("cto-photo-success")).toBeVisible();
+
+  const src = (await page
+    .getByTestId("cto-photo-preview")
+    .getAttribute("src"))!;
+  const resposta = await page.request.get(new URL(src, page.url()).toString());
+  expect(resposta.status()).toBe(200);
+  // CTO1PV-PHOTO-BYTES-01/02 — corpo não vazio e magic byte concordando com o
+  // header. Header e bytes têm de contar a mesma história.
+  expect(resposta.headers()["content-type"]).toBe("image/jpeg");
+  const corpo = await resposta.body();
+  expect(corpo.byteLength).toBeGreaterThan(100);
+  expect(corpo.subarray(0, 3).toString("hex")).toBe("ffd8ff");
+
+  // CTO1PV-PHOTO-BYTES-03 — o corpo HTTP é byte a byte o que está no storage.
+  // Uma serialização que passasse o binário por string quebraria aqui, e não
+  // no tamanho: bytes acima de 0x7f viram U+FFFD.
+  const linha = await prisma.cTO.findFirstOrThrow({
+    where: { name: nome },
+    select: { photoStorageKey: true },
+  });
+  const doDisco = await readFile(
+    resolve(process.env.STORAGE_ROOT ?? ".storage", linha.photoStorageKey!),
+  );
+  expect(createHash("sha256").update(corpo).digest("hex")).toBe(
+    createHash("sha256").update(doDisco).digest("hex"),
+  );
+
+  // --- a prova central ----------------------------------------------------
+  await expect
+    .poll(async () => (await medirPreview(page)).naturalWidth, {
+      timeout: 10_000,
+      message: "o navegador nunca decodificou a foto servida pela rota",
+    })
+    .toBe(48);
+  const medidaA = await medirPreview(page);
+  expect(medidaA.complete).toBe(true);
+  expect(medidaA.naturalHeight).toBe(24);
+
+  // --- foto B: 30x60, dimensões DIFERENTES --------------------------------
+  await enviarFoto(page, await imagemReal(page, 30, 60, "#2864c8"), "b.jpg");
+  await expect(page.getByTestId("cto-photo-success")).toHaveText(
+    "Foto atualizada com sucesso.",
+  );
+
+  // A troca é provada pela DIMENSÃO decodificada, não pelo texto da
+  // confirmação nem pelo `src`: só a dimensão prova que o navegador abriu a
+  // imagem NOVA.
+  await expect
+    .poll(async () => (await medirPreview(page)).naturalWidth, {
+      timeout: 10_000,
+    })
+    .toBe(30);
+  expect((await medirPreview(page)).naturalHeight).toBe(60);
+
+  // --- sobrevive ao F5 ----------------------------------------------------
+  await page.reload();
+  await esperarHidratacao(page);
+  await expect
+    .poll(async () => (await medirPreview(page)).naturalWidth, {
+      timeout: 10_000,
+    })
+    .toBe(30);
+  expect((await medirPreview(page)).naturalHeight).toBe(60);
+});
+
+/**
+ * Um JPEG que o servidor ACEITA e o navegador NÃO abre.
+ *
+ * É a forma exata do arquivo que a validação humana encontrou na CTO de QA:
+ * `SOI → APP0 → DQT → SOS`, quatro bytes de scan inventados, `EOI`. Assinatura
+ * correta, contêiner que fecha, segmentos plausíveis — e nenhum `SOF`, então
+ * não há quadro para decodificar. Toda validação do servidor passa; nenhum
+ * decodificador abre.
+ *
+ * Existe aqui para provar que a tela DIZ isso, em vez de mostrar um quadro
+ * vazio que a pessoa não tem como interpretar.
+ */
+function jpegQueNaoAbre(): Buffer {
+  const segmento = (codigo: number, carga: Buffer) => {
+    const cab = Buffer.alloc(4);
+    cab[0] = 0xff;
+    cab[1] = codigo;
+    cab.writeUInt16BE(carga.length + 2, 2);
+    return Buffer.concat([cab, carga]);
+  };
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    segmento(
+      0xe0,
+      Buffer.concat([
+        Buffer.from("JFIF ", "ascii"),
+        Buffer.from([0x01, 0x02, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]),
+      ]),
+    ),
+    segmento(0xdb, Buffer.alloc(65, 0x10)),
+    segmento(0xda, Buffer.from([0x01, 0x01, 0x00, 0x00, 0x3f, 0x00])),
+    Buffer.from([0x12, 0x34, 0x56, 0x78]),
+    Buffer.from([0xff, 0xd9]),
+  ]);
+}
+
+test("CTO1PV-PHOTO-FALLBACK — foto que não abre DIZ que não abriu", async ({
+  page,
+}) => {
+  /*
+    O estado que a validação humana viu: foto cadastrada, rota respondendo 200,
+    e um retângulo vazio com o `alt` dentro. Um `<img>` quebrado não é
+    distinguível, para quem olha, de um bug de layout ou de uma tela ainda
+    carregando — e a pessoa não tem como saber que precisa enviar outra imagem.
+
+    A saída não é esconder: é DIZER, e deixar a ação de substituir ao lado.
+  */
+  await setCapability(true);
+  await login(page, ADMIN_EMAIL);
+
+  const nome = `E2E-QUEBRADA-${Date.now()}`;
+  await page.goto("/ctos");
+  await page.getByLabel("Nome").fill(nome);
+  await page.getByLabel("Capacidade (portas)").fill("4");
+  await page.getByRole("button", { name: "Cadastrar CTO" }).click();
+  await page.getByRole("link", { name: nome }).click();
+  await esperarHidratacao(page);
+
+  // O servidor ACEITA — é este o ponto: não é um upload recusado.
+  await enviarFoto(page, jpegQueNaoAbre(), "quebrada.jpg");
+  await expect(page.getByTestId("cto-photo-success")).toBeVisible();
+
+  const aviso = page.getByTestId("cto-photo-broken");
+  await expect(aviso).toBeVisible();
+  await expect(aviso).toContainText("Não foi possível carregar a foto atual.");
+  // O quadro quebrado sai da frente; o `<img>` continua montado para que um
+  // carregamento posterior possa desmentir o diagnóstico sem exigir F5.
+  await expect(page.getByTestId("cto-photo-preview")).toBeHidden();
+  expect((await medirPreview(page)).naturalWidth).toBe(0);
+
+  // A saída está disponível, e não é uma sugestão vazia: enviar uma imagem de
+  // verdade tira o aviso e devolve o preview.
+  await expect(page.getByTestId("cto-photo-submit")).toHaveText(
+    "Substituir foto",
+  );
+  await enviarFoto(page, await imagemReal(page, 36, 18, "#2e7d32"), "ok.jpg");
+  await expect(page.getByTestId("cto-photo-success")).toHaveText(
+    "Foto atualizada com sucesso.",
+  );
+  await expect(aviso).toHaveCount(0);
+  await expect
+    .poll(async () => (await medirPreview(page)).naturalWidth, {
+      timeout: 10_000,
+    })
+    .toBe(36);
+
+  // E o aviso não volta no recarregamento: o estado seguia o arquivo, não a
+  // sessão de tela.
+  await page.reload();
+  await esperarHidratacao(page);
+  await expect(page.getByTestId("cto-photo-broken")).toHaveCount(0);
 });
 
 test("a foto vem ANTES de Salvar alterações, no desktop e no mobile", async ({
