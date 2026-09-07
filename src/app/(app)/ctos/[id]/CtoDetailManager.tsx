@@ -88,6 +88,19 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
   const [longitude, setLongitude] = useState(cto.longitude ?? "");
   const [capacity, setCapacity] = useState(String(cto.capacity));
 
+  /** Arquivo escolhido e ainda NÃO enviado. Enviar é ação separada. */
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  /**
+   * Confirmação do envio, em texto.
+   *
+   * A miniatura sozinha não serve como confirmação: quem substitui uma foto por
+   * outra parecida não distingue as duas, e foi assim que a troca ficou
+   * "funcionalmente desconhecida" na validação humana. A frase diz o que
+   * aconteceu; a miniatura mostra o resultado.
+   */
+  const [photoOk, setPhotoOk] = useState<string | null>(null);
+
   /**
    * A mensagem da seção, ou nada.
    *
@@ -302,29 +315,58 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
     });
   }
 
-  async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  /**
+   * Envia a foto escolhida. Ação separada, disparada por botão.
+   *
+   * Antes o envio acontecia no `onChange` do input: escolher o arquivo já o
+   * subia, sem confirmação, sem estado de progresso e sem nada mudar na tela
+   * além do input voltar a "Nenhum arquivo escolhido". A troca funcionava e era
+   * invisível — o pior desfecho possível, porque a pessoa não sabe se deve
+   * tentar de novo.
+   *
+   * `uploadingPhoto` desabilita o botão durante o envio, o que fecha o duplo
+   * clique; a nova foto substitui a atual no servidor, e a substituição é
+   * atômica do ponto de vista da linha: `setCtoPhoto` só troca a referência
+   * depois de a imagem nova estar gravada, então uma falha no meio deixa a
+   * anterior intacta.
+   */
+  async function handlePhotoUpload() {
+    if (!photoFile) return;
     setError(null);
+    setPhotoOk(null);
+    setUploadingPhoto(true);
     setBusy(true);
+
+    const substituindo = cto.hasPhoto;
     try {
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", photoFile);
       const res = await fetch(`/api/ctos/${cto.id}/photo`, {
         method: "POST",
         body: form,
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
-        setError({ scope: "photo", message: payload?.error ?? "Falha ao enviar a foto." });
+        setError({
+          scope: "photo",
+          message: payload?.error ?? "Não foi possível enviar a foto.",
+        });
         return;
       }
+      setPhotoOk(
+        substituindo
+          ? "Foto atualizada com sucesso."
+          : "Foto enviada com sucesso.",
+      );
+      // Limpa a escolha só no SUCESSO: se falhou, o arquivo continua
+      // selecionado e a pessoa tenta de novo sem procurá-lo outra vez.
+      setPhotoFile(null);
       router.refresh();
     } catch {
       setError({ scope: "photo", message: "Erro de conexão. Tente novamente." });
     } finally {
+      setUploadingPhoto(false);
       setBusy(false);
-      e.target.value = "";
     }
   }
 
@@ -604,33 +646,130 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
             />
           </div>
         </div>
+        {sectionError("details")}
+
+        {/*
+          A FOTO fica dentro do formulário, e antes do botão principal.
+
+          Ela era uma seção separada, DEPOIS do "Salvar" — o operador via a ação
+          de conclusão no meio da edição e ainda tinha um campo pela frente. A
+          ordem agora acompanha o que a pessoa faz: percorre os campos, olha a
+          foto, e só então encontra a ação que fecha o trabalho.
+
+          O envio da foto continua tendo botão PRÓPRIO, e é `type="button"` para
+          não submeter o formulário de dados junto. Os dois caminhos são
+          separados no servidor — a foto é `multipart` numa rota própria, com
+          auditoria própria — e unificá-los exigiria mudar o contrato da API
+          para carregar arquivo no `PATCH` de JSON. A ordem visual é o que o
+          operador precisava; a fusão dos dois envios seria uma mudança
+          arquitetural que não paga por si.
+        */}
+        <div className="mt-6 border-t border-border pt-5">
+          <h3 className="mb-3 text-sm font-semibold text-fg">Foto da caixa</h3>
+
+          {cto.hasPhoto ? (
+            <div className="mb-3 flex flex-wrap items-start gap-4">
+              {/*
+                A miniatura vem da MESMA rota autenticada que já servia os bytes
+                — sessão, capability, perfil e tenant. A chave do storage nunca
+                aparece no HTML; o `src` é o id da CTO, que a pessoa já conhece.
+
+                `updatedAt` no fim da URL é o que faz a imagem trocar na tela
+                depois de uma substituição: sem ele, o navegador pode reexibir a
+                cópia que já tinha e a troca pareceria não ter acontecido — que
+                é exatamente o defeito relatado.
+              */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/ctos/${cto.id}/photo?v=${new Date(cto.updatedAt).getTime()}`}
+                alt="Foto atual da CTO"
+                className="h-28 w-40 rounded-lg border border-border bg-surface-muted object-cover"
+                data-testid="cto-photo-preview"
+              />
+              <p className="text-sm text-fg-secondary">
+                Foto atual cadastrada.
+                <br />
+                <span className="text-xs text-fg-muted">
+                  Enviar outra substitui esta.
+                </span>
+              </p>
+            </div>
+          ) : (
+            <p
+              className="mb-3 text-sm text-fg-secondary"
+              data-testid="cto-photo-empty"
+            >
+              Nenhuma foto enviada. É opcional.
+            </p>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/*
+              A `key` muda quando a CTO é regravada, o que remonta o input e o
+              devolve a "Nenhum arquivo escolhido". Um `<input type="file">` é
+              não-controlado: zerar o estado do React não limpa o que ele
+              mostra, e o nome do arquivo já enviado ficaria na tela como se
+              ainda estivesse pendente.
+            */}
+            <input
+              key={`foto-${new Date(cto.updatedAt).getTime()}`}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+              disabled={busy}
+              className="text-sm text-fg-secondary"
+              data-testid="cto-photo-input"
+              aria-label="Escolher foto da CTO"
+            />
+            {/*
+              Ação EXPLÍCITA. Antes o arquivo subia só por ter sido escolhido —
+              upload silencioso, sem confirmação e sem estado; o operador não
+              tinha como saber se a troca acontecera.
+            */}
+            <button
+              type="button"
+              onClick={() => void handlePhotoUpload()}
+              disabled={busy || photoFile === null}
+              className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-fg-secondary transition-colors hover:bg-surface-muted disabled:opacity-50"
+              data-testid="cto-photo-submit"
+            >
+              {uploadingPhoto
+                ? "Enviando..."
+                : cto.hasPhoto
+                  ? "Substituir foto"
+                  : "Enviar foto"}
+            </button>
+          </div>
+
+          {photoFile && !uploadingPhoto && (
+            <p className="mt-2 text-xs text-fg-muted">
+              Arquivo escolhido: {photoFile.name}. Clique em{" "}
+              {cto.hasPhoto ? "Substituir foto" : "Enviar foto"} para enviar.
+            </p>
+          )}
+
+          {photoOk && (
+            <p
+              className="mt-3 rounded-lg border border-success-border bg-success-bg px-4 py-3 text-sm text-success-fg"
+              role="status"
+              data-testid="cto-photo-success"
+            >
+              {photoOk}
+            </p>
+          )}
+
+          {sectionError("photo")}
+        </div>
+
         <button
           type="submit"
           disabled={busy}
-          className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-fg transition-colors hover:bg-primary-hover disabled:opacity-60"
+          className="mt-6 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-fg transition-colors hover:bg-primary-hover disabled:opacity-60"
+          data-testid="cto-save"
         >
-          Salvar
+          Salvar alterações
         </button>
-        {sectionError("details")}
       </form>
-
-      <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
-        <h2 className="mb-4 text-base font-semibold text-fg">Foto da caixa</h2>
-        <p className="mb-3 text-sm text-fg-secondary">
-          {cto.hasPhoto
-            ? "Esta CTO já tem uma foto. Enviar outra substitui a atual."
-            : "Nenhuma foto enviada. É opcional."}
-        </p>
-        <input
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          onChange={handlePhoto}
-          disabled={busy}
-          className="text-sm text-fg-secondary"
-          data-testid="cto-photo-input"
-        />
-        {sectionError("photo")}
-      </section>
 
       <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
         <h2 className="mb-2 text-base font-semibold text-fg">Situação</h2>

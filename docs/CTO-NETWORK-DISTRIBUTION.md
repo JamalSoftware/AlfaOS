@@ -1580,3 +1580,47 @@ a pessoa vê a mesma frase nos dois casos.
 > limite (`-90`, `90`, `-180`, `180`, `91`, `-91`, `181`, `-181`, `NaN`,
 > `Infinity`) continuam exatamente onde estavam. O que a mensagem deixou de
 > dizer, a regra continua fazendo.
+
+### `CTO-1.6` — a troca de foto era invisível, e o botão principal vinha cedo demais
+
+Dois achados da validação humana, e o primeiro é o mais instrutivo: **a
+substituição de foto já funcionava.** Provado antes de tocar em código — a
+referência muda, o conteúdo servido muda, existe uma única referência ativa e o
+resto da CTO fica intacto.
+
+O que faltava era a tela dizer isso. Escolher o arquivo já o enviava, e a única
+mudança visível era o input voltar a "Nenhum arquivo escolhido". Sem preview,
+sem confirmação, sem estado de progresso.
+
+> **Uma operação que acontece sem sinal é pior que uma que falha com aviso.**
+> Quem falha sabe que precisa tentar de novo; quem não recebe sinal nenhum não
+> sabe sequer o que aconteceu.
+
+**Modelo escolhido: upload com ação própria, não junto do "Salvar
+alterações".** As duas opções foram consideradas. Unificar exigiria o `PATCH`
+de JSON carregar arquivo, ou orquestrar dois envios num submit — mudança de
+contrato da API para resolver um problema que era de ordem visual. A foto já
+tem rota `multipart` própria e auditoria própria (`CTO.PHOTO_UPDATED`);
+mantê-las separadas, com botão explícito, resolve o achado sem mexer na
+arquitetura. **O que não se mantém é o envio silencioso.**
+
+A seção da foto passou para **dentro** do formulário, antes do botão, que virou
+**"Salvar alterações"**. A ordem agora acompanha o que a pessoa faz: percorre os
+campos, olha a foto, e só então encontra a ação que fecha o trabalho.
+
+**A miniatura reusa a rota autenticada que já servia os bytes** — sessão,
+capability, perfil e tenant, sem endpoint novo e sem afrouxar nada. A chave do
+storage não aparece no HTML: o `src` é o id da CTO, que a pessoa já conhece. O
+`updatedAt` no fim da URL é o que faz a imagem trocar depois da substituição;
+sem ele, o navegador poderia reexibir a cópia que já tinha e a troca pareceria
+não ter ocorrido — que é justamente o defeito relatado.
+
+O precedente que dispensou mudança na entrega: o projeto **já** exibe evidência
+de OS em `<img src="/api/...">` com `Content-Disposition: attachment`, porque
+navegadores só aplicam esse cabeçalho em navegação de topo, não em
+subrecursos. A defesa extra fica de pé e o preview funciona.
+
+**Blob antigo continua órfão**, como já estava declarado no §20 — a
+substituição aponta a linha para a chave nova e não apaga a anterior. Sem
+política de remoção, apagar por suposição é como se perde evidência; o custo é
+disco, uma imagem por troca.

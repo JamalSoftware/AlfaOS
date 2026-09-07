@@ -306,7 +306,7 @@ test("CTO criada sem coordenada mostra campos VAZIOS, não o exemplo", async ({
 
   // Salvar sem tocar nas coordenadas não pode inventar nenhuma.
   await page.getByLabel("Observações").fill("editado sem mexer em GPS");
-  await page.getByRole("button", { name: "Salvar" }).click();
+  await page.getByTestId("cto-save").click();
   await page.reload();
   await expect(page.getByLabel("Latitude")).toHaveValue("");
   await expect(page.getByLabel("Longitude")).toHaveValue("");
@@ -342,12 +342,12 @@ test("coordenada inválida é barrada antes do envio e não apaga a existente", 
   // Grava uma coordenada válida primeiro: sem ela, "não apagou" seria vácuo.
   await page.getByLabel("Latitude").fill("-23.5505199");
   await page.getByLabel("Longitude").fill("-46.6333094");
-  await page.getByRole("button", { name: "Salvar" }).click();
+  await page.getByTestId("cto-save").click();
   await expect(page.getByLabel("Latitude")).toHaveValue("-23.5505199");
 
   for (const invalido of ["abc", "Infinity", "1,2,3"]) {
     await page.getByLabel("Latitude").fill(invalido);
-    await page.getByRole("button", { name: "Salvar" }).click();
+    await page.getByTestId("cto-save").click();
     // A mensagem passou a nomear o CAMPO, e não mais os dois de uma vez: só a
     // latitude está errada aqui.
     await expect(page.getByTestId("cto-details-error")).toContainText(
@@ -693,7 +693,7 @@ test("coordenada inválida marca O CAMPO responsável, e diz por quê", async ({
   }
 
   async function salvar() {
-    await page.getByRole("button", { name: "Salvar" }).click();
+    await page.getByTestId("cto-save").click();
   }
 
   // --- E2E-01: latitude fora da faixa -------------------------------------
@@ -759,6 +759,178 @@ test("coordenada inválida marca O CAMPO responsável, e diz por quê", async ({
   await expect(page.locator("#cto-lon")).toHaveValue("-46.6333094");
   await expect(page.getByTestId("cto-geo-state")).toContainText(
     "Coordenada cadastrada",
+  );
+});
+
+/** Duas imagens sintéticas DIFERENTES, montadas em memória pelo navegador. */
+const JPEG_A =
+  "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
+const JPEG_B =
+  "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
+
+/** Anexa um `data:` URI ao input de arquivo como se a pessoa o tivesse escolhido. */
+async function escolherFoto(page: Page, dataUri: string, nome: string) {
+  const base64 = dataUri.split(",")[1];
+  await page.setInputFiles("[data-testid='cto-photo-input']", {
+    name: nome,
+    mimeType: "image/jpeg",
+    buffer: Buffer.from(base64, "base64"),
+  });
+}
+
+test("a foto tem preview, botão próprio e confirma a substituição", async ({
+  page,
+}) => {
+  /*
+    Achado da validação humana: a substituição FUNCIONAVA e era invisível.
+    Escolher o arquivo já o enviava — sem confirmação, sem estado, sem preview
+    —, e a única mudança na tela era o input voltar a "Nenhum arquivo
+    escolhido". A pessoa não tinha como saber se a troca acontecera, que é o
+    pior desfecho: ela não sabe se deve tentar de novo.
+
+    Este teste prova as três coisas que faltavam — miniatura, ação explícita e
+    confirmação — e prova a troca pela IDENTIDADE DO CONTEÚDO, não pelo texto:
+    os bytes servidos depois têm de ser outros.
+  */
+  await setCapability(true);
+  await login(page, ADMIN_EMAIL);
+
+  const nome = `E2E-FOTO-${Date.now()}`;
+  await page.goto("/ctos");
+  await page.getByLabel("Nome").fill(nome);
+  await page.getByLabel("Capacidade (portas)").fill("4");
+  await page.getByRole("button", { name: "Cadastrar CTO" }).click();
+  await page.getByRole("link", { name: nome }).click();
+  await esperarHidratacao(page);
+
+  const preview = page.getByTestId("cto-photo-preview");
+  const enviar = page.getByTestId("cto-photo-submit");
+
+  // CTO1PV-PHOTO-01 — sem foto: nenhuma miniatura, e o botão diz "Enviar".
+  await expect(page.getByTestId("cto-photo-empty")).toBeVisible();
+  await expect(preview).toHaveCount(0);
+  await expect(enviar).toHaveText("Enviar foto");
+  // Nada foi enviado ainda: sem arquivo escolhido, a ação está indisponível.
+  await expect(enviar).toBeDisabled();
+
+  // Escolher NÃO envia — era exatamente esse o upload silencioso.
+  await escolherFoto(page, JPEG_A, "a.jpg");
+  await expect(enviar).toBeEnabled();
+  await expect(preview).toHaveCount(0);
+
+  await enviar.click();
+  await expect(page.getByTestId("cto-photo-success")).toHaveText(
+    "Foto enviada com sucesso.",
+  );
+  await expect(preview).toBeVisible();
+  await expect(preview).toHaveAttribute("alt", "Foto atual da CTO");
+
+  // A identidade do conteúdo servido, para comparar depois da troca.
+  const bytesDe = async () => {
+    const src = await preview.getAttribute("src");
+    const r = await page.request.get(new URL(src!, page.url()).toString());
+    expect(r.status()).toBe(200);
+    expect(r.headers()["content-type"]).toContain("image/");
+    return (await r.body()).toString("base64");
+  };
+  const conteudoA = await bytesDe();
+
+  // CTO1PV-PHOTO-02/04 — substituir por outra imagem.
+  await expect(enviar).toHaveText("Substituir foto");
+  await escolherFoto(page, JPEG_B, "b.jpg");
+  await enviar.click();
+  await expect(page.getByTestId("cto-photo-success")).toHaveText(
+    "Foto atualizada com sucesso.",
+  );
+
+  const conteudoB = await bytesDe();
+  expect(conteudoB).not.toBe(conteudoA);
+
+  // CTO1PV-PHOTO-05 — a nova sobrevive ao F5, e a antiga não volta.
+  await page.reload();
+  await esperarHidratacao(page);
+  await expect(page.getByTestId("cto-photo-preview")).toBeVisible();
+  const depoisDoReload = await bytesDe();
+  expect(depoisDoReload).toBe(conteudoB);
+  expect(depoisDoReload).not.toBe(conteudoA);
+
+  // CTO1PV-PHOTO-06 — arquivo inválido não derruba a foto vigente.
+  await page.setInputFiles("[data-testid='cto-photo-input']", {
+    name: "x.jpg",
+    mimeType: "image/jpeg",
+    buffer: Buffer.from("isto não é uma imagem"),
+  });
+  await page.getByTestId("cto-photo-submit").click();
+  await expect(page.getByTestId("cto-photo-error")).toBeVisible();
+  expect(await bytesDe()).toBe(conteudoB);
+});
+
+test("a foto vem ANTES de Salvar alterações, no desktop e no mobile", async ({
+  page,
+}) => {
+  /*
+    O botão principal aparecia no meio do formulário, antes do último item
+    editável. A ordem é verificada por GEOMETRIA, e não pela ordem do código:
+    o que importa é onde a pessoa vê cada coisa, e CSS pode reordenar sem que
+    o markup mude.
+  */
+  await setCapability(true);
+  await login(page, ADMIN_EMAIL);
+
+  const nome = `E2E-ORDEM-${Date.now()}`;
+  await page.goto("/ctos");
+  await page.getByLabel("Nome").fill(nome);
+  await page.getByLabel("Capacidade (portas)").fill("4");
+  await page.getByRole("button", { name: "Cadastrar CTO" }).click();
+  await page.getByRole("link", { name: nome }).click();
+  await esperarHidratacao(page);
+
+  const salvar = page.getByTestId("cto-save");
+  const foto = page.getByTestId("cto-photo-input");
+
+  for (const [rotulo, largura, altura] of [
+    ["desktop", 1280, 900],
+    ["mobile", 390, 844],
+  ] as const) {
+    await test.step(rotulo, async () => {
+      await page.setViewportSize({ width: largura, height: altura });
+
+      const caixaFoto = (await foto.boundingBox())!;
+      const caixaSalvar = (await salvar.boundingBox())!;
+      expect(
+        caixaFoto.y,
+        `${rotulo}: a foto deveria estar acima de Salvar alterações`,
+      ).toBeLessThan(caixaSalvar.y);
+
+      // O rótulo mudou de "Salvar" para "Salvar alterações".
+      await expect(salvar).toHaveText("Salvar alterações");
+
+      // E não há um segundo botão de salvar no meio do formulário.
+      await expect(
+        page.getByRole("button", { name: "Salvar", exact: true }),
+      ).toHaveCount(0);
+
+      // Nada estoura a largura da viewport.
+      const larguraDoc = await page.evaluate(
+        () => document.documentElement.scrollWidth,
+      );
+      expect(larguraDoc).toBeLessThanOrEqual(largura + 1);
+    });
+  }
+
+  // Editar e salvar pelo botão final continua funcionando.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByLabel("Observações").fill("editado pelo botão final");
+  await page
+    .getByLabel("Referência de endereço")
+    .fill("Poste da esquina, lado par");
+  await salvar.click();
+  await page.reload();
+  await expect(page.getByLabel("Observações")).toHaveValue(
+    "editado pelo botão final",
+  );
+  await expect(page.getByLabel("Referência de endereço")).toHaveValue(
+    "Poste da esquina, lado par",
   );
 });
 

@@ -836,6 +836,69 @@ describe("CTO1-19 / CTO1-20 · foto da caixa", () => {
     );
   });
 
+  it("CTO1PV-PHOTO-02/03/04 · a segunda foto substitui a primeira", async () => {
+    /*
+      A substituição já funcionava quando o achado da validação humana chegou —
+      o que faltava era a tela dizer isso. Estes testes fixam o comportamento do
+      servidor para que ele continue verdadeiro enquanto a UX evolui.
+    */
+    const cto = await novaCto();
+    const primeira = montarJpeg({ comGps: true, orientacao: 1 });
+    await setCtoPhoto(fixture.companyA.id, fixture.adminA.id, cto.id, {
+      data: primeira,
+      declaredMimeType: "image/jpeg",
+    });
+    const chaveA = (
+      await prisma.cTO.findUniqueOrThrow({ where: { id: cto.id } })
+    ).photoStorageKey!;
+    const bytesA = await getFileStorage().get(chaveA);
+
+    const segunda = montarJpeg({ comGps: true, orientacao: 6 });
+    await setCtoPhoto(fixture.companyA.id, fixture.adminA.id, cto.id, {
+      data: segunda,
+      declaredMimeType: "image/jpeg",
+    });
+    const chaveB = (
+      await prisma.cTO.findUniqueOrThrow({ where: { id: cto.id } })
+    ).photoStorageKey!;
+
+    // A referência mudou, e o conteúdo servido mudou junto.
+    expect(chaveB).not.toBe(chaveA);
+    const bytesB = await getFileStorage().get(chaveB);
+    expect(bytesB.equals(bytesA)).toBe(false);
+
+    // UMA referência ativa: a coluna guarda uma chave, não uma lista.
+    expect(typeof chaveB).toBe("string");
+
+    // E o GPS continua saindo das duas — a substituição não é atalho para
+    // pular a limpeza.
+    expect(lerExif(bytesB).tagsGps).toEqual([]);
+  });
+
+  it("CTO1PV-PHOTO-06 · falha no envio preserva a foto anterior", async () => {
+    const cto = await novaCto();
+    await setCtoPhoto(fixture.companyA.id, fixture.adminA.id, cto.id, {
+      data: montarJpeg({ comGps: false }),
+      declaredMimeType: "image/jpeg",
+    });
+    const antes = (await prisma.cTO.findUniqueOrThrow({ where: { id: cto.id } }))
+      .photoStorageKey;
+
+    await expect(
+      setCtoPhoto(fixture.companyA.id, fixture.adminA.id, cto.id, {
+        data: Buffer.from("isto não é uma imagem"),
+        declaredMimeType: "image/jpeg",
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    // A CTO nunca fica sem foto por causa de uma substituição que falhou.
+    const depois = (
+      await prisma.cTO.findUniqueOrThrow({ where: { id: cto.id } })
+    ).photoStorageKey;
+    expect(depois).toBe(antes);
+    expect(await getFileStorage().get(depois!)).toBeInstanceOf(Buffer);
+  });
+
   it("a empresa B não envia foto para a CTO de A", async () => {
     const cto = await novaCto();
     await expect(
