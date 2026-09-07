@@ -669,6 +669,12 @@ A correção é da boundary comum: o estado de erro passou a carregar o **escopo
 
 Gates: **1852 Vitest**, **124 Playwright** (era 122), lint, tsc, build, `build:worker`, 26 migrations. Zero migration, zero schema, zero Dart.
 
+**Incidente operacional depois da `CTO-1.4`: a aplicação abriu sem CSS, e NÃO era regressão de código.** O commit tocou cinco arquivos e **nenhum** deles é CSS, layout, config, `package.json` ou lockfile — e o componente alterado é da rota `/ctos/[id]`, enquanto o sintoma estava em `/dashboard`. Com o `.next` limpo e **um** servidor de dev, o mesmo commit serve o CSS em 200.
+
+A causa foi provada por reprodução determinística: **`next dev`, `next build` e o Playwright compartilham o mesmo diretório `.next`**. Com o dev no ar, rodar `npm run build` leva o CSS de **200 para 404** e esvazia `.next/static/css/app` — exatamente o sintoma relatado. Dois `next dev` sobre o mesmo `.next` produzem a mesma família de falhas, de forma intermitente. **Fui eu quem causou**, ao rodar os gates com o servidor de validação ativo. Regra e detalhes em `docs/CONTEXT-MAP.md`.
+
+**Isso também corrige uma explicação que dei antes:** atribuí as falhas intermitentes de Playwright durante a `CTO-1.3`/`1.4` a "contenção de recursos". A causa precisa é o compartilhamento do `.next`, não disputa de CPU.
+
 ## Princípios
 
 Integridade > velocidade

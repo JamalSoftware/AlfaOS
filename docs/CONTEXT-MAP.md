@@ -11,6 +11,38 @@ Regra geral: leia a seção "Sempre" em toda sessão nova, depois **só** as se�
 
 **Baseline publicada: `v0.13-field-push-notifications`.** Ela fecha a Field Notification Foundation (`NF-1`–`NF-5`, com piloto físico aprovado), a `ERP-1` e a `SGP-1`, mais o endurecimento de privacidade de foto (`PC-1`/`EXIF-01`) e a trava de ativação do SGP (`RC-1`). **Trilha de produto ativa: CTO / Rede de Distribuição** — decisões congeladas na `CTO-0.1`, e a **`CTO-1` existe em código** (cadastro de caixas e portas). Da `CTO-2` em diante, nada.
 
+## Um servidor de dev por vez — e nunca durante um build
+
+**`next dev`, `next build` e o Playwright compartilham o MESMO diretório
+`.next`.** Rodar dois deles ao mesmo tempo corrompe o que o outro está
+servindo, e o sintoma não se parece com um conflito: parece um defeito da
+aplicação.
+
+Reproduzido de forma determinística, com o servidor de dev no ar:
+
+```text
+antes de `npm run build`   CSS 200 · .next/static/css/app tem 1 arquivo
+depois de `npm run build`  CSS 404 · .next/static/css/app VAZIO
+```
+
+O HTML continua referenciando `/_next/static/css/app/layout.css`, o arquivo
+deixou de existir, e a tela abre **sem estilo nenhum, com ícones gigantes**. O
+build de produção emite o CSS em outro caminho (`.next/static/css/<hash>.css`)
+e limpa o do dev ao passar.
+
+Dois `next dev` sobre o mesmo `.next` produzem a mesma família de falhas, de
+forma intermitente: rotas que respondiam 200 passam a dar 404 e voltam sozinhas
+conforme cada processo recompila.
+
+> **Regra:** antes de rodar `npm run build`, `npm test` ou `npx playwright
+> test`, encerre o servidor de dev. Depois de um build, `rm -rf .next` antes de
+> subir o dev de novo — senão ele nasce sobre artefatos de produção.
+
+No Windows, `taskkill` pelo Git Bash falha com *acesso negado* em processos que
+não são da sessão; `Stop-Process -Force` do PowerShell funciona. Conferir a
+porta antes de subir evita o pior caso, que é **dois servidores escutando a
+mesma porta** — aí o tráfego alterna entre eles e o diagnóstico fica sem chão.
+
 ## Produto / roadmap
 
 **Carregar:** `docs/PRD.md` — preferencialmente só a(s) seção(ões) relevante(s) à tarefa, não o arquivo inteiro (é longo).
