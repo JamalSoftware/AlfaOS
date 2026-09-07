@@ -312,7 +312,7 @@ function assertCoordinates(
     // O erro é da COMBINAÇÃO, não de um campo: sem `field`, e a tela marca os
     // dois. Escolher um seria apontar o dedo para o lado errado metade das
     // vezes.
-    throw badRequest("Informe latitude e longitude juntas, ou nenhuma das duas.");
+    throw badRequest("Coordenadas incompletas. Preencha latitude e longitude juntas ou deixe os dois campos vazios.");
   }
 
   /*
@@ -324,17 +324,17 @@ function assertCoordinates(
     `Infinity` entra pela mesma porta.
   */
   if (hasLat && !Number.isFinite(latitude)) {
-    throw badRequest("Informe uma latitude válida.", "latitude");
+    throw badRequest("Latitude inválida. Informe o valor correto.", "latitude");
   }
   if (hasLon && !Number.isFinite(longitude)) {
-    throw badRequest("Informe uma longitude válida.", "longitude");
+    throw badRequest("Longitude inválida. Informe o valor correto.", "longitude");
   }
 
   if (hasLat && (latitude! < -90 || latitude! > 90)) {
-    throw badRequest("A latitude deve estar entre -90 e 90.", "latitude");
+    throw badRequest("Latitude inválida. Informe o valor correto.", "latitude");
   }
   if (hasLon && (longitude! < -180 || longitude! > 180)) {
-    throw badRequest("A longitude deve estar entre -180 e 180.", "longitude");
+    throw badRequest("Longitude inválida. Informe o valor correto.", "longitude");
   }
 }
 

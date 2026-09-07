@@ -351,7 +351,7 @@ test("coordenada inválida é barrada antes do envio e não apaga a existente", 
     // A mensagem passou a nomear o CAMPO, e não mais os dois de uma vez: só a
     // latitude está errada aqui.
     await expect(page.getByTestId("cto-details-error")).toContainText(
-      "Informe uma latitude válida.",
+      "Latitude inválida. Informe o valor correto.",
     );
     await expect(page.locator("#cto-lat")).toHaveAttribute(
       "aria-invalid",
@@ -703,7 +703,7 @@ test("coordenada inválida marca O CAMPO responsável, e diz por quê", async ({
 
   await expect(alerta).toBeVisible();
   await expect(alerta).toBeInViewport();
-  await expect(alerta).toHaveText("A latitude deve estar entre -90 e 90.");
+  await expect(alerta).toHaveText("Latitude inválida. Informe o valor correto.");
   await expect(lat).toHaveAttribute("aria-invalid", "true");
   await expect(lat).toHaveAttribute("aria-describedby", "cto-details-error");
   // Só a latitude. A longitude está correta e não pode ser acusada junto.
@@ -716,7 +716,7 @@ test("coordenada inválida marca O CAMPO responsável, e diz por quê", async ({
   await digitar(lon, "181");
   await salvar();
 
-  await expect(alerta).toHaveText("A longitude deve estar entre -180 e 180.");
+  await expect(alerta).toHaveText("Longitude inválida. Informe o valor correto.");
   await expect(lon).toHaveAttribute("aria-invalid", "true");
   await expect(lat).toHaveAttribute("aria-invalid", "false");
   await esperarBordaDeErro(lon);
@@ -732,7 +732,7 @@ test("coordenada inválida marca O CAMPO responsável, e diz por quê", async ({
     await salvar();
 
     await expect(alerta).toHaveText(
-      "Informe latitude e longitude juntas, ou nenhuma das duas.",
+      "Coordenadas incompletas. Preencha latitude e longitude juntas ou deixe os dois campos vazios.",
     );
     await expect(lat).toHaveAttribute("aria-invalid", "true");
     await expect(lon).toHaveAttribute("aria-invalid", "true");

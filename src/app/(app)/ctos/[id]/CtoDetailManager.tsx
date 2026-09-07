@@ -200,7 +200,7 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
       // sugeriria que o problema está nele.
       setError({
         scope: "details",
-        message: "Informe latitude e longitude juntas, ou nenhuma das duas.",
+        message: "Coordenadas incompletas. Preencha latitude e longitude juntas ou deixe os dois campos vazios.",
         fields: ["latitude", "longitude"],
       });
       return;
@@ -228,7 +228,7 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
     if (hasLat && !Number.isFinite(lat)) {
       setError({
         scope: "details",
-        message: "Informe uma latitude válida.",
+        message: "Latitude inválida. Informe o valor correto.",
         fields: ["latitude"],
       });
       return;
@@ -236,7 +236,7 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
     if (hasLon && !Number.isFinite(lon)) {
       setError({
         scope: "details",
-        message: "Informe uma longitude válida.",
+        message: "Longitude inválida. Informe o valor correto.",
         fields: ["longitude"],
       });
       return;

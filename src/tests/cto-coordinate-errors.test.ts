@@ -84,7 +84,7 @@ describe("CTO1PV-COORD-01/02 · latitude fora da faixa", () => {
     });
 
     expect(status).toBe(400);
-    expect(body.error).toBe("A latitude deve estar entre -90 e 90.");
+    expect(body.error).toBe("Latitude inválida. Informe o valor correto.");
     expect(body.field).toBe("latitude");
     // A mensagem genérica não pode voltar: era exatamente ela o achado.
     expect(body.error).not.toBe("Dados inválidos.");
@@ -97,7 +97,7 @@ describe("CTO1PV-COORD-01/02 · latitude fora da faixa", () => {
       longitude: LON_OK,
     });
     expect(status).toBe(400);
-    expect(body.error).toBe("A latitude deve estar entre -90 e 90.");
+    expect(body.error).toBe("Latitude inválida. Informe o valor correto.");
     expect(body.field).toBe("latitude");
   });
 
@@ -119,7 +119,7 @@ describe("CTO1PV-COORD-03/04 · longitude fora da faixa", () => {
       longitude: 181,
     });
     expect(status).toBe(400);
-    expect(body.error).toBe("A longitude deve estar entre -180 e 180.");
+    expect(body.error).toBe("Longitude inválida. Informe o valor correto.");
     expect(body.field).toBe("longitude");
   });
 
@@ -150,7 +150,8 @@ describe("CTO1PV-COORD-03/04 · longitude fora da faixa", () => {
     const cto = await ctoBase();
     const { body } = await patch(cto.id, { latitude: 91, longitude: 181 });
     expect(body.field).toBe("latitude");
-    expect(body.error).toContain("latitude");
+    expect(body.error).toMatch(/^Latitude/);
+    expect(body.error).not.toMatch(/Longitude/);
   });
 });
 
@@ -168,7 +169,7 @@ describe("CTO1PV-COORD-05/06 · par incompleto", () => {
     });
     expect(status).toBe(400);
     expect(body.error).toBe(
-      "Informe latitude e longitude juntas, ou nenhuma das duas.",
+      "Coordenadas incompletas. Preencha latitude e longitude juntas ou deixe os dois campos vazios.",
     );
     expect(body.field).toBeUndefined();
   });
@@ -240,7 +241,7 @@ describe("CTO1PV-COORD-07/08/09 · forma inválida", () => {
       { latitude: 91, longitude: LON_OK },
     ).catch((e: unknown) => e as DomainError);
     expect((erro as DomainError).message).toBe(
-      "A latitude deve estar entre -90 e 90.",
+      "Latitude inválida. Informe o valor correto.",
     );
     expect((erro as DomainError).field).toBe("latitude");
   });
@@ -314,7 +315,7 @@ describe("CTO1PV-COORD-11/12 · nenhuma falha persiste ou audita", () => {
 });
 
 describe("a resposta de erro não vaza nada interno", () => {
-  it("só campo, regra e faixa — nunca id, SQL, stack ou caminho", async () => {
+  it("só o campo e o que fazer — nunca id, SQL, stack ou caminho", async () => {
     const cto = await ctoBase();
     const { body } = await patch(cto.id, { latitude: 91, longitude: LON_OK });
     const texto = JSON.stringify(body);
@@ -322,8 +323,15 @@ describe("a resposta de erro não vaza nada interno", () => {
     expect(texto).not.toContain(cto.id);
     expect(texto).not.toContain(fixture.companyA.id);
     expect(texto).not.toMatch(/SELECT |UPDATE |prisma|\.ts:|at Object|C:\\/i);
-    // O que ele PODE dizer, e diz.
-    expect(body.error).toContain("-90");
-    expect(body.error).toContain("90");
+
+    /*
+      O que ele PODE dizer, e diz: qual campo está errado e o que fazer.
+
+      A faixa saiu da mensagem por decisão de copy — antes ela trazia
+      "-90 e 90". A regra continua idêntica no domínio e nos testes de limite
+      logo acima; o que mudou é só o texto que a pessoa lê.
+    */
+    expect(body.field).toBe("latitude");
+    expect(body.error).toBe("Latitude inválida. Informe o valor correto.");
   });
 });

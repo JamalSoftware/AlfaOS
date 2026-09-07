@@ -1507,7 +1507,7 @@ corretamente — e a tela dizia apenas **"Dados inválidos."**
 zod  latitude: z.number().min(-90).max(90)
      → "Invalid input"  →  jsonError("Dados inválidos.", 400, details)
 client  lê payload.error  →  "Dados inválidos."
-domínio "A latitude deve estar entre -90 e 90."  ← nunca alcançada
+domínio  a mensagem específica de latitude       ← nunca alcançada
 ```
 
 Duas camadas sabiam a mesma regra, e quem falava era a que tinha menos a dizer.
@@ -1558,3 +1558,25 @@ do navegador, porque a classe normal não está mais lá.
 A asserção passou a exigir o **canal vermelho dominando**, sem fixar hex (hex
 quebraria a cada ajuste de tema). Com isso a sabotagem cai, e cai dizendo o
 porquê: *"borda deveria ser avermelhada, veio rgb(229, 231, 235)"*.
+
+### Copy das mensagens de coordenada — decisão de produto
+
+A primeira versão das mensagens trazia a faixa: *"A latitude deve estar entre
+-90 e 90."* A copy foi simplificada por decisão do produto para:
+
+```text
+latitude inválida    Latitude inválida. Informe o valor correto.
+longitude inválida   Longitude inválida. Informe o valor correto.
+par incompleto       Coordenadas incompletas. Preencha latitude e longitude
+                     juntas ou deixe os dois campos vazios.
+```
+
+**Formato e faixa passaram a compartilhar a mesma mensagem por campo.** Antes
+eram duas — uma para "não é número" e outra para "está fora da faixa" —, e agora
+a pessoa vê a mesma frase nos dois casos.
+
+> **Só o texto mudou.** As faixas continuam sendo `-90..90` e `-180..180` no
+> domínio, o `field` estruturado continua nomeando o campo, e os testes de
+> limite (`-90`, `90`, `-180`, `180`, `91`, `-91`, `181`, `-181`, `NaN`,
+> `Infinity`) continuam exatamente onde estavam. O que a mensagem deixou de
+> dizer, a regra continua fazendo.
