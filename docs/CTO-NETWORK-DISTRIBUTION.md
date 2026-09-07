@@ -781,10 +781,18 @@ servidor a partir de tenant e recurso, como `buildStorageKey` já faz.
 
 ### Origem do vínculo — `source`
 
-O enum permanece `FIELD · WEB · IMPORT` conceitualmente. A `CTO-2` implementa
+> **SUPERADO pela decisão do dono na `CTO-2.0.1`. Ver §24.** O enum congelado é
+> **`FIELD · WEB`**: a operação administrativa Web passou a fazer parte da
+> `CTO-2`, e `IMPORT` caiu por não ter caso de uso. O parágrafo abaixo fica como
+> registro do que se decidiu antes, e **não** deve ser seguido.
+
+~~O enum permanece `FIELD · WEB · IMPORT` conceitualmente. A `CTO-2` implementa
 **`FIELD`**, e só. `WEB` e `IMPORT` ficam reservados: **não se cria endpoint
 porque o enum tem o valor** — um caminho de escrita sem caso de uso é superfície
-de ataque sem dono.
+de ataque sem dono.~~
+
+O princípio que sustentava a frase **continua valendo** e é o que mata `IMPORT`:
+endpoint só nasce com caso de uso. O que mudou foi o fato — `WEB` ganhou um.
 
 ### Fronteira com `ServiceOrder` e `Customer` — congelada
 
@@ -1933,3 +1941,435 @@ devolveu **zero** portas históricas, quaisquer que fossem seus estados.
 Nenhum código foi alterado por causa disto. Documentar a saída é o que o achado
 pede; uma exceção no guarda de redução criaria um segundo caminho para editar
 histórico, que é exatamente o que a `CTO-1.9` fechou.
+
+## 24. `CTO-2` DOMAIN FREEZE
+
+Congelamento oficial do domínio `Customer ↔ CTOPort`, após a reconciliação da
+`CTO-2.0` e as decisões do dono na `CTO-2.0.1`. **Nada disto existe em código.**
+
+A `CTO-1` está **congelada** e é premissa, não objeto: `CTO`, `CTOPort`,
+`Company.ctoNetworkEnabled`, os três estados administrativos, porta fora da
+capacidade read-only, faixa `1..256`, `code` imutável, inativação sem delete e
+uma foto atual continuam exatamente como a `v0.14` publicou.
+
+### 24.1 Decisões do dono
+
+| | |
+|---|---|
+| `CTO2-Q1` | **RESOLVIDA — Opção B** |
+| `source` | **`FIELD · WEB`**, `IMPORT` fora |
+
+### 24.2 `source` — `FIELD · WEB`, e o que isso supera
+
+O trecho da §17 que dizia *"a `CTO-2` implementa `FIELD`, e só"* está
+**SUPERADO**: a operação administrativa Web faz parte da `CTO-2`. `IMPORT` não
+entra, e nenhum `ERP`, `SYNC` ou `SYSTEM` é criado — o princípio que originou a
+regra antiga (endpoint só com caso de uso) é justamente o que os elimina.
+
+```text
+FIELD   mutação do aplicativo, SEMPRE por uma ServiceOrder IN_PROGRESS elegível
+WEB     mutação administrativa do ADMIN no painel
+```
+
+Nome proposto: `CustomerNetworkConnectionSource`, seguindo `CustomerLocationSource`
+e `ConnectionUsernameSource`. **O servidor deriva `source`**; o cliente nunca o
+envia como autoridade — é o mesmo tratamento que `companyId`, `technicianId`,
+`serviceOrderId` e os carimbos de tempo já recebem em `C-08`.
+
+### 24.3 Vínculo ativo × estado administrativo — Opção B
+
+A regra é sobre o **ALVO**, nunca sobre o estado atual:
+
+```text
+existe vínculo ativo na porta ?
+  alvo = RESERVED    → RECUSAR   (409)
+  alvo = AVAILABLE   → permitido
+  alvo = DAMAGED     → permitido
+```
+
+`RESERVED` significa *posição separada para uso futuro*, e isso não convive com
+alguém dentro. `DAMAGED` com cliente vinculado é situação real de campo: a
+posição quebrou e a operação precisa registrar isso enquanto planeja a migração.
+
+| transição com vínculo ativo | |
+|---|---|
+| `AVAILABLE → DAMAGED` | permitido |
+| `DAMAGED → AVAILABLE` | permitido |
+| `AVAILABLE → RESERVED` | `409` |
+| `DAMAGED → RESERVED` | `409` |
+
+#### O beco sem saída que NÃO pode ser criado
+
+A regra simplista *"porta ocupada não muda de estado"* seria **errada** e está
+proibida: uma porta `active + DAMAGED` **precisa** poder voltar a `AVAILABLE`
+quando o defeito for corrigido, sem desconectar ninguém.
+
+E se algum dia aparecer uma linha legada `active + RESERVED`, a aplicação
+**permite SAIR** dela para `AVAILABLE` ou `DAMAGED`. O que ela proíbe é
+**entrar** — ou permanecer por mutação nova — em `RESERVED` havendo vínculo
+ativo. Predicado só sobre o alvo, jamais sobre a origem.
+
+#### Onde a verificação mora
+
+Dentro da transação de `setPortAdministrativeState`, **depois** do `lockCto` que
+já existe, junto da regra de faixa da `CTO-1.9`. Consultar vínculo ativo fora do
+lock reabriria a mesma janela que a `CTO-1.9` fechou: conectar e reservar em
+paralelo, as duas lendo "sem vínculo".
+
+### 24.4 O contador de danificadas MENTE — e isso é da `CTO-2.2`
+
+Consequência direta da Opção B, levantada no código e não deduzida:
+
+```ts
+// src/lib/cto.ts — hoje
+if (hasActiveConnection) return "OCCUPIED";       // effectivePortState
+damaged: inRange.filter((p) => p.effectiveState === "DAMAGED").length
+```
+
+`effectiveState` colapsa em `OCCUPIED` sempre que há vínculo, então uma porta
+`DAMAGED + ocupada` **desaparece da contagem de danificadas** e é contada como
+ocupada. O resumo da CTO diria `damaged: 0` com uma posição fisicamente quebrada
+e um cliente nela — exatamente o estado que a Opção B tornou legítimo e
+operacionalmente útil.
+
+**A precedência publicada (§3) não muda**: `OCCUPIED` continua vencendo como
+RÓTULO, e continua sendo derivado. O que passa a ser obrigatório é o DTO
+carregar as **duas dimensões separadas**, e o resumo contar por
+`administrativeState`, não por `effectiveState`:
+
+```text
+damaged  = portas na faixa com administrativeState = DAMAGED   (ocupadas ou não)
+reserved = portas na faixa com administrativeState = RESERVED
+occupied = portas na faixa com vínculo ativo
+free     = na faixa, AVAILABLE e sem vínculo ativo
+```
+
+As categorias deixam de somar `capacity`, e é correto que deixem: uma porta pode
+ser danificada **e** ocupada. Uma tela que apresente as quatro como fatias de um
+todo estará errada a partir daqui.
+
+### 24.5 Read model congelado
+
+```text
+withinCapacity        number <= capacity
+administrativeState   AVAILABLE · RESERVED · DAMAGED
+occupied              existe vínculo ativo
+activeConnection?     quando ocupada
+customer?             quando ocupada E o perfil pode ver
+effectiveState        rótulo de conveniência — LOSSY, ver §24.4
+```
+
+`effectiveState` **nunca** é persistido, e nenhuma tela pode depender só dele
+para decidir se a porta está danificada.
+
+| combinação | leitura |
+|---|---|
+| `AVAILABLE` + ocupada | cliente conectado normalmente |
+| `DAMAGED` + ocupada | cliente conectado em porta com defeito |
+| `RESERVED` + ocupada | **inconsistência/legado** — inválida para escrita nova |
+
+### 24.6 O modelo, congelado
+
+```text
+CustomerNetworkConnection
+  id                cuid
+  companyId         redundante de propósito — filtro de tenant em SQL
+  customerId
+  ctoPortId
+  serviceOrderId?   PROCEDÊNCIA, nunca posse
+  technicianId?     Technician, jamais User
+  connectedAt
+  disconnectedAt?   NULL enquanto ativo
+  source            FIELD · WEB
+  reason?           opcional, na desconexão
+  createdAt
+```
+
+**Fora, e cada ausência tem motivo:**
+
+| ausente | por quê |
+|---|---|
+| `equipmentId` | `C-05`. `ServiceOrderEquipment` é linha por OS, e `serial`/`macAddress` são opcionais desde a v0.10: não existe identidade estável de equipamento fora da OS |
+| `updatedAt` | a linha é escrita duas vezes — nasce e fecha —, e `disconnectedAt` já carimba a segunda. Seria uma segunda memória do mesmo fato |
+| `version` | ver §24.13 |
+| `externalProvider` / `externalId` | ERP não é autoridade de porta (§24.19) |
+| ONU · MAC · serial · router · OLT · PON · splitter · fibra | fronteira do FiberMap (§24.20) |
+
+**Obrigatoriedade por `source`, e a distinção importa:** as colunas são
+**anuláveis no schema** porque `WEB` não tem OS nem técnico; a obrigatoriedade é
+**invariante de domínio**, verificada no serviço.
+
+```text
+FIELD   serviceOrderId OBRIGATÓRIO   technicianId OBRIGATÓRIO
+WEB     serviceOrderId NULO          technicianId NULO
+```
+
+`WEB` **não inventa técnico**: o ator administrativo é auditável pelo `AuditLog`,
+que já grava `userId`. Preencher `technicianId` com o `User` do ADMIN seria
+afirmar que alguém foi ao poste.
+
+### 24.7 Uniques parciais — a última barreira
+
+```sql
+CREATE UNIQUE INDEX "customer_network_connections_active_port_key"
+  ON "customer_network_connections"("ctoPortId")
+  WHERE "disconnectedAt" IS NULL;
+
+CREATE UNIQUE INDEX "customer_network_connections_active_customer_key"
+  ON "customer_network_connections"("customerId")
+  WHERE "disconnectedAt" IS NULL;
+```
+
+**Precedente real do projeto**, não invenção: `checklist_templates_company_default_key`
+já é um índice único parcial, criado por SQL cru no fim da migration
+(`20260827180000`) com bloco de comentário, e documentado por `///` no
+`schema.prisma` explicando que o DSL não o expressa. A `CTO-2` repete esse
+padrão exato.
+
+Validação em código de aplicação **não** substitui as duas: lock protege quem
+passa pelo serviço, o índice protege contra todo o resto.
+
+### 24.8 História
+
+Desconectar **preenche `disconnectedAt`** e nunca apaga. Reconectar cria linha
+nova. Mover fecha a antiga e abre a nova. **Jamais `UPDATE ctoPortId`** numa
+linha histórica — isso faria o passado afirmar que o cliente sempre esteve na
+porta nova.
+
+### 24.9 Ocupação
+
+Derivada, sempre: existe vínculo com `disconnectedAt IS NULL`. Sem `OCCUPIED` no
+enum, sem `isOccupied`, sem contador autoritativo na CTO.
+
+```text
+occupiedPorts(cto) = COUNT(vínculos ativos nas portas da CTO)
+```
+
+### 24.10 CTO inativa
+
+```text
+CONNECT     recusado
+MOVE-IN     recusado
+DISCONNECT  permitido
+MOVE-OUT    permitido
+```
+
+Sem conflito com a `CTO-1`, cuja §11 diz *"não aceita vínculo novo; os
+existentes ficam"* — "ficam" é não-remoção automática, não imutabilidade. O
+inverso aprisionaria a operação numa caixa desativada.
+
+### 24.11 `CONNECT` · `DISCONNECT` · `MOVE`
+
+**`CONNECT`** — precondições, todas na transação: sessão · tenant · capability ·
+perfil ou autorização Field · `Customer` da empresa · `CTO` da empresa · `CTOPort`
+pertencente à CTO · CTO ativa · `isPortOfferable(porta, capacity)` · porta sem
+vínculo ativo · cliente sem vínculo ativo. Cria a linha com `disconnectedAt = NULL`.
+
+`isPortOfferable` exige `AVAILABLE`, então **não existe** conexão nascendo em
+`RESERVED` ou `DAMAGED`: `active + DAMAGED` só surge de uma mudança
+administrativa **depois** de o vínculo existir.
+
+**`DISCONNECT`** — localiza o vínculo ativo dentro do tenant, trava, reconfirma
+que ainda está ativo e preenche `disconnectedAt`. Nunca `delete`. Repetição sem
+`Idempotency-Key` responde `409` explícito ("já desconectada"), não `200` mudo —
+um `200` faria o cliente acreditar que desconectou agora.
+
+**`MOVE`** — **não é `UPDATE ctoPortId`**. É, numa transação: fechar o vínculo
+antigo **e** criar o novo. Falhou qualquer etapa, nada muda. Depois: linha antiga
+com `disconnectedAt != NULL`, linha nova com `NULL`. Entre CTOs diferentes da
+mesma empresa funciona; a CTO **destino** precisa estar ativa e a porta destino
+ofertável; a CTO **origem** pode estar inativa, que é o `MOVE-OUT` da §24.10.
+
+### 24.12 Ordem de lock
+
+```text
+1. Customer
+2. CTOs envolvidas, ordenadas por id ASC
+```
+
+**Sem lock de `CTOPort`.** A `CTO-1` decidiu deliberadamente travar a **CTO** e
+não a linha da porta; um segundo nível teria de coexistir com o lock da
+capacidade, que é o que se quer evitar.
+
+**Ids resolvidos ANTES de qualquer `FOR UPDATE`** — lição literal da `DQ-2`:
+ordenar depois de travar é o mesmo que não ordenar.
+
+**Prova de ausência de ciclo:** as classes formam ordem total
+`Customer(1) → CTO(2, por id)`, e toda operação toma um prefixo consistente.
+`changeCtoCapacity` e `setPortAdministrativeState` tomam **apenas** o lock de
+CTO — nunca o de Customer —, então não podem ser a segunda metade de um ciclo.
+`CONNECT` e `DISCONNECT` tocam uma CTO; `MOVE` toca uma ou duas, sempre em ordem
+crescente de id.
+
+### 24.13 Concorrência, e por que não há `version`
+
+| | cenário | quem garante |
+|---|---|---|
+| `C1` | dois clientes, mesma porta | unique parcial de `ctoPortId` + lock de CTO |
+| `C2` | mesmo cliente, duas portas | unique parcial de `customerId` |
+| `C3` | dois `MOVE` do mesmo cliente | lock de Customer, primeiro na ordem |
+| `C4` | redução × `CONNECT` | lock de CTO compartilhado; faixa lida depois do lock |
+| `C5` | mudança de estado × `CONNECT` | mesmo lock; `isPortOfferable` dentro da transação |
+| `C6` | `DISCONNECT` × `MOVE` | lock de Customer; o perdedor vê o vínculo já fechado |
+
+**Sem `version`/CAS.** `ServiceOrder.version` existe porque o Field faz muitas
+escritas-filhas numa sessão e precisa de um token entre leitura e escrita. A
+conexão não tem sessão multi-escrita: cada operação lê e escreve dentro da mesma
+transação travada, e a duplicidade é proibida pelo banco. Acrescentar `version`
+por hábito criaria um segundo compare-and-set sem pergunta a responder — e a
+`DQ-3` já mostrou o custo de dois CAS quando são dois agregados de verdade.
+
+**As corridas se provam por execução repetida**, com asserção que **proíbe** o
+desfecho ruim. Vencedor sempre igual = não houve corrida.
+
+### 24.14 Capacidade e estado
+
+Redução recusa quando qualquer porta acima do novo limite estiver `RESERVED`,
+`DAMAGED` **ou com vínculo ativo** — a terceira condição é o que a `CTO-2`
+acrescenta ao `C-10`. **Nenhuma desconexão automática, nenhum move automático,
+nenhum vínculo apagado.** A mensagem diz que há cliente conectado acima do novo
+limite.
+
+### 24.15 Tenancy · Permissões · Autorização Field
+
+`companyId` **sempre** da sessão. Todas as relações conferidas no mesmo tenant:
+conexão, `Customer`, `CTO` e `CTOPort → CTO`. Porta **nunca** resolvida só por
+`portId`: `empresa → CTO → CTOPort pertencente à CTO`, como a `CTO-1` congelou.
+
+**Sem FK composta de tenant.** O projeto não usa esse padrão — `ServiceOrder.technicianId`
+é FK simples sem `(companyId, technicianId)`, vetor que a `DQ-7.1` explorou. O
+padrão é `companyId` redundante mais predicado SQL no serviço, e inventar aqui
+uma exceção criaria um segundo modelo de tenancy.
+
+| perfil | READ | CONNECT | DISCONNECT | MOVE |
+|---|---|---|---|---|
+| `ADMIN` | sim | sim | sim | sim |
+| `DISPATCHER` | não | não | não | não |
+| `TECHNICIAN` | pelo Field, na OS elegível | sim | sim | sim |
+
+`DISPATCHER` segue o `C-07` (*"não altera CTO"*) e **não** ganha leitura por
+inferência: o `C-07` abre leitura *"por fase que precise dela"*, e a `CTO-2`
+precisa da leitura do ADMIN e da do técnico. **`GESTOR` não existe** — os perfis
+reais são `ADMIN · DISPATCHER · TECHNICIAN`.
+
+**Field (`C-08`, inalterado):** técnico válido e ativo · mesma empresa pela
+sessão · OS da mesma empresa · OS `IN_PROGRESS` · OS sob autoridade daquele
+técnico por `loadInProgressOwnedOrder` · **o `Customer` do vínculo é exatamente
+o `Customer` da OS**. A última linha impede o vetor mais barato: OS legítima do
+próprio técnico usada para conectar outro cliente.
+
+**Não se escreve um segundo predicado de posse.** `loadInProgressOwnedOrder` é o
+mesmo portão de evidência, material, equipamento, assinatura e checklist.
+
+Derivados pelo servidor, ignorados no payload: `companyId` · `technicianId` ·
+`serviceOrderId` · `source` · `connectedAt` · `disconnectedAt`.
+
+### 24.16 `AuditLog` e `ServiceOrderEvent`
+
+Auditoria em **toda** mutação, no formato `ENTIDADE.ACAO` já usado:
+
+```text
+CTO_CONNECTION.CONNECTED · DISCONNECTED · MOVED
+```
+
+Registrar cliente, CTO/porta, ação, ator, `source` e a OS quando houver. Sem
+segredo.
+
+**`ServiceOrderEvent` só quando a origem é `FIELD`.** O padrão do projeto
+discrimina, e não por acaso: eventos são fatos da *narrativa da visita*
+(`CHECKED_IN`, `MATERIAL_USED`, `EQUIPMENT_INSTALLED`, `SIGNATURE_CAPTURED`),
+enquanto edição incremental fica só na auditoria (`EVIDENCE_ADDED`,
+`CHECKLIST_ANSWERED`, `EXECUTION_UPDATED`). Conectar um cliente durante um
+atendimento é da primeira classe. `WEB` não tem OS: só `AuditLog`, e criar uma
+timeline sem visita seria inventar uma.
+
+### 24.17 Idempotência
+
+Reutilizar `withIdempotency` (`src/lib/field/idempotency.ts`), que **já serve
+rotas Web** — `dispatch/.../reorder`, `service-orders/[id]/priority`,
+`time-clock/.../adjustments`. Nenhum mecanismo paralelo.
+
+Operações: `cto.connect` · `cto.disconnect` · `cto.move`. Escopo
+`(empresa, usuário, operação, chave)`. **Só o sucesso é memorizado** — replay
+devolve a resposta gravada; falha não fica lembrada e pode ser tentada de novo.
+
+### 24.18 Migration — desenho, não arquivo
+
+Nova, **aditiva**, sem tocar nenhuma publicada e sem `migrate dev` nesta fase:
+enum `CustomerNetworkConnectionSource` · tabela `customer_network_connections` ·
+FKs · índices normais (`(companyId, customerId)`, `(companyId, ctoPortId)`) ·
+os **dois índices únicos parciais** em SQL cru · **zero backfill**.
+
+**`onDelete`:**
+
+| relação | política | por quê |
+|---|---|---|
+| `Company` | `Cascade` | padrão do schema |
+| `Customer` | **`Restrict`** | histórico não some porque o cliente foi removido |
+| `CTOPort` | **`Restrict`** | idem; `CTO → CTOPort` já é `Restrict` |
+| `Technician` | **`Restrict`** | desativar é a operação suportada, e desativar não apaga |
+| `ServiceOrder` | **`SetNull`** | procedência, não posse: perder a OS não pode apagar o vínculo |
+
+Nenhum `delete` físico de `ServiceOrder`, `Customer` ou `Technician` existe em
+produção hoje — as políticas acima são cinto e suspensório.
+
+**Backfill: zero.** A tabela é nova, e nada existente representa vínculo de
+porta. `CustomerConnection` é **PPPoE** (`type`, `username`, credencial cifrada)
+e **não** será convertido; `EvidenceCategory.CTO` é categoria de **foto**. Não
+inferir vínculo por endereço, texto ou PPPoE.
+
+### 24.19 Fronteira com o ERP
+
+ReceitaNet e SGP **não** controlam `CustomerNetworkConnection`. O ERP fornece
+dado de `Customer`; conectar, desconectar e mover é operação do AlfaOS. Sem
+`externalProvider`/`externalId` na conexão.
+
+### 24.20 Fronteira com o FiberMap
+
+AlfaOS: autoridade **operacional** `Customer ↔ CTOPort`. FiberMap: topologia
+**física** — fibra, splitter, OLT, PON, trajeto óptico. A `CTO-2` **não** cria
+`OLT`, `PON`, `splitter`, `fiber`, `route`, `fiber trace` nem motor de topologia.
+
+### 24.21 Sem mutação offline
+
+`CONNECT`, `DISCONNECT` e `MOVE` **não** entram em fila offline. Não existe
+"reservei a porta offline e sincronizo depois": duas pessoas fariam isso na
+mesma porta e a reconciliação teria de escolher um perdedor **depois** de os dois
+terem ido ao poste. Sem rede, a ação fica **indisponível com mensagem clara** —
+o Field pode, no futuro, exibir topologia conhecida em cache, mas mutação exige
+servidor.
+
+### 24.22 Threat model
+
+`T1`–`T4` IDOR e tenant → resolução `sessão → Customer → CTO → CTOPort ∈ CTO`,
+`404`. `T5` mass assignment → zod `.strict()`. `T6`–`T9` spoofing de
+`technicianId`, `serviceOrderId`, `source` e carimbos → todos derivados no
+servidor. `T10`/`T11` dupla ocupação → uniques parciais mais locks, com corrida
+real repetida. `T12` move parcial → transação única. `T13` replay offline →
+mutação é online-only. `T14` colisão de chave → escopo mais fingerprint.
+`T15`/`T16` corridas de capacidade e estado → lock de CTO compartilhado. `T17`
+CTO inativa → verificada na transação. `T18` mutação de histórico → sem `UPDATE`
+de porta, sem delete, `Restrict` em toda FK.
+
+| novo | ataque | controle |
+|---|---|---|
+| `T19` | `active link → RESERVED` por fora | `setPortAdministrativeState` consulta vínculo ativo **dentro** da mesma transação e do mesmo `lockCto` |
+| `T20` | `active + DAMAGED` presa sem volta | a regra proíbe **o alvo `RESERVED`**, nunca toda mutação — voltar a `AVAILABLE` continua permitido |
+
+### 24.23 Fatias
+
+```text
+CTO-2.1  schema + migration + serviço de domínio
+CTO-2.2  API Admin + read models
+CTO-2.3  Web: conectar / desconectar / mover
+CTO-2.4  API Field via OS IN_PROGRESS
+CTO-2.5  UI Field
+CTO-2.6  integração capacidade/estado + endurecimento de concorrência
+CTO-2.7  validação do dono + checkpoint de release
+```
+
+A `CTO-2.1` traz as duas uniques parciais: a barreira de banco entra na primeira
+fatia, não na última.
+
+> **`CTO-2` DOMAIN FREEZE — APROVADO.** Nenhuma decisão de produto pendente.
+> Nada disto existe em código: a §119 do PRD vale linha por linha até a `CTO-2.1`.

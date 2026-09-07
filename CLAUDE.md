@@ -721,6 +721,18 @@ Mudança de produto, uma só: **foto que não abre passou a dizer que não abriu
 
 **Isto NÃO substitui o `R-13`:** a `CTO-2` só pode vincular porta **ofertável**, com `isPortOfferable` dentro da transação que grava. Estar na faixa é necessário e não suficiente. Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §23.
 
+**Publicada: `v0.14-cto-network-foundation`** — tag anotada em `c9ccf74`, no remoto. Fecha a `CTO-1` inteira: capability por empresa, cadastro, portas automáticas, capacidade 1..256, redução e aumento seguros, histórico preservado, **portas fora da capacidade read-only**, os três estados administrativos com `OCCUPIED` derivado, coordenadas com erro por campo, foto segura com preview decodificável, tenancy e concorrência. `CTO-2` em diante não existe em código.
+
+**`CTO-2` — DOMÍNIO CONGELADO, zero código.** Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §24. Duas decisões do dono fecharam a fase de desenho.
+
+**`source` é `FIELD · WEB`** — e isso **supera** o trecho publicado que dizia "a `CTO-2` implementa `FIELD`, e só". A operação administrativa Web entrou; `IMPORT` caiu. O princípio que sustentava a regra antiga continua e é o que mata `IMPORT`: endpoint só nasce com caso de uso. O trecho velho ficou marcado como superado no próprio documento, não apagado.
+
+**Porta com vínculo ativo aceita `AVAILABLE` e `DAMAGED`, jamais `RESERVED`** — `RESERVED` significa posição separada para uso futuro e não convive com alguém dentro; `DAMAGED` com cliente ligado é situação real de campo. **A regra é sobre o ALVO, nunca sobre o estado atual**, e isso é deliberado: "porta ocupada não muda de estado" criaria um beco sem saída onde uma porta consertada não pode voltar a `AVAILABLE`, e uma linha legada `active + RESERVED` nunca poderia sair de lá.
+
+**O contador de danificadas MENTE hoje, e o achado é do código.** `effectivePortState` devolve `OCCUPIED` sempre que há vínculo, e `toPublicDetail` conta `damaged` por `effectiveState` — então uma porta `DAMAGED` **ocupada** sai da contagem de danificadas justamente no estado que a decisão do dono tornou legítimo. A precedência publicada não muda (`OCCUPIED` continua vencendo como rótulo); o que passa a ser obrigatório é o DTO carregar as **duas dimensões** e o resumo contar por `administrativeState`. As categorias deixam de somar `capacity`, e é correto que deixem.
+
+Também congelado: modelo sem `equipmentId`, `updatedAt`, `version`, `externalProvider` nem nada de topologia; **duas uniques parciais** (`ctoPortId` e `customerId`, ambas `WHERE disconnectedAt IS NULL`) pelo padrão de SQL cru que `checklist_templates_company_default_key` já usa; ordem de lock **`Customer` → CTOs por id**, sem lock de porta, com ids resolvidos antes do `FOR UPDATE`; `ServiceOrderEvent` **só** quando a origem é `FIELD`; `withIdempotency` reaproveitado, sem mecanismo paralelo; CTO inativa recusa `CONNECT`/`MOVE-IN` e permite `DISCONNECT`/`MOVE-OUT`; e **mutação de porta é online-only**, sem fila offline.
+
 ## Princípios
 
 Integridade > velocidade

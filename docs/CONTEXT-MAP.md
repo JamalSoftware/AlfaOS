@@ -484,6 +484,8 @@ Quatro coisas que a especificação fixou e são fáceis de desfazer sem percebe
 * **Nenhuma integração nova de status** (§336). A CTO lê o `CustomerDiagnosticSnapshot` que a OS já usa. Uma segunda leitura criaria dois estados para o mesmo cliente.
 * **O diagnóstico atual não sustenta tempo real** (§337): refresh é sob demanda com gatilho na OS, e o teto é **10 chamadas por minuto por empresa** — uma CTO de 8 portas consumiria 8. Por isso a CTO mostra o último estado conhecido **com a idade da leitura**.
 
+**`CTO-2` está com o domínio CONGELADO e sem uma linha de código** — `docs/CTO-NETWORK-DISTRIBUTION.md` §24. Três coisas dele que não se redescobrem: **`source` é `FIELD · WEB`** (a decisão antiga de `FIELD`-only foi superada pelo dono; `IMPORT` caiu por não ter caso de uso); **porta com vínculo ativo aceita `AVAILABLE` e `DAMAGED`, nunca `RESERVED`** — e a regra é sobre o ALVO, para que `active + DAMAGED` possa voltar a `AVAILABLE`; e **o contador de danificadas mente hoje**, porque `effectivePortState` colapsa em `OCCUPIED` e o resumo conta por `effectiveState` — a `CTO-2.2` precisa contar por `administrativeState`, senão uma porta quebrada com cliente dentro some da tela.
+
 **Quando:** a tarefa envolve CTO, porta óptica, vínculo do cliente à rede de distribuição ou o status na visão da caixa.
 **Quando NÃO:** qualquer outra coisa. Só a `CTO-1` existe em código; da `CTO-2` em diante a §119 se aplica inteira.
 
