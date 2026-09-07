@@ -1442,3 +1442,55 @@ minhas que os dados derrubaram:
 A prova de que a hipótese da viewport era a certa veio por reversão: devolver o
 erro ao bloco do topo derruba o teste **exatamente** em `toBeInViewport` — a
 mensagem existe, e não está onde a pessoa olha.
+
+### `CTO-1.4` — a mensagem existia; o que faltava era ela parecer um erro
+
+Achado da validação humana: o operador digitou `0` na capacidade, clicou, viu o
+campo voltar para 16 — e não registrou nenhuma mensagem na tela.
+
+**A mensagem estava sendo renderizada.** Reproduzido no ambiente real, com
+hidratação detectada explicitamente (`__reactFiber$` no nó do campo) e digitação
+por teclado: nenhuma requisição sai, o campo volta ao valor autoritativo, e o
+`<p role="alert">` está no DOM com o texto correto. A validação local sempre
+funcionou.
+
+**O defeito era a cor, e ele era meu.** Eu havia escrito `text-danger-text`, e o
+design system define `danger.fg` — `danger.text` não existe. Tailwind ignora
+classe desconhecida em silêncio, então o texto herdava a cor normal:
+
+```text
+antes   fundo rgb(254,242,242) · texto rgb(15,23,42)   preto sobre rosa claro
+depois  fundo rgb(254,242,242) · texto rgb(185,28,28)  vermelho
+```
+
+Um bloco rosa com texto preto não lê como alerta. O operador olhou a tela e
+concluiu, com razão, que nada havia acontecido.
+
+> **Os dois únicos arquivos do projeto inteiro com a classe inventada eram os
+> meus.** O mesmo erro atingia `text-success-text` e `text-warning-text`, então
+> os selos **Livre**, **Reservada** e **Danificada** também saíam sem cor de
+> texto. Todo o resto do AlfaOS usa `-fg` corretamente.
+
+### Por que nenhum teste pegou
+
+Todos afirmavam **existência e texto** — `toBeVisible`, `toContainText`,
+`toBeInViewport` — e a mensagem sempre esteve visível, no lugar certo, com o
+conteúdo certo. Nenhuma asserção olhava para a **aparência**, que era a única
+coisa quebrada.
+
+Agora há duas que olham: a cor do alerta precisa ter o canal vermelho dominando
+os outros, e a cor do selo de porta precisa diferir da cor do texto comum da
+página. Nenhuma delas fixa um hex — isso quebraria a cada ajuste de tema sem
+que nada estivesse errado.
+
+**E o teste passou a digitar como gente:** foco, `Ctrl+A`, teclas, depois de
+hidratação **explícita**. O helper anterior repetia `fill` até o valor grudar;
+ele converge, e esconde de qual lado veio a demora. Espera nomeada é melhor que
+espera embutida.
+
+### A mensagem passou a ser a regra, não o lado violado
+
+Eram duas — "maior que zero" para o piso e "máxima é 256 portas" para o teto.
+Quem digitava `0` ficava sabendo que precisa de mais, e não de quanto. Agora é
+uma só, no domínio e nas duas telas: **"A capacidade deve ser um número inteiro
+entre 1 e 256 portas."**

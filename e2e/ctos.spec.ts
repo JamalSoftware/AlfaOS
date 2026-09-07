@@ -110,6 +110,43 @@ async function alterarCapacidade(
   }).toPass({ timeout: 20_000 });
 }
 
+/**
+ * Espera o React ter ASSUMIDO o campo — sem retry que mascare a corrida.
+ *
+ * O sinal é direto: o nó do input carrega uma chave `__reactFiber$` ou
+ * `__reactProps$` só depois que o React o hidrata. Antes disso o campo é HTML
+ * do servidor, aceita digitação e não notifica ninguém.
+ *
+ * Isto substitui a espera implícita que eu havia embutido no helper de
+ * preenchimento: repetir `fill` até o valor "grudar" também converge, e esconde
+ * de qual lado veio a demora. Aqui a espera é explícita e nomeada.
+ */
+async function esperarHidratacao(page: Page) {
+  await page.waitForFunction(
+    () => {
+      const el = document.querySelector("#cto-capacity-edit");
+      if (!el) return false;
+      return Object.keys(el).some(
+        (k) => k.startsWith("__reactFiber$") || k.startsWith("__reactProps$"),
+      );
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
+}
+
+/** Digita como gente: foca, seleciona tudo, escreve. Sem `fill`. */
+async function digitarCapacidade(page: Page, valor: string) {
+  const campo = page.locator("#cto-capacity-edit");
+  await campo.click();
+  await page.keyboard.press("Control+A");
+  if (valor.length > 0) {
+    await page.keyboard.type(valor);
+  } else {
+    await page.keyboard.press("Delete");
+  }
+}
+
 async function login(page: Page, email: string) {
   await page.goto("/login");
   await page.getByLabel("E-mail").fill(email);
@@ -456,6 +493,132 @@ test("capacidade inválida também mostra o motivo no lugar certo", async ({
       await expect(page.getByLabel("Portas")).toHaveValue("16");
     });
   }
+});
+
+test("capacidade inválida: a mensagem aparece e PARECE um erro", async ({
+  page,
+}) => {
+  /*
+    Achado da validação humana, e ele foi mais fundo do que "faltou mensagem".
+    O operador digitou `0`, clicou, viu o campo voltar para 16 — e não
+    registrou nenhum erro na tela.
+
+    A mensagem ESTAVA sendo renderizada. O que faltava era ela parecer um erro:
+    eu havia escrito `text-danger-text`, e o design system define
+    `danger.fg`. Tailwind ignora classe que não existe, então o texto herdava a
+    cor normal — preto sobre um fundo rosa claro. Os dois únicos arquivos do
+    projeto com essa classe inventada eram os meus.
+
+    Por isso este teste verifica a COR, e não só a presença: era exatamente a
+    cor que faltava, e nenhuma asserção de existência teria pego.
+
+    Digitação humana de verdade — foco, Ctrl+A, teclas — depois de hidratação
+    EXPLÍCITA. Nada de `fill` com retry, que converge e esconde de qual lado
+    veio a demora.
+  */
+  await setCapability(true);
+  await login(page, ADMIN_EMAIL);
+
+  const nome = `E2E-INVALID-${Date.now()}`;
+  await page.goto("/ctos");
+  await page.getByLabel("Nome").fill(nome);
+  await page.getByLabel("Capacidade (portas)").fill("16");
+  await page.getByRole("button", { name: "Cadastrar CTO" }).click();
+  await page.getByRole("link", { name: nome }).click();
+  await expect(page.getByRole("heading", { name: nome })).toBeVisible();
+  await esperarHidratacao(page);
+
+  const alerta = page.getByTestId("cto-capacity-error");
+
+  // Reserva a porta 14 para provar, ao final, que nada foi tocado.
+  await page
+    .getByTestId("cto-port-row")
+    .nth(13)
+    .getByRole("button", { name: "Reservar" })
+    .click();
+  await expect(page.getByTestId("cto-port-state-14")).toHaveText("Reservada");
+
+  // CTO1PV-INVALID-01/02/03 — os três valores inválidos que o campo produz.
+  for (const invalido of ["0", "-1", "257"]) {
+    await test.step(`capacidade "${invalido}"`, async () => {
+      await digitarCapacidade(page, invalido);
+      await page.getByRole("button", { name: "Alterar capacidade" }).click();
+
+      await expect(alerta).toBeVisible();
+      await expect(alerta).toBeInViewport(); // CTO1PV-INVALID-07
+      await expect(alerta).toContainText("entre 1 e 256");
+      await expect(alerta).toHaveAttribute("role", "alert");
+
+      /*
+        A cor. `danger.fg` é vermelho; a cor do texto normal é escura e neutra.
+        A asserção é sobre o canal vermelho dominar os outros — não sobre um
+        hex exato, que mudaria com o tema sem que nada tenha quebrado.
+      */
+      const cor = await alerta.evaluate((el) => getComputedStyle(el).color);
+      const [r, g, b] = cor.match(/\d+/g)!.map(Number);
+      expect(r).toBeGreaterThan(g + 40);
+      expect(r).toBeGreaterThan(b + 40);
+
+      // CTO1PV-INVALID-04: a capacidade autoritativa não mudou.
+      await expect(page.getByTestId("cto-capacity-current")).toContainText("16");
+      await expect(page.getByLabel("Portas")).toHaveValue("16");
+      await expect(page.getByTestId("cto-port-row")).toHaveCount(16);
+      await expect(page.getByTestId("cto-port-state-14")).toHaveText("Reservada");
+    });
+  }
+
+  // O campo vazio é o que o operador produz ao apagar tudo.
+  await digitarCapacidade(page, "");
+  await page.getByRole("button", { name: "Alterar capacidade" }).click();
+  await expect(alerta).toBeVisible();
+  await expect(alerta).toContainText("entre 1 e 256");
+
+  // Controle positivo: um valor válido passa, e o alerta some.
+  await digitarCapacidade(page, "20");
+  await page.getByRole("button", { name: "Alterar capacidade" }).click();
+  await expect(page.getByTestId("cto-capacity-current")).toContainText("20");
+  await expect(alerta).toHaveCount(0);
+});
+
+test("os estados das portas também têm cor, não só fundo", async ({ page }) => {
+  /*
+    O mesmo defeito de classe inventada atingia `success` e `warning`: os
+    selos Livre, Reservada e Danificada saíam com texto preto sobre fundo
+    colorido. Testar só o TEXTO do selo não pegaria — e era o que os testes
+    faziam.
+  */
+  await setCapability(true);
+  await login(page, ADMIN_EMAIL);
+
+  const nome = `E2E-CORES-${Date.now()}`;
+  await page.goto("/ctos");
+  await page.getByLabel("Nome").fill(nome);
+  await page.getByLabel("Capacidade (portas)").fill("4");
+  await page.getByRole("button", { name: "Cadastrar CTO" }).click();
+  await page.getByRole("link", { name: nome }).click();
+  await esperarHidratacao(page);
+
+  async function corDoSelo(n: number) {
+    return page
+      .getByTestId(`cto-port-state-${n}`)
+      .evaluate((el) => getComputedStyle(el).color);
+  }
+
+  // A cor do texto do selo não pode ser a mesma do texto comum da página.
+  const corComum = await page
+    .getByRole("heading", { name: nome })
+    .evaluate((el) => getComputedStyle(el).color);
+
+  await expect(page.getByTestId("cto-port-state-1")).toHaveText("Livre");
+  expect(await corDoSelo(1)).not.toBe(corComum);
+
+  await page
+    .getByTestId("cto-port-row")
+    .first()
+    .getByRole("button", { name: "Reservar" })
+    .click();
+  await expect(page.getByTestId("cto-port-state-1")).toHaveText("Reservada");
+  expect(await corDoSelo(1)).not.toBe(corComum);
 });
 
 test("DISPATCHER não alcança o módulo", async ({ page }) => {

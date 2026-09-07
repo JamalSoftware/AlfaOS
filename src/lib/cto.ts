@@ -265,11 +265,16 @@ function assertName(name: string): void {
  * recusado sem alocar nada e sem segurar lock nenhum.
  */
 function assertCapacity(capacity: number): void {
-  if (!Number.isInteger(capacity) || capacity < CTO_CAPACITY_MIN) {
-    throw badRequest("Capacidade deve ser um número inteiro maior que zero.");
-  }
-  if (capacity > CTO_CAPACITY_MAX) {
-    throw badRequest(`Capacidade máxima é ${CTO_CAPACITY_MAX} portas.`);
+  // Uma mensagem para a faixa inteira, com os dois limites. Dizer só o lado
+  // violado deixa quem errou sem metade da informação de que precisa.
+  if (
+    !Number.isInteger(capacity) ||
+    capacity < CTO_CAPACITY_MIN ||
+    capacity > CTO_CAPACITY_MAX
+  ) {
+    throw badRequest(
+      `A capacidade deve ser um número inteiro entre ${CTO_CAPACITY_MIN} e ${CTO_CAPACITY_MAX} portas.`,
+    );
   }
 }
 

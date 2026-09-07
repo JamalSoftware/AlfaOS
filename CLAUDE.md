@@ -675,6 +675,16 @@ A causa foi provada por reprodução determinística: **`next dev`, `next build`
 
 **Isso também corrige uma explicação que dei antes:** atribuí as falhas intermitentes de Playwright durante a `CTO-1.3`/`1.4` a "contenção de recursos". A causa precisa é o compartilhamento do `.next`, não disputa de CPU.
 
+**`CTO-1.5` — a mensagem de capacidade inválida existia; faltava ela PARECER um erro.** O operador digitou `0`, clicou, viu o campo voltar a 16 e não registrou mensagem nenhuma. Reproduzido com hidratação detectada explicitamente (`__reactFiber$`) e digitação por teclado: nenhuma requisição sai, o campo volta ao autoritativo, e o `<p role="alert">` **está no DOM com o texto certo**. A validação local sempre funcionou.
+
+**O defeito era a cor, e era meu:** escrevi `text-danger-text`, e o design system define `danger.fg`. Tailwind ignora classe desconhecida em silêncio, então o texto herdava a cor normal — **preto sobre fundo rosa claro**, que não lê como alerta. Os **dois únicos arquivos do projeto** com a classe inventada eram os meus, e o mesmo erro atingia `success` e `warning`, deixando os selos **Livre/Reservada/Danificada** sem cor de texto. Corrigido: `rgb(15,23,42)` → `rgb(185,28,28)`.
+
+**Por que nenhum teste pegou:** todos afirmavam existência e texto (`toBeVisible`, `toContainText`, `toBeInViewport`) — e a mensagem sempre esteve visível, no lugar certo, com o conteúdo certo. **Nenhuma asserção olhava para a aparência**, que era a única coisa quebrada. Agora duas olham, sem fixar hex: o alerta precisa ter o canal vermelho dominando, e o selo de porta precisa diferir da cor do texto comum.
+
+O teste passou a **digitar como gente** — foco, `Ctrl+A`, teclas — depois de hidratação **explícita**. O helper anterior repetia `fill` até o valor grudar; converge e esconde de qual lado veio a demora. E a mensagem virou a regra, não o lado violado: **"A capacidade deve ser um número inteiro entre 1 e 256 portas."**, uma só, no domínio e nas duas telas.
+
+Gates: **1852 Vitest**, **126 Playwright** (era 124), lint, tsc, build, `build:worker`, 26 migrations.
+
 ## Princípios
 
 Integridade > velocidade

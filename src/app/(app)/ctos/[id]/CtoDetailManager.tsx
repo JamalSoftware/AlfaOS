@@ -17,10 +17,10 @@ const STATE_LABELS: Record<string, string> = {
 };
 
 const STATE_CLASSES: Record<string, string> = {
-  FREE: "bg-success-bg text-success-text",
+  FREE: "bg-success-bg text-success-fg",
   OCCUPIED: "bg-info-bg text-primary-text",
-  RESERVED: "bg-warning-bg text-warning-text",
-  DAMAGED: "bg-danger-bg text-danger-text",
+  RESERVED: "bg-warning-bg text-warning-fg",
+  DAMAGED: "bg-danger-bg text-danger-fg",
 };
 
 /**
@@ -77,7 +77,7 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
     if (error?.scope !== scope) return null;
     return (
       <p
-        className="mt-4 rounded-lg border border-danger-border bg-danger-bg px-4 py-3 text-sm text-danger-text"
+        className="mt-4 rounded-lg border border-danger-border bg-danger-bg px-4 py-3 text-sm text-danger-fg"
         role="alert"
         data-testid={`cto-${scope}-error`}
       >
@@ -170,24 +170,25 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
   async function handleCapacity(e: React.FormEvent) {
     e.preventDefault();
     const parsed = Number(capacity);
-    if (!Number.isInteger(parsed) || parsed < 1) {
+    /*
+      UMA mensagem para a faixa inteira, e ela diz os dois limites.
+
+      Antes eram duas: "maior que zero" para o piso e "máxima é 256 portas"
+      para o teto. Quem digitou `0` ficava sabendo que precisa de mais, e não
+      de quanto; quem digitou `300` descobria o teto e não o piso. A regra é uma
+      só — a capacidade vive entre 1 e 256 —, e a mensagem passou a ser a
+      regra, não o lado dela que foi violado.
+
+      A verificação é local porque o formulário não tem validação nativa (ver
+      `noValidate`); o servidor recusa igual, e o `CHECK` do banco também.
+    */
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 256) {
       setError({
         scope: "capacity",
-        message: "Capacidade deve ser um número inteiro maior que zero.",
+        message: "A capacidade deve ser um número inteiro entre 1 e 256 portas.",
       });
-      // Mesmo na recusa local o campo volta ao autoritativo: a regra é uma só,
+      // O campo volta ao autoritativo mesmo na recusa local: a regra é uma só,
       // e não "depende de quem recusou".
-      setCapacity(String(cto.capacity));
-      return;
-    }
-    if (parsed > 256) {
-      // O teto também é verificado aqui, e não só pelo `max` do input: com a
-      // validação nativa desligada (ver `noValidate`), esta é a mensagem que a
-      // pessoa vê, e ela precisa dizer o limite.
-      setError({
-        scope: "capacity",
-        message: "Capacidade máxima é 256 portas.",
-      });
       setCapacity(String(cto.capacity));
       return;
     }

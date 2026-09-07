@@ -35,8 +35,12 @@ export function CtoListManager({ ctos }: { ctos: CtoRow[] }) {
       return;
     }
     const parsedCapacity = Number(capacity);
-    if (!Number.isInteger(parsedCapacity) || parsedCapacity < 1) {
-      setError("Capacidade deve ser um número inteiro maior que zero.");
+    if (
+      !Number.isInteger(parsedCapacity) ||
+      parsedCapacity < 1 ||
+      parsedCapacity > 256
+    ) {
+      setError("A capacidade deve ser um número inteiro entre 1 e 256 portas.");
       return;
     }
     setCreating(true);
@@ -143,7 +147,7 @@ export function CtoListManager({ ctos }: { ctos: CtoRow[] }) {
         </div>
 
         {error && (
-          <p className="mt-4 text-sm text-danger-text" role="alert">
+          <p className="mt-4 text-sm text-danger-fg" role="alert">
             {error}
           </p>
         )}
@@ -208,7 +212,7 @@ export function CtoListManager({ ctos }: { ctos: CtoRow[] }) {
                       <span
                         className={
                           cto.active
-                            ? "rounded-full bg-success-bg px-2 py-0.5 text-xs font-medium text-success-text"
+                            ? "rounded-full bg-success-bg px-2 py-0.5 text-xs font-medium text-success-fg"
                             : "rounded-full bg-surface-muted px-2 py-0.5 text-xs font-medium text-fg-muted"
                         }
                       >
