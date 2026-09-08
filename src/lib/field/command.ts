@@ -55,6 +55,25 @@ export interface FieldCommandContext<B> {
  * chave, conteúdo diferente" e receber `IDEMPOTENCY_CONFLICT` — travando
  * exatamente a operação que o aplicativo precisa reenviar.
  */
+/**
+ * Verificação que roda **antes** da elegibilidade e antes da chave.
+ *
+ * Existe para uma superfície que só faz sentido quando a empresa tem a
+ * capability ligada: com ela desligada a rota precisa ser indistinguível de uma
+ * rota que não existe, e isso tem de acontecer antes de qualquer escrita —
+ * inclusive antes da reserva de idempotência, que gravaria uma linha para uma
+ * empresa que não contratou o módulo.
+ *
+ * Antes de `assertCanExecute` de propósito: um técnico inativo de uma empresa
+ * sem o módulo responde `404`, e não um `403` que confirmaria que o módulo
+ * existe.
+ */
+export type FieldPrecondition = (principal: FieldPrincipal) => Promise<void>;
+
+export interface FieldCommandOptions {
+  precondition?: FieldPrecondition;
+}
+
 export interface FieldPlainCommandContext<B> {
   principal: FieldPrincipal;
   body: B;
@@ -79,10 +98,12 @@ export function fieldCommand<S extends z.ZodTypeAny, T>(
   handler: (
     context: FieldPlainCommandContext<z.infer<S>>,
   ) => Promise<FieldCommandResult<T>>,
+  options: FieldCommandOptions = {},
 ) {
   return async (request: Request) =>
     runFieldApi(async () => {
       const principal = await requireFieldPrincipal(request);
+      await options.precondition?.(principal);
       assertCanExecute(principal);
 
       const key = parseIdempotencyKey(request);
@@ -120,10 +141,12 @@ export function fieldOrderCommand<S extends z.ZodTypeAny, T>(
   handler: (
     context: FieldCommandContext<z.infer<S>>,
   ) => Promise<FieldCommandResult<T>>,
+  options: FieldCommandOptions = {},
 ) {
   return async (request: Request, context: { params: { id: string } }) =>
     runFieldApi(async () => {
       const principal = await requireFieldPrincipal(request);
+      await options.precondition?.(principal);
       assertCanExecute(principal);
 
       const key = parseIdempotencyKey(request);

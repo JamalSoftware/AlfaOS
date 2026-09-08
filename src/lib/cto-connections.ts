@@ -72,7 +72,37 @@ export type ConnectionProvenance =
 export interface ConnectionContext {
   companyId: string;
   provenance: ConnectionProvenance;
+  /**
+   * A autorização de quem chamou, executada **dentro** da transação.
+   *
+   * Este módulo não sabe o que ela verifica, e é isso que o mantém livre de uma
+   * segunda cópia da posse. A `CTO-2.4` passa aqui o mesmo portão que evidência,
+   * material, equipamento e assinatura usam — `loadInProgressOwnedOrder` mais
+   * `claimOrderForChildMutation` —, e a `CTO-2.3` não passa nada: a operação
+   * administrativa já foi autorizada pelo perfil, fora daqui.
+   *
+   * **Por que dentro da transação, e não antes dela.** Autorizada fora, a OS
+   * poderia ser concluída no intervalo entre a conferência e a escrita, e o
+   * `ServiceOrderEvent` nasceria depois do fechamento — evento numa OS que o
+   * snapshot de conclusão já declarou encerrada. Aqui a reivindicação segura a
+   * linha da OS até o commit, e o desfecho é 409 em vez de história inventada.
+   *
+   * Roda **antes de qualquer lock**, o que fixa a ordem
+   * `ServiceOrder → Customer → CTO` para toda operação de campo. A ordem
+   * inversa não existe: nada que trave `Customer` pede `ServiceOrder`
+   * exclusivo depois — a origem `WEB` sequer toca OS.
+   */
+  authorizeWithin?: (tx: Tx) => Promise<void>;
 }
+
+/**
+ * Teto do motivo livre de `DISCONNECT`/`MOVE`.
+ *
+ * Vive no domínio, e não numa das superfícies, porque as duas o aplicam: sem
+ * isso a Web limitaria em 200 e o Field aceitaria o que quisesse, e o limite
+ * deixaria de ser regra para virar hábito de uma tela.
+ */
+export const CTO_CONNECTION_REASON_MAX_LENGTH = 200;
 
 export interface PublicNetworkConnection {
   id: string;
@@ -455,6 +485,7 @@ export async function connectCustomerToPort(
   assertProvenance(ctx.provenance);
 
   return prisma.$transaction(async (tx) => {
+    await ctx.authorizeWithin?.(tx);
     await lockCustomer(tx, ctx.companyId, input.customerId);
 
     /*
@@ -553,6 +584,7 @@ export async function disconnectCustomer(
   assertProvenance(ctx.provenance);
 
   return prisma.$transaction(async (tx) => {
+    await ctx.authorizeWithin?.(tx);
     await lockCustomer(tx, ctx.companyId, input.customerId);
 
     const current = await activeOfCustomer(tx, ctx.companyId, input.customerId);
@@ -631,6 +663,7 @@ export async function moveCustomerToPort(
   assertProvenance(ctx.provenance);
 
   return prisma.$transaction(async (tx) => {
+    await ctx.authorizeWithin?.(tx);
     await lockCustomer(tx, ctx.companyId, input.customerId);
 
     const current = await activeOfCustomer(tx, ctx.companyId, input.customerId);

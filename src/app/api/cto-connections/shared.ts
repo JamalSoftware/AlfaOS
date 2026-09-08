@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 
 /** O mesmo teto de texto livre curto usado nas observações da porta. */
-export const CTO_CONNECTION_REASON_MAX_LENGTH = 200;
+export { CTO_CONNECTION_REASON_MAX_LENGTH } from "@/lib/cto-connections";
 
 /**
  * Resolve o vínculo pelo id, **dentro do tenant**, e devolve só o cliente.

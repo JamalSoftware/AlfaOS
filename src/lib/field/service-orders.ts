@@ -225,18 +225,40 @@ export async function getFieldServiceOrder(
  *
  * Existe para os comandos que precisam do cliente (diagnóstico) sem carregar o
  * detalhe inteiro. Devolve 404 pelo mesmo motivo de sempre.
+ *
+ * `requireInProgress` é opcional e **não** é o padrão: o diagnóstico existe
+ * desde a v0.10 e é consultado com a OS ainda `ASSIGNED`, a caminho do
+ * cliente. A leitura de rede da `CTO-2.4` pede o contrário e diz por quê no
+ * próprio módulo. Um parâmetro em vez de uma segunda função porque duas
+ * resoluções de posse divergiriam, e a primeira a divergir seria a que ninguém
+ * revisou.
  */
 export async function resolveOwnedOrderCustomer(
   companyId: string,
   technicianId: string,
   orderId: string,
+  options: { requireInProgress?: boolean } = {},
 ): Promise<{ orderId: string; customerId: string }> {
   const order = await prisma.serviceOrder.findFirst({
     where: { id: orderId, companyId, technicianId },
-    select: { id: true, customerId: true },
+    select: { id: true, customerId: true, status: true },
   });
   if (!order) {
     throw new FieldError("NOT_FOUND", "Ordem de serviço não encontrada.");
+  }
+  if (options.requireInProgress && order.status !== "IN_PROGRESS") {
+    /*
+      Mesma frase que `loadInProgressOwnedOrder` usa, e mesma distinção entre
+      "já concluída" e "nunca começou": as duas pedem ações diferentes do
+      técnico, e um texto único o deixaria repetindo um comando que nunca vai
+      passar.
+    */
+    throw new FieldError(
+      "CONFLICT",
+      order.status === "COMPLETED"
+        ? "Esta OS já foi concluída e não pode mais ser alterada."
+        : "Só é possível alterar o atendimento de uma OS em andamento.",
+    );
   }
   return { orderId: order.id, customerId: order.customerId };
 }
