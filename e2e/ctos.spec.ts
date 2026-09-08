@@ -1268,11 +1268,41 @@ test("a foto vem ANTES de Salvar alterações, no desktop e no mobile", async ({
 
   // Editar e salvar pelo botão final continua funcionando.
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.getByLabel("Observações").fill("editado pelo botão final");
-  await page
-    .getByLabel("Referência de endereço")
-    .fill("Poste da esquina, lado par");
-  await salvar.click();
+  /*
+    `preencherEstavel`, e não `fill` cru.
+
+    Este teste falhava de forma intermitente — pior com o `.next` frio, medido
+    em 2 de 3 execuções — porque o valor era escrito antes de o React assumir o
+    campo: o `fill` chega ao DOM, não ao estado, e o primeiro render do cliente
+    devolve o campo ao valor inicial. O formulário então salvava o texto antigo.
+
+    Instabilidade PRÉ-EXISTENTE, não regressão: reproduzida contra o código
+    anterior à `CTO-2.3.2`. O helper já existia neste arquivo pelo mesmo
+    motivo; faltava usá-lo aqui.
+  */
+  await preencherEstavel(page, "Observações", "editado pelo botão final");
+  await preencherEstavel(
+    page,
+    "Referência de endereço",
+    "Poste da esquina, lado par",
+  );
+  /*
+    Esperar o PATCH CONCLUIR antes de recarregar.
+
+    Aqui estava a instabilidade, e não na digitação: o teste clicava em salvar e
+    recarregava em seguida, de modo que numa resposta lenta o `reload` chegava
+    com a gravação ainda em voo e a tela mostrava o valor antigo. Falhava 2 de 3
+    com o `.next` frio, e o comportamento é o mesmo desde antes da
+    `CTO-2.3.2` — reproduzido contra o código anterior.
+
+    O sinal certo é a resposta do servidor, não um tempo arbitrário.
+  */
+  await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes("/api/ctos/") && r.request().method() === "PATCH",
+    ),
+    salvar.click(),
+  ]);
   await page.reload();
   await expect(page.getByLabel("Observações")).toHaveValue(
     "editado pelo botão final",

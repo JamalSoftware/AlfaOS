@@ -124,11 +124,11 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
    * diálogo de conflito, e repeti-lo aqui seria pagar duas vezes pela mesma
    * lição.
    */
-  const [portStateMsg, setPortStateMsg] = useState<string | null>(null);
+
 
   /** Resultado da última operação de vínculo, no nível da PÁGINA. */
   const [connectionMsg, setConnectionMsg] = useState<
-    { texto: string; tipo: "ok" | "conflito" } | null
+    { porta: number; texto: string; tipo: "ok" | "conflito"; testId: string } | null
   >(null);
 
   /*
@@ -140,7 +140,11 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
     mesmo caminho no sucesso e no conflito, porque nos dois casos o estado
     autoritativo mudou.
   */
-  function onConnectionChanged(mensagem: string, tipo: "ok" | "conflito") {
+  function onConnectionChanged(
+    porta: number,
+    mensagem: string,
+    tipo: "ok" | "conflito",
+  ) {
     /*
       A mensagem vive na PÁGINA, não no diálogo.
 
@@ -148,7 +152,30 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
       estar ocupada — e ele desmonta. Uma mensagem presa lá dentro sumiria junto,
       devolvendo ao operador um clique sem resposta.
     */
-    setConnectionMsg(mensagem ? { texto: mensagem, tipo } : null);
+    /*
+      Limpar NÃO vai ao servidor.
+
+      Abrir um diálogo apaga a confirmação anterior, e isso é estado de tela: o
+      `router.refresh()` ali só acrescentava uma ida ao servidor no meio da
+      interação — e uma corrida, porque a releitura podia pousar enquanto a
+      pessoa montava a operação. Releitura é para quando o estado
+      autoritativo MUDOU.
+    */
+    if (!mensagem) {
+      setConnectionMsg(null);
+      return;
+    }
+
+    setConnectionMsg(
+      mensagem
+        ? {
+            porta,
+            texto: mensagem,
+            tipo,
+            testId: tipo === "ok" ? "cto-connection-success" : "cto-connection-error",
+          }
+        : null,
+    );
     router.refresh();
   }
 
@@ -225,7 +252,6 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
       A mensagem mais recente é a única autoridade visual.
     */
     setError(null);
-    setPortStateMsg(null);
     setConnectionMsg(null);
     setBusy(true);
     try {
@@ -396,9 +422,12 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
       pessoa o que acabou de acontecer.
     */
     if (ok) {
-      setPortStateMsg(
-        `Porta ${String(numero).padStart(2, "0")} ${PORT_STATE_FEEDBACK[state] ?? "atualizada"}.`,
-      );
+      setConnectionMsg({
+        porta: numero,
+        texto: `Porta ${String(numero).padStart(2, "0")} ${PORT_STATE_FEEDBACK[state] ?? "atualizada"}.`,
+        tipo: "ok",
+        testId: "cto-port-state-feedback",
+      });
     }
   }
 
@@ -512,23 +541,6 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
           Uma porta pode estar em mais de uma categoria — danificada e ocupada,
           por exemplo. A soma pode passar da capacidade.
         </p>
-        {connectionMsg && (
-          <p
-            role={connectionMsg.tipo === "ok" ? "status" : "alert"}
-            data-testid={
-              connectionMsg.tipo === "ok"
-                ? "cto-connection-success"
-                : "cto-connection-error"
-            }
-            className={
-              connectionMsg.tipo === "ok"
-                ? "mt-3 rounded-lg border border-success-border bg-success-bg px-4 py-3 text-sm text-success-fg"
-                : "mt-3 rounded-lg border border-danger-border bg-danger-bg px-4 py-3 text-sm text-danger-fg"
-            }
-          >
-            {connectionMsg.texto}
-          </p>
-        )}
       </section>
 
       <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
@@ -541,15 +553,7 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
           linha da porta desapareceria junto com ela — exatamente o defeito que
           a `CTO-2.3` corrigiu no diálogo de conflito.
         */}
-        {portStateMsg && (
-          <p
-            role="status"
-            data-testid="cto-port-state-feedback"
-            className="mb-4 rounded-lg border border-success-border bg-success-bg px-4 py-3 text-sm text-success-fg"
-          >
-            {portStateMsg}
-          </p>
-        )}
+
         <div className="space-y-2">
           {cto.ports.map((port) => {
             /*
@@ -624,6 +628,15 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
                     cto={cto}
                     port={port}
                     onChanged={onConnectionChanged}
+                    feedback={
+                      connectionMsg?.porta === port.number
+                        ? {
+                            texto: connectionMsg.texto,
+                            tipo: connectionMsg.tipo,
+                            testId: connectionMsg.testId,
+                          }
+                        : null
+                    }
                   />
                   {acoes.map(([rotulo, alvo]) => (
                     <button

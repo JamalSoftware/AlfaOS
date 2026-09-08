@@ -623,6 +623,18 @@ test("FB-05 — a recusa não deixa o sucesso anterior parecendo atual", async (
   await page.getByRole("button", { name: /Iara Melo/ }).click();
   await page.getByTestId("cto-connect-confirm").click();
   await expect(page.getByTestId("cto-connection-success")).toBeVisible();
+  /*
+    Esperar a RELEITURA pousar antes de mexer no banco.
+
+    O banner é local e aparece com a resposta; o `router.refresh()` disparado
+    junto pousa depois. Reduzir a capacidade nesse intervalo é uma corrida: se a
+    releitura chegar em seguida, a porta 6 vem `disabled` pela regra da
+    `CTO-1.9` e o clique expira. O teste ficou instável por isso — passava
+    isolado, falhava por tempo na suíte.
+
+    O sinal de que a releitura chegou é o cliente aparecer na linha.
+  */
+  await expect(page.getByTestId("cto-port-customer-1")).toBeVisible();
 
   /*
     A capacidade cai POR FORA, e a tela não recarrega.
@@ -666,4 +678,206 @@ test("FB-07 — o resumo conta a porta nas DUAS categorias", async ({ page }) =>
   expect(await valorDe("Danificadas")).toContain("1");
   expect(await valorDe("Ocupadas")).toContain("1");
   expect(await valorDe("Livres")).toContain("3");
+});
+
+/*
+  # `CTO-2.3.2` — a confirmação precisa aparecer ONDE a pessoa clicou
+
+  Achado da validação humana: `CONNECT` mostrava confirmação, `MOVE` e
+  `DISCONNECT` pareciam não mostrar nada.
+
+  A hipótese a testar não é "a mensagem não é criada" — os testes anteriores
+  provam que ela é. É POSIÇÃO: o banner vive na seção "Ocupação", acima da lista
+  de portas, e numa CTO real de 16 posições a ação acontece dezenas de linhas
+  abaixo dele. Fora da viewport, a confirmação não existe para quem clicou.
+
+  É literalmente a `CTO-1.3` num lugar novo.
+*/
+
+test("CF-VIEWPORT — a confirmação aparece ONDE a pessoa clicou", async ({
+  page,
+}) => {
+  const cto = await criarCto("VIEWPORT", 16);
+  const cliente = await criarCliente("Karla Dias");
+  await vincular(cliente.id, (await porta(cto.id, 12)).id);
+  await login(page);
+  await abrir(page, cto.id);
+
+  // A ação acontece na porta 12, bem abaixo do resumo.
+  await page.getByTestId("cto-port-disconnect-12").scrollIntoViewIfNeeded();
+  await page.getByTestId("cto-port-disconnect-12").click();
+  await page.getByTestId("cto-disconnect-confirm").click();
+
+  const banner = page.getByTestId("cto-connection-success");
+  await expect(banner).toContainText("desconectado");
+  // A pergunta que importa: dá para VER?
+  await expect(banner).toBeInViewport();
+});
+
+test("CF-01 / CF-04 / CF-06 — cada operação se anuncia e substitui a anterior", async ({
+  page,
+}) => {
+  const cto = await criarCto("CF-BASE", 16);
+  await criarCliente("Lucas Prado");
+  await login(page);
+  await abrir(page, cto.id);
+
+  // CF-01 — vincular continua confirmando.
+  await page.getByTestId("cto-port-connect-12").scrollIntoViewIfNeeded();
+  await page.getByTestId("cto-port-connect-12").click();
+  await page.getByTestId("cto-customer-search").fill("Lucas");
+  await page.getByRole("button", { name: /Lucas Prado/ }).click();
+  await page.getByTestId("cto-connect-confirm").click();
+  const banner = page.getByTestId("cto-connection-success");
+  await expect(banner).toContainText("vinculado à porta 12");
+  await expect(banner).toBeInViewport();
+
+  // CF-04 / CF-06 — desconectar confirma, e o texto anterior NÃO sobrevive.
+  await page.getByTestId("cto-port-disconnect-12").click();
+  await page.getByTestId("cto-disconnect-confirm").click();
+  await expect(page.getByTestId("cto-connection-success")).toContainText(
+    "desconectado da porta 12",
+  );
+  await expect(page.getByTestId("cto-connection-success")).toBeInViewport();
+  await expect(page.getByText("vinculado à porta 12")).toHaveCount(0);
+});
+
+test("CF-02 / CF-05 — mover na mesma CTO confirma o destino e substitui", async ({
+  page,
+}) => {
+  const cto = await criarCto("CF-MOVE", 16);
+  await criarCliente("Mara Luz");
+  await login(page);
+  await abrir(page, cto.id);
+
+  await page.getByTestId("cto-port-connect-10").scrollIntoViewIfNeeded();
+  await page.getByTestId("cto-port-connect-10").click();
+  await page.getByTestId("cto-customer-search").fill("Mara");
+  await page.getByRole("button", { name: /Mara Luz/ }).click();
+  await page.getByTestId("cto-connect-confirm").click();
+  await expect(page.getByTestId("cto-connection-success")).toContainText(
+    "vinculado à porta 10",
+  );
+
+  await page.getByTestId("cto-port-move-10").click();
+  await page.getByTestId("cto-move-port").selectOption({ label: "Porta 14" });
+  await page.getByTestId("cto-move-confirm").click();
+
+  const banner = page.getByTestId("cto-connection-success");
+  await expect(banner).toContainText("movido para a porta 14");
+  await expect(banner).toBeInViewport();
+  // CF-05: a confirmação do vínculo anterior não ficou pendurada.
+  await expect(page.getByText("vinculado à porta 10")).toHaveCount(0);
+  // CF-10: nome da caixa é nome completo, sem repetir a palavra.
+  await expect(banner).not.toContainText("CTO CTO");
+});
+
+test("CF-03 — mover entre CTOs nomeia o destino, sem duplicar a palavra", async ({
+  page,
+}) => {
+  const origem = await criarCto("CF-ORIG", 8);
+  const destino = await prisma.cTO.create({
+    data: { companyId, name: "CTO QA DESTINO", capacity: 8 },
+  });
+  await prisma.cTOPort.createMany({
+    data: Array.from({ length: 8 }, (_, i) => ({
+      ctoId: destino.id,
+      companyId,
+      number: i + 1,
+    })),
+  });
+  const cliente = await criarCliente("Nilo Braga");
+  await vincular(cliente.id, (await porta(origem.id, 5)).id);
+  await login(page);
+  await abrir(page, origem.id);
+
+  await page.getByTestId("cto-port-move-5").scrollIntoViewIfNeeded();
+  await page.getByTestId("cto-port-move-5").click();
+  await page.getByTestId("cto-move-cto").selectOption({ label: "CTO QA DESTINO" });
+  await page.getByTestId("cto-move-port").selectOption({ label: "Porta 03" });
+  await page.getByTestId("cto-move-confirm").click();
+
+  const banner = page.getByTestId("cto-connection-success");
+  await expect(banner).toContainText("movido para a porta 03");
+  await expect(banner).toContainText("CTO QA DESTINO");
+  await expect(banner).not.toContainText("CTO CTO");
+  await expect(banner).toBeInViewport();
+});
+
+test("CF-07 / CF-08 — recusa não deixa o sucesso anterior parecendo atual", async ({
+  page,
+}) => {
+  const cto = await criarCto("CF-FALHA", 8);
+  const cliente = await criarCliente("Olga Reis");
+  const outro = await criarCliente("Pedro Sá");
+  await login(page);
+  await abrir(page, cto.id);
+
+  await page.getByTestId("cto-port-connect-1").click();
+  await page.getByTestId("cto-customer-search").fill("Olga");
+  await page.getByRole("button", { name: /Olga Reis/ }).click();
+  await page.getByTestId("cto-connect-confirm").click();
+  await expect(page.getByTestId("cto-connection-success")).toContainText("vinculado");
+  // A releitura precisa pousar antes de o banco mudar — mesma corrida do FB-05.
+  await expect(page.getByTestId("cto-port-customer-1")).toBeVisible();
+
+  // CF-07: o destino do move é ocupado por fora, e o move é recusado.
+  await vincular(outro.id, (await porta(cto.id, 4)).id);
+  await page.getByTestId("cto-port-move-1").click();
+  /*
+    Abrir o diálogo já apaga a confirmação anterior.
+
+    Sem isso, o banner "vinculado" fica em cena durante todo o envio da
+    movimentação, e quem olha não sabe se ele fala do que acabou de pedir ou do
+    que fez antes.
+  */
+  await expect(page.getByTestId("cto-connection-success")).toHaveCount(0);
+  await page.getByTestId("cto-move-port").selectOption({ label: "Porta 04" });
+  await page.getByTestId("cto-move-confirm").click();
+  await expect(page.getByTestId("cto-connection-error")).toBeVisible();
+  await expect(page.getByTestId("cto-connection-success")).toHaveCount(0);
+
+  // CF-08: o vínculo é encerrado por fora, e a desconexão fica obsoleta.
+  await page.reload();
+  const ativo = await prisma.customerNetworkConnection.findFirstOrThrow({
+    where: { customerId: cliente.id, disconnectedAt: null },
+  });
+  await prisma.customerNetworkConnection.update({
+    where: { id: ativo.id },
+    data: { disconnectedAt: new Date() },
+  });
+  await vincular(cliente.id, (await porta(cto.id, 6)).id);
+
+  await page.getByTestId("cto-port-disconnect-1").click();
+  await page.getByTestId("cto-disconnect-confirm").click();
+  await expect(page.getByTestId("cto-connection-error")).toContainText(
+    "mudou desde que a tela",
+  );
+  await expect(page.getByTestId("cto-connection-success")).toHaveCount(0);
+});
+
+test("CF-09 — o diálogo de desconexão não repete a palavra CTO", async ({ page }) => {
+  const cto = await prisma.cTO.create({
+    data: { companyId, name: "CTO QA 011", capacity: 4 },
+  });
+  await prisma.cTOPort.createMany({
+    data: Array.from({ length: 4 }, (_, i) => ({
+      ctoId: cto.id,
+      companyId,
+      number: i + 1,
+    })),
+  });
+  const cliente = await criarCliente("Quirino Alves");
+  await vincular(cliente.id, (await porta(cto.id, 2)).id);
+  await login(page);
+  await abrir(page, cto.id);
+
+  await page.getByTestId("cto-port-disconnect-2").click();
+  const dialogo = page.getByTestId("cto-disconnect-dialog");
+  await expect(dialogo).toBeVisible();
+  // O nome aparece inteiro, uma vez, e a palavra não é prefixada a ele.
+  await expect(dialogo).toContainText("CTO QA 011");
+  await expect(dialogo).not.toContainText("CTO CTO");
+  await expect(dialogo).toContainText("Quirino Alves");
+  await expect(dialogo).toContainText("porta 02");
 });

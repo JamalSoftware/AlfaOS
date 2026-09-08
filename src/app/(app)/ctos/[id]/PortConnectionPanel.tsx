@@ -115,21 +115,38 @@ export function PortConnectionPanel({
   cto,
   port,
   onChanged,
+  feedback,
 }: {
   cto: OperationalCtoDetail;
   port: OperationalCtoPort;
-  onChanged: (mensagem: string, tipo: "ok" | "conflito") => void;
+  onChanged: (porta: number, mensagem: string, tipo: "ok" | "conflito") => void;
+  /** A confirmação desta porta, quando a última ação foi nela. */
+  feedback: { texto: string; tipo: "ok" | "conflito"; testId: string } | null;
 }) {
   const [aberto, setAberto] = useState<null | "connect" | "move" | "disconnect">(null);
+  const avisar = (m: string, t: "ok" | "conflito") => onChanged(port.number, m, t);
+
+  /*
+    Abrir um diálogo já apaga a confirmação anterior.
+
+    Sem isso, o banner "cliente vinculado à porta 10" fica visível durante todo
+    o envio da movimentação — e quem está olhando não tem como saber se ele fala
+    do que acabou de pedir ou do que fez antes. A mensagem só volta quando há
+    uma resposta sobre a ação NOVA.
+  */
+  function abrirDialogo(qual: "connect" | "move" | "disconnect") {
+    onChanged(port.number, "", "ok");
+    setAberto(qual);
+  }
 
   return (
     <>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {port.availableForConnection && (
           <button
             type="button"
             className={botao}
-            onClick={() => setAberto("connect")}
+            onClick={() => abrirDialogo("connect")}
             data-testid={`cto-port-connect-${port.number}`}
           >
             Vincular cliente
@@ -145,7 +162,7 @@ export function PortConnectionPanel({
             <button
               type="button"
               className={botao}
-              onClick={() => setAberto("move")}
+              onClick={() => abrirDialogo("move")}
               data-testid={`cto-port-move-${port.number}`}
             >
               Mover
@@ -153,12 +170,46 @@ export function PortConnectionPanel({
             <button
               type="button"
               className={botao}
-              onClick={() => setAberto("disconnect")}
+              onClick={() => abrirDialogo("disconnect")}
               data-testid={`cto-port-disconnect-${port.number}`}
             >
               Desconectar
             </button>
           </>
+        )}
+
+        {/*
+          A confirmação aparece NA LINHA da porta em que se clicou, ao lado dos
+          botões.
+
+          Ela vivia na seção "Ocupação", acima da lista — e numa CTO de 16
+          posições a ação acontece dezenas de linhas abaixo dela. Medido: a
+          mensagem existia, com o texto certo, e `toBeInViewport` reportava
+          `viewport ratio 0`. Para quem clicou, isso é indistinguível de não ter
+          acontecido nada: é literalmente o defeito da `CTO-1.3`.
+
+          É um SELO, e não um bloco de largura inteira. Com `w-full` num
+          contêiner `flex-wrap`, a mensagem forçava uma quebra e crescia a
+          lista — e a seção de capacidade, que vem abaixo das 16 portas, saía da
+          viewport por uma margem que já era estreita. Um teste da `CTO-1.5`
+          caiu exatamente aí. Uma confirmação não pode empurrar para fora da tela
+          a recusa de outra operação.
+
+          A linha de ORIGEM é a escolha certa mesmo quando o cliente foi para
+          outra porta: é onde a pessoa estava olhando.
+        */}
+        {feedback && (
+          <span
+            role={feedback.tipo === "ok" ? "status" : "alert"}
+            data-testid={feedback.testId}
+            className={
+              feedback.tipo === "ok"
+                ? "rounded-md border border-success-border bg-success-bg px-2.5 py-1 text-xs font-medium text-success-fg"
+                : "rounded-md border border-danger-border bg-danger-bg px-2.5 py-1 text-xs font-medium text-danger-fg"
+            }
+          >
+            {feedback.texto}
+          </span>
         )}
       </div>
 
@@ -166,7 +217,7 @@ export function PortConnectionPanel({
         <ConnectDialog
           port={port}
           onClose={() => setAberto(null)}
-          onDone={onChanged}
+          onDone={avisar}
         />
       )}
       {aberto === "move" && port.activeConnection && (
@@ -174,7 +225,7 @@ export function PortConnectionPanel({
           cto={cto}
           port={port}
           onClose={() => setAberto(null)}
-          onDone={onChanged}
+          onDone={avisar}
         />
       )}
       {aberto === "disconnect" && port.activeConnection && (
@@ -182,7 +233,7 @@ export function PortConnectionPanel({
           cto={cto}
           port={port}
           onClose={() => setAberto(null)}
-          onDone={onChanged}
+          onDone={avisar}
         />
       )}
     </>
@@ -589,7 +640,20 @@ function MoveDialog({
         setErro(mensagemDeErro(r));
         return;
       }
-      onDone(`${conexao.customer.name} movido com sucesso.`, "ok");
+      /*
+        A confirmação diz PARA ONDE, porque é a única informação que a pessoa
+        não tem depois de a tela recarregar. A caixa entra só quando ela muda:
+        repetir o nome da própria CTO em toda movimentação interna é ruído.
+      */
+      const alvo = candidatas.find((c) => c.id === portaId);
+      const numero = alvo ? String(alvo.number).padStart(2, "0") : "";
+      const outraCaixa = destinoCtoId !== cto.id;
+      onDone(
+        outraCaixa
+          ? `${conexao.customer.name} movido para a porta ${numero}, em ${destino?.name ?? "outra CTO"}.`
+          : `${conexao.customer.name} movido para a porta ${numero}.`,
+        "ok",
+      );
       onClose();
     } finally {
       setEnviando(false);
@@ -732,7 +796,10 @@ function DisconnectDialog({
         setErro(mensagemDeErro(r));
         return;
       }
-      onDone(`${conexao.customer.name} desconectado.`, "ok");
+      onDone(
+        `${conexao.customer.name} desconectado da porta ${String(port.number).padStart(2, "0")}.`,
+        "ok",
+      );
       onClose();
     } finally {
       setEnviando(false);
@@ -741,10 +808,19 @@ function DisconnectDialog({
 
   return (
     <Dialog titulo="Desconectar cliente" onClose={onClose} testId="cto-disconnect-dialog">
+      {/*
+        O nome da caixa é o nome COMPLETO, e não um sufixo.
+
+        Prefixar "da CTO" produzia "da CTO CTO QA 011" — a operação nomeia as
+        caixas começando por "CTO", e o rótulo repetia a palavra. A saída não é
+        um `startsWith("CTO")`, que quebraria na primeira caixa chamada "CX-45":
+        é uma frase que trate o nome como nome, numa linha própria.
+      */}
       <p className="text-sm text-fg-secondary">
         Desconectar <strong className="text-fg">{conexao.customer.name}</strong> da
-        porta {String(port.number).padStart(2, "0")} da CTO {cto.name}?
+        porta {String(port.number).padStart(2, "0")}?
       </p>
+      <p className="mt-1 text-xs text-fg-muted">{cto.name}</p>
       <p className="mt-2 text-xs text-fg-muted">
         O histórico do vínculo é preservado.
       </p>
