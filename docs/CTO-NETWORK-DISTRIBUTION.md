@@ -2703,3 +2703,84 @@ sabotagem cai.
 `diff --check` · `prisma validate` · `migrate status` (**27, nenhuma nova**) ·
 lint · tsc · **1976 Vitest** (inalterado — a fase é de tela) · **147 Playwright**
 (era 132) · build · build:worker.
+
+## 28. `CTO-2.3` — checkpoint final, validado pelo dono
+
+`CONNECT`, `MOVE`, `DISCONNECT`, `DAMAGED + occupied`, os três com `F5`, e
+mobile 390×844 sem estouro: **validados manualmente na tela**. Dois patches
+saíram dessa validação, e os dois são da mesma família.
+
+### `CTO-2.3.1` — a ação de porta não se anunciava
+
+Numa porta ocupada, clicar em **Danificada** mudava o estado corretamente e a
+tela seguia exibindo o banner verde da operação **anterior**. Pior que silêncio:
+uma mensagem **errada** ocupando o lugar da certa.
+
+Causa: `send()` limpava o erro e não tocava as mensagens de sucesso, e
+`handlePortState` não produzia confirmação própria. Duas metades faltando. Agora
+toda mutação apaga o feedback anterior — a mensagem mais recente é a única
+autoridade visual — e a ação nomeia porta e efeito.
+
+### `CTO-2.3.2` — a confirmação existia e ninguém via
+
+`MOVE` e `DISCONNECT` pareciam não confirmar nada. A hipótese óbvia estava
+errada: a mensagem **era** criada, com o texto certo. Era **posição**.
+
+```text
+toBeInViewport() failed — Received: viewport ratio 0
+```
+
+O banner vivia na seção "Ocupação", acima da lista; numa CTO de 16 posições a
+ação acontece dezenas de linhas abaixo. **É a `CTO-1.3` num lugar novo.**
+
+A confirmação passou a aparecer **na linha da porta em que se clicou**, como
+selo ao lado dos botões — e a da mudança de estado foi junto, porque tinha o
+mesmo problema latente e só passara na validação por sorte de posição. Um
+mecanismo, não dois.
+
+**Selo, e não bloco de largura inteira**, e isso quem ensinou foi um teste: com
+`w-full` num contêiner `flex-wrap`, a mensagem forçava quebra e **crescia a
+lista**, empurrando a seção de capacidade para fora da viewport. Um teste da
+`CTO-1.5` caiu exatamente aí. *Uma confirmação não pode expulsar da tela a
+recusa de outra operação.*
+
+**Copy:** `"da CTO CTO QA 011"` saía assim porque a operação nomeia as caixas
+começando por "CTO". A saída **não** é `startsWith("CTO")` — quebraria na
+primeira caixa chamada "CX-45" —, é tratar o nome como nome, em linha própria.
+
+**Abrir um diálogo apaga a confirmação anterior, e isso não vai ao servidor.** A
+primeira versão chamava `router.refresh()` ali e criou uma corrida: a releitura
+podia pousar enquanto a pessoa montava a operação. Releitura é para quando o
+estado autoritativo mudou.
+
+### Uma instabilidade PRÉ-EXISTENTE, encontrada e atribuída
+
+`"a foto vem ANTES de Salvar"` clicava em salvar e **recarregava sem esperar o
+`PATCH`**. Atribuição por medição, não por suposição: contra o código anterior à
+fase falha **2 de 3** com `.next` frio; com a mudança da fase, 1 de 3. Não era
+regressão. `preencherEstavel` **não** resolveu, e foi isso que localizou a causa
+no `reload` em vez da digitação.
+
+### O que continua PENDENTE
+
+| | |
+|---|---|
+| `CTO-2.6` · alvo `RESERVED` com vínculo ativo → `409` | não implementado, e verificado por teste no checkpoint |
+| `CTO-2.6` · redução bloqueada por vínculo acima do limite | idem |
+| `CTO-2.4` · Field | zero rota, zero Dart |
+
+### Contratos reconferidos no checkpoint
+
+`ADMIN` é o único perfil (`MANAGE_PROFILES`), e o `TECHNICIAN` com sessão
+legítima recebe `403` nas **quatro** rotas — a tela não é a barreira.
+`companyId` nunca é lido de entrada; `source: "WEB"` é fixado nas três
+mutações; `expectedConnectionId` é obrigatório em `disconnect` e `move`;
+`Idempotency-Key` é exigida nas três. `isPortOfferable` aparece na UI **apenas
+em comentário** — não foi copiado.
+
+A chave de idempotência **não atravessa usuários** da mesma empresa: o escopo é
+`(empresa, usuário, operação, chave)`, e dois ADMINs com a mesma chave executam
+operações distintas.
+
+O nome do cliente **não** viaja na visão da rede do cliente — ela devolve caixa,
+porta e carimbos. Ele aparece no detalhe da CTO, como JSON escapado.

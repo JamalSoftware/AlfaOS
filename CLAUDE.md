@@ -733,6 +733,18 @@ Mudança de produto, uma só: **foto que não abre passou a dizer que não abriu
 
 Também congelado: modelo sem `equipmentId`, `updatedAt`, `version`, `externalProvider` nem nada de topologia; **duas uniques parciais** (`ctoPortId` e `customerId`, ambas `WHERE disconnectedAt IS NULL`) pelo padrão de SQL cru que `checklist_templates_company_default_key` já usa; ordem de lock **`Customer` → CTOs por id**, sem lock de porta, com ids resolvidos antes do `FOR UPDATE`; `ServiceOrderEvent` **só** quando a origem é `FIELD`; `withIdempotency` reaproveitado, sem mecanismo paralelo; CTO inativa recusa `CONNECT`/`MOVE-IN` e permite `DISCONNECT`/`MOVE-OUT`; e **mutação de porta é online-only**, sem fila offline.
 
+**Trilha `CTO-2` — `2.0` a `2.3` em código, validadas pelo dono; `2.4` (Field) e `2.6` PENDENTES.** Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §24–§28.
+
+**`CustomerNetworkConnection`** é o registro histórico de *"este cliente esteve nesta porta durante este intervalo"*: desconectar preenche `disconnectedAt` e **nunca apaga**, mover **fecha e abre** numa transação e jamais faz `UPDATE` de porta. Duas **uniques parciais** (`ctoPortId` e `customerId`, ambas `WHERE disconnectedAt IS NULL`) por SQL cru — o DSL do Prisma não expressa a cláusula, e `@@unique` sozinho proibiria o histórico.
+
+**`administrativeState` e `occupied` são dimensões INDEPENDENTES**, e o resumo conta por `administrativeState`. `free + reserved + damaged + occupied` **pode passar de `capacity`** — uma porta pode ser danificada **e** ocupada. Quem apresentar as quatro como fatias de um todo estará errado. O defeito que isso corrigiu era real: `effectivePortState` colapsa em `OCCUPIED`, e contar `damaged` a partir dele fazia uma porta quebrada **com cliente dentro** sumir da contagem.
+
+**O `:id` da rota É a guarda de obsolescência.** `disconnect` e `move` exigem `expectedConnectionId`, comparado **depois** do lock do cliente: sem isso, a tela que mostra o cliente na porta A encerraria o vínculo em B, criado por outra pessoa entre a leitura e o clique.
+
+**Três lições de tela que se repetiram e não podem voltar.** Conflito **fecha** o diálogo e a mensagem sobe para fora dele — a releitura remove a premissa da caixa aberta e levaria a mensagem junto. Confirmação de porta aparece **na linha em que se clicou**: na seção de resumo ela media `viewport ratio 0` numa CTO de 16 posições, que é a `CTO-1.3` renascida. E é **selo**, não bloco de largura inteira: `w-full` no `flex-wrap` crescia a lista e empurrava a seção de capacidade para fora da tela, derrubando um teste da `CTO-1.5`.
+
+**Mover NUNCA é desconectar+conectar** em duas requisições — abriria janela sem vínculo. E a prova disso é a **história auditada**, não a contagem de linhas: as duas formas produzem duas linhas, e só uma registra `MOVED`.
+
 ## Princípios
 
 Integridade > velocidade
