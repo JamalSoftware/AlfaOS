@@ -2965,3 +2965,177 @@ não suposto: `serviceOrderEvidence` e `timeEntry` se comportam igual. Fica como
 `CTO-2.5` (tela Flutter), `CTO-2.6` (integração capacidade/estado — alvo
 `RESERVED` com vínculo ativo e redução bloqueada por vínculo acima do limite),
 mapa, QR, ERP e FiberMap. Nenhum desses serviços foi tocado.
+
+## 30. `CTO-2.5` — a rede no aparelho do técnico
+
+**Zero backend, zero schema, zero migration, zero dependência, zero permissão
+nova.** O diff é Flutter e documentação. A `CTO-2.6` continua pendente.
+
+### O que foi reutilizado, e o que nasceu
+
+Nada de arquitetura paralela: Riverpod com `StateNotifierProvider.autoDispose.family`,
+`FieldApiClient` (Bearer, timeouts, contrato de erro, redação de log em um lugar
+só), `IdempotencyKey`, `FieldException`, `SectionCard`, `showModalBottomSheet` no
+mesmo formato de `execution_forms.dart`, e o padrão de conflito do
+`OrderDetailController` — recusa recarrega, não reenvia.
+
+Nasceu um módulo, `lib/features/network/`, com as quatro camadas que o projeto
+já usa (`domain`, `data`, `state`, `ui`), e **uma linha** na tela do detalhe.
+
+### A seção vive DENTRO da OS
+
+Não há destino "Rede" na barra nem na gaveta. O técnico não navega pela rede da
+empresa: ele atende um cliente, e a operação de porta existe porque há uma
+visita. Uma superfície fora da OS faria a pergunta *para qual cliente?* voltar a
+precisar de resposta — que é exatamente o que a `CTO-2.4` eliminou ao derivar o
+cliente da própria OS.
+
+### O portão de status é de UX, não de segurança
+
+Fora de `IN_PROGRESS` a seção **nem lê**. A leitura da `CTO-2.4` também exige
+atendimento em andamento; chamar assim mesmo produziria um `409` garantido a
+cada abertura de OS. Há teste afirmando **zero** requisições nesse caso.
+
+Quem recusa continua sendo o servidor, e isso é testado dos dois lados: a
+`FU-05` prova que a tela não oferece, e a `UI-A11` prova que a seção **fecha
+sozinha** quando a OS deixa de estar em atendimento com a tela aberta.
+
+### As duas dimensões, sempre
+
+`administrativeState` e `occupied` chegam separados e são exibidos separados.
+`effectiveState` **não existe** no modelo Dart: ele colapsa em `OCCUPIED` e
+apagaria `DAMAGED` de uma porta com cliente dentro — o defeito que a `CTO-2.2`
+corrigiu no resumo administrativo, aqui impedido por ausência de campo.
+
+```text
+AVAILABLE + ocupada  →  Ocupada
+DAMAGED   + ocupada  →  Ocupada · Danificada       ← e continua Mover/Desconectar
+RESERVED  + ocupada  →  Ocupada · Reservada        ← legado, idem
+desconhecido         →  Ocupada · Estado desconhecido
+```
+
+Um enum que este APK não conhece vira `unknown`, ganha selo e **não** é
+oferecido — em vez de estourar num aparelho em campo.
+
+### Online, e a mensagem não mente
+
+`CONNECT`, `DISCONNECT` e `MOVE` não entram em fila offline. Não existe DTO de
+sincronização, job, reserva local nem promessa de "sincronizamos depois" — que
+seria falsa. Sem rede: *"Esta operação precisa de internet. Nada foi enviado."*
+
+A prova é estrutural além de comportamental: um teste lê o **código** do módulo
+(com os comentários removidos) e afirma zero referências a `PendingOperation`,
+`SyncStatus` e `pending_operation`.
+
+**Nenhuma dependência de conectividade foi adicionada.** O aplicativo não tem
+uma, e trazer um pacote só para desabilitar um botão seria superfície de
+terceiro em troca de nada: a falha de rede já chega tipada como
+`FieldErrorCode.network`.
+
+### A chave de idempotência inclui o DESTINO
+
+Ela nasce na intenção, é guardada e reapresentada em cada retentativa — gerada
+no envio, cada retentativa seria um comando novo e a proteção não existiria.
+
+O escopo é `connect:<porta>`, `move:<vínculo>:<porta>`, `disconnect:<vínculo>`.
+Presa só à operação, ela seria reapresentada quando o técnico desistisse e
+escolhesse **outra** porta, e o servidor recusaria com `IDEMPOTENCY_CONFLICT`
+uma operação legítima.
+
+Três regras de descarte, e a do meio é a menos óbvia:
+
+| desfecho | chave | OS relida? |
+|---|---|---|
+| sucesso | descartada — a próxima ação é outra | sim |
+| conflito | descartada — a intenção não existe mais | sim |
+| **sem rede** | **preservada** | **não** |
+
+A OS não é relida sem rede porque, se o comando tiver chegado e só a resposta se
+perdido, reler traria uma `version` nova; o corpo da retentativa mudaria e ela
+viraria `IDEMPOTENCY_CONFLICT` em vez do replay que deve ser.
+
+### Conflito fecha a folha e a mensagem sobe
+
+Mesma lição da `CTO-2.3`: a releitura remove a premissa da folha aberta — a
+porta foi ocupada, o vínculo mudou —, e uma mensagem presa lá dentro sumiria
+junto. A recusa aparece **na seção**, ao lado dos botões que a provocaram
+(`CTO-1.3`, `CTO-2.3.2`).
+
+E o estado que fica na tela é o do **servidor**, nunca o destino que o técnico
+escolheu: `FU-11` prova que depois de um `MOVE` recusado a caixa exibida é a que
+o despacho gravou, e não a que ele havia selecionado.
+
+### Mover é UMA requisição
+
+`FU-10` conta as chamadas: um `POST .../move`, **zero** `disconnect` e **zero**
+`connect`. O par abriria uma janela em que o cliente não está em porta nenhuma, e
+nenhum dos dois lados poderia desfazer o outro se a rede caísse no meio.
+
+A porta atual não aparece como destino, e **sem regra própria**: ela chega
+`occupied` e o servidor já a marcou como não ofertável. `isPortOfferable` não foi
+copiado para o Dart — seria uma segunda autoridade.
+
+### Desempenho e resiliência
+
+Lista de caixas e lista de portas são `ListView.builder`. Numa caixa de 256
+posições, o teste conta os widgets construídos e exige **menos de 60** — uma
+`Column` ansiosa construiria as 256. A escolha é em duas etapas (caixa, depois
+portas) porque a `CTO-2.4` não devolve portas na listagem, justamente para a
+resposta não ter milhares de linhas.
+
+Nome de caixa com 100 caracteres em 320dp: sem overflow, e o **número da porta**
+continua visível — é a informação que o técnico procura.
+
+### O que os testes descobriram, e não o que eu suporia
+
+**Três testes estruturais falharam nas minhas PRÓPRIAS frases.** A primeira
+versão grepava o arquivo cru e leu *"não chamamos `/api/cto-connections`"* como
+se fosse uma chamada; o mesmo com a fila offline; e o manifesto Android, cujo
+comentário diz que `ACCESS_BACKGROUND_LOCATION` **não** é pedida. Um teste que
+lê comentário mede o inverso do que promete. Agora eles removem comentários
+antes de olhar, e o do manifesto virou **igualdade de conjunto** — lista de
+proibidas só pega o que alguém já imaginou.
+
+**`FU-18` procurava "PPPoE" na tela inteira** e caía na seção de PPPoE, que é
+legítima, tem porta própria e é auditada. Passou a ser escopado à seção de rede,
+com controle positivo.
+
+**O teste de 390×844 passou duas vezes pelo motivo errado.** Ele montava a
+`MediaQuery` **fora** do `MaterialApp` do harness, que a descartava; e, corrigido
+isso, o widget nem era construído, porque numa `ListView` de tela real o que
+está fora da viewport não existe. Só depois de rolar até a seção o teste passou a
+testar alguma coisa.
+
+**Um ataque foi descartado em vez de promovido:** ele afirmava que a projeção não
+carrega campo de cliente lendo o `toString` de uma classe sem `toString` próprio
+— comparava contra `Instance of ...`. Quem prova essa fronteira é a `UI-A1`, que
+olha a **tela** depois de o servidor injetar `customerId`, `companyId` e
+`technicianId` na resposta.
+
+### Reversões
+
+| | sabotagem | quem cai |
+|---|---|---|
+| `BI` | Field falando com a API administrativa | 8 testes de contrato e idempotência |
+| `BJ` | sem portão visual de status | `FU-05`, `FU-05b` |
+| `BK` | mutação na fila offline | `EST-04` |
+| `BL` | esconder o estado administrativo quando ocupada | `FU-03`, `FU-04`, `FU-04b`, `FU-16` |
+| `BM` | mover como desconectar + conectar | `FU-10`, `FU-11` |
+| `BN` | desconectar sem `expectedConnectionId` | `API-03`, `FU-12` |
+| `BO` | chave gerada no envio | `FI-02` |
+| `BP` | sucesso local antes da resposta | 7 testes, entre conflito e offline |
+| `BQ` | 256 portas numa `Column` ansiosa | `EST-09` |
+
+Todas restauradas, árvore limpa.
+
+### Fronteiras que esta fase NÃO cruzou
+
+Sem mapa, sem QR, sem edição administrativa de porta (reservar, danificar,
+liberar continuam sendo leitura no Field), sem histórico de vínculo, sem
+navegação global de rede, sem evento de timeline escrito pelo cliente — o
+servidor já grava. E a `CTO-2.6` continua pendente: alvo `RESERVED` com vínculo
+ativo, e redução de capacidade bloqueada por vínculo acima do limite.
+
+**A fase termina com API e tela prontas e o piloto físico ainda por fazer.** Nem
+gesto de sistema nem visual se aprovam por teste de widget: a sequência de
+validação está no relatório da fase.

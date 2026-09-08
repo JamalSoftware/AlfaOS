@@ -127,6 +127,10 @@ Herdadas das skills e válidas aqui:
 | DQ-6 | Hero com NÚMERO grande + rótulo, e a métrica de urgência ao lado | Piloto: o topo não respondia "quanto disso é urgente". `0 URGENTES` não aparece: zero com cara de alarme é ruído |
 | DQ-6 | `PRÓXIMA AGENDADA` deixou de se chamar `PRÓXIMA OS`, e virou LINHA | Duas frases diferentes ("na fila" × "com horário") usavam o mesmo rótulo, e a mesma OS aparecia como card duas vezes |
 | DQ-6 | `LocalOrderNote`: etiqueta discreta, não alerta | Modo de compatibilidade precisa de procedência visível; mas nada falhou e não há ação do técnico, então não é erro |
+| CTO-2.5 | Rede é SEÇÃO da OS, com `SectionCard`, e não destino da barra | O técnico não navega pela rede da empresa: ele atende um cliente. Nenhum componente novo — o `FIELD DESIGN FREEZE` continua valendo |
+| CTO-2.5 | Estado administrativo e ocupação são DOIS selos, nunca um | Colapsar apagaria `Danificada` de uma porta com cliente dentro, que é a informação que fez alguém marcá-la |
+| CTO-2.5 | A recusa aparece na seção, ao lado dos botões | `CTO-1.3` e `CTO-2.3.2`: mensagem longe do gesto mede `viewport ratio 0` e é indistinguível de botão quebrado |
+| CTO-2.5 | Ações da porta em `Wrap`, não `Row` | Dois botões lado a lado estouram em 320dp com escala grande — a lição já custou dois overflows na DQ-6 |
 
 ## Verificação
 
@@ -145,6 +149,10 @@ O que é automatizado, e onde:
 | Posição legível sem contar linhas | `widget/dispatch_queue_screens_test.dart` (`F-3`) |
 | Modo de compatibilidade declarado na tela | `widget/dispatch_queue_screens_test.dart` (`F-8`) |
 | Voltar não fecha o aplicativo fora da raiz | `widget/android_back_test.dart` (`B-1`–`B-8`) |
+| Porta: as duas dimensões, nunca colapsadas | `widget/network_section_test.dart` (`FU-03`, `FU-04`) |
+| Nome longo de CTO sem overflow em 320dp | `widget/network_section_test.dart` (`FU-16`) |
+| 390×844 com escala 1.3 sem overflow | `widget/network_section_test.dart` |
+| Caixa de 256 posições constrói só o visível | `widget/network_adversarial_test.dart` (`UI-A10`) |
 
 **Não há golden test.** Cor, peso e espaçamento não estão travados por captura
 de tela: mudanças estéticas passam pelos testes acima e pelo olho no aparelho.

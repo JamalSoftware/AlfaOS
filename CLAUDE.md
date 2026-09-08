@@ -763,6 +763,24 @@ Duas decisões menores que não devem ser desfeitas: o vínculo **não** entra n
 
 Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §29, `docs/SECURITY.md` §8.20 e `docs/FIELD-API.md` §3.4.
 
+**`CTO-2.5` ENTREGUE — commits locais, sem tag e sem push. AGUARDA PILOTO FÍSICO.** O técnico vê e opera a porta da CTO pelo aplicativo. **Zero backend, zero schema, zero migration, zero dependência, zero permissão nova** — o diff é Flutter e documentação, e o manifesto Android tem exatamente as mesmas cinco permissões de antes.
+
+**A rede é SEÇÃO da OS, e não destino da barra.** O técnico não navega pela rede da empresa: ele atende um cliente, e uma superfície fora da OS faria a pergunta *para qual cliente?* voltar a precisar de resposta — que é o que a `CTO-2.4` eliminou ao derivar o cliente da própria OS.
+
+**Fora de `IN_PROGRESS` a seção NEM LÊ.** A leitura da `CTO-2.4` também exige atendimento em andamento; chamar assim mesmo daria um `409` garantido a cada abertura de OS. Há teste afirmando **zero** requisições nesse caso, e outro provando que a seção **fecha sozinha** quando a OS deixa de estar em atendimento com a tela aberta. O portão é de UX; quem recusa continua sendo o servidor.
+
+**`effectiveState` não existe no modelo Dart.** Ele colapsa em `OCCUPIED` e apagaria `DAMAGED` de uma porta com cliente dentro — o defeito que a `CTO-2.2` corrigiu no resumo administrativo, aqui impedido por **ausência de campo**. As duas dimensões chegam e são exibidas separadas, inclusive no legado `RESERVED + ocupada`.
+
+**ONLINE ONLY, e a mensagem não mente.** Nada de fila offline, reserva local ou "sincronizamos depois". A prova é estrutural: um teste lê o **código** do módulo, com os comentários removidos, e exige zero `PendingOperation`/`SyncStatus`. **Nenhuma dependência de conectividade foi adicionada** — trazer um pacote só para desabilitar um botão seria superfície de terceiro em troca de nada, e a falha de rede já chega tipada.
+
+**A chave de idempotência inclui o DESTINO** (`connect:<porta>`, `move:<vínculo>:<porta>`). Presa só à operação, seria reapresentada quando o técnico desistisse e escolhesse outra porta, e o servidor recusaria uma operação legítima. Três regras de descarte, e a do meio é a menos óbvia: sucesso descarta, conflito descarta, **sem rede PRESERVA** — e sem rede a OS **não** é relida, porque reler traria uma `version` nova e a retentativa viraria `IDEMPOTENCY_CONFLICT` em vez do replay que deve ser.
+
+**Três testes estruturais meus falharam nas minhas PRÓPRIAS frases**: eles grepavam o arquivo cru e liam *"não chamamos /api/cto-connections"* como se fosse uma chamada — e o mesmo no manifesto, cujo comentário diz que `ACCESS_BACKGROUND_LOCATION` **não** é pedida. Agora removem comentários antes de olhar, e o do manifesto virou **igualdade de conjunto**. Mais dois defeitos de teste: `FU-18` procurava "PPPoE" na tela inteira e caía na seção de PPPoE, que é legítima; e o teste de 390×844 **passou duas vezes pelo motivo errado** — a `MediaQuery` ficava fora do `MaterialApp` do harness e, corrigido isso, o widget nem era construído porque estava fora da viewport.
+
+Duas decisões que não devem ser desfeitas: **mover é UMA requisição** (o teste conta: um `move`, zero `disconnect`, zero `connect`) e a porta atual não é oferecida como destino **sem regra própria** — ela chega `occupied` do servidor, e `isPortOfferable` não foi copiado para o Dart.
+
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §30 e `apps/field/DESIGN.md`. **A `CTO-2.6` continua pendente.**
+
 ## Princípios
 
 Integridade > velocidade
