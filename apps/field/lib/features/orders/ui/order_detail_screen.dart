@@ -7,6 +7,7 @@ import '../../../app/theme/tokens.dart';
 import '../../../core/launchers/external_links.dart';
 import '../../../core/widgets/state_views.dart';
 import '../../../core/widgets/status_pill.dart';
+import '../../network/ui/network_section.dart';
 import '../domain/service_order.dart';
 import '../state/order_detail_controller.dart';
 
@@ -153,6 +154,16 @@ class _OrderDetailScreenState extends ConsumerState<OrderDetailScreen> {
           ),
           const SizedBox(height: AlfaSpacing.md),
           _DiagnosticSection(orderId: widget.orderId, state: state),
+          const SizedBox(height: AlfaSpacing.md),
+          /*
+            A rede fica DENTRO da OS, e não numa aba própria.
+
+            O técnico não navega pela rede da empresa: ele atende um cliente. A
+            operação de porta existe porque há uma visita, e tirá-la daqui faria
+            a pergunta "para qual cliente?" voltar a precisar de resposta — que é
+            exatamente o que a `CTO-2.4` eliminou ao derivar o cliente da OS.
+          */
+          NetworkSection(order: order),
           const SizedBox(height: AlfaSpacing.md),
           _ServiceSection(order: order),
           const SizedBox(height: AlfaSpacing.xxl),
