@@ -73,6 +73,29 @@ export const fieldExpectedVersion = z
  * PRD §159) mesmo quando a resposta chega numa execução seguinte do app. A
  * desduplicação de verdade é a `Idempotency-Key`.
  */
+/**
+ * O id de um recurso que o aparelho manda no corpo.
+ *
+ * A classe de caracteres é a MESMA de `clientMutationId` e de
+ * `installationId`, e não uma terceira inventada aqui. Ela cobre o formato de
+ * `cuid()`, que é o que o Prisma gera.
+ *
+ * **Não é controle de acesso** — é a primeira peneira. Quem chama continua
+ * resolvendo o recurso sob a empresa da sessão, senão um id bem-formado de
+ * outro tenant passaria.
+ *
+ * O que ela fecha é concreto e foi medido: uma string com byte `NUL` atravessa
+ * `z.string().min(1)`, chega ao Postgres e volta `22021`, que a fronteira do
+ * Field traduz em `INTERNAL` — e `INTERNAL` é `retryable`, então o aplicativo
+ * reenviaria em laço uma requisição que nunca teria como dar certo. A recusa
+ * correta é `VALIDATION_ERROR`, que não é retentável.
+ */
+export const fieldResourceId = z
+  .string()
+  .min(1)
+  .max(60)
+  .regex(/^[A-Za-z0-9._:-]+$/, "Identificador inválido.");
+
 export const clientMutationId = z
   .string()
   .min(1)

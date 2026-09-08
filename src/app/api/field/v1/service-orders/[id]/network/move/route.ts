@@ -6,7 +6,11 @@ import {
   fieldMoveCustomer,
   toFieldConnectionResult,
 } from "@/lib/field/cto";
-import { clientMutationId, fieldExpectedVersion } from "@/lib/field/route";
+import {
+  clientMutationId,
+  fieldExpectedVersion,
+  fieldResourceId,
+} from "@/lib/field/route";
 
 /**
  * `POST /api/field/v1/service-orders/:id/network/move`
@@ -25,8 +29,8 @@ import { clientMutationId, fieldExpectedVersion } from "@/lib/field/route";
 const schema = z
   .object({
     expectedVersion: fieldExpectedVersion,
-    expectedConnectionId: z.string().min(1).max(60),
-    targetCtoPortId: z.string().min(1).max(60),
+    expectedConnectionId: fieldResourceId,
+    targetCtoPortId: fieldResourceId,
     reason: z.string().max(CTO_CONNECTION_REASON_MAX_LENGTH).optional(),
     clientMutationId,
   })

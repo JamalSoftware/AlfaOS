@@ -1653,6 +1653,83 @@ describe("CTO-2.4 · ataques", () => {
     expect((await corpo(res)).data).toEqual({ connection: null });
   });
 
+  it("F-A18 identificador malformado é 400, nunca 500", async () => {
+    /*
+      Nasceu de um achado real desta fase: uma string com byte NUL atravessava
+      `z.string().min(1)`, chegava ao Postgres e voltava `22021`, que a
+      fronteira traduzia em `INTERNAL`. E `INTERNAL` é RETENTÁVEL — o
+      aplicativo reenviaria em laço uma requisição que nunca teria como dar
+      certo.
+
+      A classe é maior que esta fase: qualquer rota que leve string do cliente
+      para um `where` do Prisma tem o mesmo comportamento. O que este teste
+      guarda é a fronteira nova.
+    */
+    const c = await cenario();
+    const hostis = [
+      String.fromCharCode(0),
+      "' OR 1=1 --",
+      "../../etc/passwd",
+      "<script>alert(1)</script>",
+      "x".repeat(500),
+    ];
+
+    for (const valor of hostis) {
+      const res = await connectRoute(
+        post(`/api/field/v1/service-orders/${c.orderId}/network/connect`, {
+          expectedVersion: c.version,
+          ctoPortId: valor,
+        }, tokenA),
+        { params: { id: c.orderId } },
+      );
+      expect(res.status).toBe(400);
+      const body = await corpo(res);
+      // VALIDATION_ERROR não é retentável; INTERNAL seria.
+      expect(body.error?.code).toBe("VALIDATION_ERROR");
+    }
+    expect(await ativos({ companyId: fixture.companyA.id })).toBe(0);
+  });
+
+  it("F-A19 erro nenhum devolve stack, SQL ou nome de tabela", async () => {
+    const c = await cenario();
+    const respostas = [
+      await connectRoute(
+        post(`/api/field/v1/service-orders/${c.orderId}/network/connect`, {
+          expectedVersion: c.version,
+          ctoPortId: "inexistente",
+        }, tokenA),
+        { params: { id: c.orderId } },
+      ),
+      await disconnectRoute(
+        post(`/api/field/v1/service-orders/${c.orderId}/network/disconnect`, {
+          expectedVersion: c.version,
+          expectedConnectionId: "inexistente",
+        }, tokenA),
+        { params: { id: c.orderId } },
+      ),
+      await ctoDetailRoute(
+        fieldRequest(
+          `/api/field/v1/service-orders/${c.orderId}/network/ctos/inexistente`,
+          { token: tokenA },
+        ),
+        { params: { id: c.orderId, ctoId: "inexistente" } },
+      ),
+    ];
+    for (const res of respostas) {
+      const texto = await res.text();
+      for (const proibido of [
+        "at Object",
+        "node_modules",
+        "SELECT",
+        "customer_network_connections",
+        "cto_ports",
+        "prisma",
+      ]) {
+        expect(texto).not.toContain(proibido);
+      }
+    }
+  });
+
   it("F-A15 sem sessão, toda a superfície responde 401", async () => {
     const c = await cenario();
     const semToken = [
