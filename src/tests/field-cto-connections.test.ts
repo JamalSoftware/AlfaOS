@@ -403,18 +403,33 @@ describe("CTO-2.4 · CONNECT", () => {
     const alheio = await novoCliente("Cliente De Outra OS");
     const c = await cenario();
 
-    const res = await connectRoute(
+    /*
+      Um campo POR VEZ, e a razão é dura: mandando os dois juntos, a recusa do
+      `technicianId` chega primeiro e a asserção passa mesmo que o
+      `customerId` estivesse sendo obedecido. Um teste que agrega dois ataques
+      só prova que ALGUM deles foi barrado.
+    */
+    const comCliente = await connectRoute(
       post(`/api/field/v1/service-orders/${c.orderId}/network/connect`, {
         expectedVersion: c.version,
         ctoPortId: (await porta(cto.id, 1)).id,
         customerId: alheio.id,
+      }, tokenA),
+      { params: { id: c.orderId } },
+    );
+    expect(comCliente.status).toBe(400);
+    expect(await ativos({ customerId: alheio.id })).toBe(0);
+
+    const comTecnico = await connectRoute(
+      post(`/api/field/v1/service-orders/${c.orderId}/network/connect`, {
+        expectedVersion: c.version,
+        ctoPortId: (await porta(cto.id, 1)).id,
         technicianId: technicianB.id,
       }, tokenA),
       { params: { id: c.orderId } },
     );
-
-    expect(res.status).toBe(400);
-    expect(await ativos({ customerId: alheio.id })).toBe(0);
+    expect(comTecnico.status).toBe(400);
+    expect(await ativos({ technicianId: technicianB.id })).toBe(0);
 
     // Sem os campos hostis, a MESMA operação passa e grava os valores reais.
     const ok = await connectRoute(
