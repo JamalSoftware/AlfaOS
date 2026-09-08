@@ -115,6 +115,17 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
   */
   const [photoBroken, setPhotoBroken] = useState(false);
 
+  /**
+   * Confirmação da última ação administrativa de PORTA.
+   *
+   * Vive no mesmo nível da mensagem de vínculo, e pelo mesmo motivo: a seção de
+   * portas é reconstruída pela releitura, e uma mensagem presa dentro da linha
+   * desapareceria com ela. Foi esse o defeito que a `CTO-2.3` corrigiu no
+   * diálogo de conflito, e repeti-lo aqui seria pagar duas vezes pela mesma
+   * lição.
+   */
+  const [portStateMsg, setPortStateMsg] = useState<string | null>(null);
+
   /** Resultado da última operação de vínculo, no nível da PÁGINA. */
   const [connectionMsg, setConnectionMsg] = useState<
     { texto: string; tipo: "ok" | "conflito" } | null
@@ -203,7 +214,19 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
     body: unknown,
     method = "POST",
   ) {
+    /*
+      Toda mutação apaga o feedback ANTERIOR, seja ele qual for.
+
+      Sem isto, o banner verde de "cliente vinculado à porta 02" sobrevivia ao
+      clique em "Danificada" e passava por confirmação da ação nova. Não é
+      silêncio, é pior: uma mensagem ERRADA ocupando o lugar da certa, e foi
+      assim que a validação humana leu o botão como quebrado.
+
+      A mensagem mais recente é a única autoridade visual.
+    */
     setError(null);
+    setPortStateMsg(null);
+    setConnectionMsg(null);
     setBusy(true);
     try {
       const res = await fetch(url, {
@@ -349,10 +372,34 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
     }
   }
 
-  async function handlePortState(portId: string, state: string) {
-    await send("ports", `/api/ctos/${cto.id}/ports/${portId}/state`, {
+  /** O que cada estado significa para quem clicou. */
+  const PORT_STATE_FEEDBACK: Record<string, string> = {
+    AVAILABLE: "liberada",
+    RESERVED: "reservada",
+    DAMAGED: "marcada como danificada",
+  };
+
+  async function handlePortState(
+    portId: string,
+    state: string,
+    numero: number,
+  ) {
+    const ok = await send("ports", `/api/ctos/${cto.id}/ports/${portId}/state`, {
       administrativeState: state,
     });
+    /*
+      Só o SUCESSO se anuncia.
+
+      Numa recusa, `send` já deixou o erro da seção no lugar; acrescentar um
+      verde ali seria dizer duas coisas contraditórias sobre o mesmo clique.
+      E a mensagem nomeia a porta e a ação — "operação realizada" não diz à
+      pessoa o que acabou de acontecer.
+    */
+    if (ok) {
+      setPortStateMsg(
+        `Porta ${String(numero).padStart(2, "0")} ${PORT_STATE_FEEDBACK[state] ?? "atualizada"}.`,
+      );
+    }
   }
 
   /**
@@ -486,6 +533,23 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
 
       <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
         <h2 className="mb-4 text-base font-semibold text-fg">Portas</h2>
+
+        {/*
+          A confirmação fica ACIMA da lista, não dentro da linha.
+
+          A lista inteira é remontada pela releitura, e uma mensagem presa na
+          linha da porta desapareceria junto com ela — exatamente o defeito que
+          a `CTO-2.3` corrigiu no diálogo de conflito.
+        */}
+        {portStateMsg && (
+          <p
+            role="status"
+            data-testid="cto-port-state-feedback"
+            className="mb-4 rounded-lg border border-success-border bg-success-bg px-4 py-3 text-sm text-success-fg"
+          >
+            {portStateMsg}
+          </p>
+        )}
         <div className="space-y-2">
           {cto.ports.map((port) => {
             /*
@@ -574,7 +638,7 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
                       disabled={
                         busy || historica || port.administrativeState === alvo
                       }
-                      onClick={() => handlePortState(port.id, alvo)}
+                      onClick={() => handlePortState(port.id, alvo, port.number)}
                       title={
                         historica
                           ? "Porta fora da capacidade atual. Aumente a capacidade para voltar a operá-la."

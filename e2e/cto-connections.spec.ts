@@ -533,3 +533,137 @@ test("E2E-PERFIL — DISPATCHER e TECHNICIAN não alcançam a tela", async ({ pa
   await page.goto(`/ctos/${cto.id}`);
   await expect(page.getByTestId("cto-port-row")).toHaveCount(0);
 });
+
+/*
+  # `CTO-2.3.1` — a ação administrativa de porta precisa se anunciar
+
+  Achado da validação humana: numa porta ocupada, clicar em **Danificada**
+  mudava o estado corretamente — e a tela continuava exibindo o banner verde da
+  operação ANTERIOR, "cliente vinculado à porta 02". Para quem clicou, o botão
+  não fez nada.
+
+  É a mesma família de defeito da `CTO-1.3` e do conflito que a `CTO-2.3`
+  corrigiu: a operação acontece, o estado muda, e a tela não conta. A diferença
+  aqui é pior — não há silêncio, há uma mensagem ERRADA ocupando o lugar da
+  certa.
+*/
+
+test("FB-01 / FB-02 — marcar danificada anuncia a ação e SUBSTITUI o banner anterior", async ({
+  page,
+}) => {
+  const cto = await criarCto("FEEDBACK");
+  await criarCliente("Heitor Vaz");
+  await login(page);
+  await abrir(page, cto.id);
+
+  // Primeiro, uma operação de vínculo — que deixa o banner verde na tela.
+  await page.getByTestId("cto-port-connect-2").click();
+  await page.getByTestId("cto-customer-search").fill("Heitor");
+  await page.getByRole("button", { name: /Heitor Vaz/ }).click();
+  await page.getByTestId("cto-connect-confirm").click();
+  await expect(page.getByTestId("cto-connection-success")).toContainText(
+    "vinculado à porta 02",
+  );
+
+  // Agora a ação administrativa, na MESMA porta.
+  await page.getByTestId("cto-port-damaged-2").click();
+
+  // FB-01: a ação se anuncia, nomeando a porta e o que aconteceu.
+  await expect(page.getByTestId("cto-port-state-feedback")).toContainText(
+    "Porta 02 marcada como danificada",
+  );
+  // FB-02: e o banner da operação anterior NÃO sobrevive a ela.
+  await expect(page.getByText("vinculado à porta 02")).toHaveCount(0);
+
+  // FB-06 — os dois selos continuam, exatamente como validado.
+  await expect(page.getByTestId("cto-port-state-2")).toHaveText("Ocupada");
+  await expect(page.getByTestId("cto-port-admin-2")).toHaveText("Danificada");
+  await expect(page.getByTestId("cto-port-customer-2")).toHaveText("Heitor Vaz");
+});
+
+test("FB-03 / FB-04 — liberar e reservar também se anunciam", async ({ page }) => {
+  const cto = await criarCto("FEEDBACK-2");
+  const p1 = await porta(cto.id, 1);
+  await prisma.cTOPort.update({
+    where: { id: p1.id },
+    data: { administrativeState: "DAMAGED" },
+  });
+  await login(page);
+  await abrir(page, cto.id);
+
+  await page.getByTestId("cto-port-available-1").click();
+  await expect(page.getByTestId("cto-port-state-feedback")).toContainText(
+    "Porta 01 liberada",
+  );
+  await expect(page.getByTestId("cto-port-state-1")).toHaveText("Livre");
+
+  await page.getByTestId("cto-port-reserved-1").click();
+  await expect(page.getByTestId("cto-port-state-feedback")).toContainText(
+    "Porta 01 reservada",
+  );
+  await expect(page.getByTestId("cto-port-state-1")).toHaveText("Reservada");
+});
+
+test("FB-05 — a recusa não deixa o sucesso anterior parecendo atual", async ({
+  page,
+}) => {
+  /*
+    A porta histórica é read-only desde a `CTO-1.9`, e o servidor responde 409.
+    O que este teste guarda é o que a TELA faz com isso: um banner verde de uma
+    ação anterior não pode sobreviver a uma recusa e passar por confirmação da
+    ação nova.
+  */
+  const cto = await criarCto("FEEDBACK-3", 8);
+  await criarCliente("Iara Melo");
+  await login(page);
+  await abrir(page, cto.id);
+
+  await page.getByTestId("cto-port-connect-1").click();
+  await page.getByTestId("cto-customer-search").fill("Iara");
+  await page.getByRole("button", { name: /Iara Melo/ }).click();
+  await page.getByTestId("cto-connect-confirm").click();
+  await expect(page.getByTestId("cto-connection-success")).toBeVisible();
+
+  /*
+    A capacidade cai POR FORA, e a tela não recarrega.
+
+    A primeira versão deste teste reduzia a capacidade e dava F5 — e aí o botão
+    da porta 6 vem `disabled` pela regra da `CTO-1.9`, de modo que não havia
+    clique nenhum para o servidor recusar. A recusa real só existe com a tela
+    VELHA, que é justamente o caso que importa.
+  */
+  await prisma.cTO.update({ where: { id: cto.id }, data: { capacity: 4 } });
+
+  await page.getByTestId("cto-port-reserved-6").click();
+  await expect(page.getByTestId("cto-ports-error")).toBeVisible();
+  // Nenhum verde sobrevivente fingindo que a reserva deu certo.
+  await expect(page.getByTestId("cto-connection-success")).toHaveCount(0);
+  await expect(page.getByTestId("cto-port-state-feedback")).toHaveCount(0);
+});
+
+test("FB-07 — o resumo conta a porta nas DUAS categorias", async ({ page }) => {
+  const cto = await criarCto("FEEDBACK-4", 4);
+  const cliente = await criarCliente("Jonas Reis");
+  await vincular(cliente.id, (await porta(cto.id, 1)).id);
+  await login(page);
+  await abrir(page, cto.id);
+
+  // O valor é o `dd` que segue o `dt` do rótulo — sem depender de estrutura
+  // intermediária, que a tela pode reorganizar sem mudar a semântica.
+  const valorDe = (rotulo: string) =>
+    page.locator(`dt:text-is("${rotulo}") + dd`).innerText();
+
+  await page.getByTestId("cto-port-damaged-1").click();
+  await expect(page.getByTestId("cto-port-state-feedback")).toBeVisible();
+  /*
+    O banner é local e aparece assim que a resposta chega; o RESUMO só muda
+    quando a releitura do servidor pousa. Ler a contagem antes disso mede o
+    estado anterior — foi o que a primeira versão fez, e reportou 0 danificadas
+    com o código correto.
+  */
+  await expect(page.getByTestId("cto-port-admin-1")).toHaveText("Danificada");
+
+  expect(await valorDe("Danificadas")).toContain("1");
+  expect(await valorDe("Ocupadas")).toContain("1");
+  expect(await valorDe("Livres")).toContain("3");
+});
