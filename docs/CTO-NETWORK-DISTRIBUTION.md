@@ -2604,3 +2604,102 @@ contrato continuam de pé.
 `diff --check` · `prisma validate` · `migrate status` (**27, nenhuma nova**) ·
 lint · tsc · **1976 Vitest** (era 1937, 95 arquivos) · **132 Playwright** ·
 build · build:worker.
+
+## 27. `CTO-2.3` — a operação do vínculo pela tela
+
+**Nenhuma migration, nenhuma rota nova, nenhum Field, nenhum Dart.** A `CTO-2.1`
+e a `CTO-2.2` continuam autoritativas; esta fase consome o que elas expõem.
+
+### O que foi reutilizado, e o que precisou nascer
+
+`GET /api/customers?search=` **já existia** — server-side, paginado, tenant-safe
+e aberto a ADMIN. Nenhum endpoint de busca foi criado. A chave de idempotência
+segue o padrão do ajuste de jornada: um `ref` que só troca quando a **assinatura
+semântica** da ação muda, de modo que retry reenvia a mesma chave.
+
+O que faltava era um **diálogo modal** — o projeto não tinha nenhum. Ele nasceu
+mínimo, sem dependência nova: `role="dialog"`, `aria-modal`, rótulo, foco levado
+para dentro ao abrir, `Esc` fecha e o foco volta a quem abriu.
+
+### As duas dimensões, na linha da porta
+
+O selo principal continua sendo `effectiveState`, que colapsa em **Ocupada**. Ao
+lado dele aparece o selo administrativo **quando as duas coisas são verdade ao
+mesmo tempo**:
+
+```text
+Ocupada + Danificada   → os dois selos, cliente visível, sem "Vincular"
+Ocupada + Reservada    → idem (legado), sem "Vincular"
+```
+
+Colapsar é aceitável para o rótulo; **apagar não é**. Uma porta danificada com
+cliente dentro precisa continuar dizendo que está danificada — é justamente a
+informação que fez alguém marcá-la.
+
+O resumo diz, em texto, que **as categorias se sobrepõem e a soma pode passar da
+capacidade**. Sem isso, quem soma as colunas conclui que há erro; e um gráfico de
+fatias exclusivas estaria simplesmente errado.
+
+### Operações
+
+`Vincular` só aparece quando `availableForConnection` — que é **advisory**. A
+autoridade é a transação do servidor, e `isPortOfferable` **não** foi copiado
+para o cliente.
+
+Ao escolher um cliente já conectado, a tela **diz onde ele está** e a ação vira
+**Mover para esta porta**. Nunca desconectar e conectar em duas requisições: isso
+abriria uma janela sem vínculo e perderia a atomicidade que o domínio garante
+numa transação só.
+
+Porta ocupada oferece `Mover` e `Desconectar` **mesmo em CTO inativa e mesmo
+sendo histórica** — desativar uma caixa ou reduzir capacidade não pode aprisionar
+quem está dentro. O que some é apenas o `Vincular`.
+
+`Desconectar` envia o **id do vínculo que a tela viu**, nunca o do cliente.
+
+### O defeito que o teste encontrou, e é o mais importante da fase
+
+No conflito eu chamava `router.refresh()` e mantinha a mensagem **dentro do
+diálogo**. A releitura remove a premissa da caixa aberta — a porta deixa de estar
+ocupada —, o diálogo desmonta e **leva a mensagem junto**. O operador via um
+clique sem resposta: exatamente a `CTO-1.3`, em que recusa invisível é
+indistinguível de botão quebrado.
+
+O teste de obsolescência passou algumas vezes por **temporização** — o `refresh`
+ainda não tinha chegado quando a asserção rodou — e falhou na suíte inteira.
+Agora conflito **fecha** o diálogo e entrega a mensagem à PÁGINA, que sobrevive à
+releitura. Erro de payload ou permissão **não** fecha: ali a premissa continua de
+pé e a pessoa tem o que corrigir.
+
+### Duas vezes o mesmo erro meu de escopo em teste
+
+`E2E-DUPLO-CLIQUE` e `E2E-MOVE` contavam auditoria **por empresa**, e testes
+irmãos do mesmo arquivo já gravavam antes. Os dois passavam isolados e falhavam
+na suíte — que é o sinal exato de escopo errado. Passaram a contar pelos
+**vínculos daquele cliente**.
+
+No `E2E-MOVE` havia um agravante: o filtro que escrevi (`entityId !== null`) era
+inócuo e não filtrava nada.
+
+### Reversões
+
+| | sabotagem | quem cai |
+|---|---|---|
+| `AM` | esconder o estado administrativo | `DAMAGED` e `RESERVED` ocupadas |
+| `AN` | desconectar pelo cliente, não pelo vínculo | obsolescência: o vínculo NOVO é encerrado |
+| `AO` | mover como desconectar + conectar | **passou** — ver abaixo |
+| `AP` | chave nova a cada envio, sem guard visual | duplo clique |
+| `AQ` | sem releitura após conflito | a tela não se corrige |
+| `AR` | oferecer por `administrativeState`, ignorando ocupação | porta ocupada e CTO inativa voltam a oferecer |
+
+**`AO` passou porque meu teste contava LINHAS.** Desconectar+conectar produz
+exatamente as mesmas duas — a diferença não está na quantidade, está no que o
+registro **diz ter acontecido**. Passou a afirmar a história auditada: um
+movimento é `CTO_CONNECTION.MOVED`, o par é `DISCONNECTED` + `CONNECTED`. Aí a
+sabotagem cai.
+
+### Gates
+
+`diff --check` · `prisma validate` · `migrate status` (**27, nenhuma nova**) ·
+lint · tsc · **1976 Vitest** (inalterado — a fase é de tela) · **147 Playwright**
+(era 132) · build · build:worker.
