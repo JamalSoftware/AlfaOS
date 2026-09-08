@@ -391,6 +391,47 @@ describe("CTO-2.4 · CONNECT", () => {
     expect(await ativos({ companyId: fixture.companyA.id })).toBe(0);
   });
 
+  it("FIELD-C05b ids REAIS de outro cliente e de outro técnico não são obedecidos", async () => {
+    /*
+      Os ataques de `FIELD-C11`/`C12` usam uma string inventada, e uma string
+      inventada é recusada por qualquer caminho — inclusive por um servidor que
+      obedecesse ao corpo, porque o cliente não existiria. Este manda ids que
+      FUNCIONARIAM: se a rota lesse o corpo, ela conectaria o outro cliente com
+      sucesso, e a asserção teria o que proibir.
+    */
+    const cto = await novaCto("CX-C05B");
+    const alheio = await novoCliente("Cliente De Outra OS");
+    const c = await cenario();
+
+    const res = await connectRoute(
+      post(`/api/field/v1/service-orders/${c.orderId}/network/connect`, {
+        expectedVersion: c.version,
+        ctoPortId: (await porta(cto.id, 1)).id,
+        customerId: alheio.id,
+        technicianId: technicianB.id,
+      }, tokenA),
+      { params: { id: c.orderId } },
+    );
+
+    expect(res.status).toBe(400);
+    expect(await ativos({ customerId: alheio.id })).toBe(0);
+
+    // Sem os campos hostis, a MESMA operação passa e grava os valores reais.
+    const ok = await connectRoute(
+      post(`/api/field/v1/service-orders/${c.orderId}/network/connect`, {
+        expectedVersion: c.version,
+        ctoPortId: (await porta(cto.id, 1)).id,
+      }, tokenA),
+      { params: { id: c.orderId } },
+    );
+    expect(ok.status).toBe(201);
+    const linha = await prisma.customerNetworkConnection.findFirstOrThrow({
+      where: { disconnectedAt: null },
+    });
+    expect(linha.customerId).toBe(c.customerId);
+    expect(linha.technicianId).toBe(technicianA.id);
+  });
+
   it("FIELD-C15 recusa CTO inativa", async () => {
     const cto = await novaCto("CX-15");
     const p = await porta(cto.id, 1);
