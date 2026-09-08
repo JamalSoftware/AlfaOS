@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import type { PublicCtoDetail } from "@/lib/cto";
+import type { OperationalCtoDetail } from "@/lib/cto-read-model";
+import { PortConnectionPanel } from "./PortConnectionPanel";
 
 /*
   A classe do campo é montada em DUAS partes, e a separação é necessária.
@@ -74,7 +75,7 @@ interface ScopedError {
 const inputErrorClass =
   "border-danger-border bg-danger-bg ring-1 ring-danger-border focus:ring-danger-border";
 
-export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
+export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
   const router = useRouter();
   const [error, setError] = useState<ScopedError | null>(null);
   const [busy, setBusy] = useState(false);
@@ -113,6 +114,32 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
     de ficar quebrada em silêncio.
   */
   const [photoBroken, setPhotoBroken] = useState(false);
+
+  /** Resultado da última operação de vínculo, no nível da PÁGINA. */
+  const [connectionMsg, setConnectionMsg] = useState<
+    { texto: string; tipo: "ok" | "conflito" } | null
+  >(null);
+
+  /*
+    Toda operação de vínculo termina relendo do servidor.
+
+    Não há atualização otimista: inventar ocupação antes da confirmação
+    produziria exatamente o erro que a guarda de obsolescência existe para
+    evitar — uma tela afirmando um mundo que o servidor não confirmou. E é o
+    mesmo caminho no sucesso e no conflito, porque nos dois casos o estado
+    autoritativo mudou.
+  */
+  function onConnectionChanged(mensagem: string, tipo: "ok" | "conflito") {
+    /*
+      A mensagem vive na PÁGINA, não no diálogo.
+
+      No conflito, a releitura remove a premissa do diálogo — a porta deixa de
+      estar ocupada — e ele desmonta. Uma mensagem presa lá dentro sumiria junto,
+      devolvendo ao operador um clique sem resposta.
+    */
+    setConnectionMsg(mensagem ? { texto: mensagem, tipo } : null);
+    router.refresh();
+  }
 
   /**
    * A mensagem da seção, ou nada.
@@ -426,10 +453,35 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
             </dd>
           </div>
         </dl>
+        {/*
+          As categorias SE SOBREPÕEM, e a tela precisa dizer isso.
+
+          Uma porta pode ser danificada E ocupada ao mesmo tempo, então a soma
+          das quatro pode passar da capacidade. Sem esta linha, quem lê "4 de 4"
+          somando as colunas conclui que há erro — e um gráfico de fatias
+          exclusivas estaria simplesmente errado.
+        */}
         <p className="mt-3 text-xs text-fg-muted">
-          A vinculação de clientes a portas ainda não está disponível. Enquanto
-          isso, nenhuma porta aparece como ocupada.
+          Uma porta pode estar em mais de uma categoria — danificada e ocupada,
+          por exemplo. A soma pode passar da capacidade.
         </p>
+        {connectionMsg && (
+          <p
+            role={connectionMsg.tipo === "ok" ? "status" : "alert"}
+            data-testid={
+              connectionMsg.tipo === "ok"
+                ? "cto-connection-success"
+                : "cto-connection-error"
+            }
+            className={
+              connectionMsg.tipo === "ok"
+                ? "mt-3 rounded-lg border border-success-border bg-success-bg px-4 py-3 text-sm text-success-fg"
+                : "mt-3 rounded-lg border border-danger-border bg-danger-bg px-4 py-3 text-sm text-danger-fg"
+            }
+          >
+            {connectionMsg.texto}
+          </p>
+        )}
       </section>
 
       <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
@@ -476,7 +528,39 @@ export function CtoDetailManager({ cto }: { cto: PublicCtoDetail }) {
                     Fora da capacidade
                   </span>
                 )}
-                <div className="ml-auto flex gap-2">
+                {/*
+                  As DUAS dimensões, lado a lado.
+
+                  O selo de estado acima mostra `effectiveState`, que colapsa em
+                  "Ocupada" sempre que há vínculo — de propósito, é o rótulo
+                  principal. Mas colapsar não pode APAGAR: uma porta danificada
+                  com cliente dentro precisa continuar dizendo que está
+                  danificada, senão a operação perde justamente a informação que
+                  a fez marcar a porta. Por isso o selo administrativo aparece
+                  ao lado quando as duas coisas são verdade ao mesmo tempo.
+                */}
+                {port.occupied && port.administrativeState !== "AVAILABLE" && (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATE_CLASSES[port.administrativeState]}`}
+                    data-testid={`cto-port-admin-${port.number}`}
+                  >
+                    {STATE_LABELS[port.administrativeState]}
+                  </span>
+                )}
+                {port.activeConnection && (
+                  <span
+                    className="text-sm text-fg-secondary"
+                    data-testid={`cto-port-customer-${port.number}`}
+                  >
+                    {port.activeConnection.customer.name}
+                  </span>
+                )}
+                <div className="ml-auto flex flex-wrap justify-end gap-2">
+                  <PortConnectionPanel
+                    cto={cto}
+                    port={port}
+                    onChanged={onConnectionChanged}
+                  />
                   {acoes.map(([rotulo, alvo]) => (
                     <button
                       key={alvo}
