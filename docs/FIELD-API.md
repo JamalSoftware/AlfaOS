@@ -321,6 +321,75 @@ eliminar.
 `queueVersion` chega ao Field e **não** é usada para escrever nada: esta
 superfície é somente leitura, e não existe rota de reordenação para o técnico.
 
+### 3.4. Rede de distribuição — CTO e porta (`CTO-2.4`)
+
+```text
+GET  /api/field/v1/service-orders/:id/network
+GET  /api/field/v1/service-orders/:id/network/ctos?search=&limit=
+GET  /api/field/v1/service-orders/:id/network/ctos/:ctoId
+POST /api/field/v1/service-orders/:id/network/connect
+POST /api/field/v1/service-orders/:id/network/disconnect
+POST /api/field/v1/service-orders/:id/network/move
+```
+
+**Autorização.** Empresa com `ctoNetworkEnabled` (desligada → `NOT_FOUND` em
+todas as seis) · técnico da sessão · OS do caminho **`IN_PROGRESS`** e daquele
+técnico. A leitura exige `IN_PROGRESS` igual à escrita, ao contrário de
+`../diagnostic`: o motivo está em `docs/CTO-NETWORK-DISTRIBUTION.md` §29.
+
+**O cliente vem da OS.** `customerId` **não existe** em nenhum payload. Também
+não existem `companyId`, `source`, `technicianId`, `serviceOrderId` nem carimbo
+de tempo: os schemas são `.strict()` e qualquer um deles devolve
+`VALIDATION_ERROR`.
+
+**Online-only.** As três mutações não têm fila offline. Sem servidor, a operação
+não acontece — o aplicativo mostra indisponível, não "sincroniza depois".
+
+Corpos:
+
+```jsonc
+// connect
+{ "expectedVersion": 7, "ctoPortId": "c…" }
+
+// disconnect
+{ "expectedVersion": 7, "expectedConnectionId": "c…", "reason": "cabo rompido" }
+
+// move
+{ "expectedVersion": 7, "expectedConnectionId": "c…", "targetCtoPortId": "c…" }
+```
+
+As três respondem a **mesma** forma — `connection` é o vínculo vigente depois da
+operação, `previous` o que ela encerrou:
+
+```jsonc
+{ "connection": { "connectionId": "c…", "ctoId": "c…", "ctoPortId": "c…",
+                  "portNumber": 7, "connectedAt": "…", "disconnectedAt": null },
+  "previous": null }
+```
+
+`connect` responde `201`; `disconnect` e `move`, `200`. O corpo sai da **própria
+mutação**, nunca de uma releitura depois do commit — reler repetiria o
+`START-01` da v0.9.
+
+`expectedConnectionId` é **obrigatório** em `disconnect` e `move`: sem ele a
+operação seria *encerre o que este cliente tiver agora*, e uma tela velha
+bastaria para fechar um vínculo que ninguém viu. Vínculo trocado no intervalo →
+`CONFLICT`, e o vínculo novo fica intacto.
+
+`expectedVersion` é o CAS da **OS**, o mesmo de evidência, material e
+assinatura. Ele não protege a ocupação da porta — isso é do lock da CTO e das
+uniques parciais.
+
+**Leitura.** `GET …/network` devolve `{ connection: … | null }`. A porta traz
+`administrativeState` e `occupied` **separados**, nunca um estado colapsado:
+`DAMAGED` numa porta ocupada continua sendo `DAMAGED`.
+
+`GET …/network/ctos` traz só CTO **ativa**, com `availablePorts`, e **sem portas
+no corpo** — 50 caixas de até 256 posições seriam milhares de linhas. O detalhe
+por `:ctoId` traz as portas dentro da capacidade, sem as históricas, e **sem
+revelar quem ocupa**: `occupied: true` responde a pergunta operacional sem
+entregar cliente de outro atendimento.
+
 ---
 
 ## 4. Contrato de erro

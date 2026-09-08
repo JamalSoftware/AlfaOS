@@ -2616,3 +2616,111 @@ essa camada.
 
 Nenhum valor inválido vira `null`, e nenhuma coordenada gravada é apagada por
 entrada malformada.
+
+## 8.20. `CTO-2.4` — a rede de distribuição pela API do Field
+
+A `CTO-1` fixou que a capability vem antes do perfil; a `CTO-2.2` e a `CTO-2.3`
+fixaram que `companyId` sai da sessão e que a obsolescência é obrigatória. Esta
+seção registra o que muda quando quem opera não é o ADMIN pela web, e sim o
+técnico pelo aparelho.
+
+### O modelo de autorização
+
+`docs/FIELD-API.md` e a **§8.13** continuam valendo inteiros: token opaco preso
+ao `MobileDevice`, só `Authorization: Bearer`, nunca cookie e nunca query
+string. **Sem `assertSameOrigin`** — Same-Origin defende cookie, e não há
+cookie nesta superfície; acrescentar a verificação aqui seria proteção fictícia
+para um cliente que não é browser.
+
+Sobre isso, a fase acrescenta quatro condições, e todas são do servidor:
+
+1. a empresa tem `ctoNetworkEnabled` — senão a superfície inteira é `404`;
+2. o perfil é `TECHNICIAN` e existe `Technician` — os dois já são condição de
+   `authenticateField`;
+3. a OS do caminho é da empresa da sessão, está `IN_PROGRESS` e pertence àquele
+   técnico;
+4. **o cliente do vínculo é o cliente daquela OS.**
+
+A quarta não é uma comparação que alguém precisa lembrar de escrever: não existe
+campo `customerId` nos schemas. O cliente é derivado da OS, e o vetor mais barato
+— OS legítima do próprio técnico usada para mexer em outro cliente — deixa de ter
+onde ser expresso.
+
+### Capability antes de tudo, inclusive da idempotência
+
+Com `ctoNetworkEnabled` desligada a resposta é `NOT_FOUND`, nunca `FORBIDDEN`:
+`403` diria *isto existe, você é que não pode*, e a empresa descobriria pela
+mensagem de erro que há um módulo que não contratou. A verificação roda antes da
+elegibilidade e **antes da reserva de idempotência** — sem isso, uma empresa sem
+o módulo gravaria linha em `IdempotencyRecord`, e há teste que afirma zero.
+
+### Posse e estado — quantos portões, e onde
+
+Medido por reversão, não afirmado:
+
+| caminho | posse | `IN_PROGRESS` |
+|---|---|---|
+| escrita | 2 (`resolveOwnedOrderCustomer`, `loadOwnedServiceOrder` na transação) | 3 (mais o predicado do `claim`) |
+| leitura | 1 (`resolveOwnedOrderCustomer`) | 1 |
+
+Removendo a posse só do primeiro portão, a **escrita continuou recusando** e a
+leitura caiu. O caminho de leitura é o de gate único, e é ele que `F-A1` e
+`FIELD-R13` guardam de forma permanente.
+
+### A autorização vive DENTRO da transação
+
+`ConnectionContext.authorizeWithin` roda como primeira instrução da transação do
+domínio, antes de qualquer lock. Fora dela, a OS poderia ser concluída entre a
+conferência e a escrita, e o `ServiceOrderEvent` nasceria depois do fechamento —
+evento numa OS que o snapshot de conclusão já declarou encerrada.
+
+Ordem de lock resultante: **`ServiceOrder → Customer → CTO`**. Não há ciclo,
+porque nada que trave `Customer` pede `ServiceOrder` exclusivo depois: a origem
+`WEB` não toca OS.
+
+`ServiceOrder.version` protege a **sessão operacional da visita**; a ocupação da
+porta continua protegida pelo lock da CTO e pelas duas uniques parciais. As duas
+respondem perguntas diferentes e não se substituem.
+
+### Superfície de dados
+
+O DTO do Field omite, deliberadamente:
+
+* o **ocupante** de qualquer porta que não seja a do cliente da OS — `occupied:
+  true` responde a pergunta operacional sem entregar cliente de outro
+  atendimento;
+* `companyId`, coordenadas da CTO, foto, observações administrativas;
+* tudo de PPPoE. A senha tem porta própria, explícita e auditada (§8.9);
+* `effectiveState`, que colapsa em `OCCUPIED` e apagaria `DAMAGED` de uma porta
+  com cliente dentro.
+
+Recurso de outra empresa responde `404` com **corpo idêntico** ao de um id
+inexistente — há teste que compara os dois corpos byte a byte, porque distinguir
+"não é seu" de "não existe" é o oráculo de enumeração que o módulo evita.
+
+### Idempotência, e o escopo que inclui a OS
+
+`(empresa, usuário, operação, chave)`, e a impressão digital carrega o
+`orderId`. A mesma chave usada em duas OS diferentes é `IDEMPOTENCY_CONFLICT`
+(409), não replay — provado por reversão, retirando o `orderId` da impressão
+digital.
+
+### Um achado desta revisão, corrigido
+
+Uma string com byte `NUL` atravessava `z.string().min(1)`, chegava ao Postgres e
+voltava `22021`; a fronteira do Field traduzia em `INTERNAL`, que é
+**retentável** — o aplicativo reenviaria em laço uma requisição impossível.
+`fieldResourceId` recusa antes, com `VALIDATION_ERROR`, usando a mesma classe de
+caracteres que `clientMutationId` e `installationId` já usam.
+
+**A classe é pré-existente e maior que esta fase**, e isso foi medido:
+`serviceOrderEvidence` e `timeEntry` se comportam igual. Fica registrado como
+risco `INFO` do codebase — qualquer rota que leve string do cliente para um
+`where` do Prisma tem o mesmo desfecho —, e não como regressão da `CTO-2.4`.
+
+### Online-only
+
+`CONNECT`, `DISCONNECT` e `MOVE` não têm fila offline. Nenhum DTO de
+sincronização, nenhum job, nenhuma reserva local: duas pessoas reservariam a
+mesma porta sem rede, e a reconciliação escolheria um perdedor depois de os dois
+terem subido no poste.

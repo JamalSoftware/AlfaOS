@@ -2784,3 +2784,184 @@ operações distintas.
 
 O nome do cliente **não** viaja na visão da rede do cliente — ela devolve caixa,
 porta e carimbos. Ele aparece no detalhe da CTO, como JSON escapado.
+
+## 29. `CTO-2.4` — a rede pela API do Field
+
+**Nenhuma migration, nenhuma alteração de schema, nenhuma dependência, zero
+Dart.** A `CTO-2.5` é quem faz a tela; esta fase termina com a API pronta para
+consumo.
+
+### O que foi reutilizado, e o que precisou nascer
+
+Nada de framework novo. As rotas usam `fieldOrderCommand`, que já fixa a ordem
+`autenticar → elegibilidade → chave → corpo → dedup → domínio`; a posse e o
+estado saem de `loadInProgressOwnedOrder` e `claimOrderForChildMutation`, os
+mesmos de evidência, material, equipamento, assinatura e checklist; a
+idempotência é `withIdempotency`; o contrato de erro é `FieldError`; e a rede é
+`src/lib/cto-connections.ts`, intacto nas suas regras.
+
+Três coisas nasceram, e as três são pequenas:
+
+| | por quê |
+|---|---|
+| `ConnectionContext.authorizeWithin` | o domínio abre a própria transação; sem um gancho, a autorização ficaria **fora** dela |
+| `FieldCommandOptions.precondition` | a capability precisa ser verificada antes até da reserva de idempotência |
+| `resolveOwnedOrderCustomer(..., { requireInProgress })` | um parâmetro, não uma segunda resolução de posse |
+
+### O namespace, e por que a OS está no caminho
+
+```text
+GET  /api/field/v1/service-orders/:id/network
+GET  /api/field/v1/service-orders/:id/network/ctos?search=&limit=
+GET  /api/field/v1/service-orders/:id/network/ctos/:ctoId
+POST /api/field/v1/service-orders/:id/network/connect
+POST /api/field/v1/service-orders/:id/network/disconnect
+POST /api/field/v1/service-orders/:id/network/move
+```
+
+A OS é a autorização, então ela é o `:id` do caminho — **não** um campo do corpo
+que o servidor depois resolve confiar. Uma rota global `/api/field/cto-connections`
+receberia `serviceOrderId` no payload, e a diferença entre as duas formas não é
+estética: no caminho, a autorização é estrutural.
+
+O vínculo, ao contrário, **não** entra no caminho. Ele não é filho da OS —
+pertence ao cliente, e `serviceOrderId` é procedência (`SET NULL`), não posse.
+Pendurá-lo em `/network/:connectionId/disconnect` sugeriria uma propriedade que o
+modelo não tem; ele viaja como `expectedConnectionId`, que é o nome do que ele
+de fato é.
+
+### O cliente não é campo de payload
+
+`customerId` não existe nos três schemas. Ele é derivado da OS, e a classe
+inteira de *OS legítima do meu técnico usada para mexer em outro cliente* deixa
+de ter onde ser escrita — não por uma comparação que alguém precisa lembrar de
+fazer, mas porque não há campo. O mesmo vale para `companyId`, `source`,
+`technicianId`, `serviceOrderId` e todo carimbo de tempo: os schemas são
+`.strict()` e qualquer um deles devolve `400`.
+
+### `authorizeWithin` — por que dentro da transação
+
+A autorização acontece duas vezes, e as duas contam. Fora, para descobrir o
+cliente e recusar cedo o que nunca vai passar. **Dentro**, porque é ela que
+decide: `claimOrderForChildMutation` segura a linha da OS até o commit, e sem
+isso a OS poderia ser concluída entre a conferência e a escrita — o
+`ServiceOrderEvent` nasceria depois do fechamento, numa OS que o snapshot de
+conclusão já declarou encerrada.
+
+A ordem de lock passa a ser **`ServiceOrder → Customer → CTO`**, e é consistente:
+nada que trave `Customer` pede `ServiceOrder` exclusivo depois, porque a origem
+`WEB` sequer toca OS. O `INSERT` do evento já pegava `FOR KEY SHARE` na OS
+depois dos outros dois locks; com a reivindicação antes, essa aquisição vira
+no-op para nós.
+
+### `expectedVersion` responde uma pergunta, os locks respondem outra
+
+O CAS da OS **não** protege a ocupação da porta — isso é do lock da CTO e das
+duas uniques parciais. Ele protege a **sessão operacional** da visita, e é o
+mesmo token que o aplicativo já usa em toda escrita-filha. As duas proteções não
+se substituem, e a `DQ-3` já pagou para aprender que dois agregados exigem dois
+mecanismos.
+
+### Leitura também exige `IN_PROGRESS`, e isso DIVERGE do precedente
+
+O parente mais próximo é `../diagnostic`: exige posse e **não** exige
+`IN_PROGRESS`, porque é consultado a caminho do cliente. Aqui a decisão é a
+oposta, por duas razões declaradas:
+
+* o que esta leitura abre não é o cliente da OS, é a **rede da empresa** — as
+  caixas, as posições e quais estão livres. Nenhuma outra leitura do Field tem
+  esse alcance; todas as demais param no que já é do próprio técnico;
+* as três mutações exigem `IN_PROGRESS`. Uma leitura mais permissiva ofereceria
+  ao aplicativo uma tela que ele não teria como usar.
+
+Consequência aceita e registrada: o técnico não vê a caixa do cliente antes de
+dar início ao atendimento.
+
+### O que o Field NÃO recebe
+
+O ocupante de qualquer porta que não seja a do cliente da OS. Uma caixa de 16
+posições costuma ter 15 clientes de outras pessoas, e `occupied: true` responde a
+pergunta operacional inteira — *posso usar esta porta?* — sem entregar nome
+nenhum. Também ficam fora `companyId`, coordenadas, foto, observações
+administrativas e tudo de PPPoE.
+
+E **`effectiveState` não existe no DTO do Field**. Ele colapsa em `OCCUPIED` e
+apagaria `DAMAGED` de uma porta com cliente dentro — o defeito que a `CTO-2.2`
+corrigiu no resumo administrativo. O aparelho recebe `administrativeState` e
+`occupied` separados e decide o rótulo.
+
+### Sem `N+1`, e sem devolver a rede inteira
+
+A lista de candidatas **não** traz portas: 50 caixas de até 256 posições seriam
+milhares de linhas para uma tela que precisa de uma. O técnico acha a caixa e
+depois pede as portas dela, que é como ele trabalha no poste. A ocupação da
+página inteira sai de **uma** consulta agrupada, e há teste que conta as chamadas
+em vez de confiar na leitura do código.
+
+### Online, e só
+
+`CONNECT`, `DISCONNECT` e `MOVE` não entram em fila offline (§24.21). Nenhum DTO
+de sincronização, nenhum job, nenhuma reserva local. Sem servidor, a operação não
+acontece.
+
+### O que as reversões mediram, e não o que eu suporia
+
+| | sabotagem | quem cai |
+|---|---|---|
+| `AY` | cliente vindo do corpo | `FIELD-C05b`, `FIELD-C11` |
+| `AZ` | posse do técnico removida | `F-A1` |
+| `BA` | `ASSIGNED` aceita | `FIELD-C07` (total), `FIELD-R13` (parcial) |
+| `BB` | `disconnect` sem guarda de obsolescência | `FIELD-D04` |
+| `BC` | `move` sem guarda de obsolescência | `FIELD-M06` |
+| `BD` | `technicianId` vindo do corpo | `FIELD-C05b` |
+| `BE` | procedência `WEB` na rota do Field | `FIELD-C02`, `F-A2`, `FIELD-D03`, `FIELD-M01` |
+| `BF` | sem idempotência | `FIELD-D08`, `FIELD-M11` |
+| `BG` | OS fora da impressão digital da chave | `F-A7` |
+| `BH` | autorização só FORA da transação | `FIELD-C20` |
+
+**A `AY` passou na primeira rodada, e a culpa era do meu teste.** O `FIELD-C05b`
+mandava `customerId` e `technicianId` **juntos**, e a recusa do segundo pelo
+`.strict()` chegava primeiro: a asserção passava com o ataque bem-sucedido. Um
+teste que agrega dois ataques só prova que ALGUM deles foi barrado. Agora é um
+campo por vez.
+
+**A escrita tem posse em dois portões; a leitura, em um.** Removendo a posse só
+de `resolveOwnedOrderCustomer`, a escrita **continuou** recusando — o
+`loadOwnedServiceOrder` de dentro da transação a pegou —, e quem caiu foi a
+leitura. O mesmo vale para o `IN_PROGRESS`: três portões na escrita
+(`resolveOwnedOrderCustomer`, `loadInProgressOwnedOrder` e o predicado do
+`claim`), um só na leitura. Por isso `F-A1` e `FIELD-R13` são permanentes: são
+eles que cobrem o caminho de gate único.
+
+**A `BF` não produz duplicata, produz `409`.** Sem idempotência, o replay é
+recusado pelo CAS — o que significa que uma retentativa depois de um timeout
+diria "conflito" para uma operação que já tinha dado certo. A idempotência não é
+a segunda barreira contra escrita dupla; é o que torna o replay legível.
+
+**O limite que nenhuma reversão fecha:** a corrida *OS concluída entre a
+autorização e a escrita* não tem teste determinístico. O que existe é a prova
+estrutural — a reivindicação está dentro da transação e segura a linha —, e
+`BH` mostra que retirá-la derruba o CAS. A janela em si fica declarada, não
+afirmada como testada.
+
+### Um achado da revisão de segurança, corrigido
+
+Uma string com byte `NUL` atravessava `z.string().min(1)`, chegava ao Postgres e
+voltava `22021`, que a fronteira do Field traduzia em `INTERNAL`. E `INTERNAL` é
+**retentável**: o aplicativo reenviaria em laço uma requisição que nunca teria
+como dar certo. A recusa correta é `VALIDATION_ERROR`.
+
+`fieldResourceId` usa a **mesma** classe de caracteres de `clientMutationId` e
+`installationId` — não uma terceira inventada —, e cobre o formato de `cuid()`.
+Não é controle de acesso: quem chama continua resolvendo o recurso sob a empresa
+da sessão.
+
+**A classe do defeito é pré-existente e maior que esta fase**, e isso foi medido,
+não suposto: `serviceOrderEvidence` e `timeEntry` se comportam igual. Fica como
+`INFO` sobre o codebase, e não como regressão da `CTO-2.4`.
+
+### O que continua fora
+
+`CTO-2.5` (tela Flutter), `CTO-2.6` (integração capacidade/estado — alvo
+`RESERVED` com vínculo ativo e redução bloqueada por vínculo acima do limite),
+mapa, QR, ERP e FiberMap. Nenhum desses serviços foi tocado.

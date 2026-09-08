@@ -745,6 +745,24 @@ Também congelado: modelo sem `equipmentId`, `updatedAt`, `version`, `externalPr
 
 **Mover NUNCA é desconectar+conectar** em duas requisições — abriria janela sem vínculo. E a prova disso é a **história auditada**, não a contagem de linhas: as duas formas produzem duas linhas, e só uma registra `MOVED`.
 
+**`CTO-2.4` ENTREGUE — commits locais, sem tag e sem push.** O técnico passou a operar a rede pelo Field, sempre **através de uma OS `IN_PROGRESS` que é dele**. Seis rotas sob `/api/field/v1/service-orders/:id/network`. **Zero migration, zero schema, zero dependência, zero Dart** — `CTO-2.5` é a tela.
+
+**O cliente não é campo de payload, e essa é a proteção.** Ele é derivado da OS do caminho, de modo que *OS legítima do meu técnico usada para mexer em outro cliente* deixa de ter onde ser escrita — não por uma comparação que alguém precisa lembrar de fazer, mas porque não existe campo. O mesmo para `companyId`, `source`, `technicianId`, `serviceOrderId` e todo carimbo de tempo: schemas `.strict()`, e cada um deles é `400`.
+
+**A autorização roda DENTRO da transação do domínio**, por um gancho novo (`ConnectionContext.authorizeWithin`): `loadInProgressOwnedOrder` mais `claimOrderForChildMutation`, o mesmo portão de evidência, material, equipamento, assinatura e checklist. Fora dela, a OS poderia ser concluída entre a conferência e a escrita e o `ServiceOrderEvent` nasceria **depois do fechamento**. A ordem de lock vira `ServiceOrder → Customer → CTO`, sem ciclo, porque nada que trave `Customer` pede `ServiceOrder` exclusivo depois — a origem `WEB` sequer toca OS.
+
+**A leitura também exige `IN_PROGRESS`, e isso DIVERGE de `../diagnostic`** — que é consultado com a OS ainda `ASSIGNED`. A razão está escrita: o que esta leitura abre não é o cliente da OS, é a **rede da empresa**, e nenhuma outra leitura do Field tem esse alcance. Consequência aceita: o técnico não vê a caixa antes de dar início.
+
+**Medido por reversão, não suposto: a escrita tem posse em DOIS portões e a leitura em UM.** Removendo a posse só de `resolveOwnedOrderCustomer`, a escrita continuou recusando (o `loadOwnedServiceOrder` de dentro da transação a pegou) e quem caiu foi a leitura. O mesmo padrão vale para o `IN_PROGRESS`: três portões na escrita, um na leitura. Por isso `F-A1` e `FIELD-R13` são permanentes.
+
+**A sabotagem `AY` passou, e a culpa era do meu teste**: ele mandava `customerId` e `technicianId` **juntos**, e a recusa do segundo pelo `.strict()` chegava primeiro — a asserção passava com o ataque bem-sucedido. Um teste que agrega dois ataques só prova que ALGUM deles foi barrado. Agora é um campo por vez.
+
+**Um achado real da revisão de segurança, corrigido:** string com byte `NUL` atravessava `z.string().min(1)`, chegava ao Postgres e voltava `22021`, traduzido em `INTERNAL` — que é **retentável**, então o aplicativo reenviaria em laço uma requisição impossível. `fieldResourceId` recusa antes, com a **mesma** classe de caracteres de `clientMutationId`. **A classe do defeito é PRÉ-EXISTENTE e maior que a fase** — medido em `serviceOrderEvidence` e `timeEntry` —, e fica como INFO do codebase.
+
+Duas decisões menores que não devem ser desfeitas: o vínculo **não** entra no caminho da rota (ele não é filho da OS — `serviceOrderId` é procedência, `SET NULL`), viaja como `expectedConnectionId`; e o DTO do Field **não tem `effectiveState`**, que colapsa em `OCCUPIED` e apagaria `DAMAGED` de uma porta com cliente dentro.
+
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §29, `docs/SECURITY.md` §8.20 e `docs/FIELD-API.md` §3.4.
+
 ## Princípios
 
 Integridade > velocidade
