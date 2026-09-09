@@ -441,60 +441,89 @@ describe("CTO-2.6 · redução de capacidade com vínculo ativo", () => {
 
 describe("CTO-2.6 · concorrência", () => {
   /**
-   * Toda corrida roda várias vezes.
+   * Toda corrida roda várias vezes, e nas DUAS ordens.
    *
-   * Uma rodada só não distingue "o lock funciona" de "hoje deu certo": a `DQ-2`
-   * mediu 1 falha em 20 numa sabotagem que uma rodada única deixava passar.
+   * A primeira versão deste bloco rodava só uma. Disparadas juntas, a operação
+   * administrativa sempre vencia o lock, porque o `CONNECT` faz mais trabalho
+   * antes dele — trava o cliente, resolve a porta, e só então trava a caixa. A
+   * sabotagem que remove a regra do alvo `RESERVED` **passou** nessas corridas,
+   * e a culpa era do teste: a ordem perigosa nunca acontecia.
+   *
+   * A ordem B dá ao vínculo uma dianteira curta, o bastante para ele estar com
+   * o lock quando a administrativa chega. Ela então BLOQUEIA no `FOR UPDATE` e
+   * só lê depois do commit — que é exatamente a janela que a regra existe para
+   * fechar.
+   *
+   * Cada corrida conta quantas vezes o vínculo venceu e exige pelo menos uma:
+   * sem isso, o teste voltaria a provar metade do que afirma.
    */
-  const RODADAS = 6;
+  const RODADAS = 4;
+  const DIANTEIRA_MS = 25;
 
-  it("RACE-01 CONNECT na porta 8 × redução para 4", async () => {
-    for (let rodada = 0; rodada < RODADAS; rodada += 1) {
+  const dianteira = () =>
+    new Promise((resolve) => setTimeout(resolve, DIANTEIRA_MS));
+
+  it("RACE-01 CONNECT na porta 8 × redução para 4, nas duas ordens", async () => {
+    let vinculoVenceu = 0;
+
+    for (let rodada = 0; rodada < RODADAS * 2; rodada += 1) {
+      const vinculoPrimeiro = rodada % 2 === 1;
       const cto = await novaCto(`CX-RACE-01-${rodada}`, 8);
       const p = await porta(cto.id, 8);
       const cliente = await novoCliente(`Cliente RACE-01-${rodada}`);
 
-      const resultados = await Promise.allSettled([
-        connectCustomerToPort(ctx, {
-          customerId: cliente.id,
-          ctoPortId: p.id,
-        }),
-        reduzir(cto.id, 4),
-      ]);
+      const conectando = connectCustomerToPort(ctx, {
+        customerId: cliente.id,
+        ctoPortId: p.id,
+      });
+      if (vinculoPrimeiro) await dianteira();
+      const reduzindo = reduzir(cto.id, 4);
+      const [c, r] = await Promise.allSettled([conectando, reduzindo]);
 
       const capFinal = await capacidade(cto.id);
       const ativos = await ativosNaPorta(p.id);
 
       // O desfecho PROIBIDO, e não um "pelo menos um deu certo".
       expect(capFinal >= 8 || ativos === 0).toBe(true);
-      // E a corrida realmente aconteceu: alguém passou.
-      expect(resultados.some((r) => r.status === "fulfilled")).toBe(true);
+      expect(c.status === "fulfilled" || r.status === "fulfilled").toBe(true);
+      if (c.status === "fulfilled") vinculoVenceu += 1;
     }
+
+    expect(vinculoVenceu).toBeGreaterThan(0);
   });
 
-  it("RACE-02 CONNECT × marcar a mesma porta como RESERVED", async () => {
-    for (let rodada = 0; rodada < RODADAS; rodada += 1) {
+  it("RACE-02 CONNECT × marcar a mesma porta como RESERVED, nas duas ordens", async () => {
+    let vinculoVenceu = 0;
+
+    for (let rodada = 0; rodada < RODADAS * 2; rodada += 1) {
+      const vinculoPrimeiro = rodada % 2 === 1;
       const cto = await novaCto(`CX-RACE-02-${rodada}`, 8);
       const p = await porta(cto.id, 3);
       const cliente = await novoCliente(`Cliente RACE-02-${rodada}`);
 
-      await Promise.allSettled([
-        connectCustomerToPort(ctx, {
-          customerId: cliente.id,
-          ctoPortId: p.id,
-        }),
-        mudarEstado(cto.id, p.id, "RESERVED"),
-      ]);
+      const conectando = connectCustomerToPort(ctx, {
+        customerId: cliente.id,
+        ctoPortId: p.id,
+      });
+      if (vinculoPrimeiro) await dianteira();
+      const reservando = mudarEstado(cto.id, p.id, "RESERVED");
+      const [c] = await Promise.allSettled([conectando, reservando]);
 
       const estadoFinal = await estado(cto.id, 3);
       const ativos = await ativosNaPorta(p.id);
       // Nunca vínculo ativo numa porta reservada por corrida.
       expect(estadoFinal !== "RESERVED" || ativos === 0).toBe(true);
+      if (c.status === "fulfilled") vinculoVenceu += 1;
     }
+
+    expect(vinculoVenceu).toBeGreaterThan(0);
   });
 
-  it("RACE-03 MOVE para a porta 8 × redução para 4", async () => {
-    for (let rodada = 0; rodada < RODADAS; rodada += 1) {
+  it("RACE-03 MOVE para a porta 8 × redução para 4, nas duas ordens", async () => {
+    let vinculoVenceu = 0;
+
+    for (let rodada = 0; rodada < RODADAS * 2; rodada += 1) {
+      const vinculoPrimeiro = rodada % 2 === 1;
       const cto = await novaCto(`CX-RACE-03-${rodada}`, 8);
       const origem = await porta(cto.id, 1);
       const destino = await porta(cto.id, 8);
@@ -504,14 +533,14 @@ describe("CTO-2.6 · concorrência", () => {
         ctoPortId: origem.id,
       });
 
-      await Promise.allSettled([
-        moveCustomerToPort(ctx, {
-          customerId: cliente.id,
-          expectedConnectionId: vinculo.id,
-          targetCtoPortId: destino.id,
-        }),
-        reduzir(cto.id, 4),
-      ]);
+      const movendo = moveCustomerToPort(ctx, {
+        customerId: cliente.id,
+        expectedConnectionId: vinculo.id,
+        targetCtoPortId: destino.id,
+      });
+      if (vinculoPrimeiro) await dianteira();
+      const reduzindo = reduzir(cto.id, 4);
+      const [m] = await Promise.allSettled([movendo, reduzindo]);
 
       const capFinal = await capacidade(cto.id);
       const ativosNoDestino = await ativosNaPorta(destino.id);
@@ -522,11 +551,17 @@ describe("CTO-2.6 · concorrência", () => {
           where: { customerId: cliente.id, disconnectedAt: null },
         }),
       ).toBe(1);
+      if (m.status === "fulfilled") vinculoVenceu += 1;
     }
+
+    expect(vinculoVenceu).toBeGreaterThan(0);
   });
 
-  it("RACE-04 MOVE para a porta 8 × marcar a 8 como RESERVED", async () => {
-    for (let rodada = 0; rodada < RODADAS; rodada += 1) {
+  it("RACE-04 MOVE para a porta 8 × marcar a 8 como RESERVED, nas duas ordens", async () => {
+    let vinculoVenceu = 0;
+
+    for (let rodada = 0; rodada < RODADAS * 2; rodada += 1) {
+      const vinculoPrimeiro = rodada % 2 === 1;
       const cto = await novaCto(`CX-RACE-04-${rodada}`, 8);
       const origem = await porta(cto.id, 1);
       const destino = await porta(cto.id, 8);
@@ -536,14 +571,14 @@ describe("CTO-2.6 · concorrência", () => {
         ctoPortId: origem.id,
       });
 
-      await Promise.allSettled([
-        moveCustomerToPort(ctx, {
-          customerId: cliente.id,
-          expectedConnectionId: vinculo.id,
-          targetCtoPortId: destino.id,
-        }),
-        mudarEstado(cto.id, destino.id, "RESERVED"),
-      ]);
+      const movendo = moveCustomerToPort(ctx, {
+        customerId: cliente.id,
+        expectedConnectionId: vinculo.id,
+        targetCtoPortId: destino.id,
+      });
+      if (vinculoPrimeiro) await dianteira();
+      const reservando = mudarEstado(cto.id, destino.id, "RESERVED");
+      const [m] = await Promise.allSettled([movendo, reservando]);
 
       const estadoFinal = await estado(cto.id, 8);
       const ativosNoDestino = await ativosNaPorta(destino.id);
@@ -553,7 +588,10 @@ describe("CTO-2.6 · concorrência", () => {
           where: { customerId: cliente.id, disconnectedAt: null },
         }),
       ).toBe(1);
+      if (m.status === "fulfilled") vinculoVenceu += 1;
     }
+
+    expect(vinculoVenceu).toBeGreaterThan(0);
   });
 
   it("RACE-05 duas reservas simultâneas em portas ocupadas diferentes", async () => {
@@ -582,9 +620,6 @@ describe("CTO-2.6 · concorrência", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Read model
-// ---------------------------------------------------------------------------
 
 describe("CTO-2.6 · o read model não mudou", () => {
   it("RM-01 DANIFICADA e OCUPADA conta nos DOIS agregados", async () => {
