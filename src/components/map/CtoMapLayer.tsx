@@ -93,12 +93,17 @@ export function CtoMapLayer({
       const payload = await res.json().catch(() => null);
 
       /*
-        O bilhete decide, e não o `AbortController`.
+        Defesa em profundidade atrás do aborto — e isso foi MEDIDO.
 
-        Abortar é um PEDIDO de cancelamento: uma resposta já em trânsito pode
-        chegar assim mesmo. Sem esta linha, a leitura lenta do bairro anterior
-        sobrescreveria a do bairro atual, e o mapa mostraria os marcadores de um
-        lugar sobre a geografia de outro — sem erro nenhum na tela.
+        O modo de falha é o do bairro lento: a leitura de A demora mais que a de
+        B, chega depois, e o mapa fica no lugar certo com os marcadores do outro
+        lugar, sem erro nenhum na tela. No navegador quem impede isso é o
+        `abort()` acima; a sabotagem `S2` provou que removendo esta linha o spec
+        do mapa continua verde.
+
+        Ela fica porque cobre o que o aborto não cobre: um chamador que esqueça
+        o `signal`, uma troca de transporte, ou qualquer refatoração que afaste
+        a decisão de escrever no estado da promessa cancelada.
       */
       if (!guardRef.current.isCurrent(bilhete)) return;
 

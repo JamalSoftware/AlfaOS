@@ -839,7 +839,33 @@ Lacuna encontrada e fechada sem tocar produção: **`src/lib/geo.ts` não tinha 
 
 **Nenhum índice novo**, e a razão está registrada: no volume atual o `companyId` já reduz a varredura, e um índice espacial só se paga quando a faixa de coordenada for o filtro seletivo.
 
-Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §34. **`CTO-3.2`, `3.3` e `3.4` continuam sob a §119.**
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §34. **`3.3` e `3.4` continuam sob a §119.**
+
+**`CTO-3.2` ENTREGUE — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** A primeira superfície visual do Mapa Operacional, com a CTO como primeira camada: `/mapa`, Leaflet + React Leaflet, marcadores, popup, busca global no tenant e contador de caixas sem localização. **Zero migration, zero schema, zero Prisma, zero Dart.** Duas dependências novas, e elas acrescentaram **zero vulnerabilidades** — medido contra o lockfile de `c494307`, que já tinha 16, incluindo o `critical`, todas de `next` e `firebase-admin`.
+
+**A superfície se chama Mapa Operacional, nunca "Mapa de CTOs".** As camadas de técnico, cliente e OS entram sobre o mesmo motor (§136, §207), e nomear pela primeira camada faria a segunda nascer como uma segunda tela. Existe fronteira real — `OperationalMap` e `MapCanvas` não importam nada de CTO — e **nenhuma abstração para camada que não existe**: sem registro de camadas, sem seletor, sem interface `MapLayer`.
+
+**O achado que decidiu a arquitetura da configuração: a CSP bloqueava todo tile.** `img-src 'self' data:` recusa imagem de outro host, e tile é imagem. O modo de falha é traiçoeiro — a página carrega, os controles funcionam, os marcadores aparecem, e só o fundo some, porque violação de CSP apaga a imagem em vez de quebrar a página. Por isso o provedor mora em `src/lib/map-tiles.config.mjs`: `next.config.mjs` roda em Node puro, antes de qualquer transpilação, e **não importa TypeScript**. Com a configuração só no `.ts`, a CSP teria de repetir o host, e a primeira troca de provedor deixaria a URL certa no `TileLayer` e o host velho na política. **Uma configuração de tiles que não alimenta a CSP não é configurável.**
+
+**Leaflet entra por uma porta só.** Ele toca `window` na carga do módulo, e componente de cliente ainda é renderizado no servidor pelo Next — `import` estático derrubaria o `next build`. Entra apenas por `dynamic(..., { ssr: false })`, e isso foi **verificado no artefato**: `grep -rl leaflet .next/server` devolve zero arquivos; ele aparece só num chunk de cliente.
+
+**A busca é um contrato SEPARADO** (`GET /api/ctos/map/search`, teto 10, DTO de cinco campos), por decisão do dono: procurar vale em toda a rede, não no recorte. Ensinar `/api/ctos/map` a varrer a carteira quando um parâmetro aparece transformaria a única superfície com teto garantido numa com teto **condicional**. O mínimo de dois caracteres conta caracteres **que não são `%` nem `_`**, e isso fecha vetor real: um teste de caracterização **mediu** que o `contains` do Prisma não escapa curinga, então `%%` satisfaria o mínimo e casaria com tudo.
+
+**Estado nunca viaja só como cor:** forma, glifo e rótulo por estado, com a cor em quarto lugar. E **nada é recalculado no cliente** — `status` e as contagens chegam prontos da `CTO-3.1`; a tela conhece a tradução, não a precedência.
+
+**O teste de navegador encontrou um defeito real da minha implementação:** com a API falhando, o aviso de erro cobria o mapa e a linha de baixo continuava dizendo *"0 CTOs nesta área"* — a frase exata que a fase existe para não dizer. Corrigido com dois elementos distintos, para que um teste possa afirmar a **ausência** da contagem e não apenas que o texto dela mudou.
+
+**E um teste meu passava pelo motivo errado**, na mesma classe das corridas da `CTO-2.6`: o `UI-MAP-06` disparava o arrasto antes de o atraso de 350 ms vencer, então o temporizador pendente era substituído e existia **uma** requisição em vez de duas — a ordem perigosa nunca acontecia. Agora ele espera a primeira leitura estar comprovadamente em voo.
+
+**Permissões inalteradas:** `ADMIN` e `DISPATCHER` leem o mapa, como na `CTO-3.1`. `/ctos/[id]` continua de `ADMIN`, e por isso o botão **Abrir CTO** não é oferecido ao `DISPATCHER` — um botão que redireciona sem explicação é pior que a ausência dele. `CONNECT`, `MOVE` e `DISCONNECT` seguem como a `CTO-2` os entregou.
+
+**O placeholder *"Mapa Operacional — EM BREVE"* que o enunciado citava está no FIELD**, com `route == null`; a web não tinha entrada de mapa nenhuma. Esta fase é web e zero Dart, então o item do Field ficou como está — o mapa dele é outra fatia (§339, onde a proximidade **ordena a lista** e não desenha mapa).
+
+Sete sabotagens, **sete detectadas**, e duas medições valem mais que o placar: **`S7` tem um único detector, e é de navegador**; e **`S2` cai no Vitest e não no navegador**, porque ali o `AbortController` rejeita a leitura anterior antes de ela chegar — no navegador o bilhete de sequência é defesa em profundidade atrás do aborto, não o mecanismo principal.
+
+**Aviso operacional registrado:** a política de uso dos tiles públicos do OpenStreetMap **não** é infraestrutura de produção. Antes de produção, `MAP_TILE_URL` aponta para provedor contratado ou tiles próprios — nenhuma linha de código muda.
+
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §35. **Aguarda validação do dono pela interface antes de qualquer tag.**
 
 ## Princípios
 

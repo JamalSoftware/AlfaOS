@@ -3754,3 +3754,213 @@ histórico de coordenada, FiberMap, QR, falha coletiva e OLT/SNMP.
 
 > **`CTO-3` — `IN PROGRESS`.** `CTO-3.1` entregue; `3.2`, `3.3` e `3.4`
 > continuam sob a §119. `CTO-2` continua `DONE`.
+
+## 35. `CTO-3.2` — o Mapa Operacional web, camada de CTO
+
+A primeira superfície visual do motor de mapa. **Zero migration, zero schema,
+zero Prisma, zero Dart.** Duas dependências novas e um endpoint novo.
+
+### O nome é da superfície, não da camada
+
+`Mapa Operacional`, em `/mapa`. As camadas de técnico, cliente e ordem de
+serviço entram sobre o mesmo motor (§136, §207), e um item chamado *"Mapa de
+CTOs"* obrigaria a segunda a nascer como uma segunda tela — que é exatamente o
+que a §207 existe para evitar.
+
+```text
+OperationalMap   moldura · SSR · tiles · carregamento · erro   genérico
+  MapCanvas      Leaflet · viewport · zoom/pan                 genérico
+    CtoMarkers   marcadores · popup · seleção                  de CTO
+CtoMapLayer      DTO · leitura · busca · contadores            de CTO
+```
+
+**Nenhuma abstração para camada que não existe.** Não há registro de camadas,
+seletor nem interface `MapLayer`: hoje há uma, e inventar o mecanismo de
+composição antes da segunda escolheria uma forma sem nenhum caso real para
+validá-la. O que existe é a fronteira — `OperationalMap` e `MapCanvas` não
+importam nada de CTO.
+
+### O achado que decidiu onde a configuração mora
+
+A CSP do projeto trazia `img-src 'self' data:`. **Tile é imagem de outro host, e
+a política bloqueava todos.** O modo de falha é traiçoeiro: a página carrega, os
+controles funcionam, os marcadores aparecem, e só o fundo some — violação de CSP
+apaga a imagem em vez de quebrar a página, e nada erra o suficiente para alguém
+suspeitar da política de segurança.
+
+Por isso `src/lib/map-tiles.config.mjs` é `.mjs`, e não `.ts`: `next.config.mjs`
+roda em Node puro, antes de qualquer transpilação, e não importa TypeScript. Com
+a configuração só no `.ts`, a CSP teria de repetir o host — e a primeira troca de
+provedor deixaria a URL certa no `TileLayer` e o host velho na política.
+
+**Uma configuração de tiles que não alimenta a CSP não é configurável.** Ela só
+parece.
+
+O `{s}` de subdomínio vira `https://*.dominio.configurado`, e **só** ele. O
+curinga fica preso ao domínio; nunca vira `https:` solto, que liberaria imagem de
+qualquer lugar da internet e transformaria a CSP em decoração.
+
+> **Aviso operacional, e não é formalidade.** A política de uso dos tiles
+> públicos do OpenStreetMap **não** é infraestrutura de produção: mantida por
+> doação, pede identificação de aplicação e recusa uso pesado automatizado —
+> exatamente o perfil de dezenas de despachantes arrastando o mapa o dia
+> inteiro. Antes de produção: `MAP_TILE_URL` para um provedor contratado ou
+> tiles próprios. Nenhuma linha de código muda; é para isso que o arquivo existe.
+
+### SSR — o Leaflet entra por uma porta só
+
+`leaflet` toca `window` **na carga do módulo**, e componente de cliente ainda é
+renderizado no servidor pelo Next. Um `import` estático derrubaria o `next build`.
+Ele entra apenas por `dynamic(..., { ssr: false })`, em dois pontos: o canvas e
+os marcadores.
+
+Medido no artefato, não afirmado por comentário: `grep -rl leaflet .next/server`
+devolve **zero** arquivos, e ele aparece só num chunk de cliente.
+
+### A busca é um contrato SEPARADO
+
+Decisão do dono: procurar por nome ou código vale em toda a rede, não no recorte.
+Quem procura a `A16` quase sempre está olhando outro bairro, e uma busca limitada
+ao visível responderia *"não existe"* sobre uma caixa que existe.
+
+```text
+/api/ctos/map          o recorte      bbox obrigatório · teto 200
+/api/ctos/map/search   a localização  q obrigatório    · teto 10
+```
+
+Ensinar o endpoint do recorte a varrer a carteira quando um parâmetro aparece
+transformaria a única superfície com teto garantido numa com teto **condicional**,
+e a condição estaria num `if`. O fluxo aprovado termina no primeiro: achar →
+recentralizar → **o recorte carrega**. A busca localiza; ela não desenha, e por
+isso o DTO dela é menor — cinco campos, sem `summary`, sem `status`, sem `active`.
+
+### O curinga de `LIKE` era um vetor real, e foi MEDIDO
+
+O mínimo de dois caracteres conta caracteres **úteis** — os que não são `%` nem
+`_`. Um teste de caracterização mede o comportamento do Prisma em vez de supô-lo,
+e o resultado é que **`contains` NÃO escapa**: sem essa contagem, um termo de dois
+caracteres `%%` satisfaria o mínimo e casaria com tudo. O teto existiria no
+código e não na prática, e a busca viraria a listagem da carteira que o teto do
+mapa existe para impedir.
+
+O teste fica como alarme: se uma versão futura do Prisma passar a escapar, ele
+falha e a guarda muda de categoria — de vetor fechado para defesa em profundidade.
+
+### Estado nunca viaja só como cor
+
+```text
+AVAILABLE  círculo    +   Com vaga
+FULL       quadrado   0   Sem vaga
+DAMAGED    triângulo  !   Com defeito
+INACTIVE   losango    ×   Inativa
+```
+
+Forma, glifo e rótulo — a cor é a **quarta** pista. O triângulo é recorte de
+verdade (`clip-path`), e não um quadrado com cara de triângulo: a forma precisa
+sobreviver a uma captura em preto e branco. A legenda põe os quatro rótulos em
+texto na página com todos os popups fechados.
+
+**Nada é recalculado no cliente.** `status`, `free`, `occupied`, `reserved` e
+`damaged` chegam prontos da `CTO-3.1`. A tela não conhece a precedência
+`INACTIVE > DAMAGED > FULL > AVAILABLE` — ela conhece a tradução de cada valor.
+Uma segunda precedência divergiria, e a que ninguém revisaria seria a da tela.
+
+O popup mostra as contagens numa **lista**, nunca numa barra ou rosca:
+`livres + reservadas + danificadas + ocupadas` pode passar da capacidade, porque
+uma porta danificada com cliente dentro conta nas duas (`CTO-2.2`). Um gráfico de
+fatias afirmaria uma soma que o domínio não garante.
+
+### O nome da caixa nunca entra em HTML de string
+
+`divIcon` recebe HTML **cru** e o injeta no DOM. Por isso o ícone é montado só a
+partir da tabela de apresentação — quatro formas e quatro glifos, constantes deste
+repositório. Nome e código, que são digitados por gente, vão exclusivamente para
+dentro do `<Popup>`, que o React escapa. Uma caixa chamada `<img src=x onerror=…>`
+aparece como esse texto.
+
+### Falha de API é DISTINTA de área vazia
+
+Carregando: **faixa**, não cortina — cobrir o mapa a cada arrasto tiraria da tela
+a referência que a pessoa usa para se localizar. Erro: **cobre**, e diz *"isto não
+significa que não existam caixas aqui"*. Um mapa vazio depois de uma falha é
+indistinguível de uma região sem infraestrutura, e a leitura errada é a perigosa.
+Falha de rede **não limpa os marcadores** anteriores.
+
+### Vista inicial — do banco, nunca de GPS
+
+`min`/`max` de latitude e longitude das caixas da empresa, numa consulta de quatro
+agregados que não traz linha nenhuma. Sem caixa localizada, cai num ponto de
+**país** (zoom 4 sobre o Brasil), configurável — escolhido justamente por não
+parecer um endereço: quem abre entende na hora que o mapa não sabe onde ele opera,
+em vez de procurar a própria cidade num ponto plausível e errado. É a `CTO-1.2`
+uma camada acima.
+
+**Nada de pedir GPS para abrir o mapa.** Seria cobrar uma permissão do navegador
+para responder ao que o banco já responde — e mostraria onde está quem despacha,
+não onde está a rede.
+
+### Resposta atrasada não substitui resposta nova
+
+Arrastar do bairro A para o B dispara duas leituras. Se a de A demorar mais — e
+demora, quando A tem 200 caixas e B tem três —, ela chega depois e sobrescreve o
+resultado certo: o mapa fica no lugar certo com os marcadores do outro lugar, sem
+nenhum erro na tela. O `AbortController` **não** basta, porque abortar é um pedido
+e uma resposta em trânsito pode passar do ponto de cancelamento. Quem decide na
+hora de escrever no estado é um bilhete sequencial.
+
+### Permissões — nada foi ampliado
+
+`ADMIN` e `DISPATCHER`, a mesma decisão da `CTO-3.1`. `TECHNICIAN` fora.
+`CONNECT`, `MOVE` e `DISCONNECT` seguem como a `CTO-2` os entregou.
+
+`/ctos/[id]` continua sendo de `ADMIN`, e por isso o botão **Abrir CTO** não é
+oferecido ao `DISPATCHER`: um botão que redireciona sem explicação é pior que a
+ausência dele. Isso é apresentação — quem barra continua sendo a página, e digitar
+a URL termina no mesmo redirecionamento.
+
+### O que as sabotagens mediram
+
+| | mutação | quem caiu |
+|---|---|---|
+| `S1` | bbox fora da leitura do viewport | `UI-MAP-04` |
+| `S2` | resposta antiga pode substituir a nova | `UI-MAP-06`, `UI-MAP-06b` |
+| `S3` | precedência `DAMAGED`/`FULL` trocada | `MAP-14` |
+| `S4` | CTO sem coordenada exibida em `0,0` | `SEARCH-06`, `06b`, `06c` |
+| `S5` | `companyId` fora do predicado da busca | `SEARCH-03`, `03b`, `03c` + o teste da consulta |
+| `S6` | URL de tile escrita no componente | o teste estrutural de configuração |
+| `S7` | erro da API tratado como lista vazia | `UI-MAP-18` — **e só ele** |
+
+**Sete de sete caíram de primeira**, e isso é consequência direta das duas que
+PASSARAM na `CTO-3.1`: as lições de lá — afirmar sobre a **consulta**, e exercitar
+o domínio além da rota — foram aplicadas ao escrever, em vez de depois de uma
+sabotagem denunciar a lacuna.
+
+Duas medições valem mais que o placar.
+
+**`S7` tem UM detector, e é de navegador.** Nenhum teste de unidade alcança o
+caminho de erro da tela. Fica como risco declarado: desativado o spec do mapa, a
+distinção entre *"falhou"* e *"não há caixas aqui"* fica sem guarda.
+
+**`S2` cai no Vitest e NÃO no navegador** — medido, não suposto. Com a guarda
+desativada, o spec do mapa continua verde, porque o `AbortController` rejeita a
+leitura anterior antes de ela chegar. No navegador o bilhete é, portanto, **defesa
+em profundidade atrás do aborto**, e não o mecanismo principal; os testes de
+unidade são os detectores reais. O comentário do código foi corrigido para dizer
+isso.
+
+### O placeholder que o enunciado citava está no FIELD
+
+*"Mapa Operacional — EM BREVE"* existe em `apps/field/lib/app/widgets/app_drawer.dart`,
+com `route == null`, e **a web não tinha entrada de mapa nenhuma**. Esta fase é
+web e `zero Dart`, então o item do Field fica como está: o mapa dele é outra
+fatia (§339, onde a proximidade **ordena a lista** e não desenha mapa).
+
+### O que continua fora
+
+Camadas de técnico, cliente e OS; `TechnicianLocation`; GPS do técnico e
+proximidade no Field; edição, confirmação e histórico de coordenada (`CTO-3.4`);
+agrupamento; heatmap; rotas; FiberMap; QR; falha coletiva; OLT/SNMP.
+
+> **`CTO-3.2` — `READY FOR OWNER VALIDATION`.** `CTO-2` continua `DONE`,
+> `CTO-3.0` `DISCOVERY DONE`, `CTO-3.1` `APPROVED`. `3.3` e `3.4` seguem sob a
+> §119.

@@ -201,9 +201,19 @@ export interface LatestRequestGuard {
  * que algo está errado: o mapa está no lugar certo, os marcadores são reais, e
  * a associação entre os dois é que está trocada.
  *
- * O `AbortController` sozinho **não** basta: abortar é uma requisição de
- * cancelamento, e uma resposta já em trânsito pode ter passado do ponto de
- * cancelamento. O bilhete é o que decide na hora de escrever no estado.
+ * ## O que ele é, MEDIDO — e não o que parecia ser
+ *
+ * A primeira redação daqui dizia que o bilhete decide e o `AbortController` não
+ * basta. A sabotagem `S2` da `CTO-3.2` mediu o contrário no navegador:
+ * desativando esta guarda, o spec do mapa **continua verde**, porque o aborto
+ * rejeita a leitura anterior antes de ela chegar ao `.then`.
+ *
+ * Então, honestamente: no navegador o aborto é o mecanismo principal, e o
+ * bilhete é **defesa em profundidade**. Ele continua valendo a pena por cobrir
+ * o que o aborto não cobre — um chamador que esqueça o `signal`, uma
+ * refatoração que troque o transporte, e qualquer caminho em que a decisão de
+ * escrever no estado aconteça longe da promessa que foi cancelada. Quem o
+ * detecta são os testes de unidade, e é assim que está registrado.
  *
  * É deliberadamente um contador, e não um comparativo de `bbox`: dois recortes
  * podem ser iguais e ainda assim a resposta velha estar errada, se um filtro
