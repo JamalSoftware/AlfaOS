@@ -196,11 +196,30 @@ export function CtoMapLayer({
       </OperationalMap>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-muted">
-        <span data-testid="map-marker-count">
-          {markers.length === 1
-            ? "1 CTO nesta área"
-            : `${markers.length} CTOs nesta área`}
-        </span>
+        {/*
+          Com a leitura falhando, a contagem NÃO afirma um número.
+
+          Isto foi encontrado pelo teste de navegador, não por inspeção: o aviso
+          de erro cobre o mapa, mas a linha de baixo continuava dizendo "0 CTOs
+          nesta área" — a frase exata que a fase inteira existe para não dizer.
+          O despachante leria a contagem, que parece um fato, e concluiria que o
+          bairro não tem infraestrutura.
+
+          São dois elementos e não um texto condicional de propósito: assim um
+          teste consegue afirmar a AUSÊNCIA da contagem, e não apenas que o texto
+          dela mudou.
+        */}
+        {error ? (
+          <span data-testid="map-count-unavailable">
+            Contagem indisponível enquanto a leitura desta área falha.
+          </span>
+        ) : (
+          <span data-testid="map-marker-count">
+            {markers.length === 1
+              ? "1 CTO nesta área"
+              : `${markers.length} CTOs nesta área`}
+          </span>
+        )}
 
         {/*
           O contador de caixas sem localização é da EMPRESA, não do recorte

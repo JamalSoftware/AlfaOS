@@ -25,7 +25,7 @@ import { assertTestDatabase } from "./test-db-guard";
 
 const ADMIN_EMAIL = "admin@alfatelecom.local";
 const DISPATCHER_EMAIL = "dispatcher@alfatelecom.local";
-const TECHNICIAN_EMAIL = "tecnico@alfatelecom.local";
+const TECHNICIAN_EMAIL = "tech@alfatelecom.local";
 const PASSWORD = "AlfaOS@2026";
 
 const E2E_DATABASE_URL =
@@ -373,19 +373,39 @@ test.describe("Mapa Operacional — CTO-3.2", () => {
       });
     });
 
+    /*
+      A PRIMEIRA versão deste teste passava pelo motivo errado, e a lição é a
+      mesma das corridas da `CTO-2.6`: a ordem perigosa nunca acontecia.
+
+      O arrasto era disparado assim que o contêiner ficava visível — antes de o
+      atraso de 350 ms vencer. O `handleViewport` do arrasto substituía o
+      temporizador pendente, e existia UMA requisição em vez de duas. O teste
+      então observava a resposta lenta como se fosse a única, e acusava um
+      defeito que não existia.
+
+      Agora a segunda leitura só é provocada depois de a primeira estar
+      COMPROVADAMENTE em voo.
+    */
+    const primeiraEmVoo = page.waitForRequest((r) =>
+      r.url().includes("/api/ctos/map?"),
+    );
+
     await page.goto("/mapa");
     await expect(page.locator(".leaflet-container")).toBeVisible();
+    await primeiraEmVoo;
 
-    // Provoca a segunda leitura antes de a primeira responder.
     const caixa = await page.locator(".leaflet-container").boundingBox();
     const cx = (caixa?.x ?? 0) + (caixa?.width ?? 0) / 2;
     const cy = (caixa?.y ?? 0) + (caixa?.height ?? 0) / 2;
     await page.mouse.move(cx, cy);
     await page.mouse.down();
-    await page.mouse.move(cx - 60, cy - 40);
+    for (let i = 1; i <= 10; i += 1) {
+      await page.mouse.move(cx - i * 8, cy - i * 5);
+    }
     await page.mouse.up();
 
-    // Tempo bastante para a resposta LENTA chegar depois da rápida.
+    // Duas leituras saíram, e a lenta responde bem depois da rápida.
+    await expect.poll(() => chamada, { timeout: 15_000 }).toBeGreaterThan(1);
     await page.waitForTimeout(4000);
 
     await page.locator(".leaflet-marker-icon").first().click();
@@ -533,7 +553,10 @@ test.describe("Mapa Operacional — CTO-3.2", () => {
       exatamente assim que o despachante concluiria que o bairro não tem
       infraestrutura.
     */
-    await expect(page.getByTestId("map-marker-count")).not.toBeVisible();
+    await expect(page.getByTestId("map-marker-count")).toHaveCount(0);
+    await expect(page.getByTestId("map-count-unavailable")).toContainText(
+      "Contagem indisponível",
+    );
 
     // E a mensagem não vaza detalhe interno.
     const texto = (await erro.innerText()).toLowerCase();
