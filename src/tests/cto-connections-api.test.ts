@@ -702,8 +702,21 @@ describe("API · read model da CTO", () => {
     const p1 = await porta(cto.id, 1);
     const cliente = await novoCliente("Zeca");
     await conectar(cliente.id, p1.id);
-    // Estado alcançável hoje; a `CTO-2.6` vai proibir a entrada em RESERVED.
-    await setPortAdministrativeState(fixture.companyA.id, fixture.adminA.id, cto.id, p1.id, "RESERVED");
+    /*
+      Escrita DIRETA, e o motivo mudou na `CTO-2.6`.
+
+      Até ela, este estado era alcançável pelo serviço — e a versão anterior
+      deste teste o produzia assim. Agora `RESERVED` é alvo proibido enquanto
+      existe vínculo ativo, então a única forma de ter a linha é a que a
+      produção tem: dado antigo, gravado antes da regra.
+
+      A AFIRMAÇÃO não mudou: o read model precisa continuar mostrando as duas
+      dimensões da linha legada, em vez de esconder a inconsistência.
+    */
+    await prisma.cTOPort.update({
+      where: { id: p1.id },
+      data: { administrativeState: "RESERVED" },
+    });
 
     const { body } = await detalhe(cto.id);
     const d = body.data!.cto as { ports: Array<Record<string, unknown>>; summary: Record<string, number> };

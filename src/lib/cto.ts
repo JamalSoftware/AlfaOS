@@ -772,18 +772,62 @@ export async function changeCtoCapacity(
 
     const existing = await tx.cTOPort.findMany({
       where: { ctoId, companyId },
-      select: { number: true, administrativeState: true },
+      select: { id: true, number: true, administrativeState: true },
     });
 
     if (newCapacity < previous) {
-      /*
-        A verificação de vínculo ativo entra na CTO-2.
+      const acima = existing.filter((p) => p.number > newCapacity);
 
-        Ela não está aqui porque `CustomerNetworkConnection` não existe — e
-        criar a tabela agora só para poder consultá-la seria antecipar a fase
-        seguinte com uma superfície que nenhum caminho escreve. Quando ela
-        existir, esta é a condição a acrescentar, ao lado das duas abaixo.
+      /*
+        Cliente conectado acima do novo limite RECUSA a redução. (`CTO-2.6`)
+
+        É a primeira das duas condições porque é a mais dura de destravar:
+        estado administrativo se resolve num clique, e um cliente conectado
+        exige mover ou desconectar — decisão de operação, não de formulário.
+
+        **Nada é feito por conta própria.** Nenhum vínculo é encerrado, nenhum
+        cliente é movido, nenhuma `CTOPort` é apagada e nenhum histórico muda.
+        A transação inteira volta, e a capacidade continua a de antes: reduzir
+        capacidade é um campo de formulário, e desconectar alguém por causa dele
+        seria o mesmo defeito que apagar a porta.
+
+        A consulta vem DEPOIS do `FOR UPDATE` da CTO, e é o que fecha a corrida
+        com o `CONNECT`/`MOVE`: os três disputam o mesmo lock de caixa. Se a
+        redução commitar primeiro, o `CONNECT` relê a capacidade do próprio
+        lock e recusa por faixa; se o vínculo commitar primeiro, ele aparece
+        aqui. Nenhuma ordem deixa vínculo ativo fora da capacidade.
+
+        Os ids saem de `existing`, que já foi lido sob o lock — sem navegar FK
+        e com `companyId` no predicado.
       */
+      if (acima.length > 0) {
+        const ocupadas = await tx.customerNetworkConnection.findMany({
+          where: {
+            companyId,
+            disconnectedAt: null,
+            ctoPortId: { in: acima.map((p) => p.id) },
+          },
+          select: { ctoPortId: true },
+        });
+
+        if (ocupadas.length > 0) {
+          const numeroDe = new Map(acima.map((p) => [p.id, p.number]));
+          const numeros = ocupadas
+            .map((c) => numeroDe.get(c.ctoPortId))
+            .filter((n): n is number => n !== undefined)
+            .sort((a, b) => a - b);
+          // Só o NÚMERO da posição. Nenhum cliente, nenhum id, nenhum tenant.
+          const trecho =
+            numeros.length === 1
+              ? `a porta ${numeros[0]} está com um cliente conectado`
+              : `as portas ${numeros.join(", ")} estão com clientes conectados`;
+          throw conflict(
+            `Não é possível reduzir a capacidade para ${newCapacity}: ${trecho}. ` +
+              "Mova ou desconecte antes e tente de novo.",
+          );
+        }
+      }
+
       const blocking = existing
         .filter(
           (p) => p.number > newCapacity && p.administrativeState !== "AVAILABLE",
@@ -985,12 +1029,58 @@ export async function setPortAdministrativeState(
     }
 
     /*
-      O no-op vem DEPOIS da regra de faixa, e a ordem é decisão.
+      Vínculo ativo proíbe o ALVO `RESERVED` — e só ele. (`CTO-2.6`)
+
+      A regra é sobre o **alvo**, nunca sobre o estado atual, e a diferença
+      decide se ela é utilizável. "Porta ocupada não muda de estado" criaria um
+      beco sem saída: uma porta consertada nunca voltaria a `AVAILABLE`, e uma
+      linha legada `ativa + RESERVED` — que o produto admite ter — ficaria
+      presa para sempre. Aqui as duas saídas continuam abertas:
+      `RESERVED → AVAILABLE` e `RESERVED → DAMAGED` passam.
+
+      Por que `RESERVED` e não `DAMAGED`: reservar significa *separei esta
+      posição para uso futuro*, e não convive com alguém já dentro dela.
+      Danificada com cliente ligado é situação real de campo — o cabo quebra
+      com o cliente conectado — e continua permitida (`CTO-2` §24, decisão do
+      dono).
+
+      A consulta acontece DEPOIS do `FOR UPDATE` da CTO, e é isso que fecha a
+      corrida com o `CONNECT`: as duas operações disputam o mesmo lock de
+      caixa. Quem reservar primeiro faz o `CONNECT` reler a porta e recusar
+      por `isPortOfferable`; quem conectar primeiro cai aqui. Nenhuma ordem
+      produz "vínculo ativo em porta reservada".
+
+      Só é consultado quando o alvo é `RESERVED`: perguntar em toda mudança
+      gastaria uma ida ao banco e sugeriria uma regra mais larga do que a que
+      existe.
+    */
+    if (state === "RESERVED") {
+      const ativo = await tx.customerNetworkConnection.findFirst({
+        // Tenant no predicado SQL, nunca por navegação de FK.
+        where: { companyId, ctoPortId: portId, disconnectedAt: null },
+        select: { id: true },
+      });
+      if (ativo) {
+        throw conflict(
+          `A porta ${port.number} está ocupada por um cliente e não pode ser ` +
+            "reservada. Mova ou desconecte o cliente antes; para sinalizar " +
+            "defeito com o cliente ligado, marque a porta como danificada.",
+        );
+      }
+    }
+
+    /*
+      O no-op vem DEPOIS das duas regras acima, e a ordem é decisão.
 
       Uma porta histórica cujo estado pedido é o que ela já tem sairia daqui com
       `200`, e a tela concluiria que a ação está disponível. Recusar as duas do
       mesmo jeito é o que faz "read-only" ser observável: a resposta não depende
       de qual estado a linha guarda.
+
+      Vale igual para a linha legada `ativa + RESERVED` pedindo `RESERVED`:
+      ela recebe `409`, e não um `200` mudo que anunciaria uma ação
+      indisponível. Isso não a aprisiona — as saídas para `AVAILABLE` e
+      `DAMAGED` continuam abertas.
     */
     if (port.administrativeState === state) {
       return;
