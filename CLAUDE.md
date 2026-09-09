@@ -795,7 +795,19 @@ Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §30 e `apps/field/DESIGN.md`.
 
 Um teste da `CTO-2.2` mudou de **preparo**, não de afirmação: ele montava a linha legada pelo serviço, caminho que a fase proíbe, e passou a gravá-la direto no banco — que é como dado antigo existe.
 
-Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §31. **A trilha CTO fica com `CTO-3` (mapa), `CTO-6` (frescor do diagnóstico) e `CTO-7` (QR) ainda sob a §119.**
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §31.
+
+**`CTO-2.7` — checkpoint do `CTO-2`, AGUARDANDO validação do dono. Commits locais, sem tag e sem push.** Fase de validação, **zero diff de produção**: nasceu um arquivo de teste e nada mais.
+
+**Onze dos quinze critérios de aceite pertencem ao `CTO-2` e estão rastreados** (matriz em §32); os outros quatro são de `CTO-3` (mapa), `CTO-5` (status/idade) e `CTO-7` (QR), que não existem em código.
+
+**A única lacuna era de COBERTURA, não de comportamento.** O invariante *"o vínculo não pertence ao ciclo de vida da OS"* era estruturalmente verdadeiro — único escritor (`cto-connections.ts`), **zero `delete` em produção**, FK da OS `SetNull` — e não tinha teste nenhum. `LIFE-02` compara **todas** as linhas da empresa por igualdade profunda, porque conferir só a que a OS criou deixaria passar exatamente o defeito que preocupa: uma limpeza escrita por empresa.
+
+**Duas medições das sabotagens que não se redescobrem.** Removendo o pré-check de porta ocupada (`T1`), as **corridas continuam passando** — o índice parcial segura a integridade, e o que cai é o `409` limpo do caso sequencial: pré-check dá a mensagem, índice dá a integridade, e cada um tem detector próprio. E a sabotagem de TOCTOU (`T3`) é detectada em 4/4 execuções sempre por `RACE-04`, e só em 2/4 por `RACE-02`, porque o caminho pré-lock do `MOVE` é mais longo e a dianteira de 25 ms leva à ordem perigosa com mais frequência. O par cobre; nenhuma sozinha é garantia.
+
+**A UI Web não tem tela de histórico de vínculo.** `getCustomerNetworkView` devolve `current` **e** `history`, e a tela consome só `current`, dentro do diálogo, para trocar a ação para *Mover*. É decisão registrada, não defeito — o histórico vive no backend e é provado por `CN-12`, `CN-14` e `LIFE-01`.
+
+Seis sabotagens (`T1`–`T6b`), seis detectadas, todas restauradas. Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §32. **`CTO-3` (mapa), `CTO-6` (frescor do diagnóstico) e `CTO-7` (QR) seguem sob a §119.**
 
 ## Princípios
 

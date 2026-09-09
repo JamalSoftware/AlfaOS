@@ -3269,3 +3269,96 @@ Nenhuma funcionalidade nova no Flutter — o Field não altera estado
 administrativo nem capacidade, e não precisou de uma linha. A UI Web recebe a
 mensagem de conflito pelo caminho que a `CTO-2.3.1` já construiu, sem duplicar
 regra: o backend é a autoridade, e a tela apenas mostra o que ele respondeu.
+
+## 32. `CTO-2.7` — validação do dono e checkpoint do `CTO-2`
+
+Fase de **validação**, não de funcionalidade. O diff de produção é **zero**: um
+único arquivo de teste nasceu, para fechar uma lacuna que o inventário
+encontrou.
+
+### Matriz dos critérios de aceite
+
+| AC | prova | camada | status |
+|---|---|---|---|
+| `AC01` cadastro pelo nome | `cto.test.ts` · `cto-routes.test.ts` | domínio + rota | ok |
+| `AC02` capacidade e portas | `cto.test.ts` *"capacity=8 cria exatamente as portas 1..8"* | domínio | ok |
+| `AC03` técnico encontra pelo nome | `network_test.dart` `API-05` · `network_section_test.dart` (busca com debounce) | Flutter | ok |
+| `AC04` portas livres e ocupadas, do servidor | `field-cto-connections.test.ts` `FIELD-R05/06/07/08` | API Field | ok |
+| `AC05` cliente em UMA porta ativa | `cto-connections.test.ts` `CN-11` + `CN-28` (índice parcial bloqueia no banco) | domínio + banco | ok |
+| `AC06` dois técnicos, uma porta | `CN-10` · `CN-27` · `cto-connections-concurrency` `C1` · `cto-integrity` `RACE-02` | domínio + banco + corrida | ok |
+| `AC07` mover preserva o anterior legível | `CN-14` · `CN-15` · `LIFE-01` | domínio | ok |
+| `AC08` mapa | — | — | **fora**: `CTO-3` |
+| `AC09` a CTO mostra os clientes | `cto-connections-api.test.ts` (read model) · `e2e/cto-connections.spec.ts` | rota + navegador | ok |
+| `AC10` status da fonte existente | — | — | **fora**: `CTO-5` |
+| `AC11` provider indisponível → `UNKNOWN` | — | — | **fora**: `CTO-5` |
+| `AC12` A não enxerga CTO de B | `CN-18/18b` · `cto-routes` · `cto-hardening` | domínio + rota | ok |
+| `AC13` QR desligado não bloqueia nada | — | — | **fora**: `CTO-7`, e o QR não existe |
+| `AC14` reduzir abaixo da porta ocupada é recusado | `cto-integrity.test.ts` `CAP-02` · `NEG-02` | domínio | ok — **fechado na `CTO-2.6`** |
+| `AC15` o status carrega a IDADE | — | — | **fora**: `CTO-5` |
+
+Onze dos quinze pertencem ao `CTO-2` e estão provados. Os quatro restantes são
+de fases que não existem em código, e continuam sob a §119 do PRD.
+
+### A lacuna que o inventário encontrou
+
+O invariante *"o vínculo não pertence ao ciclo de vida da OS"* era
+**estruturalmente verdadeiro e não tinha teste nenhum**. Verificado no código:
+só `cto-connections.ts` escreve na tabela, com `create` e `update`; **não existe
+`delete` em produção**; e a FK da OS é `SetNull`, de modo que apagar a ordem nem
+alcançaria a linha.
+
+Faltava dizer isso em teste, para que um `completeServiceOrder` futuro que
+resolva "limpar" caia num teste em vez de numa auditoria. `LIFE-02` compara
+**todas** as linhas da empresa por igualdade profunda, e não só a que a OS
+criou: conferir apenas essa deixaria passar exatamente o defeito que preocupa —
+uma limpeza escrita por empresa.
+
+**Nenhuma alteração de produção.** A lacuna era de cobertura, não de
+comportamento.
+
+### Sabotagens
+
+| | mutação | quem caiu |
+|---|---|---|
+| `T1` | sem o pré-check de porta ocupada | `CN-10`, `CN-29`, `API-11..14`, `API-M05/M07/M08` |
+| `T2` | sem o pré-check de cliente já conectado | `CN-11`, `API-11..14`, `FIELD-C18` |
+| `T3` | ocupação lida ANTES do `FOR UPDATE` | `RACE-04` (4/4 execuções), `RACE-02` (2/4) |
+| `T4` | `RESERVED` permitido em porta ocupada | 10 testes, incluindo o marcador de contrato |
+| `T5` | redução permitida sobre cliente conectado | 9 testes, incluindo `NEG-02` |
+| `T6a` | `lockCto` sem tenant | 2 testes de cross-tenant, em dois arquivos |
+| `T6b` | portão de capability removido | 6 testes, em três arquivos |
+
+Todas restauradas; árvore limpa conferida por `git status`.
+
+**`T1` mediu a camada, não só a regra.** Removendo o pré-check de porta ocupada,
+as **corridas continuam passando** — o índice parcial impede a dupla ocupação e
+`translateUniqueViolation` a traduz. O que cai é o `409` limpo do caso
+sequencial. Pré-check dá a mensagem; índice dá a integridade. As duas coisas
+existem, e cada uma tem um detector diferente.
+
+**`T3` é probabilística, e isso está medido.** Ela foi detectada em 4 de 4
+execuções, sempre por `RACE-04` e em metade delas também por `RACE-02`. O
+caminho pré-lock do `MOVE` é mais longo, então a dianteira de 25 ms leva à ordem
+perigosa com mais frequência. O par cobre; nenhuma das duas sozinha é garantia.
+
+### O que a UI Web NÃO mostra, e é decisão, não defeito
+
+`getCustomerNetworkView` devolve `current` **e** `history`. A tela consome
+apenas `current`, dentro do diálogo de vínculo, para descobrir onde o cliente já
+está e trocar a ação para *Mover*. **Não existe tela de histórico de vínculo**
+na web — ele vive no backend e é provado por `CN-12`, `CN-14` e `LIFE-01`.
+
+Fica registrado como `INFO`: um campo do read model sem consumidor de tela.
+Nenhuma fase do `CTO-2` prometeu essa tela.
+
+### Estado no fim da fase
+
+```text
+CTO-2.1  persistência e domínio           EM CÓDIGO
+CTO-2.2  API Admin e read models          EM CÓDIGO
+CTO-2.3  Web: vincular / mover / desconectar   EM CÓDIGO · validada pelo dono
+CTO-2.4  API Field via OS IN_PROGRESS     EM CÓDIGO
+CTO-2.5  UI Field                         EM CÓDIGO · validada em aparelho real
+CTO-2.6  integridade estado × capacidade  EM CÓDIGO
+CTO-2.7  validação e checkpoint           AGUARDANDO VALIDAÇÃO DO DONO
+```
