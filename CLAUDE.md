@@ -779,7 +779,23 @@ Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §29, `docs/SECURITY.md` §8.20 e
 
 Duas decisões que não devem ser desfeitas: **mover é UMA requisição** (o teste conta: um `move`, zero `disconnect`, zero `connect`) e a porta atual não é oferecida como destino **sem regra própria** — ela chega `occupied` do servidor, e `isPortOfferable` não foi copiado para o Dart.
 
-Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §30 e `apps/field/DESIGN.md`. **A `CTO-2.6` continua pendente.**
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §30 e `apps/field/DESIGN.md`.
+
+**`CTO-2.6` ENTREGUE — commits locais, sem tag e sem push.** As duas proteções que faltavam, e as duas são sobre o mesmo erro: uma decisão administrativa passar por cima de um cliente conectado. **Zero migration, zero schema, zero rota, zero UI, zero Dart** — o diff de produção é `src/lib/cto.ts`.
+
+**A regra do estado é sobre o ALVO, nunca sobre o estado atual.** `RESERVED` é proibido enquanto há vínculo ativo; `AVAILABLE` e `DAMAGED` continuam permitidos. *"Porta ocupada não muda de estado"* criaria um beco sem saída: porta consertada nunca voltaria a `AVAILABLE`, e a linha legada `ativa + RESERVED` ficaria presa para sempre. `DAMAGED` com cliente ligado é situação real de campo — o cabo quebra com o cliente conectado. O **no-op recusa junto** (lição da `CTO-1.9`): um `200` mudo anunciaria uma ação indisponível.
+
+**Redução de capacidade com cliente acima do novo limite recusa**, e nada é feito por conta própria: nenhum vínculo encerrado, nenhum cliente movido, nenhuma porta apagada, nenhuma alteração parcial. É reportada ANTES da regra da `CTO-1` porque é a mais dura de destravar — estado se resolve num clique, cliente conectado exige decisão de operação.
+
+**O LUGAR da regra é a regra.** As duas consultas vêm depois do `FOR UPDATE` da CTO, no mesmo `lockCto` da `CTO-1`: nenhum lock novo, nenhuma ordem nova, nenhum lock de `CTOPort`.
+
+**As corridas da primeira versão PASSAVAM com a regra removida, e a culpa era do teste.** Disparadas juntas, a operação administrativa sempre vence o lock — o `CONNECT` faz mais trabalho antes dele. A ordem perigosa nunca acontecia. Agora cada corrida roda nas **duas** ordens e conta quantas vezes o vínculo venceu, exigindo pelo menos uma. Foi essa correção que tornou possível a prova mais importante: mover a consulta para ANTES do lock derruba exatamente `RACE-02` e `RACE-04`.
+
+**`S5` não derrubou nada, e isso está registrado:** o `companyId` dessas duas consultas é **defesa em profundidade, não fechamento de vetor** — o `ctoPortId` já foi provado da empresa pelo `lockCto`. Medido: linha corrompida com tenant cruzado não bloqueia a redução.
+
+Um teste da `CTO-2.2` mudou de **preparo**, não de afirmação: ele montava a linha legada pelo serviço, caminho que a fase proíbe, e passou a gravá-la direto no banco — que é como dado antigo existe.
+
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §31. **A trilha CTO fica com `CTO-3` (mapa), `CTO-6` (frescor do diagnóstico) e `CTO-7` (QR) ainda sob a §119.**
 
 ## Princípios
 

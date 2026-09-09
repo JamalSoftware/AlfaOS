@@ -3139,3 +3139,133 @@ ativo, e redução de capacidade bloqueada por vínculo acima do limite.
 **A fase termina com API e tela prontas e o piloto físico ainda por fazer.** Nem
 gesto de sistema nem visual se aprovam por teste de widget: a sequência de
 validação está no relatório da fase.
+
+## 31. `CTO-2.6` — integridade entre vínculo, estado da porta e capacidade
+
+As duas proteções que faltavam, e as duas são sobre o mesmo erro: **uma decisão
+administrativa passar por cima de um cliente que está conectado.**
+
+**Zero migration, zero schema, zero dependência, zero rota nova, zero Dart, zero
+alteração de UI.** O diff de produção é um arquivo: `src/lib/cto.ts`.
+
+### Regra 1 — `RESERVED` é proibido enquanto há vínculo ativo
+
+```text
+ativo + AVAILABLE → RESERVED   409
+ativo + DAMAGED   → RESERVED   409
+ativo + RESERVED  → RESERVED   409   ← legado, e o no-op também recusa
+ativo + qualquer  → AVAILABLE  ok
+ativo + qualquer  → DAMAGED    ok
+livre             → RESERVED   ok
+```
+
+**A regra é sobre o ALVO, nunca sobre o estado atual**, e a diferença decide se
+ela é utilizável. *"Porta ocupada não muda de estado"* criaria um beco sem saída:
+uma porta consertada nunca voltaria a `AVAILABLE`, e a linha legada
+`ativa + RESERVED` — que o produto admite existir — ficaria presa para sempre.
+
+`DAMAGED` com cliente ligado continua permitido porque é situação real de campo:
+o cabo quebra com o cliente conectado. `RESERVED` significa *separei esta posição
+para uso futuro* e não convive com alguém já dentro dela.
+
+O **no-op recusa junto**, pelo mesmo motivo da `CTO-1.9`: um `200` mudo
+anunciaria que reservar está disponível, o que é falso. Não aprisiona nada — as
+duas saídas seguem abertas.
+
+### Regra 2 — cliente acima do novo limite recusa a redução
+
+```text
+capacity 8, cliente ativo na porta 8, tentar 8 → 4   ⇒  409
+```
+
+E **nada é feito por conta própria**: nenhum vínculo encerrado, nenhum cliente
+movido, nenhuma `CTOPort` apagada, nenhum histórico tocado, nenhuma alteração
+parcial. A transação inteira volta.
+
+É reportada **antes** da regra da `CTO-1` (`RESERVED`/`DAMAGED` acima do limite)
+porque é a mais dura de destravar: estado administrativo se resolve num clique,
+e um cliente conectado exige mover ou desconectar — decisão de operação, não de
+formulário.
+
+### O lugar da regra É a regra
+
+As duas consultas acontecem **depois** do `FOR UPDATE` da CTO, no mesmo
+`lockCto` que a `CTO-1` já usava. Nenhum lock novo, nenhuma ordem nova: a
+arquitetura congelada da `CTO-2` continua inteira, e `CONNECT`, `MOVE`, mudança
+de estado e mudança de capacidade disputam a **mesma linha de `ctos`**.
+
+| corrida | quem commita primeiro | desfecho |
+|---|---|---|
+| `CONNECT` na 8 × reduzir para 4 | redução | `CONNECT` relê a capacidade do lock e recusa por faixa |
+| | vínculo | a redução o encontra e recusa |
+| `CONNECT` × `RESERVED` na mesma porta | reserva | `CONNECT` relê a porta e recusa por `isPortOfferable` |
+| | vínculo | a reserva o encontra e recusa |
+
+`MOVE` se comporta como `CONNECT` no destino, e trava as duas caixas ordenadas
+por `id` — inalterado.
+
+**Nenhum lock de `CTOPort` foi criado.** A `CTO-1` decidiu travar a CAIXA, e um
+segundo nível teria de coexistir com ele — exatamente a complexidade que a
+decisão evitava.
+
+### O que os testes descobriram, e não o que eu suporia
+
+**As corridas da primeira versão PASSAVAM com a regra removida.** Disparadas
+juntas, a operação administrativa sempre vencia o lock, porque o `CONNECT` faz
+mais trabalho antes dele: trava o cliente, resolve a porta, e só então trava a
+caixa. A ordem perigosa — o vínculo commita, e a administrativa lê depois —
+**nunca acontecia**.
+
+Agora cada corrida roda nas **duas** ordens, e conta quantas vezes o vínculo
+venceu, exigindo pelo menos uma. Sem essa contagem o teste voltaria a provar
+metade do que afirma.
+
+Foi essa correção que tornou possível a prova mais importante da fase: mover a
+consulta para **antes** do lock (`TOCTOU`) derruba exatamente `RACE-02` e
+`RACE-04`. Com as corridas antigas, essa sabotagem passaria despercebida.
+
+**Um teste da `CTO-2.2` mudou de PREPARO, não de afirmação.** Ele montava a
+linha legada `ativa + RESERVED` **pelo serviço** — caminho que esta fase
+proíbe. Passou a gravá-la direto no banco, que é como o dado antigo existe de
+verdade. A afirmação continua a mesma: o read model tem de mostrar as duas
+dimensões da linha legada em vez de esconder a inconsistência. O próprio
+comentário do teste já previa esta fase.
+
+### Reversões
+
+| | sabotagem | quem cai |
+|---|---|---|
+| `S1` | sem a regra do alvo `RESERVED` | `INT-01/02/09/10`, `RACE-02`, `RACE-04`, `RACE-05` |
+| `S2` | sem a regra de capacidade | `CAP-02/05/06/07`, `RACE-01`, `RACE-03` |
+| `S3` | regra sobre o estado ATUAL, não sobre o alvo | `INT-03`, `INT-04`, `INT-06` — o beco sem saída |
+| `S4` | consulta ANTES do lock (`TOCTOU`) | `RACE-02`, `RACE-04` |
+| `S5` | tenant fora do predicado das consultas novas | **nada cai** — ver abaixo |
+
+### `S5` — o que o predicado de tenant faz, e o que não faz
+
+`companyId` nessas duas consultas é **defesa em profundidade, não fechamento de
+vetor**. Removê-lo não derruba teste nenhum, e a razão é estrutural: o
+`ctoPortId` já foi provado da empresa antes de chegar lá —
+`setPortAdministrativeState` resolve a porta por `{ id, ctoId, companyId }`, e a
+redução deriva os ids das portas da própria caixa travada.
+
+Medido, não suposto: uma linha corrompida com `companyId` de B apontando uma
+porta de A **não** bloqueia a redução de A. Ela só nasce por escrita direta —
+`connectCustomerToPort` usa o mesmo `companyId` para gravar e para resolver a
+porta. O predicado fica porque é a convenção do projeto e porque sobrevive a uma
+refatoração futura que perca o escopo; não porque feche um caminho alcançável.
+
+### O read model não mudou
+
+`administrativeState` e `occupied` continuam independentes, `OCCUPIED` continua
+sem existir como estado gravável, e `free + reserved + damaged + occupied` pode
+passar de `capacity`. `DAMAGED + ocupada` conta nos dois agregados — e agora é
+um estado que a operação pode criar de propósito, o que torna a contagem por
+`administrativeState` ainda mais necessária.
+
+### O que continua fora
+
+Nenhuma funcionalidade nova no Flutter — o Field não altera estado
+administrativo nem capacidade, e não precisou de uma linha. A UI Web recebe a
+mensagem de conflito pelo caminho que a `CTO-2.3.1` já construiu, sem duplicar
+regra: o backend é a autoridade, e a tela apenas mostra o que ele respondeu.
