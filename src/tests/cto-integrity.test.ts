@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { POST as capacityRoute } from "@/app/api/ctos/[id]/capacity/route";
+import { POST as portStateRoute } from "@/app/api/ctos/[id]/ports/[portId]/state/route";
 import {
   changeCtoCapacity,
   createCto,
@@ -12,7 +14,12 @@ import {
 import { getOperationalCtoDetail } from "@/lib/cto-read-model";
 import { DomainError } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
-import { seedTestData, type TestFixture } from "./helpers";
+import {
+  apiRequest,
+  createTokenFor,
+  seedTestData,
+  type TestFixture,
+} from "./helpers";
 
 /**
  * # `CTO-2.6` — integridade entre vínculo, estado da porta e capacidade
@@ -616,6 +623,130 @@ describe("CTO-2.6 · concorrência", () => {
       expect(resultados.every((r) => r.status === "rejected")).toBe(true);
       expect(await estado(cto.id, 2)).toBe("AVAILABLE");
       expect(await estado(cto.id, 3)).toBe("AVAILABLE");
+    }
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// O que a tentativa bloqueada NÃO faz
+// ---------------------------------------------------------------------------
+
+describe("CTO-2.6 · a recusa não deixa rastro", () => {
+  it("NEG-01 tentativa bloqueada não escreve auditoria", async () => {
+    const cto = await novaCto("CX-NEG-01", 8);
+    const p = await porta(cto.id, 8);
+    const cliente = await novoCliente("Cliente NEG-01");
+    await connectCustomerToPort(ctx, {
+      customerId: cliente.id,
+      ctoPortId: p.id,
+    });
+
+    const antes = await prisma.auditLog.count({
+      where: { companyId: fixture.companyA.id },
+    });
+
+    await esperaConflito(() => mudarEstado(cto.id, p.id, "RESERVED"));
+    await esperaConflito(() => reduzir(cto.id, 4));
+
+    // A transação inteira volta: nada de auditoria de algo que não aconteceu.
+    expect(
+      await prisma.auditLog.count({ where: { companyId: fixture.companyA.id } }),
+    ).toBe(antes);
+  });
+
+  it("NEG-02 depois da redução bloqueada, o banco está BYTE a byte igual", async () => {
+    const cto = await novaCto("CX-NEG-02", 8);
+    const p = await porta(cto.id, 8);
+    const cliente = await novoCliente("Cliente NEG-02");
+    const vinculo = await connectCustomerToPort(ctx, {
+      customerId: cliente.id,
+      ctoPortId: p.id,
+    });
+
+    const ctoAntes = await prisma.cTO.findUniqueOrThrow({
+      where: { id: cto.id },
+    });
+    const portasAntes = await prisma.cTOPort.findMany({
+      where: { ctoId: cto.id },
+      orderBy: { number: "asc" },
+    });
+    const vinculoAntes =
+      await prisma.customerNetworkConnection.findUniqueOrThrow({
+        where: { id: vinculo.id },
+      });
+
+    await esperaConflito(() => reduzir(cto.id, 4));
+
+    /*
+      Igualdade profunda, e não uma amostra de campos.
+
+      "Nenhuma alteração parcial" é a promessa da fase, e conferir só
+      `capacity` deixaria de fora `updatedAt`, o estado das portas e o vínculo —
+      exatamente onde um efeito colateral se esconderia.
+    */
+    expect(
+      await prisma.cTO.findUniqueOrThrow({ where: { id: cto.id } }),
+    ).toEqual(ctoAntes);
+    expect(
+      await prisma.cTOPort.findMany({
+        where: { ctoId: cto.id },
+        orderBy: { number: "asc" },
+      }),
+    ).toEqual(portasAntes);
+    expect(
+      await prisma.customerNetworkConnection.findUniqueOrThrow({
+        where: { id: vinculo.id },
+      }),
+    ).toEqual(vinculoAntes);
+  });
+
+  it("NEG-03 o 409 das ROTAS não vaza stack, SQL nem nome de tabela", async () => {
+    const cto = await novaCto("CX-NEG-03", 8);
+    const p = await porta(cto.id, 8);
+    const cliente = await novoCliente("Fulano Que Nao Deve Aparecer");
+    await connectCustomerToPort(ctx, {
+      customerId: cliente.id,
+      ctoPortId: p.id,
+    });
+    const token = await createTokenFor(fixture.adminA.id);
+
+    const respostas = [
+      await portStateRoute(
+        apiRequest(
+          `/api/ctos/${cto.id}/ports/${p.id}/state`,
+          { method: "POST", body: { administrativeState: "RESERVED" } },
+          token,
+        ),
+        { params: { id: cto.id, portId: p.id } },
+      ),
+      await capacityRoute(
+        apiRequest(
+          `/api/ctos/${cto.id}/capacity`,
+          { method: "POST", body: { capacity: 4 } },
+          token,
+        ),
+        { params: { id: cto.id } },
+      ),
+    ];
+
+    for (const res of respostas) {
+      expect(res.status).toBe(409);
+      const texto = await res.text();
+      for (const proibido of [
+        "at Object",
+        "node_modules",
+        "SELECT",
+        "customer_network_connections",
+        "cto_ports",
+        "prisma",
+        "Fulano Que Nao Deve Aparecer",
+        cliente.id,
+        p.id,
+        fixture.companyA.id,
+      ]) {
+        expect(texto).not.toContain(proibido);
+      }
     }
   });
 });
