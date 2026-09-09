@@ -1,5 +1,10 @@
 import type { CtoPortAdministrativeState } from "@prisma/client";
 import { isPortWithinCapacity, type PublicCtoDetail } from "./cto";
+import {
+  CTO_MAP_SEARCH_MAX_QUERY,
+  CTO_MAP_SEARCH_MIN_QUERY,
+  usefulSearchLength,
+} from "./cto-map-presentation";
 import { summarizePortCounts } from "./cto-read-model";
 import { badRequest } from "./errors";
 import { prisma } from "./prisma";
@@ -358,5 +363,182 @@ export async function getCtoMapView(
     truncated,
     limit,
     missingLocationCount,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Busca — CTO-3.2
+// ---------------------------------------------------------------------------
+
+/**
+ * # A busca do mapa, e por que ela é um contrato SEPARADO
+ *
+ * A decisão do dono: procurar por nome ou código **não** fica preso ao recorte
+ * visível. Quem procura a `A16` normalmente está olhando para outro bairro —
+ * uma busca limitada ao que já está na tela responderia "não existe" sobre uma
+ * caixa que existe, que é a pior resposta possível de um campo de busca.
+ *
+ * O que NÃO foi feito, e é o ponto: `GET /api/ctos/map` continua exatamente
+ * como a `CTO-3.1` o entregou. Ensinar o endpoint do recorte a varrer a
+ * carteira inteira quando um parâmetro aparece transformaria a única superfície
+ * com teto garantido numa superfície com teto condicional — e o teto é a
+ * diferença entre um mapa que abre e a carteira toda no navegador (§200).
+ *
+ * ```text
+ * /api/ctos/map          o recorte     bbox obrigatório, teto 200
+ * /api/ctos/map/search   a localização q obrigatório,   teto 10
+ * ```
+ *
+ * O fluxo aprovado termina no primeiro: achar → recentralizar → **o recorte
+ * carrega**. A busca localiza; ela não é uma segunda leitura do mapa, e é por
+ * isso que o DTO dela é menor.
+ */
+
+/**
+ * Quantos resultados a busca devolve.
+ *
+ * Dez, e não duzentos: isto é um campo de "achar a caixa", não uma listagem.
+ * Um teto pequeno é o que impede a busca de virar a exportação da carteira que
+ * o teto do mapa existe para evitar.
+ */
+export const CTO_MAP_SEARCH_MAX_RESULTS = 10;
+
+/**
+ * Os limites do TERMO moram em `cto-map-presentation.ts`, e não aqui.
+ *
+ * Este módulo importa `prisma`. Um componente de cliente que precisasse de
+ * `CTO_MAP_SEARCH_MIN_QUERY` arrastaria o Prisma inteiro para o bundle do
+ * navegador — que foi exatamente o defeito da `DQ-4`, quando um painel importou
+ * rótulos de `service-orders.ts` e o webpack derrubou a página de login.
+ *
+ * A regra continua sendo **uma só**: `normalizeMapSearchQuery` consome as mesmas
+ * constantes que a tela usa para decidir se já vale consultar.
+ */
+
+/**
+ * O que a busca devolve, e é deliberadamente menos que um marcador.
+ *
+ * **Sem `summary`, sem `status`, sem `active`.** O trabalho dela é responder
+ * *"onde fica esta caixa?"*; o estado operacional chega logo depois, pelo
+ * recorte, com a mesma autoridade de sempre. Calcular status aqui significaria
+ * consultar portas e vínculos para dez linhas a cada tecla digitada, e criaria
+ * um segundo caminho por onde a contagem poderia divergir.
+ *
+ * `latitude`/`longitude` são **anuláveis**, e essa é a diferença central em
+ * relação a `CtoMapMarker`: uma caixa sem coordenada **pode** ser encontrada
+ * pela busca. Ela só não recentraliza nada — e o `null` é o que permite à tela
+ * dizer isso em vez de mandar o mapa para um ponto inventado.
+ */
+export interface CtoMapSearchHit {
+  id: string;
+  name: string;
+  code: string | null;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+export interface CtoMapSearchResult {
+  hits: CtoMapSearchHit[];
+  /** Bateu no teto de dez? A tela pede um termo mais específico. */
+  truncated: boolean;
+  limit: number;
+}
+
+/**
+ * Normaliza o termo, ou recusa.
+ *
+ * `null` significa *"não há o que consultar"* — termo ausente, em branco, ou
+ * curto demais. **Isso não é erro**, e devolver 400 seria hostil: é o estado
+ * normal de quem começou a digitar. O erro fica para o que não é digitação
+ * plausível, que é o termo longo demais.
+ */
+export function normalizeMapSearchQuery(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== "string") {
+    throw badRequest("O termo de busca é inválido.");
+  }
+
+  const termo = raw.trim();
+  if (termo === "") return null;
+
+  if (termo.length > CTO_MAP_SEARCH_MAX_QUERY) {
+    throw badRequest(
+      `O termo de busca deve ter no máximo ${CTO_MAP_SEARCH_MAX_QUERY} caracteres.`,
+    );
+  }
+
+  if (usefulSearchLength(termo) < CTO_MAP_SEARCH_MIN_QUERY) return null;
+
+  return termo;
+}
+
+/**
+ * As caixas da empresa cujo nome ou código contém o termo.
+ *
+ * ## Tenant no `where`, como em todo o módulo
+ *
+ * `companyId` entra no mesmo predicado do texto, em SQL. Nunca por navegação de
+ * FK e nunca depois, em memória — a `CTO-3.1` já mediu que filtrar depois
+ * produz a mesma lista e traz a carteira alheia até a aplicação no caminho.
+ *
+ * ## Inativas entram
+ *
+ * Quem procura uma caixa que desativou precisa achá-la, e o `status` derivado
+ * já responde `INACTIVE` quando o recorte a carrega. Esconder da busca faria a
+ * caixa parecer apagada, que é justamente o que a `N-13` proíbe.
+ */
+export async function searchCtosForMap(
+  companyId: string,
+  termo: string,
+): Promise<CtoMapSearchResult> {
+  const limit = CTO_MAP_SEARCH_MAX_RESULTS;
+
+  const linhas = await prisma.cTO.findMany({
+    where: {
+      companyId,
+      OR: [
+        { name: { contains: termo, mode: "insensitive" } },
+        { code: { contains: termo, mode: "insensitive" } },
+      ],
+    },
+    // O DTO mínimo começa no `select`: o que não é lido não pode vazar por
+    // descuido de serialização depois.
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      latitude: true,
+      longitude: true,
+    },
+    orderBy: [{ name: "asc" }],
+    take: limit + 1,
+  });
+
+  const truncated = linhas.length > limit;
+  const visiveis = truncated ? linhas.slice(0, limit) : linhas;
+
+  return {
+    hits: visiveis.map((cto) => ({
+      id: cto.id,
+      name: cto.name,
+      code: cto.code,
+      /*
+        Meia coordenada não posiciona nada, e aqui isso precisa ser explícito:
+        o marcador do recorte nunca chega pela metade porque o `where` o
+        garante, mas a busca não filtra por coordenada. Uma caixa com latitude
+        e sem longitude sai com os DOIS nulos, e a tela a trata como sem
+        localização — em vez de tentar centralizar em `undefined`.
+      */
+      latitude:
+        cto.latitude !== null && cto.longitude !== null
+          ? Number(cto.latitude)
+          : null,
+      longitude:
+        cto.latitude !== null && cto.longitude !== null
+          ? Number(cto.longitude)
+          : null,
+    })),
+    truncated,
+    limit,
   };
 }
