@@ -797,7 +797,11 @@ Um teste da `CTO-2.2` mudou de **preparo**, não de afirmação: ele montava a l
 
 Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §31.
 
-**`CTO-2.7` — checkpoint do `CTO-2`, AGUARDANDO validação do dono. Commits locais, sem tag e sem push.** Fase de validação, **zero diff de produção**: nasceu um arquivo de teste e nada mais.
+**`CTO-2.7` `APPROVED` — e com ela a trilha `CTO-2` está `DONE`. Commits locais, sem tag e sem push.** Fase de validação, **zero diff de produção**: nasceu um arquivo de teste e nada mais.
+
+**Validação do dono `PASS` em 2026-09-09**, na interface real sobre `CTO QA FIELD 01`: os onze passos do roteiro, incluindo as três regras que a `CTO-2.6` acrescentou — `RESERVED` recusado em porta ocupada, e as reduções `8 → 4` e `8 → 6` recusadas pela ocupação. O passo que mais importa é o quinto: **liberar tirou `DAMAGED` sem remover o vínculo**, que é a prova, fora do teste, de que a regra é sobre o ALVO e não sobre o estado atual.
+
+**A conferência do banco depois da restauração mostrou o que só a leitura mostra:** o histórico guardou **cada passo** do roteiro em vez de ser sobrescrito, as linhas `FIELD` do piloto de aparelho da `CTO-2.5` continuam intactas ao lado das novas, e o `MOVE` de volta para a porta 03 criou linha **nova** — a caixa registra que o cliente esteve lá, saiu e voltou.
 
 **Onze dos quinze critérios de aceite pertencem ao `CTO-2` e estão rastreados** (matriz em §32); os outros quatro são de `CTO-3` (mapa), `CTO-5` (status/idade) e `CTO-7` (QR), que não existem em código.
 

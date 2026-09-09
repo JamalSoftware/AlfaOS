@@ -3351,14 +3351,73 @@ na web — ele vive no backend e é provado por `CN-12`, `CN-14` e `LIFE-01`.
 Fica registrado como `INFO`: um campo do read model sem consumidor de tela.
 Nenhuma fase do `CTO-2` prometeu essa tela.
 
+### Validação do dono — `PASS`, 2026-09-09
+
+Executada pelo **dono do produto** na interface real, sobre `CTO QA FIELD 01`
+(Alfa Telecom, 8 portas). Os onze passos do roteiro passaram, e as evidências
+visuais foram revisadas por ele.
+
+| | passo | resultado |
+|---|---|---|
+| 1–2 | CTO localizada, 8 portas, 7 livres, 03 ocupada | `PASS` |
+| 3 | `RESERVED` na porta 03 ocupada **recusado** | `PASS` |
+| 4 | porta 03 **Ocupada + Danificada** ao mesmo tempo | `PASS` |
+| 5 | **Liberar** tirou `DAMAGED` **sem** remover o vínculo | `PASS` |
+| 6 | segundo cliente vinculado à porta 05 | `PASS` |
+| 7 | cliente movido da porta 03 para a 08 | `PASS` |
+| 8 | redução `8 → 4` **recusada** | `PASS` |
+| 9 | redução `8 → 6` **recusada** pela ocupação da porta 08 | `PASS` |
+| 10 | cliente da porta 05 desconectado | `PASS` |
+| 11 | cliente movido da 08 de volta para a 03 | `PASS` |
+
+Os passos 3, 8 e 9 são as regras que a `CTO-2.6` acrescentou, e é a primeira vez
+que elas são exercidas fora do teste automatizado. O passo 5 é o que prova que a
+regra é sobre o **alvo**: a porta saiu de `DAMAGED` com o cliente ainda ligado.
+
+### O que o banco confirma, além do relato
+
+Conferência somente-leitura depois da restauração:
+
+```text
+capacity 8 · ativa · estados administrativos: AVAILABLE ×8
+free 7 · occupied 1 · reserved 0 · damaged 0
+porta 03 = Cliente QA Field CTO
+```
+
+O piloto foi devolvido ao estado inicial, e o **histórico guardou cada passo**
+em vez de ser sobrescrito — oito linhas na caixa, das quais quatro são desta
+sessão:
+
+```text
+porta 03  FIELD  …00:33 → 10:16     (fechada pela saída do MOVE)
+porta 05  WEB    10:16  → 10:17     (vínculo e desconexão dos passos 6 e 10)
+porta 08  WEB    10:16  → 10:18     (destino do passo 7, origem do passo 11)
+porta 03  WEB    10:18  → ATIVO     (restauração)
+```
+
+Duas coisas que só a leitura mostra. As linhas `FIELD` do piloto de aparelho da
+`CTO-2.5` continuam **intactas** ao lado das novas — a preservação de histórico
+atravessa fases, e não só operações. E o `MOVE` de volta para a porta 03 criou
+uma linha **nova**, não reabriu a antiga: a caixa registra que o cliente esteve
+lá, saiu e voltou, que é o que de fato aconteceu.
+
+`CTO QA 011` não foi tocada: `updatedAt` continua em 2026-09-07.
+
 ### Estado no fim da fase
 
 ```text
-CTO-2.1  persistência e domínio           EM CÓDIGO
-CTO-2.2  API Admin e read models          EM CÓDIGO
+CTO-2.1  persistência e domínio                EM CÓDIGO
+CTO-2.2  API Admin e read models               EM CÓDIGO
 CTO-2.3  Web: vincular / mover / desconectar   EM CÓDIGO · validada pelo dono
-CTO-2.4  API Field via OS IN_PROGRESS     EM CÓDIGO
-CTO-2.5  UI Field                         EM CÓDIGO · validada em aparelho real
-CTO-2.6  integridade estado × capacidade  EM CÓDIGO
-CTO-2.7  validação e checkpoint           AGUARDANDO VALIDAÇÃO DO DONO
+CTO-2.4  API Field via OS IN_PROGRESS          EM CÓDIGO
+CTO-2.5  UI Field                              EM CÓDIGO · validada em aparelho real
+CTO-2.6  integridade estado × capacidade       EM CÓDIGO
+CTO-2.7  validação e checkpoint                APPROVED · owner PASS 2026-09-09
 ```
+
+> **`CTO-2` — DONE.** As sete fatias existem em código, com validação do dono na
+> web e em aparelho físico. Sem tag e sem push: a publicação é decisão à parte.
+>
+> **`CTO-3` (mapa), `CTO-5` (status e idade da leitura), `CTO-6` (falha
+> coletiva) e `CTO-7` (QR) continuam sob a §119 do PRD** — nada disso existe em
+> código, e o fechamento do `CTO-2` não os promove.
