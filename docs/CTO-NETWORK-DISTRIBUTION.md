@@ -3623,3 +3623,134 @@ ordenação por proximidade vai se apoiar. Fechada com caracterização, sem toc
 produção.
 
 > **`CTO-3` — `DISCOVERY / PLANNED`.** Nada em código. `CTO-2` continua `DONE`.
+
+## 34. `CTO-3.1` — o contrato de leitura geográfica
+
+A primeira camada do Mapa Operacional, **sem mapa**. Uma rota, um módulo de
+domínio, e a função de contagem que já existia — agora exportada.
+
+**Zero migration, zero schema, zero dependência, zero Dart, zero UI.**
+
+### Decisões do dono, aplicadas
+
+Um **motor de mapa compartilhado**, com a CTO como primeira camada (PRD §136,
+§207). Nada aqui é específico de CTO na forma: `BoundingBox`, o teto informado e
+o contorno da resposta são o que as camadas de técnico, cliente e OS vão
+reaproveitar. O que é de CTO é o conteúdo do marcador.
+
+### O endpoint
+
+```text
+GET /api/ctos/map?north=&south=&east=&west=&limit=
+```
+
+`map` é segmento estático e vence `[id]` no roteamento do Next; os ids são
+`cuid()` e nunca valem `"map"`. O nome segue a convenção que
+`/api/ctos/[id]/capacity` e `.../active` já usam.
+
+Sem `assertSameOrigin`: é `GET` puro, como as demais leituras do módulo. Uma
+leitura que exigisse origem enquanto as vizinhas não exigem seria a que alguém
+acabaria "consertando" tirando a verificação do lugar errado.
+
+### Uma autoridade para a contagem
+
+`summarize` virou **`summarizePortCounts`, exportada**. O mapa chama a mesma
+função que o detalhe administrativo. A alternativa óbvia — `GROUP BY` em SQL —
+seria mais rápida e criaria uma segunda verdade sobre a mesma pergunta: quando a
+regra mudasse, alguém teria de lembrar do SQL. A `CTO-2.2` já mostrou como essa
+divergência se esconde.
+
+O preço está medido: com 200 caixas de 8 a 16 posições, 1.600 a 3.200 linhas de
+porta por consulta; no pior caso teórico — 200 de 256 —, 51.200. Se um dia
+pesar, a saída é o `GROUP BY` **com teste de consistência contra esta função**,
+nunca uma reescrita silenciosa.
+
+### Três consultas, e o número não cresce
+
+```text
+1  as CTOs do recorte    tenant + bbox + teto, tudo no banco
+2  as portas delas       um IN, não uma por caixa
+3  os vínculos ativos    um IN, idem
++  a contagem de caixas sem coordenada
+```
+
+O `N+1` desta superfície não seria uma tela lenta: seria uma rajada a cada
+arrasto do mouse. Índices existentes bastam — `ctos(companyId)`,
+`cto_ports(ctoId)` pela unique, `(companyId, ctoPortId)` nas conexões.
+**Nenhum índice novo**, e nenhuma migration: no volume atual o `companyId`
+já reduz a varredura a um punhado de linhas, e um índice espacial só se paga
+quando a faixa de coordenada for o filtro seletivo.
+
+### O antimeridiano é RECUSADO, não tratado
+
+Tratá-lo custa consulta em duas faixas, e o AlfaOS não tem para quem: uma rede
+de distribuição é local. Recusar é melhor que devolver vazio — um `200` com
+lista vazia faria o mapa concluir que não há caixas na região.
+
+### Status derivado, na precedência aprovada
+
+```text
+INACTIVE   a caixa saiu de operação        → nem se pergunta o resto
+DAMAGED    tem posição com defeito         → alguém precisa ir lá
+FULL       está inteira, e não cabe mais   → não adianta mandar instalação
+AVAILABLE  cabe cliente novo
+```
+
+`DAMAGED` antes de `FULL` porque lotada é informação de **capacidade** e defeito
+é informação de **manutenção** — e manutenção é o que faz alguém se deslocar. Só
+posições dentro da capacidade contam: porta histórica danificada não põe a caixa
+em manutenção.
+
+Nada é persistido. Não existe `cto.mapStatus`, e um teste percorre as colunas da
+tabela para provar que não nasceu nenhuma.
+
+### Sem coordenada não vira marcador
+
+Nem meia coordenada: `null` em qualquer dos dois eixos tira a caixa do mapa.
+Elas são **contadas à parte**, em `missingLocationCount`, deliberadamente **fora
+do recorte** — uma caixa sem coordenada não está em região nenhuma, e enfiá-la
+num `bbox` exigiria inventar um ponto. É esse número que permite ao mapa oferecer
+a coleção *sem localização* em vez de esconder o que não sabe posicionar.
+
+### Permissões
+
+`ADMIN` **e** `DISPATCHER` leem. O `C-07` congelou que leitura é aberta *"por
+fase que precise dela"*, e o mapa é do despacho — esta é a fase. **Nenhum perfil
+novo, nenhuma capability nova**: `requireCtoAccess` já recebe a lista de perfis.
+
+`TECHNICIAN` continua fora: ele lê CTO pelo Field, dentro de uma OS dele.
+`CONNECT`, `MOVE` e `DISCONNECT` seguem exatamente como a `CTO-2` os entregou.
+
+### O que as sabotagens mediram
+
+| | mutação | quem caiu |
+|---|---|---|
+| `S1` | tenant fora do predicado | 5 testes, incluindo o de coordenada isolada |
+| `S2` | recorte filtrado em memória | **passou** — ver abaixo |
+| `S3` | ocupação vinda do estado administrativo | `MAP-10/11/14/15/15b` |
+| `S4` | teto do domínio removido | **passou** — ver abaixo |
+| `S5` | precedência `DAMAGED`/`FULL` invertida | `MAP-14` |
+
+**Duas passaram, e as duas eram culpa dos testes.**
+
+`S2` produz **exatamente a mesma lista**: filtrar em memória depois de buscar é
+indistinguível pelo resultado. O que muda é que o banco devolve a carteira
+inteira antes — o oposto da §200, e um vazamento esperando uma refatoração
+distraída. Nasceu daí o `MAP-20`, que afirma sobre a **consulta**: `companyId`,
+`latitude`, `longitude` e `take` participam do `where`.
+
+`S4` passou porque o `MAP-09b` pede pela **rota**, que limita antes de chamar o
+domínio — o guarda de dentro nunca era exercido. Ele importa por si: quem chamar
+`getCtoMapView` direto não passa pela rota, e o teto é a única coisa entre um
+mapa e a carteira inteira. Nasceram daí `MAP-09d` e `MAP-09e`.
+
+Com os testes novos, cinco de cinco caem.
+
+### O que continua fora
+
+Leaflet, React Leaflet, marcador, popup, agrupamento, provedor de tiles, o mapa
+web, mapa no Flutter, GPS do técnico, ordenação por proximidade, edição e
+histórico de coordenada, FiberMap, QR, falha coletiva e OLT/SNMP.
+
+> **`CTO-3` — `IN PROGRESS`.** `CTO-3.1` entregue; `3.2`, `3.3` e `3.4`
+> continuam sob a §119. `CTO-2` continua `DONE`.

@@ -825,7 +825,21 @@ Quatro fatos do inventário que não se redescobrem: **não existe biblioteca de
 
 Lacuna encontrada e fechada sem tocar produção: **`src/lib/geo.ts` não tinha teste direto** — haversine e os dois validadores, que são a primitiva da ordenação por proximidade.
 
-**`CTO-3.2` está bloqueada por decisão de arquitetura:** não há biblioteca de mapa no projeto. Recomendação registrada: **Leaflet + tiles do OpenStreetMap** (sem chave, sem faturamento), com o caveat honesto de que a política dos tiles públicos não sustenta volume de produção.
+**As duas decisões que bloqueavam a fase foram TOMADAS pelo dono:** um **motor de mapa compartilhado**, com a CTO como primeira camada — nem §136 inteira antes, nem mapa isolado de CTO —, e **Leaflet + React Leaflet** aprovados para a `3.2`, com o provedor de tiles **configurável**, nunca acoplado ao código.
+
+**`CTO-3.1` ENTREGUE — commits locais, sem tag e sem push.** `GET /api/ctos/map` e `src/lib/cto-map.ts`: a primeira camada do Mapa Operacional, **sem mapa**. **Zero migration, zero schema, zero dependência, zero Dart, zero UI.**
+
+**Uma autoridade para a contagem:** `summarize` virou **`summarizePortCounts`, exportada**, e o mapa chama a MESMA função do detalhe administrativo. O `GROUP BY` em SQL seria mais rápido e criaria uma segunda verdade — a `CTO-2.2` já mostrou como essa divergência se esconde. O preço está medido: 1.600 a 3.200 linhas de porta por consulta no uso real, 51.200 no pior caso teórico; se pesar, a saída é `GROUP BY` **com teste de consistência**, nunca reescrita silenciosa.
+
+**Três decisões que não devem ser desfeitas.** Recorte que cruza o antimeridiano é **RECUSADO**, não tratado: uma rede de distribuição é local, e um `200` vazio faria o mapa concluir que não há caixas na região. `missingLocationCount` é **da empresa, não do recorte**, porque caixa sem coordenada não está em região nenhuma — e nada de `0,0` inventado. E o status do marcador é derivado na precedência `INACTIVE > DAMAGED > FULL > AVAILABLE`, com **`DAMAGED` antes de `FULL`** porque lotada é informação de capacidade e defeito é informação de manutenção — manutenção é o que faz alguém se deslocar.
+
+**Duas das cinco sabotagens PASSARAM, e as duas eram culpa dos testes.** Filtrar o recorte em memória produz **exatamente a mesma lista** — nenhum teste de resultado distingue os dois, e o que muda é o banco devolver a carteira inteira antes; nasceu daí o `MAP-20`, que afirma sobre a **consulta**. E remover o teto do domínio passou porque todos os testes de teto pediam pela **rota**, que limita antes; o guarda de dentro nunca era exercido, e ele é a única coisa entre um mapa e a carteira inteira para quem chamar `getCtoMapView` direto.
+
+**Leitura aberta ao `DISPATCHER`**, dentro do que o `C-07` já previa (*"por fase que precise dela"*). Nenhum perfil novo, nenhuma capability nova, nenhuma escrita ampliada — `CONNECT`, `MOVE` e `DISCONNECT` seguem como a `CTO-2` os entregou.
+
+**Nenhum índice novo**, e a razão está registrada: no volume atual o `companyId` já reduz a varredura, e um índice espacial só se paga quando a faixa de coordenada for o filtro seletivo.
+
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §34. **`CTO-3.2`, `3.3` e `3.4` continuam sob a §119.**
 
 ## Princípios
 
