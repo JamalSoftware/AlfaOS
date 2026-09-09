@@ -1,3 +1,4 @@
+import type { CtoPortAdministrativeState } from "@prisma/client";
 import {
   effectivePortState,
   getCto,
@@ -82,8 +83,30 @@ export interface OperationalCtoDetail extends Omit<PublicCtoDetail, "ports"> {
  * invariante de soma, e uma tela que apresente as quatro como fatias de um todo
  * estará errada a partir daqui.
  */
-function summarize(
-  ports: OperationalCtoPort[],
+/**
+ * As contagens da caixa, a partir das portas já resolvidas.
+ *
+ * **Exportada na `CTO-3.1`**, e por um motivo concreto: a leitura do mapa
+ * precisa das MESMAS contagens, e reescrevê-las lá — em JS ou em `GROUP BY` —
+ * criaria uma segunda autoridade sobre a mesma pergunta. A `CTO-2.2` já pagou
+ * por essa lição no sentido inverso, quando `damaged` era derivado de
+ * `effectiveState` e uma porta quebrada com cliente dentro sumia da contagem.
+ *
+ * O parâmetro aceita **o mínimo que a função lê**, e não `OperationalCtoPort`
+ * inteiro: o detalhe administrativo satisfaz esse formato por estrutura, e a
+ * leitura do mapa não precisa carregar `notes`, `effectiveState` nem o
+ * ocupante para poder contar.
+ *
+ * As dimensões continuam **independentes**: uma porta `DAMAGED` e ocupada conta
+ * nas duas, e por isso `free + reserved + damaged + occupied` pode passar de
+ * `capacity`. Quem apresentar as quatro como fatias de um todo estará errado.
+ */
+export function summarizePortCounts(
+  ports: readonly {
+    administrativeState: CtoPortAdministrativeState;
+    withinCapacity: boolean;
+    occupied: boolean;
+  }[],
   capacity: number,
 ): PublicCtoDetail["summary"] {
   const inRange = ports.filter((p) => p.withinCapacity);
@@ -177,7 +200,7 @@ export async function getOperationalCtoDetail(
     };
   });
 
-  return { ...cto, ports, summary: summarize(ports, cto.capacity) };
+  return { ...cto, ports, summary: summarizePortCounts(ports, cto.capacity) };
 }
 
 // ---------------------------------------------------------------------------
