@@ -14,6 +14,7 @@ export type IconName =
   | "settings"
   | "myorders"
   | "cto"
+  | "map"
   | "profile";
 
 export interface NavItem {
@@ -58,6 +59,27 @@ export const NAVIGATION: NavItem[] = [
     label: "Despacho",
     icon: "dispatch",
     profiles: [AccessProfile.ADMIN, AccessProfile.DISPATCHER],
+  },
+  {
+    /*
+      Mapa Operacional — ao lado do Despacho, porque é a mesma pergunta vista de
+      outro jeito: o Despacho responde "quem está com o quê", o mapa responde
+      "onde as coisas estão" (§207).
+
+      O nome é da SUPERFÍCIE, e não da camada. Hoje só existe a camada de CTO;
+      técnico, cliente e OS entram sobre o mesmo motor (§136), e um item
+      chamado "Mapa de CTOs" obrigaria a segunda camada a nascer como uma
+      segunda tela.
+
+      `requires: "ctoNetwork"` é verdade ENQUANTO a única camada for a de CTO —
+      sem o módulo, o mapa abriria vazio. Quando a segunda camada existir, esta
+      condição precisa ser revisitada, e não herdada.
+    */
+    href: "/mapa",
+    label: "Mapa Operacional",
+    icon: "map",
+    profiles: [AccessProfile.ADMIN, AccessProfile.DISPATCHER],
+    requires: "ctoNetwork",
   },
   {
     href: "/tecnicos",

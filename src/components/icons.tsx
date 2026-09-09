@@ -17,6 +17,14 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="M9 7h11M9 12h11M9 17h11" />
     </>
   ),
+  // Alfinete de mapa: o Mapa Operacional responde ONDE, e o alfinete e o unico
+  // simbolo que nao se confunde com "lugar" no resto da barra.
+  map: (
+    <>
+      <path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z" />
+      <circle cx="12" cy="10" r="2.5" />
+    </>
+  ),
   // Caixa com posicoes: a CTO e um contineer com portas numeradas. Os quatro
   // quadrados internos leem como posicoes, nao como itens de lista.
   cto: (

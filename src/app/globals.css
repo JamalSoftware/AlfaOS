@@ -277,3 +277,148 @@
     transition: background-color 5000s ease-in-out 0s;
   }
 }
+
+/*
+  ---------------------------------------------------------------------------
+  Mapa Operacional — CTO-3.2
+  ---------------------------------------------------------------------------
+
+  O Leaflet traz CSS próprio, com paleta própria e com uma pilha de `z-index`
+  que ele assume ser dona da página (`.leaflet-pane` vai a 400, os controles a
+  800, o popup a 700). A Sidebar do AlfaOS usa 30 e 40 — de modo que, solto, o
+  mapa passaria POR CIMA da gaveta do celular e do cabeçalho.
+
+  Duas providências, e nenhuma delas mexe no CSS do Leaflet: o contêiner abre
+  um contexto de empilhamento próprio (`isolation`), o que prende as centenas
+  do Leaflet dentro dele; e as cores passam a sair dos tokens, para o mapa não
+  ser a única superfície do produto que ignora o tema escolhido.
+*/
+.cto-map-shell {
+  isolation: isolate;
+  position: relative;
+  z-index: 0;
+}
+
+.cto-map-shell .leaflet-container {
+  /* O fundo que aparece enquanto o tile não chegou — e o que sobra se ele
+     nunca chegar. Cinza fixo do Leaflet acenderia como um retângulo claro no
+     tema escuro. */
+  background: rgb(var(--surface-muted));
+  font: inherit;
+}
+
+.cto-map-shell .leaflet-bar a,
+.cto-map-shell .leaflet-control-attribution {
+  background: rgb(var(--surface));
+  color: rgb(var(--fg-secondary));
+  border-color: rgb(var(--border));
+}
+
+.cto-map-shell .leaflet-bar a:hover {
+  background: rgb(var(--surface-muted));
+  color: rgb(var(--fg));
+}
+
+.cto-map-shell .leaflet-control-attribution a {
+  color: rgb(var(--primary-text));
+}
+
+.cto-map-shell .leaflet-popup-content-wrapper,
+.cto-map-shell .leaflet-popup-tip {
+  background: rgb(var(--surface));
+  color: rgb(var(--fg));
+  box-shadow: 0 10px 25px -5px rgb(var(--overlay) / 0.25);
+}
+
+.cto-map-shell .leaflet-popup-content {
+  margin: 0;
+  width: auto !important;
+}
+
+/*
+  O marcador.
+
+  Forma, glifo e cor — nessa ordem de importância. A cor é a ÚLTIMA pista de
+  propósito: um mapa que distinguisse os quatro estados só por matiz não seria
+  legível para quem tem daltonismo, nem sob sol, nem impresso.
+*/
+.cto-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  border: 2px solid;
+  box-shadow: 0 1px 3px rgb(var(--overlay) / 0.35);
+}
+
+.cto-marker--circle {
+  border-radius: 9999px;
+}
+
+.cto-marker--square {
+  border-radius: 4px;
+}
+
+.cto-marker--diamond {
+  border-radius: 4px;
+  transform: rotate(45deg);
+}
+
+/* O glifo do losango volta à horizontal: um "×" girado 45° vira um "+". */
+.cto-marker--diamond > span {
+  transform: rotate(-45deg);
+}
+
+.cto-marker--triangle {
+  border-radius: 4px;
+  /* Triângulo de verdade, e não um quadrado com cara de triângulo: o recorte
+     é o que faz a forma sobreviver a uma captura em preto e branco. */
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  border: none;
+  align-items: flex-end;
+  padding-bottom: 2px;
+  width: 28px;
+  height: 26px;
+}
+
+.cto-marker--success {
+  background: rgb(var(--success-bg));
+  border-color: rgb(var(--success-fg));
+  color: rgb(var(--success-fg));
+}
+
+.cto-marker--warning {
+  background: rgb(var(--warning-bg));
+  border-color: rgb(var(--warning-fg));
+  color: rgb(var(--warning-fg));
+}
+
+.cto-marker--danger {
+  background: rgb(var(--danger-bg));
+  border-color: rgb(var(--danger-fg));
+  color: rgb(var(--danger-fg));
+}
+
+.cto-marker--neutral {
+  background: rgb(var(--neutral-bg));
+  border-color: rgb(var(--neutral-fg));
+  color: rgb(var(--neutral-fg));
+}
+
+/* O triângulo perde a borda para o recorte funcionar; o contorno volta como
+   sombra projetada, senão ele fica sem definição sobre o tile claro. */
+.cto-marker--triangle.cto-marker--danger {
+  background: rgb(var(--danger-fg));
+  color: rgb(var(--danger-bg));
+}
+
+/* O marcador selecionado ganha anel — não muda de cor, para não se confundir
+   com mudança de estado. */
+.cto-marker--selected {
+  outline: 3px solid rgb(var(--focus));
+  outline-offset: 2px;
+}
