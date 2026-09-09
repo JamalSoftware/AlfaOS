@@ -86,33 +86,39 @@ describe("MARCADOR `CTO-2.6` · vínculo ativo × estado administrativo", () => 
     ).toBe("AVAILABLE");
   });
 
-  it("`RESERVED` com cliente conectado AINDA passa — e a `CTO-2.6` tem de fechar isso", async () => {
+  it("`RESERVED` com cliente conectado é RECUSADO — a `CTO-2.6` fechou isto", async () => {
     /*
-      ## Requisito pendente, registrado onde não se perde
+      ## O marcador venceu, e virou o que ele mesmo pediu
       ```text
-      vínculo ativo + alvo RESERVED  →  409   (CTO-2.6)
+      vínculo ativo + alvo RESERVED  →  409
       ```
+      Até a `CTO-2.6` este teste afirmava o contrário — que a combinação era
+      alcançável — e trazia escrito: *"quando a `CTO-2.6` chegar, este teste
+      deve VIRAR uma expectativa de recusa; a inversão é o sinal de que a regra
+      entrou"*. É essa inversão.
+
       `RESERVED` significa posição separada para uso futuro, e isso não convive
-      com alguém dentro.
-      A verificação pertence a `setPortAdministrativeState`, DENTRO da transação
-      e do `lockCto` que já existe — consultar vínculo fora do lock reabriria a
-      janela que a `CTO-1.9` fechou.
-      Antecipar a mudança aqui violaria a fatia congelada: a integração de
-      estado é `CTO-2.6`, e este teste existe para que ela não seja esquecida.
-      **Quando a `CTO-2.6` chegar, este teste deve VIRAR uma expectativa de
-      recusa** — a inversão é o sinal de que a regra entrou.
+      com alguém dentro. A verificação vive em `setPortAdministrativeState`,
+      DENTRO da transação e do `lockCto` que já existia — fora do lock, ela
+      reabriria a janela que a `CTO-1.9` fechou.
+
+      O teste acima continua sendo a outra metade da regra, e as duas se leem
+      juntas: o que a `CTO-2.6` proibiu foi o **alvo** `RESERVED`, nunca toda
+      mutação sobre porta ocupada.
     */
     const { cto, porta } = await cenarioOcupado("MARCA-R");
 
-    await setPortAdministrativeState(
-      fixture.companyA.id, fixture.adminA.id, cto.id, porta.id, "RESERVED",
-    );
+    await expect(
+      setPortAdministrativeState(
+        fixture.companyA.id, fixture.adminA.id, cto.id, porta.id, "RESERVED",
+      ),
+    ).rejects.toMatchObject({ status: 409 });
 
     const depois = await prisma.cTOPort.findUniqueOrThrow({
       where: { id: porta.id },
     });
-    expect(depois.administrativeState).toBe("RESERVED");
-    // O vínculo continua ativo: a combinação inválida é alcançável hoje.
+    expect(depois.administrativeState).toBe("AVAILABLE");
+    // E o cliente continua exatamente onde estava: recusar não desconecta.
     expect(
       await prisma.customerNetworkConnection.count({
         where: { ctoPortId: porta.id, disconnectedAt: null },

@@ -1229,13 +1229,21 @@ describe("CTO-2.4 · leitura", () => {
       customerId: c.customerId,
       ctoPortId: p.id,
     });
-    await setPortAdministrativeState(
-      fixture.companyA.id,
-      fixture.adminA.id,
-      cto.id,
-      p.id,
-      "RESERVED",
-    );
+    /*
+      Escrita DIRETA desde a `CTO-2.6`.
+
+      Até ela, o serviço produzia este estado — e a versão anterior deste teste
+      o montava assim. Agora `RESERVED` é alvo proibido enquanto existe vínculo
+      ativo, então a única forma de ter a linha é a que a produção tem: dado
+      antigo, gravado antes da regra.
+
+      A AFIRMAÇÃO não mudou: o Field precisa continuar mostrando as duas
+      dimensões da linha legada, e continuar deixando o técnico sair dela.
+    */
+    await prisma.cTOPort.update({
+      where: { id: p.id },
+      data: { administrativeState: "RESERVED" },
+    });
 
     const leitura = await networkRoute(
       fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network`, {
