@@ -3421,3 +3421,205 @@ CTO-2.7  validação e checkpoint                APPROVED · owner PASS 2026-09-
 > **`CTO-3` (mapa), `CTO-5` (status e idade da leitura), `CTO-6` (falha
 > coletiva) e `CTO-7` (QR) continuam sob a §119 do PRD** — nada disso existe em
 > código, e o fechamento do `CTO-2` não os promove.
+
+## 33. `CTO-3.0` — discovery do mapa · `DISCOVERY / PLANNED`
+
+Fase de análise. **Zero produção**: nasceu um arquivo de teste de
+caracterização, e nada mais. **Nada da `CTO-3` existe em código.**
+
+### A divergência que precisa de decisão sua
+
+O enunciado desta fase chama a `CTO-3` de *"Mapa Operacional"* e a descreve como
+um mapa **de CTOs**. O PRD decide outra coisa, e decide explicitamente:
+
+> **§339** — *"A CTO é entidade do Mapa Operacional (§136), que **não existe**.
+> **CTO-3 depende dele**; CTO-1, CTO-2 e CTO-4 não."*
+
+E a §136 não é um mapa de CTOs: é o mapa do **despacho** — técnicos, clientes e
+ordens de serviço —, classificado `[DIFERENCIAL]`. A §207 acrescenta que ele
+fica *"ao lado do quadro e da agenda, sobre o mesmo motor"*.
+
+Lidos juntos, os três dizem que a `CTO-3` é **a camada de CTO de um mapa maior**,
+e não um mapa próprio. Construir um mapa só de CTOs criaria a segunda superfície
+de mapa que a §207 existe para evitar — e inverteria a dependência declarada.
+
+**Recomendação, e ela não fecha nenhuma das duas portas:** construir o **motor**
+do mapa (§200 *bounding box* + §201 eixos de filtro) desde o início
+**agnóstico de camada**, com a **camada de CTO como a primeira**. As demais
+camadas da §136 passam a ser slices que se plugam no mesmo motor. O trabalho é o
+mesmo nos dois caminhos; o que muda é a ordem de entrega.
+
+**A decisão é sua:** camada de CTO primeiro (recomendado), ou §136 inteira antes.
+
+### Estado da geolocalização — o que já existe
+
+| | onde | o que carrega |
+|---|---|---|
+| `Customer.latitude/longitude` | `Decimal?` sem precisão declarada | legado, mantido como **projeção de leitura** |
+| `CustomerLocation` | tabela própria | `accuracy`, `source`, `verified` + quem/quando, `reference`, `version` próprio |
+| `CustomerLocationHistory` | tabela imutável | trilha de correção, uma linha por alteração |
+| `ServiceOrderCheckIn` | `Decimal(10,7)` + `accuracyMeters` | evidência de chegada |
+| `TimeEntry` | `Decimal(10,7)` + `accuracyMeters` | batida de ponto |
+| `CTO.latitude/longitude` | `Decimal(10,7)?` | **a caixa** |
+
+`src/lib/geo.ts` traz haversine (`R = 6.371.008,8 m`) e os dois validadores de
+coordenada e de precisão. `src/lib/map-links.ts` monta os links de navegação
+para Google Maps e Waze — **sem chave e sem SDK**.
+
+**`TechnicianLocation` NÃO existe** (§135 é `[DIFERENCIAL]`, sem código). O mapa
+web não tem posição de técnico para mostrar; o Field tem GPS do próprio aparelho,
+que é coisa diferente.
+
+**Não existe biblioteca de mapa, nenhum componente de marker, nenhum cluster,
+nenhuma consulta por *bounding box*** — em lugar nenhum do repositório. A gaveta
+do Field já anuncia *"Mapa Operacional"* com selo `EM BREVE` e `route == null`,
+que é o contrato da §256.
+
+### A fonte da verdade já está decidida, e está em código
+
+`CTO.latitude/longitude` é a coordenada da caixa, e o próprio schema diz por quê:
+
+> *"Coordenada da CAIXA, não do cliente — e a da caixa é pública por natureza,
+> porque ela fica no poste. Não confundir com `CustomerLocation`, que é do
+> cliente, tem histórico próprio e regra de precedência própria."*
+
+Respondendo o inventário: a CTO **já tem** coordenada, nullable de propósito
+(*"uma CTO sem GPS continua útil, só não entra no mapa"*); **não há** entidade
+genérica de localização; **não há** `geometry` nem PostGIS; **não há** duplicação
+para a CTO; **não há** `accuracy`, `source`, confirmação nem histórico; o
+`updatedAt` é da linha inteira, e portanto **não serve** como auditoria da
+coordenada; e quem altera hoje é o `ADMIN`, por `updateCto`.
+
+**Proposta: acrescentar colunas à própria `CTO`, não criar uma `CTOLocation`.**
+O motivo é concreto e está escrito no schema: `CustomerLocation` virou tabela
+separada porque `Customer.latitude/longitude` já existia e não conseguia carregar
+`version`, `accuracy` e `verified` — e removê-las seria migration destrutiva. A
+`CTO` não tem esse legado: as colunas dela **são** as únicas, nascidas na
+`CTO-1`. Criar tabela ao lado reproduziria a duplicação que a `CustomerLocation`
+foi obrigada a ter, em vez de evitá-la.
+
+**E sem `version` próprio.** A `CTO` não usa compare-and-set: capacidade e estado
+de porta serializam por `lockCto` com `FOR UPDATE`, e a correção de coordenada
+entraria no mesmo lock. Um segundo CAS não teria pergunta a responder — a lição
+da `DQ-3`.
+
+### Precedência com o FiberMap — já decidida, nada a propor
+
+A §334 revisou a §202 e fixou:
+
+```text
+sem FiberMap integrado
+  AlfaOS é autoridade operacional de CTO, porta e vínculo
+
+com FiberMap integrado
+  FiberMap  topologia FÍSICA — caixa, capacidade, splitter, cabo, PON, OLT
+  AlfaOS    vínculo OPERACIONAL — qual cliente, em qual porta, desde quando
+```
+
+E o ponto que a `CTO-3` não pode enfraquecer: *"a integração futura não
+sobrescreve o vínculo operacional em silêncio. Divergência entre os dois é fato
+a **exibir**, não merge automático"* — a mesma regra que a §197 fixou para
+localização.
+
+**O que a `CTO-3` precisa deixar preparado**, sem implementar nada: a coordenada
+guardar `source`, para que uma vinda do FiberMap seja distinguível de uma
+confirmada em campo; e um identificador externo, quando a integração existir.
+Nenhuma consulta do mapa pode depender do FiberMap para responder.
+
+### Segurança e tenancy do mapa
+
+O mapa é superfície de vazamento por natureza: uma coordenada isolada já é
+vazamento. As proteções existentes cobrem, **desde que reutilizadas**:
+`requireCtoAccess` faz capability → perfil, nessa ordem, e `companyId` sai da
+sessão.
+
+O risco novo é o *bounding box*: ele é uma consulta varrível. Com o filtro de
+tenant em SQL, varrer o planeta devolve apenas as caixas da própria empresa — o
+que é aceitável. **Sem** ele, o mapa vira o caminho mais curto para a rede do
+concorrente. Por isso o filtro é do servidor, nunca do cliente (§200).
+
+### Permissões — dentro do que o `C-07` já decidiu
+
+O `C-07` diz que leitura é aberta *"por fase que precise dela"*. A `CTO-3` é a
+fase que precisa da leitura do `DISPATCHER`, porque o mapa é do despacho.
+`requireCtoAccess` já aceita a lista de perfis por parâmetro — **nenhum papel
+novo**, nenhuma capability nova.
+
+```text
+ADMIN        mapa · detalhe · editar coordenada
+DISPATCHER   mapa · detalhe                      ← aberto pela CTO-3
+TECHNICIAN   proximidade pelo Field, dentro da OS · confirmar coordenada em campo
+```
+
+`CONNECT`, `MOVE` e `DISCONNECT` **não mudam de dono**: continuam como a `CTO-2`
+os entregou.
+
+### O técnico em campo — é ORDENAÇÃO, não mapa
+
+A §339 já decidiu: *"A proximidade GPS **ordena a lista**; ela não escolhe — duas
+caixas a 30 m uma da outra são indistinguíveis por GPS de celular, e quem
+confirma a caixa física é quem está diante dela."*
+
+Consequência prática: a primeira entrega da `CTO-3` no Field **não é um mapa**, é
+uma ordem de lista. O que falta é pequeno e é de contrato: o DTO do Field
+**omite as coordenadas da CTO** hoje, deliberadamente (`CTO-2.4`). Sem elas não
+há distância a calcular.
+
+Sem GPS, a lista cai para a ordem alfabética que já existe — e a tela precisa
+dizer que caiu, pela mesma razão do `LocalOrderNote` da `DQ-6`: uma ordem
+calculada não pode ter a mesma cara de uma ordem informada.
+
+### Desempenho
+
+`listCompanyCtos` não tem teto, cursor nem *bounding box*: devolve todas as
+caixas da empresa. Serve à tela de gestão que ela alimenta e **não serve ao
+mapa** (§200). A leitura do mapa precisa nascer com *bbox*, teto informado e
+agregação por caixa numa consulta só — a lição de `N+1` que a `CTO-2.4` já
+pagou com `findFieldCandidateCtos`.
+
+### Status visual — derivado, e a precedência precisa de decisão
+
+Nada de `cto.mapStatus`. Os quatro estados úteis saem do que já existe:
+
+```text
+INATIVA          active = false
+SEM VAGA         nenhuma porta ofertável
+COM DANIFICADA   alguma porta DAMAGED dentro da capacidade
+COM VAGA         o resto
+```
+
+A precedência quando duas coexistem **não está no PRD**. Proposta:
+`INATIVA > SEM VAGA > COM DANIFICADA > COM VAGA` — quem despacha pergunta
+primeiro *"posso usar?"*, e só depois *"tem defeito?"*. Fica como decisão a
+confirmar, não codificada.
+
+### Plano proposto
+
+| slice | objetivo | migration | risco |
+|---|---|---|---|
+| `CTO-3.1` | leitura agregada com *bbox*, busca e teto informado — **sem mapa** | não | baixo |
+| `CTO-3.2` | o mapa web sobre essa leitura | não | **depende da escolha de biblioteca** |
+| `CTO-3.3` | proximidade no Field: coordenada no DTO e ordenação | não | baixo |
+| `CTO-3.4` | confirmação e correção de coordenada em campo | **sim** | médio |
+
+`CTO-3.1` primeiro de propósito: o contrato de dados do mapa fica testável antes
+de existir um pixel, e é nele que moram tenancy, `N+1` e o teto.
+
+**`CTO-3.2` está bloqueada por uma decisão sua.** Não há biblioteca de mapa no
+projeto, e escolher uma é decisão de arquitetura. Recomendação: **Leaflet com
+tiles do OpenStreetMap** — sem chave, sem faturamento, licença permissiva, e o
+projeto já usa deep link para Google Maps e Waze na **navegação**, que é outro
+trabalho. Caveat honesto: a política de uso dos tiles públicos do OSM não
+sustenta volume de produção; em escala, é tile próprio ou provedor pago.
+
+As demais camadas da §136 — técnicos, clientes, OS — **não são `CTO-3`**. Elas
+pertencem ao Mapa Operacional, e entram quando ele for a fase.
+
+### O que a fase encontrou de lacuna
+
+`src/lib/geo.ts` — haversine e os dois validadores — **não tinha teste direto**,
+só cobertura indireta por `customer-locations`. É a primitiva sobre a qual a
+ordenação por proximidade vai se apoiar. Fechada com caracterização, sem tocar
+produção.
+
+> **`CTO-3` — `DISCOVERY / PLANNED`.** Nada em código. `CTO-2` continua `DONE`.

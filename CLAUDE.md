@@ -811,7 +811,21 @@ Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §31.
 
 **A UI Web não tem tela de histórico de vínculo.** `getCustomerNetworkView` devolve `current` **e** `history`, e a tela consome só `current`, dentro do diálogo, para trocar a ação para *Mover*. É decisão registrada, não defeito — o histórico vive no backend e é provado por `CN-12`, `CN-14` e `LIFE-01`.
 
-Seis sabotagens (`T1`–`T6b`), seis detectadas, todas restauradas. Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §32. **`CTO-3` (mapa), `CTO-6` (frescor do diagnóstico) e `CTO-7` (QR) seguem sob a §119.**
+Seis sabotagens (`T1`–`T6b`), seis detectadas, todas restauradas. Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §32. **`CTO-6` (frescor do diagnóstico) e `CTO-7` (QR) seguem sob a §119.**
+
+**`CTO-3.0` — discovery do mapa. `DISCOVERY / PLANNED`, nada em código.** Zero produção: nasceu um teste de caracterização e nada mais. Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §33.
+
+**Há uma DIVERGÊNCIA aberta, e ela é decisão do dono.** O PRD §339 diz que *"a CTO é entidade do Mapa Operacional (§136), que não existe; **CTO-3 depende dele**"* — e a §136 é o mapa do **despacho** (técnicos, clientes, OS), não um mapa de CTOs. A §207 quer o mapa *"ao lado do quadro e da agenda, sobre o mesmo motor"*. Um mapa só de CTOs criaria a segunda superfície que a §207 existe para evitar. **Recomendação:** motor agnóstico de camada, com a camada de CTO primeiro — o trabalho é o mesmo, muda a ordem de entrega.
+
+Quatro fatos do inventário que não se redescobrem: **não existe biblioteca de mapa, componente de marker, cluster nem consulta por bounding box** em lugar nenhum do repositório; **`TechnicianLocation` não existe** (§135 é `[DIFERENCIAL]` sem código), então o mapa web não tem posição de técnico a mostrar; a §339 já decidiu que no Field **a proximidade ORDENA a lista e não escolhe**, de modo que a primeira entrega lá é ordenação e não mapa; e **`listCompanyCtos` não tem teto nem cursor** — serve à tela de gestão e não serve ao mapa (§200).
+
+**A fonte da verdade da coordenada da caixa já está decidida em código**: `CTO.latitude/longitude`, e o schema diz por quê — *"coordenada da CAIXA, não do cliente; a da caixa é pública por natureza, porque ela fica no poste"*. Falta `accuracy`, `source`, confirmação e histórico. **Proposta: colunas na própria `CTO`, não uma `CTOLocation`** — `CustomerLocation` virou tabela separada porque `Customer.latitude/longitude` já existia e não podia ser removida; a `CTO` não tem esse legado, e criar tabela ao lado reproduziria a duplicação em vez de evitá-la. **Sem `version` próprio:** a CTO serializa por `lockCto`, e um segundo CAS não teria pergunta a responder.
+
+**A precedência com o FiberMap NÃO precisa ser proposta — a §334 já a fixou**, e o ponto que a `CTO-3` não pode enfraquecer é que divergência entre os dois é fato a **exibir**, nunca merge automático.
+
+Lacuna encontrada e fechada sem tocar produção: **`src/lib/geo.ts` não tinha teste direto** — haversine e os dois validadores, que são a primitiva da ordenação por proximidade.
+
+**`CTO-3.2` está bloqueada por decisão de arquitetura:** não há biblioteca de mapa no projeto. Recomendação registrada: **Leaflet + tiles do OpenStreetMap** (sem chave, sem faturamento), com o caveat honesto de que a política dos tiles públicos não sustenta volume de produção.
 
 ## Princípios
 
