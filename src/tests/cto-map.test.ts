@@ -365,6 +365,42 @@ describe("CTO-3.1 · teto", () => {
     expect(view.truncated).toBe(false);
   });
 
+it("MAP-09d o teto do DOMÍNIO vale sozinho, sem a rota na frente", async () => {
+    /*
+      A sabotagem `S4` — remover o teto do domínio — passou por 40 testes, e a
+      culpa era deles: o `MAP-09b` pede pela ROTA, que já limita antes de
+      chamar o domínio. O guarda de dentro nunca era exercido.
+
+      Ele importa por si: quem chamar `getCtoMapView` direto — outra camada do
+      motor de mapa, um job, um teste — não passa pela rota, e o teto é a única
+      coisa entre um mapa e a carteira inteira.
+    */
+    await novaCto("CX-TETO-DOMINIO", { capacity: 1 });
+    const espia = vi.spyOn(prisma.cTO, "findMany");
+
+    const view = await getCtoMapView(fixture.companyA.id, {
+      bbox: RECORTE,
+      limit: 100_000,
+    });
+
+    expect(view.limit).toBe(CTO_MAP_MAX_MARKERS);
+    // E o teto viaja para o banco: não adianta limitar só o que se devolve.
+    expect(espia.mock.calls[0]?.[0]?.take).toBe(CTO_MAP_MAX_MARKERS + 1);
+    espia.mockRestore();
+  });
+
+  it("MAP-09e limite zero ou negativo não vira consulta ilimitada", async () => {
+    await novaCto("CX-TETO-ZERO", { capacity: 1 });
+    for (const pedido of [0, -1, -100]) {
+      const view = await getCtoMapView(fixture.companyA.id, {
+        bbox: RECORTE,
+        limit: pedido,
+      });
+      expect(view.limit).toBeGreaterThanOrEqual(1);
+      expect(view.limit).toBeLessThanOrEqual(CTO_MAP_MAX_MARKERS);
+    }
+  });
+
   it("MAP-09c sem corte, truncated é falso", async () => {
     await novaCto("CX-UM", { capacity: 1 });
     await novaCto("CX-DOIS", { capacity: 1 });
@@ -456,6 +492,40 @@ it("MAP-12b porta histórica DANIFICADA não conta como dano operacional", async
     expect(marker.summary.damaged).toBe(0);
     expect(marker.summary.free).toBe(4);
     expect(marker.status).toBe("AVAILABLE");
+  });
+
+it("MAP-20 o recorte e o tenant PARTICIPAM da consulta ao banco", async () => {
+    /*
+      Asserção sobre a CONSULTA, e não sobre o resultado — e é deliberado.
+
+      Filtrar o recorte em memória depois de buscar produz exatamente a mesma
+      lista, então nenhum teste de resultado consegue distinguir os dois. O que
+      muda é que o banco passa a devolver a carteira inteira antes: o oposto do
+      objetivo da §200, e um vazamento de tenant esperando uma refatoração
+      distraída.
+
+      Foi a sabotagem `S2` que mostrou a lacuna: ela passou por 39 testes.
+    */
+    await novaCto("CX-QUERY", { capacity: 2 });
+    const espia = vi.spyOn(prisma.cTO, "findMany");
+
+    await ver();
+
+    const where = espia.mock.calls[0]?.[0]?.where as
+      | Record<string, unknown>
+      | undefined;
+    expect(where?.companyId).toBe(fixture.companyA.id);
+    expect(where?.latitude).toEqual({
+      gte: RECORTE.south,
+      lte: RECORTE.north,
+    });
+    expect(where?.longitude).toEqual({ gte: RECORTE.west, lte: RECORTE.east });
+    // E o teto viaja com a consulta, não é aplicado depois.
+    const take = espia.mock.calls[0]?.[0]?.take;
+    expect(typeof take).toBe("number");
+    expect(take as number).toBeLessThanOrEqual(CTO_MAP_MAX_MARKERS + 1);
+
+    espia.mockRestore();
   });
 
   it("MAP-19 uma consulta de portas e uma de vínculos para TODAS as caixas", async () => {
