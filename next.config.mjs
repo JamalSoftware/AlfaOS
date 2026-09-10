@@ -18,30 +18,36 @@
 
 import {
   readMapTileConfig,
-  tileImageSource,
+  tileImageSources,
 } from "./src/lib/map-tiles.config.mjs";
 
 const isProduction = process.env.NODE_ENV === "production";
 
 /**
- * A origem do provedor de tiles, LIBERADA A PARTIR DA MESMA CONFIGURAÇÃO que o
- * componente do mapa usa (`CTO-3.2`).
+ * As origens dos provedores de tiles, LIBERADAS A PARTIR DA MESMA CONFIGURAÇÃO
+ * que o componente do mapa usa (`CTO-3.2`, estendida na `CTO-3.2.1`).
  *
  * Sem esta linha o mapa abre cinza: `img-src 'self' data:` bloqueia toda imagem
  * de outro host, e tile é imagem. O modo de falha é traiçoeiro — a página
  * carrega, os marcadores aparecem, os controles funcionam, e só o fundo some.
  * Nada quebra o suficiente para alguém suspeitar da política de segurança.
  *
- * Derivada, e não escrita à mão: um host repetido aqui seria o segundo lugar
- * que a próxima troca de provedor esqueceria. Ver `src/lib/map-tiles.config.mjs`.
+ * São TRÊS origens no padrão, porque a `CTO-3.2.1` acrescentou satélite e
+ * híbrido. Elas vêm de `tileImageSources`, que percorre as camadas
+ * configuradas — acrescentar uma quarta camada um dia não exige tocar aqui, e
+ * desligar o satélite encolhe a política sozinho.
+ *
+ * **Nunca um curinga.** `img-src *` resolveria o sintoma e destruiria a
+ * política: qualquer host da internet passaria a entregar imagem para dentro da
+ * aplicação. Ver `src/lib/map-tiles.config.mjs`.
  */
-const TILE_IMAGE_SOURCE = tileImageSource(readMapTileConfig().urlTemplate);
+const TILE_IMAGE_SOURCES = tileImageSources(readMapTileConfig()).join(" ");
 
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isProduction ? "" : " 'unsafe-eval'"}`,
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: ${TILE_IMAGE_SOURCE}`,
+  `img-src 'self' data: ${TILE_IMAGE_SOURCES}`,
   "font-src 'self' data:",
   "connect-src 'self'",
   "object-src 'none'",

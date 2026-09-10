@@ -1,8 +1,9 @@
 import {
   readMapTileConfig,
-  tileImageSource,
+  tileImageSources,
 } from "./map-tiles.config.mjs";
 import type { BoundingBox } from "./cto-map";
+import type { MapMode } from "./map-view-params";
 import { prisma } from "./prisma";
 
 /**
@@ -22,24 +23,60 @@ import { prisma } from "./prisma";
  * consegue afirmar que nenhum componente contém URL de tile.
  */
 
-export interface MapTileConfig {
+/** Uma camada de tiles: o que o `TileLayer` do Leaflet precisa saber. */
+export interface MapTileLayer {
   urlTemplate: string;
   attribution: string;
   maxZoom: number;
 }
 
 /**
- * O provedor de tiles em vigor.
+ * Os provedores em vigor, por modo.
  *
- * Chama `tileImageSource` de propósito, sem usar o resultado: é o mesmo cálculo
- * que a CSP faz em `next.config.mjs`, e uma URL que a política não conseguiria
- * liberar deve falhar **aqui**, ao montar a página, e não como um mapa cinza
- * sem explicação no navegador de quem despacha.
+ * `satellite` e `hybrid` são **anuláveis**, e é isso que sustenta a regra da
+ * fase: a ausência de imagem aérea não derruba o mapa, ela remove um botão.
+ * `normal` nunca é nulo — sem base cartográfica não há mapa nenhum.
+ *
+ * O híbrido é o satélite **mais** uma camada de rótulos, e não um terceiro
+ * provedor: é uma composição de duas camadas sobre o mesmo mapa, e por isso
+ * carrega a referência à base em vez de repeti-la.
  */
-export function getMapTileConfig(env: Record<string, string | undefined> = process.env): MapTileConfig {
+export interface MapTilesConfig {
+  normal: MapTileLayer;
+  satellite: MapTileLayer | null;
+  hybrid: { base: MapTileLayer; labels: MapTileLayer } | null;
+}
+
+/**
+ * Os provedores de tiles em vigor.
+ *
+ * Chama `tileImageSources` de propósito, sem usar o resultado: é o mesmo
+ * cálculo que a CSP faz em `next.config.mjs`, e uma URL que a política não
+ * conseguiria liberar deve falhar **aqui**, ao montar a página, e não como um
+ * mapa cinza sem explicação no navegador de quem despacha.
+ */
+export function getMapTileConfig(
+  env: Record<string, string | undefined> = process.env,
+): MapTilesConfig {
   const config = readMapTileConfig(env);
-  tileImageSource(config.urlTemplate);
-  return config;
+  // Antes do cast: `tileImageSources` valida cada URL, e é o mesmo cálculo que
+  // a CSP faz. Uma URL impossível de liberar falha aqui, ao montar a página.
+  tileImageSources(config);
+  return config as MapTilesConfig;
+}
+
+/**
+ * Os modos que a configuração atual consegue desenhar.
+ *
+ * A tela usa isto para montar o controle: um botão de satélite que responde com
+ * o mapa cinza é pior que a ausência do botão — a mesma razão pela qual o
+ * `DISPATCHER` não recebe "Abrir CTO" na `CTO-3.2`.
+ */
+export function availableMapModes(config: MapTilesConfig): MapMode[] {
+  const modos: MapMode[] = ["NORMAL"];
+  if (config.satellite) modos.push("SATELLITE");
+  if (config.hybrid) modos.push("HYBRID");
+  return modos;
 }
 
 // ---------------------------------------------------------------------------
