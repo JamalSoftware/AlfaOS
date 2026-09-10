@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   BoundingBox,
   CtoMapSearchHit,
@@ -18,18 +18,25 @@ import {
   createLatestRequestGuard,
   usefulSearchLength,
 } from "@/lib/cto-map-presentation";
-import type { MapInitialView, MapTileConfig } from "@/lib/map-config";
+import type { MapInitialView, MapTilesConfig } from "@/lib/map-config";
+import {
+  DEFAULT_MAP_MODE,
+  MAP_MODE_STORAGE_KEY,
+  buildMapViewQuery,
+  parseMapMode,
+  type MapMode,
+  type MapViewState,
+} from "@/lib/map-view-params";
 import { OperationalMap } from "./OperationalMap";
-import type { MapCanvasHandle } from "./MapCanvas";
+import type { MapCamera, MapCanvasHandle } from "./MapCanvas";
 
 /**
  * # A camada de CTO do Mapa Operacional
  *
  * O que é **de CTO** vive aqui: o DTO, a leitura de `/api/ctos/map`, a busca,
  * os marcadores, o popup, a seleção e os avisos de truncamento e de caixa sem
- * localização. O que é **do mapa** — Leaflet, tiles, viewport, moldura,
- * carregamento e erro — está em `OperationalMap` e `MapCanvas`, e esta camada
- * não sabe como nada disso funciona.
+ * localização. O que é **do mapa** — Leaflet, tiles, viewport, moldura, modo,
+ * carregamento e erro — está em `OperationalMap` e `MapCanvas`.
  *
  * ## Nada é recalculado aqui
  *
@@ -37,8 +44,14 @@ import type { MapCanvasHandle } from "./MapCanvas";
  * servidor (`CTO-3.1`) e são exibidos como vieram. A tela **não** deriva estado
  * a partir do `summary`, e não conhece a precedência `INACTIVE > DAMAGED > FULL
  * > AVAILABLE`: ela conhece a tradução de cada valor para forma, glifo e
- * rótulo. Duas precedências divergiriam, e a que ninguém revisaria seria a
- * daqui.
+ * rótulo.
+ *
+ * ## A vista vive na URL (`CTO-3.2.1`)
+ *
+ * Centro, zoom, modo, busca e seleção são espelhados na barra de endereço a
+ * cada mudança. É isso que faz o operador voltar de uma CTO para o **bairro
+ * onde estava**, e não para o Brasil inteiro — o defeito que o dono encontrou
+ * na validação da `CTO-3.2`.
  */
 
 /**
@@ -52,27 +65,128 @@ import type { MapCanvasHandle } from "./MapCanvas";
 const CtoMarkers = dynamic(() => import("./CtoMarkers"), { ssr: false });
 
 interface CtoMapLayerProps {
-  tiles: MapTileConfig;
+  tiles: MapTilesConfig;
+  /** Os modos que a configuração consegue desenhar. */
+  modes: MapMode[];
   initialView: MapInitialView;
+  /** A vista que veio da URL, já validada pelo servidor. */
+  initialState: Partial<MapViewState>;
   /** `ADMIN` abre `/ctos/[id]`; `DISPATCHER` lê o mapa e não o detalhe. */
   canOpenDetail: boolean;
 }
 
+/** Um modo pedido que a configuração não desenha cai no padrão. */
+function modoUtilizavel(pedido: MapMode | undefined, modes: MapMode[]): MapMode {
+  if (pedido && modes.includes(pedido)) return pedido;
+  return modes.includes(DEFAULT_MAP_MODE) ? DEFAULT_MAP_MODE : modes[0];
+}
+
 export function CtoMapLayer({
   tiles,
+  modes,
   initialView,
+  initialState,
   canOpenDetail,
 }: CtoMapLayerProps) {
   const [view, setView] = useState<CtoMapView | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const [mode, setMode] = useState<MapMode>(() =>
+    modoUtilizavel(initialState.mode, modes),
+  );
+  const [camera, setCamera] = useState<MapCamera | null>(null);
+  const [search, setSearch] = useState(initialState.search ?? "");
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialState.selectedId ?? null,
+  );
 
   const bboxRef = useRef<BoundingBox | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const guardRef = useRef(createLatestRequestGuard());
   const mapRef = useRef<MapCanvasHandle | null>(null);
+  const modoVeioDaUrl = useRef(initialState.mode !== undefined);
+
+  // ---------------------------------------------------------------------
+  // Preferência de base — do aparelho
+  // ---------------------------------------------------------------------
+
+  /*
+    A URL VENCE a preferência guardada, e a ordem não é arbitrária.
+
+    Um link com `mode=SATELLITE` é uma escolha explícita para AQUELA vista —
+    quem voltou de uma CTO pediu a base em que estava. A preferência do
+    aparelho é o padrão de quem chega sem pedir nada.
+
+    Lido num efeito, e não no `useState` inicial, por causa da hidratação: o
+    servidor não tem `localStorage`, então ler durante o render produziria um
+    HTML diferente do da primeira pintura do cliente. O preço é uma troca de
+    camada logo após a montagem, e num mapa — cujos tiles chegam de forma
+    assíncrona de qualquer jeito — isso não é visível.
+  */
+  useEffect(() => {
+    if (modoVeioDaUrl.current) return;
+    try {
+      const guardado = parseMapMode(
+        window.localStorage.getItem(MAP_MODE_STORAGE_KEY),
+      );
+      if (guardado && modes.includes(guardado)) setMode(guardado);
+    } catch {
+      // Janela anônima ou armazenamento bloqueado. O mapa não depende disso.
+    }
+  }, [modes]);
+
+  const trocarModo = useCallback((novo: MapMode) => {
+    setMode(novo);
+    try {
+      window.localStorage.setItem(MAP_MODE_STORAGE_KEY, novo);
+    } catch {
+      // Idem: preferência é conveniência, nunca requisito.
+    }
+  }, []);
+
+  // ---------------------------------------------------------------------
+  // A vista, espelhada na URL
+  // ---------------------------------------------------------------------
+
+  const viewQuery = useMemo(
+    () =>
+      buildMapViewQuery({
+        latitude: camera?.latitude,
+        longitude: camera?.longitude,
+        zoom: camera?.zoom,
+        mode,
+        search,
+        selectedId,
+      }),
+    [camera, mode, search, selectedId],
+  );
+
+  /*
+    `history.replaceState`, e NÃO `router.replace`.
+
+    O `router` do Next trataria cada arrasto como navegação: re-renderiza o
+    componente de servidor, refaz a consulta de enquadramento inicial e pode
+    remontar o mapa. `replaceState` troca só a barra de endereço, que é
+    exatamente o que se quer — a URL passa a descrever a vista atual, e nada
+    mais acontece.
+
+    `replace` e não `push`: cada pan viraria uma entrada no histórico, e o botão
+    voltar do navegador levaria trinta cliques para sair do mapa.
+  */
+  useEffect(() => {
+    if (!viewQuery) return;
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}?${viewQuery}`,
+    );
+  }, [viewQuery]);
+
+  // ---------------------------------------------------------------------
+  // Leitura do recorte
+  // ---------------------------------------------------------------------
 
   const carregar = useCallback(async (bbox: BoundingBox) => {
     // Cancela a leitura anterior: ninguém precisa do bairro que já saiu da tela.
@@ -98,8 +212,8 @@ export function CtoMapLayer({
         O modo de falha é o do bairro lento: a leitura de A demora mais que a de
         B, chega depois, e o mapa fica no lugar certo com os marcadores do outro
         lugar, sem erro nenhum na tela. No navegador quem impede isso é o
-        `abort()` acima; a sabotagem `S2` provou que removendo esta linha o spec
-        do mapa continua verde.
+        `abort()` acima; a sabotagem `S2` da `CTO-3.2` provou que removendo esta
+        linha o spec do mapa continua verde.
 
         Ela fica porque cobre o que o aborto não cobre: um chamador que esqueça
         o `signal`, uma troca de transporte, ou qualquer refatoração que afaste
@@ -133,8 +247,9 @@ export function CtoMapLayer({
   }, []);
 
   const handleViewport = useCallback(
-    (bbox: BoundingBox) => {
+    (bbox: BoundingBox, cameraAtual: MapCamera) => {
       bboxRef.current = bbox;
+      setCamera(cameraAtual);
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
         void carregar(bbox);
@@ -167,10 +282,18 @@ export function CtoMapLayer({
 
   return (
     <div className="space-y-4">
-      <CtoMapSearch onSelect={focarEm} canOpenDetail={canOpenDetail} />
+      <CtoMapSearch
+        value={search}
+        onValueChange={setSearch}
+        onSelect={focarEm}
+        canOpenDetail={canOpenDetail}
+      />
 
       <OperationalMap
         tiles={tiles}
+        modes={modes}
+        mode={mode}
+        onModeChange={trocarModo}
         initialView={initialView}
         onViewportChange={handleViewport}
         onReady={(handle) => {
@@ -196,6 +319,7 @@ export function CtoMapLayer({
           markers={markers}
           selectedId={selectedId}
           onSelect={setSelectedId}
+          viewQuery={viewQuery}
           canOpenDetail={canOpenDetail}
         />
       </OperationalMap>
@@ -269,17 +393,24 @@ export function CtoMapLayer({
  * resposta que um campo de busca pode dar.
  *
  * O fluxo é achar → **recentralizar** → o recorte carregar. Nada aqui desenha
- * marcador: quem desenha continua sendo a leitura do recorte, com a mesma
- * autoridade de sempre.
+ * marcador: quem desenha continua sendo a leitura do recorte.
+ *
+ * **O termo é CONTROLADO pelo pai** desde a `CTO-3.2.1`, porque ele agora
+ * atravessa a navegação: quem volta de uma CTO precisa reencontrar o que
+ * digitou. Estado local aqui morreria exatamente no momento em que precisaria
+ * sobreviver.
  */
 function CtoMapSearch({
+  value,
+  onValueChange,
   onSelect,
   canOpenDetail,
 }: {
+  value: string;
+  onValueChange: (termo: string) => void;
   onSelect: (hit: CtoMapSearchHit) => void;
   canOpenDetail: boolean;
 }) {
-  const [termo, setTermo] = useState("");
   const [resultado, setResultado] = useState<CtoMapSearchResult | null>(null);
   const [buscando, setBuscando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -297,7 +428,7 @@ function CtoMapSearch({
       valendo: quem chamar a rota direto com um termo curto recebe lista vazia
       pela decisão dele, não pela desta tela.
     */
-    const limpo = termo.trim();
+    const limpo = value.trim();
     if (usefulSearchLength(limpo) < CTO_MAP_SEARCH_MIN_QUERY) {
       if (timerRef.current) clearTimeout(timerRef.current);
       abortRef.current?.abort();
@@ -344,10 +475,10 @@ function CtoMapSearch({
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [termo]);
+  }, [value]);
 
   const hits = resultado?.hits ?? [];
-  const digitando = usefulSearchLength(termo.trim()) < CTO_MAP_SEARCH_MIN_QUERY;
+  const digitando = usefulSearchLength(value.trim()) < CTO_MAP_SEARCH_MIN_QUERY;
 
   return (
     <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
@@ -360,8 +491,8 @@ function CtoMapSearch({
       <input
         id="cto-map-search"
         type="search"
-        value={termo}
-        onChange={(e) => setTermo(e.target.value)}
+        value={value}
+        onChange={(e) => onValueChange(e.target.value)}
         maxLength={CTO_MAP_SEARCH_MAX_QUERY}
         placeholder="ex.: A16 ou o código da caixa"
         autoComplete="off"
@@ -473,6 +604,10 @@ function CtoMapSearch({
  * na primeira vez que se olha. A legenda é o texto que fecha isso — e é ela que
  * garante que o estado esteja escrito na página mesmo com todos os popups
  * fechados.
+ *
+ * Ela mostra o **selo**, e não a caixa inteira: a silhueta é a mesma nos quatro
+ * estados, então redesenhá-la quatro vezes não explicaria nada. O que muda — e
+ * portanto o que precisa de legenda — é o selo.
  */
 function MapLegend() {
   return (

@@ -3,16 +3,17 @@
 import dynamic from "next/dynamic";
 import { type ReactNode } from "react";
 import type { BoundingBox } from "@/lib/cto-map";
-import type { MapInitialView, MapTileConfig } from "@/lib/map-config";
-import type { MapCanvasHandle } from "./MapCanvas";
+import type { MapInitialView, MapTilesConfig } from "@/lib/map-config";
+import type { MapMode } from "@/lib/map-view-params";
+import type { MapCamera, MapCanvasHandle } from "./MapCanvas";
 
 /**
  * # O Mapa Operacional — o invólucro genérico
  *
  * ```text
- * OperationalMap   moldura, SSR, tiles, carregamento, erro   ← genérico
- *   MapCanvas      Leaflet, viewport, zoom/pan               ← genérico
- *     children     marcadores da camada                      ← específico
+ * OperationalMap   moldura, SSR, tiles, modo, carregamento, erro   ← genérico
+ *   MapCanvas      Leaflet, viewport, zoom/pan, camadas de base    ← genérico
+ *     children     marcadores da camada                            ← específico
  * ```
  *
  * Nada aqui sabe o que é uma CTO. Quando a camada de técnico, de cliente ou de
@@ -23,6 +24,10 @@ import type { MapCanvasHandle } from "./MapCanvas";
  * de camadas, seletor, nem interface `MapLayer`: hoje há uma, e inventar o
  * mecanismo de composição antes da segunda produziria uma forma escolhida sem
  * nenhum caso real para validá-la.
+ *
+ * O controle de base (`NORMAL`/`SATELLITE`/`HYBRID`) mora aqui, e não na camada
+ * de CTO, porque ele é sobre o **fundo do mapa** — vale igual para qualquer
+ * camada que venha depois.
  *
  * ## `ssr: false` não é preferência
  *
@@ -48,10 +53,74 @@ function MapSkeleton() {
   );
 }
 
+const ROTULO_DO_MODO: Record<MapMode, string> = {
+  NORMAL: "Mapa",
+  SATELLITE: "Satélite",
+  HYBRID: "Híbrido",
+};
+
+/**
+ * O seletor de base.
+ *
+ * **Só aparecem os modos que a configuração consegue desenhar.** Um botão de
+ * satélite sem provedor responderia com o mapa cinza — e o operador não teria
+ * como saber que a culpa é do ambiente. É a mesma escolha do botão "Abrir CTO"
+ * ausente para o `DISPATCHER` na `CTO-3.2`: melhor não oferecer do que oferecer
+ * algo que não funciona.
+ *
+ * Com um modo só, o controle inteiro some: um seletor de uma opção é ruído.
+ */
+function MapModeControl({
+  modes,
+  mode,
+  onChange,
+}: {
+  modes: MapMode[];
+  mode: MapMode;
+  onChange: (modo: MapMode) => void;
+}) {
+  if (modes.length < 2) return null;
+
+  return (
+    <div
+      className="pointer-events-auto absolute right-3 top-3 z-[600] flex overflow-hidden rounded-lg border border-border bg-surface shadow-sm"
+      role="group"
+      aria-label="Tipo de mapa"
+      data-testid="map-mode-control"
+    >
+      {modes.map((valor) => {
+        const ativo = valor === mode;
+        return (
+          <button
+            key={valor}
+            type="button"
+            onClick={() => onChange(valor)}
+            // `aria-pressed` e não só uma classe de cor: quem usa leitor de
+            // tela precisa saber qual base está ativa, e a cor não é lida.
+            aria-pressed={ativo}
+            data-testid={`map-mode-${valor.toLowerCase()}`}
+            className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+              ativo
+                ? "bg-primary text-primary-fg"
+                : "text-fg-secondary hover:bg-surface-muted"
+            }`}
+          >
+            {ROTULO_DO_MODO[valor]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export interface OperationalMapProps {
-  tiles: MapTileConfig;
+  tiles: MapTilesConfig;
+  /** Os modos que a configuração consegue desenhar. */
+  modes: MapMode[];
+  mode: MapMode;
+  onModeChange: (modo: MapMode) => void;
   initialView: MapInitialView;
-  onViewportChange: (bbox: BoundingBox) => void;
+  onViewportChange: (bbox: BoundingBox, camera: MapCamera) => void;
   onReady?: (handle: MapCanvasHandle) => void;
   /** Uma leitura está em voo. Vira um aviso discreto, nunca um mapa em branco. */
   loading?: boolean;
@@ -65,6 +134,9 @@ export interface OperationalMapProps {
 
 export function OperationalMap({
   tiles,
+  modes,
+  mode,
+  onModeChange,
   initialView,
   onViewportChange,
   onReady,
@@ -90,12 +162,15 @@ export function OperationalMap({
     >
       <MapCanvas
         tiles={tiles}
+        mode={mode}
         initialView={initialView}
         onViewportChange={onViewportChange}
         onReady={onReady}
       >
         {children}
       </MapCanvas>
+
+      <MapModeControl modes={modes} mode={mode} onChange={onModeChange} />
 
       {overlay ? (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] flex flex-col items-center gap-2 p-3">

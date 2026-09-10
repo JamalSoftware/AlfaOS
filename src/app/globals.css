@@ -422,3 +422,95 @@
   outline: 3px solid rgb(var(--focus));
   outline-offset: 2px;
 }
+
+/*
+  ---------------------------------------------------------------------------
+  Marcador de CTO — CTO-3.2.1
+  ---------------------------------------------------------------------------
+
+  Uma caixa óptica, e não um alfinete. Num mapa que vai receber técnico,
+  cliente e OS, o alfinete genérico é justamente a informação que não serve:
+  quatro camadas de alfinete são quatro camadas indistinguíveis.
+
+  As cores saem de TOKENS. O marcador é a superfície mais fácil de esquecer
+  numa troca de tema — ele vive dentro do Leaflet, longe do resto da tela.
+*/
+.cto-box {
+  display: block;
+  /* Sobre imagem de satélite não há fundo previsível: a sombra é o que separa
+     o desenho de um telhado escuro ou de uma laje clara. */
+  filter: drop-shadow(0 1px 2px rgb(var(--overlay) / 0.55));
+}
+
+.cto-box__body {
+  fill: rgb(var(--surface));
+  stroke: rgb(var(--fg));
+  stroke-width: 2;
+}
+
+.cto-box__lid {
+  stroke: rgb(var(--fg-muted));
+  stroke-width: 1.5;
+}
+
+.cto-box__ports circle {
+  fill: rgb(var(--fg-muted));
+}
+
+/* O selo é o ESTADO. A borda na cor da superfície o descola do corpo da caixa
+   sem depender de espaço em branco, que não existe neste tamanho. */
+.cto-box__badge > * {
+  stroke: rgb(var(--surface));
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.cto-box__glyph {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.cto-box--success .cto-box__badge > * {
+  fill: rgb(var(--success-fg));
+}
+.cto-box--success .cto-box__glyph {
+  fill: rgb(var(--success-bg));
+}
+
+.cto-box--warning .cto-box__badge > * {
+  fill: rgb(var(--warning-fg));
+}
+.cto-box--warning .cto-box__glyph {
+  fill: rgb(var(--warning-bg));
+}
+
+.cto-box--danger .cto-box__badge > * {
+  fill: rgb(var(--danger-fg));
+}
+.cto-box--danger .cto-box__glyph {
+  fill: rgb(var(--danger-bg));
+}
+
+.cto-box--neutral .cto-box__badge > * {
+  fill: rgb(var(--neutral-fg));
+}
+.cto-box--neutral .cto-box__glyph {
+  fill: rgb(var(--neutral-bg));
+}
+
+/* Inativa: o corpo perde presença, porque a caixa saiu de operação. O selo
+   continua cheio — ele é a informação, e apagá-lo junto esconderia o motivo. */
+.cto-box--neutral .cto-box__body {
+  fill: rgb(var(--neutral-bg));
+  stroke: rgb(var(--neutral-fg));
+  stroke-dasharray: 3 2;
+}
+
+/* Selecionado ganha ANEL, e não outra cor: mudar a cor se confundiria com
+   mudança de estado, que é o que a cor significa em todo o resto do mapa. */
+.cto-box--selected {
+  outline: 3px solid rgb(var(--focus));
+  outline-offset: 1px;
+  border-radius: 8px;
+}

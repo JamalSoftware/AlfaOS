@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { divIcon } from "leaflet";
+import { divIcon, type DivIcon } from "leaflet";
 import { Marker, Popup } from "react-leaflet";
 import type { CtoMapMarker } from "@/lib/cto-map";
 import { ctoMapStatusPresentation } from "@/lib/cto-map-presentation";
+import { OPERATIONAL_MAP_PATH } from "@/lib/return-to";
+import { CTO_MARKER_SIZE, ctoMarkerHtml } from "./cto-marker-icon";
 
 /**
  * # Os marcadores da camada de CTO
@@ -13,45 +15,71 @@ import { ctoMapStatusPresentation } from "@/lib/cto-map-presentation";
  * de React, e um `Marker` fora da árvore do `MapContainer` não tem onde se
  * desenhar.
  *
- * ## O nome da caixa nunca entra em HTML de string
- *
- * O ícone é montado por `divIcon`, que recebe **HTML cru** e o injeta no DOM.
- * Por isso o `html` daqui é montado só a partir da tabela de apresentação —
- * quatro formas, quatro glifos, todos constantes escritas neste repositório.
- *
- * Nome e código da CTO são digitados por gente e vão **exclusivamente** para
- * dentro do `<Popup>`, que o React renderiza como texto e escapa. Uma caixa
- * chamada `<img src=x onerror=...>` aparece como esse texto, e não como uma
- * tag. Se algum dia alguém quiser o nome dentro do marcador, o caminho é um
- * `Tooltip` do react-leaflet — nunca concatenar no `html`.
+ * O desenho em si mora em `cto-marker-icon.ts`, que não conhece React nem
+ * Leaflet — é o que permite um teste afirmar sobre o SVG sem montar um mapa.
  */
 
-function iconePara(marker: CtoMapMarker, selecionado: boolean) {
-  const apresentacao = ctoMapStatusPresentation(marker.status);
-  const classes = [
-    "cto-marker",
-    `cto-marker--${apresentacao.shape}`,
-    `cto-marker--${apresentacao.tone}`,
-    selecionado ? "cto-marker--selected" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+/**
+ * Os ícones são MEMORIZADOS, e isso deixou de ser detalhe na `CTO-3.2.1`.
+ *
+ * O marcador agora é reconstruído sempre que a vista muda, porque a `href` de
+ * "Abrir CTO" carrega centro, zoom e modo — e a vista muda a cada arrasto. Sem
+ * cache, cada pan criaria duzentos `divIcon` novos e o react-leaflet chamaria
+ * `setIcon` em duzentos marcadores, trocando o DOM de todos eles.
+ *
+ * A chave é `(estado, selecionado)` porque é disso — e só disso — que o desenho
+ * depende. Nome, código e posição não entram no ícone.
+ */
+const cacheDeIcones = new Map<string, DivIcon>();
 
-  return divIcon({
+function iconePara(marker: CtoMapMarker, selecionado: boolean): DivIcon {
+  const chave = `${marker.status}:${selecionado ? "1" : "0"}`;
+  const guardado = cacheDeIcones.get(chave);
+  if (guardado) return guardado;
+
+  const icone = divIcon({
     // Vazio de propósito: o padrão do Leaflet traz fundo e borda próprios, que
-    // brigariam com a forma.
+    // brigariam com a silhueta da caixa.
     className: "",
-    html: `<span class="${classes}"><span>${apresentacao.glyph}</span></span>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-    popupAnchor: [0, -16],
+    html: ctoMarkerHtml(ctoMapStatusPresentation(marker.status), selecionado),
+    iconSize: [CTO_MARKER_SIZE, CTO_MARKER_SIZE],
+    // A âncora fica na BASE da caixa, e não no centro: um marcador que
+    // representa um objeto físico aponta para onde ele está no chão.
+    iconAnchor: [CTO_MARKER_SIZE / 2, CTO_MARKER_SIZE - 2],
+    popupAnchor: [0, -CTO_MARKER_SIZE + 6],
   });
+
+  cacheDeIcones.set(chave, icone);
+  return icone;
+}
+
+/**
+ * O destino do "Abrir CTO", carregando a vista de volta.
+ *
+ * ```text
+ * returnTo   a ORIGEM, comparada contra allowlist do outro lado
+ * lat lng z  onde o mapa estava
+ * mode       qual base estava desenhada
+ * q          o que estava digitado na busca
+ * sel        esta caixa, para o mapa devolvê-la em destaque
+ * ```
+ *
+ * `URLSearchParams` monta tudo — nada de concatenar string, que é onde a
+ * codificação de um termo de busca com `&` quebraria o resto da URL.
+ */
+function hrefDoDetalhe(id: string, viewQuery: string): string {
+  const params = new URLSearchParams(viewQuery);
+  params.set("returnTo", OPERATIONAL_MAP_PATH);
+  params.set("sel", id);
+  return `/ctos/${id}?${params.toString()}`;
 }
 
 interface CtoMarkersProps {
   markers: CtoMapMarker[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  /** A vista atual, já serializada. Viaja na `href` de "Abrir CTO". */
+  viewQuery: string;
   /**
    * O detalhe da CTO é de `ADMIN` (`/ctos/[id]` roda `requirePageProfile`).
    *
@@ -67,6 +95,7 @@ export default function CtoMarkers({
   markers,
   selectedId,
   onSelect,
+  viewQuery,
   canOpenDetail,
 }: CtoMarkersProps) {
   return (
@@ -160,7 +189,7 @@ export default function CtoMarkers({
 
                 {canOpenDetail ? (
                   <Link
-                    href={`/ctos/${marker.id}`}
+                    href={hrefDoDetalhe(marker.id, viewQuery)}
                     className="mt-3 inline-flex w-full items-center justify-center rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-fg transition-colors hover:bg-primary-hover"
                     data-testid="cto-map-popup-open"
                   >

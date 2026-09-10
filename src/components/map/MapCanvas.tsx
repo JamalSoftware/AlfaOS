@@ -6,7 +6,8 @@ import { MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import type { BoundingBox } from "@/lib/cto-map";
 import { boundingBoxFromLatLngBounds } from "@/lib/cto-map-presentation";
-import type { MapInitialView, MapTileConfig } from "@/lib/map-config";
+import type { MapInitialView, MapTilesConfig } from "@/lib/map-config";
+import type { MapMode } from "@/lib/map-view-params";
 
 /**
  * # O canvas do Mapa Operacional — infraestrutura, sem domínio
@@ -41,11 +42,19 @@ export interface MapCanvasHandle {
   focusOn: (latitude: number, longitude: number, zoom?: number) => void;
 }
 
+/** Onde a câmera está: o que a URL precisa para reconstruir a vista. */
+export interface MapCamera {
+  latitude: number;
+  longitude: number;
+  zoom: number;
+}
+
 export interface MapCanvasProps {
-  tiles: MapTileConfig;
+  tiles: MapTilesConfig;
+  mode: MapMode;
   initialView: MapInitialView;
-  /** Chamado ao montar e a cada `moveend`/`zoomend`, com o recorte já válido. */
-  onViewportChange: (bbox: BoundingBox) => void;
+  /** Chamado ao montar e a cada `moveend`/`zoomend`, com recorte e câmera. */
+  onViewportChange: (bbox: BoundingBox, camera: MapCamera) => void;
   /** Preenchido no mount; a camada usa para recentralizar. */
   onReady?: (handle: MapCanvasHandle) => void;
   children?: ReactNode;
@@ -63,11 +72,12 @@ const INITIAL_FIT_MAX_ZOOM = 16;
 function ViewportReporter({
   onViewportChange,
 }: {
-  onViewportChange: (bbox: BoundingBox) => void;
+  onViewportChange: (bbox: BoundingBox, camera: MapCamera) => void;
 }) {
   const emitir = useCallback(
     (map: LeafletMap) => {
       const limites = map.getBounds();
+      const centro = map.getCenter();
       onViewportChange(
         boundingBoxFromLatLngBounds({
           north: limites.getNorth(),
@@ -75,6 +85,11 @@ function ViewportReporter({
           east: limites.getEast(),
           west: limites.getWest(),
         }),
+        {
+          latitude: centro.lat,
+          longitude: centro.lng,
+          zoom: map.getZoom(),
+        },
       );
     },
     [onViewportChange],
@@ -138,8 +153,87 @@ function SizeWatcher() {
   return null;
 }
 
+/**
+ * As camadas de base do modo atual.
+ *
+ * ## UM mapa, várias bases — nunca três instâncias
+ *
+ * Trocar de modo troca o `TileLayer`, e não o `MapContainer`. Remontar o mapa
+ * jogaria fora centro, zoom e estado de interação a cada clique no controle, e
+ * o operador voltaria ao enquadramento inicial só por ter querido ver o
+ * telhado. É o oposto do que a fase inteira existe para consertar.
+ *
+ * ## O híbrido são DUAS camadas, e a ordem importa
+ *
+ * A imagem embaixo, os rótulos por cima, com `zIndex` explícito. Sem ele a
+ * ordem de desenho depende da ordem de inserção no painel — que sobrevive hoje
+ * e quebra na primeira vez que alguém reordenar o JSX.
+ *
+ * O `key` por modo força remontagem da camada em vez de reaproveitar a
+ * anterior trocando a URL: reaproveitar deixa os tiles antigos na tela até os
+ * novos chegarem, e satélite aparecendo sob rótulos de mapa normal é pior que
+ * um instante de cinza.
+ */
+function BaseLayers({
+  tiles,
+  mode,
+}: {
+  tiles: MapTilesConfig;
+  mode: MapMode;
+}) {
+  if (mode === "SATELLITE" && tiles.satellite) {
+    return (
+      <TileLayer
+        key="satellite"
+        url={tiles.satellite.urlTemplate}
+        attribution={tiles.satellite.attribution}
+        maxZoom={tiles.satellite.maxZoom}
+      />
+    );
+  }
+
+  if (mode === "HYBRID" && tiles.hybrid) {
+    return (
+      <>
+        <TileLayer
+          key="hybrid-base"
+          url={tiles.hybrid.base.urlTemplate}
+          attribution={tiles.hybrid.base.attribution}
+          maxZoom={tiles.hybrid.base.maxZoom}
+          zIndex={1}
+        />
+        <TileLayer
+          key="hybrid-labels"
+          url={tiles.hybrid.labels.urlTemplate}
+          attribution={tiles.hybrid.labels.attribution}
+          maxZoom={tiles.hybrid.labels.maxZoom}
+          zIndex={2}
+        />
+      </>
+    );
+  }
+
+  /*
+    Fallback para NORMAL, e ele é a razão de este `return` não ter condição.
+
+    Um modo pedido sem provedor configurado — satélite desligado, URL vindo de
+    um link antigo — cai aqui em vez de renderizar nada. Um mapa sem camada de
+    base é um retângulo cinza com marcadores flutuando, e o operador não teria
+    como saber que a culpa é da configuração.
+  */
+  return (
+    <TileLayer
+      key="normal"
+      url={tiles.normal.urlTemplate}
+      attribution={tiles.normal.attribution}
+      maxZoom={tiles.normal.maxZoom}
+    />
+  );
+}
+
 export default function MapCanvas({
   tiles,
+  mode,
   initialView,
   onViewportChange,
   onReady,
@@ -165,10 +259,24 @@ export default function MapCanvas({
           zoom: initialView.point.zoom,
         };
 
+  /*
+    O teto de zoom do MAPA é o do provedor mais generoso.
+
+    Preso ao do modo atual, trocar de satélite (19) para uma base com 17
+    deixaria o mapa num zoom que ela não serve — e o Leaflet mostraria cinza em
+    vez de esticar o último tile válido. O `TileLayer` de cada modo continua
+    declarando o seu, que é quem decide de onde vem a imagem.
+  */
+  const zoomMaximo = Math.max(
+    tiles.normal.maxZoom,
+    tiles.satellite?.maxZoom ?? 0,
+    tiles.hybrid?.labels.maxZoom ?? 0,
+  );
+
   return (
     <MapContainer
       {...enquadramento}
-      maxZoom={tiles.maxZoom}
+      maxZoom={zoomMaximo}
       scrollWheelZoom
       className="h-full w-full"
       // O mapa é operado com o mouse e com o teclado: `Tab` até ele, setas para
@@ -178,11 +286,7 @@ export default function MapCanvas({
       keyboard
       data-testid="map-canvas"
     >
-      <TileLayer
-        url={tiles.urlTemplate}
-        attribution={tiles.attribution}
-        maxZoom={tiles.maxZoom}
-      />
+      <BaseLayers tiles={tiles} mode={mode} />
       <ViewportReporter onViewportChange={onViewportChange} />
       <CanvasHandle onReady={onReady} />
       <SizeWatcher />

@@ -3,14 +3,20 @@ import { notFound } from "next/navigation";
 import { CtoMapLayer } from "@/components/map/CtoMapLayer";
 import { isCtoNetworkEnabled } from "@/lib/cto";
 import { requirePageProfile } from "@/lib/guards";
-import { getCtoMapInitialView, getMapTileConfig } from "@/lib/map-config";
+import {
+  availableMapModes,
+  getCtoMapInitialView,
+  getMapTileConfig,
+  type MapInitialView,
+} from "@/lib/map-config";
+import { parseMapViewParams, type MapViewState } from "@/lib/map-view-params";
 
 export const metadata: Metadata = {
   title: "Mapa Operacional",
 };
 
 /**
- * # Mapa Operacional — `CTO-3.2`
+ * # Mapa Operacional — `CTO-3.2`, estendido na `CTO-3.2.1`
  *
  * A superfície se chama **Mapa Operacional**, e não "Mapa de CTOs", porque é
  * ela que vai receber as camadas de técnico, cliente e ordem de serviço
@@ -23,15 +29,20 @@ export const metadata: Metadata = {
  *
  * ```text
  * perfil e capability   nunca no cliente
- * provedor de tiles     ambiente, resolvido aqui (`map-config`)
- * vista inicial         os extremos das caixas da empresa, ou o país
+ * provedores de tiles   ambiente, resolvidos aqui (`map-config`)
+ * modos disponíveis     consequência da configuração, não do navegador
+ * vista inicial         a URL, se veio; senão os extremos das caixas; senão o país
  * canOpenDetail         `/ctos/[id]` é de ADMIN — o botão segue a página
  * ```
  *
- * Nenhum desses valores viaja como parâmetro de URL, e nenhum deles é
- * negociável pelo cliente. A tela recebe o resultado.
+ * Nenhum desses valores é negociável pelo cliente. O usuário escolhe o MODO;
+ * ele nunca escolhe a URL do provedor.
  */
-export default async function MapaOperacionalPage() {
+export default async function MapaOperacionalPage({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
   /*
     Perfil primeiro, capability depois — a ordem das PÁGINAS do módulo, e ela
     difere da das rotas de API de propósito.
@@ -47,10 +58,41 @@ export default async function MapaOperacionalPage() {
     notFound();
   }
 
-  const [tiles, initialView] = await Promise.all([
-    Promise.resolve(getMapTileConfig()),
-    getCtoMapInitialView(session.companyId),
-  ]);
+  const tiles = getMapTileConfig();
+  const modes = availableMapModes(tiles);
+
+  /*
+    A vista da URL é lida e VALIDADA no servidor, campo a campo.
+
+    Ela é entrada de usuário: qualquer link montado por terceiro chega aqui.
+    Uma latitude `1e400` ou um zoom negativo chegando ao Leaflet não produz um
+    mapa em lugar errado — produz uma exceção que derruba o componente. O que
+    passa daqui já está dentro das faixas do planeta.
+  */
+  const daUrl: Partial<MapViewState> = parseMapViewParams(searchParams);
+
+  /*
+    Precedência do enquadramento, e cada degrau responde uma pergunta diferente:
+
+      1. a URL      "volte exatamente para onde eu estava"
+      2. as caixas  "esta é a sua rede"
+      3. o país     "não sei onde você opera"
+
+    O primeiro é o que conserta o defeito que o dono encontrou: sem ele, voltar
+    de uma CTO devolvia o operador ao enquadramento inicial e ele perdia o
+    bairro, o zoom e o contexto inteiro.
+  */
+  const initialView: MapInitialView =
+    daUrl.latitude !== undefined && daUrl.longitude !== undefined
+      ? {
+          kind: "point",
+          point: {
+            latitude: daUrl.latitude,
+            longitude: daUrl.longitude,
+            zoom: daUrl.zoom ?? 15,
+          },
+        }
+      : await getCtoMapInitialView(session.companyId);
 
   return (
     <div>
@@ -64,7 +106,9 @@ export default async function MapaOperacionalPage() {
 
       <CtoMapLayer
         tiles={tiles}
+        modes={modes}
         initialView={initialView}
+        initialState={daUrl}
         /*
           O detalhe da CTO continua sendo de `ADMIN` (`/ctos/[id]` roda
           `requirePageProfile(["ADMIN"])`, e é lá que vivem CONNECT, MOVE e
