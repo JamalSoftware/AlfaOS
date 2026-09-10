@@ -176,6 +176,22 @@ const CENTRO_X = G.shell.x + G.shell.width / 2;
 const BASE_DO_CABO = 42;
 
 /**
+ * Arredonda a coordenada antes de ela virar atributo.
+ *
+ * `32.2 + 3.6 - 0.6` sai da soma como `35.199999999999996`, e o SVG aceita isso
+ * sem reclamar — o desenho fica idêntico. O que não fica idêntico é o texto: o
+ * DOM enche de ruído e qualquer comparação de saída passa a depender da ordem
+ * das somas. É a mesma classe do `wrapLongitude` da `CTO-3.2.1`, onde `-41.8`
+ * voltava do módulo como `-41.799999999999997` e poluía a URL.
+ *
+ * Duas casas: a menor unidade do desenho é 0,1 do `viewBox`, e a 38 pixels isso
+ * já é menos de um décimo de pixel.
+ */
+function n(valor: number): string {
+  return String(Math.round(valor * 100) / 100);
+}
+
+/**
  * O contorno do corpo, com raios diferentes em cima e embaixo.
  *
  * Quadráticas, e não arcos: neste tamanho o resultado visual é o mesmo, e o
@@ -186,14 +202,14 @@ function contornoDoCorpo(): string {
   const rt = G.shellRadius.top;
   const rb = G.shellRadius.bottom;
   return [
-    `M ${x} ${y + rt}`,
-    `Q ${x} ${y} ${x + rt} ${y}`,
-    `L ${x + w - rt} ${y}`,
-    `Q ${x + w} ${y} ${x + w} ${y + rt}`,
-    `L ${x + w} ${y + h - rb}`,
-    `Q ${x + w} ${y + h} ${x + w - rb} ${y + h}`,
-    `L ${x + rb} ${y + h}`,
-    `Q ${x} ${y + h} ${x} ${y + h - rb}`,
+    `M ${n(x)} ${n(y + rt)}`,
+    `Q ${n(x)} ${n(y)} ${n(x + rt)} ${n(y)}`,
+    `L ${n(x + w - rt)} ${n(y)}`,
+    `Q ${n(x + w)} ${n(y)} ${n(x + w)} ${n(y + rt)}`,
+    `L ${n(x + w)} ${n(y + h - rb)}`,
+    `Q ${n(x + w)} ${n(y + h)} ${n(x + w - rb)} ${n(y + h)}`,
+    `L ${n(x + rb)} ${n(y + h)}`,
+    `Q ${n(x)} ${n(y + h)} ${n(x)} ${n(y + h - rb)}`,
     "Z",
   ].join(" ");
 }
@@ -210,7 +226,7 @@ function reguaDePortas(): string {
   const { count, top, bottom, first, step } = G.ports;
   const tracos = Array.from({ length: count }, (_, i) => {
     const x = first + i * step;
-    return `<line x1="${x}" y1="${top}" x2="${x}" y2="${bottom}" />`;
+    return `<line x1="${n(x)}" y1="${n(top)}" x2="${n(x)}" y2="${n(bottom)}" />`;
   });
   return `<g class="cto-box__ports">${tracos.join("")}</g>`;
 }
@@ -293,10 +309,10 @@ export function ctoMarkerHtml(
     */
     retangulo("cto-box__gland", G.glandBar, 1.4),
     `<path class="cto-box__cable cto-box__cable--drop" ` +
-      `d="M ${dropX} ${saidaDosCabos} C ${dropX - 0.4} 37.6 ` +
-      `${dropX - 1.6} 38.6 ${dropX - 3.4} 39.2" />`,
-    `<path class="cto-box__cable" d="M ${CENTRO_X} ${saidaDosCabos} ` +
-      `L ${CENTRO_X} ${BASE_DO_CABO}" />`,
+      `d="M ${n(dropX)} ${n(saidaDosCabos)} C ${n(dropX - 0.4)} 37.6 ` +
+      `${n(dropX - 1.6)} 38.6 ${n(dropX - 3.4)} 39.2" />`,
+    `<path class="cto-box__cable" d="M ${n(CENTRO_X)} ${n(saidaDosCabos)} ` +
+      `L ${n(CENTRO_X)} ${BASE_DO_CABO}" />`,
 
     // O corpo: cúpula em cima, canto seco embaixo.
     `<path class="cto-box__body" d="${contornoDoCorpo()}" />`,
