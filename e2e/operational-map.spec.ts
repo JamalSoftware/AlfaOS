@@ -1994,10 +1994,38 @@ test.describe("Mapa Operacional — o corpo comunica o estado", () => {
       Se ele apagasse junto, a caixa desbotada esconderia o próprio motivo —
       e ficaria indistinguível de um controle desabilitado pela interface.
     */
-    const selo = await svg
-      .locator(".cto-box__badge")
-      .evaluate((el) => parseFloat(getComputedStyle(el).opacity));
-    expect(selo, "o selo apagou junto com a caixa").toBe(1);
+    /*
+      A opacidade EFETIVA, subindo a árvore — e isto foi corrigido por uma
+      sabotagem que passou.
+
+      A primeira versão lia `getComputedStyle(selo).opacity` e afirmava que o
+      selo continuava cheio. A sabotagem `V5`, que põe `opacity: .55` no
+      marcador INTEIRO, **passou**: `opacity` não é herdada, ela COMPÕE. O selo
+      continua com o próprio valor 1 enquanto o ancestral o apaga na tela, e a
+      leitura direta não tem como ver isso.
+
+      Multiplicar do selo até o `svg` responde a pergunta certa — "quanto disto
+      chega aos olhos?" — em vez da pergunta que era fácil de fazer.
+    */
+    const opacidadeEfetiva = (seletor: string) =>
+      svg.evaluate((raiz, sel) => {
+        let no: Element | null = raiz.querySelector(sel);
+        let produto = 1;
+        while (no && no !== raiz.parentElement) {
+          produto *= parseFloat(getComputedStyle(no).opacity || "1");
+          no = no.parentElement;
+        }
+        return produto;
+      }, seletor);
+
+    expect(
+      await opacidadeEfetiva(".cto-box__badge"),
+      "o selo apagou junto com a caixa",
+    ).toBe(1);
+    expect(
+      await opacidadeEfetiva(".cto-box__body"),
+      "a caixa não apagou de verdade na tela",
+    ).toBeLessThan(1);
     await expect(svg.locator(".cto-box__glyph")).toHaveCount(1);
 
     // STATUSVIS-05: a plaqueta escreve o estado, e o nome continua inteiro.
