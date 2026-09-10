@@ -1760,6 +1760,26 @@ test.describe("Mapa Operacional — plaqueta com o nome da CTO", () => {
     await expect(page.getByTestId("cto-map-label").first()).toBeVisible({
       timeout: 15_000,
     });
+
+    /*
+      A OUTRA metade da persistência, e ela quase escapou.
+
+      A sabotagem `S5` desta fase — remover a gravação da preferência de base —
+      **passou** por este teste na primeira versão, e passou com razão: recarregar
+      a URL acima restaura o modo a partir da própria URL, que a vista espelha.
+      A preferência do aparelho só responde por quem entra pela porta sem query,
+      que é o operador abrindo o mapa pelo menu no dia seguinte.
+
+      Sem esta segunda entrada, "a persistência não regrediu" seria meia
+      verdade: um teste com o nome certo cobrindo metade do assunto.
+    */
+    await page.goto("/mapa");
+    await expect(page.locator(".leaflet-container")).toBeVisible();
+    await expect(page.getByTestId("map-mode-hybrid")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+      { timeout: 10_000 },
+    );
   });
 
   test("ML-10 · o retorno ao Mapa Operacional NÃO regrediu", async ({
