@@ -182,11 +182,40 @@ async function login(page: Page, email: string) {
   await expect(page).not.toHaveURL(/\/login/);
 }
 
-/** Serve os tiles localmente: a suíte não depende da internet. */
+/**
+ * Serve os tiles localmente: a suíte não depende da internet.
+ *
+ * **Os TRÊS provedores**, desde a `CTO-3.2.1`. Interceptar só o OSM faria o
+ * teste de satélite depender do Esri estar no ar — e um spec que fica vermelho
+ * porque um provedor de terceiro teve um mau dia ensina a ignorar o vermelho.
+ *
+ * O padrão casa por caminho, e não só por host: assim ele continua valendo se
+ * alguém apontar `MAP_TILE_SATELLITE_URL` para outro lugar no ambiente de
+ * teste.
+ */
 async function interceptarTiles(page: Page) {
-  await page.route(/tile\.openstreetmap\.org/, (route) =>
-    route.fulfill({ status: 200, contentType: "image/png", body: TILE_PNG }),
-  );
+  const provedores = [
+    /tile\.openstreetmap\.org/,
+    /server\.arcgisonline\.com/,
+    /basemaps\.cartocdn\.com/,
+  ];
+  for (const padrao of provedores) {
+    await page.route(padrao, (route) =>
+      route.fulfill({ status: 200, contentType: "image/png", body: TILE_PNG }),
+    );
+  }
+}
+
+/** Quantos tiles de cada provedor o navegador pediu. */
+function contarTiles(page: Page) {
+  const contagem = { normal: 0, satellite: 0, labels: 0 };
+  page.on("request", (r) => {
+    const url = r.url();
+    if (url.includes("tile.openstreetmap.org")) contagem.normal += 1;
+    else if (url.includes("arcgisonline.com")) contagem.satellite += 1;
+    else if (url.includes("cartocdn.com")) contagem.labels += 1;
+  });
+  return contagem;
 }
 
 /** Coleta erros de página e de console para as asserções de "sem erro". */
@@ -423,11 +452,26 @@ test.describe("Mapa Operacional — CTO-3.2", () => {
     await login(page, ADMIN_EMAIL);
     await abrirMapa(page);
 
-    // Forma própria por estado: o eixo que sobrevive a preto e branco.
-    await expect(page.locator(".cto-marker--circle")).toHaveCount(1 + 1); // marcador + legenda
-    await expect(page.locator(".cto-marker--triangle")).toHaveCount(2);
-    await expect(page.locator(".cto-marker--square")).toHaveCount(2);
-    await expect(page.locator(".cto-marker--diamond")).toHaveCount(2);
+    /*
+      Desde a `CTO-3.2.1` o marcador é a CAIXA, e o selo é que muda por estado.
+      A silhueta é idêntica nos quatro — é a identidade da CTO —, então o que se
+      conta aqui é um marcador de cada tom, mais o desenho da caixa em todos.
+    */
+    await expect(page.locator("svg.cto-box")).toHaveCount(4);
+    await expect(page.locator("svg.cto-box .cto-box__body")).toHaveCount(4);
+    for (const tom of ["success", "warning", "danger", "neutral"]) {
+      await expect(page.locator(`svg.cto-box--${tom}`)).toHaveCount(1);
+    }
+
+    // O selo carrega GLIFO, e não só cor: quatro glifos distintos na tela.
+    const glifos = await page.locator("svg.cto-box .cto-box__glyph").allTextContents();
+    expect(new Set(glifos).size).toBe(4);
+
+    // A legenda continua explicando cada selo por forma, glifo e rótulo.
+    await expect(page.locator(".cto-marker--circle")).toHaveCount(1);
+    await expect(page.locator(".cto-marker--triangle")).toHaveCount(1);
+    await expect(page.locator(".cto-marker--square")).toHaveCount(1);
+    await expect(page.locator(".cto-marker--diamond")).toHaveCount(1);
 
     // E o estado está escrito em TEXTO na página, com todos os popups fechados.
     const legenda = page.getByTestId("map-legend");
@@ -445,7 +489,7 @@ test.describe("Mapa Operacional — CTO-3.2", () => {
 
     const marcador = page
       .locator(".leaflet-marker-icon")
-      .filter({ has: page.locator(".cto-marker--circle") })
+      .filter({ has: page.locator(".cto-box--success") })
       .first();
     await marcador.click();
 
@@ -474,7 +518,9 @@ test.describe("Mapa Operacional — CTO-3.2", () => {
 
     // UI-MAP-14: "Abrir CTO" leva ao detalhe que já existe.
     await page.getByTestId("cto-map-popup-open").click();
-    await expect(page).toHaveURL(/\/ctos\/[a-z0-9]+$/);
+    // A `href` agora carrega a vista de volta (`CTO-3.2.1`), então o caminho
+    // não termina no id — ele é seguido da query que reconstrói o mapa.
+    await expect(page).toHaveURL(/\/ctos\/[a-z0-9]+\?/);
     await expect(
       page.getByRole("heading", { name: "MAPA QA DISPONIVEL" }),
     ).toBeVisible();
@@ -774,4 +820,291 @@ test.describe("Mapa Operacional — responsividade", () => {
       expect(larguraDocumento).toBeLessThanOrEqual(viewport.width + 1);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// CTO-3.2.1 — bases de mapa e navegação de volta
+// ---------------------------------------------------------------------------
+
+/** A vista que está na barra de endereço agora. */
+function vistaDaUrl(page: Page) {
+  return new URL(page.url()).searchParams;
+}
+
+test.describe("Mapa Operacional — bases NORMAL/SATELLITE/HYBRID", () => {
+  test("MAPUX-01/02/03 · as três bases pedem tiles dos provedores certos", async ({
+    page,
+  }) => {
+    const tiles = contarTiles(page);
+    const erros = coletarErros(page);
+
+    await login(page, ADMIN_EMAIL);
+    await abrirMapa(page);
+
+    // O controle existe e oferece exatamente os três modos configurados.
+    await expect(page.getByTestId("map-mode-control")).toBeVisible();
+    await expect(page.getByTestId("map-mode-normal")).toBeVisible();
+    await expect(page.getByTestId("map-mode-satellite")).toBeVisible();
+    await expect(page.getByTestId("map-mode-hybrid")).toBeVisible();
+
+    // MAPUX-01: o padrão é NORMAL, e só ele pediu tile.
+    await expect(page.getByTestId("map-mode-normal")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(tiles.normal).toBeGreaterThan(0);
+    expect(tiles.satellite).toBe(0);
+    expect(tiles.labels).toBe(0);
+
+    // MAPUX-02: satélite troca a BASE, e é o provedor de imagem que responde.
+    await page.getByTestId("map-mode-satellite").click();
+    await expect
+      .poll(() => tiles.satellite, { timeout: 15000 })
+      .toBeGreaterThan(0);
+    expect(tiles.labels).toBe(0);
+    await expect(page.getByTestId("map-mode-satellite")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByTestId("map-mode-normal")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    // MAPUX-03: híbrido monta as DUAS camadas sobre o mesmo mapa.
+    await page.getByTestId("map-mode-hybrid").click();
+    await expect.poll(() => tiles.labels, { timeout: 15000 }).toBeGreaterThan(0);
+
+    /*
+      UM mapa, e não três.
+
+      Se cada modo remontasse o MapContainer, existiriam contêineres novos a
+      cada clique — e centro e zoom se perderiam junto. Um só prova que a troca
+      é de camada.
+    */
+    await expect(page.locator(".leaflet-container")).toHaveCount(1);
+    // Os marcadores sobrevivem à troca de base: eles não são da camada de tile.
+    await expect(page.locator("svg.cto-box")).toHaveCount(4);
+
+    expect(erros).toEqual([]);
+  });
+
+  test("MAPUX-04 · a base escolhida sobrevive a recarregar a página", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapa(page);
+
+    await page.getByTestId("map-mode-hybrid").click();
+    await expect(page.getByTestId("map-mode-hybrid")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    /*
+      Entra pela porta SEM query: é o caso do técnico que abre o mapa pelo menu
+      no dia seguinte. Só a preferência guardada no aparelho pode responder.
+    */
+    await page.goto("/mapa");
+    await expect(page.locator(".leaflet-container")).toBeVisible();
+    await expect(page.getByTestId("map-mode-hybrid")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+      { timeout: 10000 },
+    );
+  });
+
+  test("MAPUX-04b · a URL VENCE a preferência guardada", async ({ page }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapa(page);
+
+    await page.getByTestId("map-mode-hybrid").click();
+    await expect(page.getByTestId("map-mode-hybrid")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    // Um link explícito pede outra base — e é uma escolha para AQUELA vista.
+    await page.goto("/mapa?mode=SATELLITE");
+    await expect(page.getByTestId("map-mode-satellite")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+      { timeout: 10000 },
+    );
+  });
+
+  test("MAPUX-06 · a CSP libera os três hosts, e nenhum curinga", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    const resposta = await page.goto("/mapa");
+    const csp = resposta?.headers()["content-security-policy"] ?? "";
+
+    const imgSrc =
+      csp.split(";").find((p) => p.trim().startsWith("img-src")) ?? "";
+
+    expect(imgSrc).toContain("https://tile.openstreetmap.org");
+    expect(imgSrc).toContain("https://server.arcgisonline.com");
+    expect(imgSrc).toContain("https://*.basemaps.cartocdn.com");
+    // Curinga global tornaria a política decorativa.
+    expect(imgSrc.split(/\s+/)).not.toContain("*");
+  });
+
+  test("MAPUX-06b · nenhum tile é bloqueado pela política, nos três modos", async ({
+    page,
+  }) => {
+    /*
+      A violação de CSP NÃO quebra a página: ela apaga a imagem. Foi assim que
+      a CTO-3.2 quase entregou um mapa cinza. Aqui o console é a testemunha.
+    */
+    const violacoes: string[] = [];
+    page.on("console", (m) => {
+      if (/content security policy|refused to load/i.test(m.text())) {
+        violacoes.push(m.text());
+      }
+    });
+
+    await login(page, ADMIN_EMAIL);
+    await abrirMapa(page);
+
+    for (const modo of ["satellite", "hybrid", "normal"]) {
+      await page.getByTestId("map-mode-" + modo).click();
+      await page.waitForTimeout(800);
+    }
+
+    expect(violacoes).toEqual([]);
+    // E os tiles realmente foram desenhados, não só pedidos.
+    await expect(page.locator(".leaflet-tile").first()).toBeVisible();
+  });
+});
+
+test.describe("Mapa Operacional — voltar de uma CTO", () => {
+  test("NAVMAP-01/04..08 · o retorno diz Mapa Operacional e devolve a vista", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapa(page);
+
+    // Monta um contexto: base híbrida, uma busca digitada, e o mapa movido.
+    await page.getByTestId("map-mode-hybrid").click();
+    await page.getByTestId("cto-map-search-input").fill("MAPA QA");
+    await expect(page.getByTestId("cto-map-search-hit").first()).toBeVisible({
+      timeout: 15000,
+    });
+
+    const caixa = await page.locator(".leaflet-container").boundingBox();
+    const cx = (caixa?.x ?? 0) + (caixa?.width ?? 0) / 2;
+    const cy = (caixa?.y ?? 0) + (caixa?.height ?? 0) / 2;
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx - 70, cy - 45, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(1200);
+
+    // A vista está na barra de endereço — é ela que vai atravessar a navegação.
+    const antes = vistaDaUrl(page);
+    expect(antes.get("lat")).not.toBeNull();
+    expect(antes.get("z")).not.toBeNull();
+    expect(antes.get("mode")).toBe("HYBRID");
+    expect(antes.get("q")).toBe("MAPA QA");
+
+    await page.locator("svg.cto-box").first().click();
+    await page.getByTestId("cto-map-popup-open").click();
+
+    // NAVMAP-01: o botão diz de onde a pessoa veio.
+    const voltar = page.getByTestId("cto-back-link");
+    await expect(voltar).toHaveText("← Mapa Operacional");
+
+    await voltar.click();
+    await expect(page.locator(".leaflet-container")).toBeVisible({
+      timeout: 15000,
+    });
+
+    const depois = vistaDaUrl(page);
+    // NAVMAP-04/05: centro e zoom.
+    expect(Number(depois.get("lat"))).toBeCloseTo(Number(antes.get("lat")), 3);
+    expect(Number(depois.get("lng"))).toBeCloseTo(Number(antes.get("lng")), 3);
+    expect(depois.get("z")).toBe(antes.get("z"));
+    // NAVMAP-08: a base.
+    expect(depois.get("mode")).toBe("HYBRID");
+    await expect(page.getByTestId("map-mode-hybrid")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    // NAVMAP-06: a busca digitada.
+    await expect(page.getByTestId("cto-map-search-input")).toHaveValue(
+      "MAPA QA",
+    );
+    // NAVMAP-07: a caixa que foi aberta volta selecionada.
+    expect(depois.get("sel")).not.toBeNull();
+    await expect(page.locator("svg.cto-box--selected")).toHaveCount(1);
+  });
+
+  test("NAVMAP-02 · vindo da listagem, o retorno continua sendo CTOs", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await page.goto("/ctos");
+
+    await page
+      .getByRole("link", { name: "MAPA QA DISPONIVEL", exact: false })
+      .first()
+      .click();
+
+    const voltar = page.getByTestId("cto-back-link");
+    await expect(voltar).toHaveText("← CTOs");
+
+    await voltar.click();
+    await expect(page).toHaveURL(/\/ctos$/);
+  });
+
+  test("NAVMAP-03 · link direto para a CTO mantém o retorno seguro", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await page.goto("/ctos/" + criadas[0]);
+
+    await expect(page.getByTestId("cto-back-link")).toHaveText("← CTOs");
+  });
+
+  test("NAVMAP-09 · origem externa não vira redirect aberto", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+
+    for (const hostil of [
+      "https://evil.example.com",
+      "//evil.example.com",
+      "/mapa?x=1",
+      "javascript:alert(1)",
+    ]) {
+      await page.goto(
+        "/ctos/" + criadas[0] + "?returnTo=" + encodeURIComponent(hostil),
+      );
+      const voltar = page.getByTestId("cto-back-link");
+      await expect(voltar, hostil + " escapou").toHaveText("← CTOs");
+      await expect(voltar).toHaveAttribute("href", "/ctos");
+    }
+  });
+
+  test("NAVMAP-09b · coordenada hostil na volta não derruba o mapa", async ({
+    page,
+  }) => {
+    const erros = coletarErros(page);
+    await login(page, ADMIN_EMAIL);
+    await interceptarTiles(page);
+
+    // Tudo inválido: o mapa precisa abrir mesmo assim, no enquadramento padrão.
+    await page.goto("/mapa?lat=1e400&lng=NaN&z=-5&mode=%3Cscript%3E&sel=../x");
+
+    await expect(page.locator(".leaflet-container")).toBeVisible();
+    await expect(page.locator("svg.cto-box").first()).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.getByTestId("map-mode-normal")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(erros).toEqual([]);
+  });
 });

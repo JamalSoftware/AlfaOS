@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { memo } from "react";
 import { divIcon, type DivIcon } from "leaflet";
 import { Marker, Popup } from "react-leaflet";
 import type { CtoMapMarker } from "@/lib/cto-map";
@@ -20,12 +21,11 @@ import { CTO_MARKER_SIZE, ctoMarkerHtml } from "./cto-marker-icon";
  */
 
 /**
- * Os ícones são MEMORIZADOS, e isso deixou de ser detalhe na `CTO-3.2.1`.
+ * Os ícones são MEMORIZADOS.
  *
- * O marcador agora é reconstruído sempre que a vista muda, porque a `href` de
- * "Abrir CTO" carrega centro, zoom e modo — e a vista muda a cada arrasto. Sem
- * cache, cada pan criaria duzentos `divIcon` novos e o react-leaflet chamaria
- * `setIcon` em duzentos marcadores, trocando o DOM de todos eles.
+ * Sem cache, cada render criaria um `divIcon` por marcador e o react-leaflet
+ * chamaria `setIcon` em todos eles, trocando o DOM de duzentos marcadores por
+ * nada — inclusive o do marcador cujo popup está aberto.
  *
  * A chave é `(estado, selecionado)` porque é disso — e só disso — que o desenho
  * depende. Nome, código e posição não entram no ícone.
@@ -67,8 +67,28 @@ function iconePara(marker: CtoMapMarker, selecionado: boolean): DivIcon {
  * `URLSearchParams` monta tudo — nada de concatenar string, que é onde a
  * codificação de um termo de busca com `&` quebraria o resto da URL.
  */
-function hrefDoDetalhe(id: string, viewQuery: string): string {
-  const params = new URLSearchParams(viewQuery);
+function hrefDoDetalhe(id: string): string {
+  /*
+    A vista vem da BARRA DE ENDEREÇO, e não de uma prop.
+
+    A primeira versão recebia a vista por prop, e o teste de navegador mostrou
+    o preço: o popup deixava de abrir e o console enchia de "Maximum update
+    depth exceeded". A prop mudava a cada micro-movimento da câmera, o popup
+    re-renderizava, o `autoPan` do Leaflet movia o mapa para caber, isso emitia
+    `moveend`, que mudava a prop de novo — uma realimentação fechada.
+
+    A camada já espelha a vista na barra de endereço a cada mudança, então ler
+    `window.location.search` aqui devolve o mesmo valor sem criar a dependência
+    que fechava o laço.
+
+    Limite declarado: se alguém abrir o popup e ARRASTAR o mapa sem fechá-lo, a
+    `href` carrega a vista de antes do arrasto. A volta cai alguns metros ao
+    lado, e fechar essa fresta custaria interceptar o clique — o que tiraria do
+    link o "abrir em nova aba" que ele hoje tem de graça.
+  */
+  const params = new URLSearchParams(
+    typeof window === "undefined" ? "" : window.location.search,
+  );
   params.set("returnTo", OPERATIONAL_MAP_PATH);
   params.set("sel", id);
   return `/ctos/${id}?${params.toString()}`;
@@ -78,8 +98,6 @@ interface CtoMarkersProps {
   markers: CtoMapMarker[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
-  /** A vista atual, já serializada. Viaja na `href` de "Abrir CTO". */
-  viewQuery: string;
   /**
    * O detalhe da CTO é de `ADMIN` (`/ctos/[id]` roda `requirePageProfile`).
    *
@@ -91,11 +109,10 @@ interface CtoMarkersProps {
   canOpenDetail: boolean;
 }
 
-export default function CtoMarkers({
+function CtoMarkers({
   markers,
   selectedId,
   onSelect,
-  viewQuery,
   canOpenDetail,
 }: CtoMarkersProps) {
   return (
@@ -189,7 +206,7 @@ export default function CtoMarkers({
 
                 {canOpenDetail ? (
                   <Link
-                    href={hrefDoDetalhe(marker.id, viewQuery)}
+                    href={hrefDoDetalhe(marker.id)}
                     className="mt-3 inline-flex w-full items-center justify-center rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-fg transition-colors hover:bg-primary-hover"
                     data-testid="cto-map-popup-open"
                   >
@@ -204,3 +221,14 @@ export default function CtoMarkers({
     </>
   );
 }
+
+/**
+ *  NÃO é otimização aqui — é o que fecha o laço.
+ *
+ * A camada re-renderiza a cada , porque ela guarda a câmera para
+ * espelhar na URL. Sem , cada um desses renders recriava o conteúdo do
+ * popup, o react-leaflet o atualizava, o  movia o mapa, e o 
+ * seguinte recomeçava tudo. Com props idênticas o React para aqui, e o ciclo
+ * não tem por onde continuar.
+ */
+export default memo(CtoMarkers);

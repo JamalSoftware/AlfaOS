@@ -13,14 +13,25 @@ import {
 } from "@/lib/cto-map-presentation";
 import {
   MAP_FALLBACK_POINT,
+  availableMapModes,
   getCtoMapInitialView,
   getMapFallbackPoint,
   getMapTileConfig,
 } from "@/lib/map-config";
 import {
-  DEFAULT_TILE_URL,
+  MAP_MODES,
+  MAP_MODE_STORAGE_KEY,
+  buildMapViewQuery,
+  parseMapMode,
+  parseMapViewParams,
+} from "@/lib/map-view-params";
+import { buildReturnTo, parseReturnTo } from "@/lib/return-to";
+import { ctoMarkerHtml } from "@/components/map/cto-marker-icon";
+import {
+  DEFAULT_NORMAL_URL,
   readMapTileConfig,
   tileImageSource,
+  tileImageSources,
 } from "@/lib/map-tiles.config.mjs";
 import { navigationFor } from "@/lib/navigation";
 import { prisma } from "@/lib/prisma";
@@ -96,28 +107,28 @@ describe("UI-MAP-01/02/03 — acesso à página", () => {
     const { default: MapaPage } = await paginaDoMapa();
     session.token = await createTokenFor(fixture.adminA.id);
 
-    await expect(MapaPage()).resolves.toBeTruthy();
+    await expect(MapaPage({})).resolves.toBeTruthy();
   });
 
   it("UI-MAP-01b · DISPATCHER também abre — é a decisão da CTO-3.1", async () => {
     const { default: MapaPage } = await paginaDoMapa();
     session.token = await createTokenFor(fixture.dispatcherA.id);
 
-    await expect(MapaPage()).resolves.toBeTruthy();
+    await expect(MapaPage({})).resolves.toBeTruthy();
   });
 
   it("UI-MAP-02 · TECHNICIAN não abre, mesmo digitando a URL", async () => {
     const { default: MapaPage } = await paginaDoMapa();
     session.token = await createTokenFor(fixture.techA.id);
 
-    expect(await redirectTargetOf(() => MapaPage())).toBe("/minhas-os");
+    expect(await redirectTargetOf(() => MapaPage({}))).toBe("/minhas-os");
   });
 
   it("UI-MAP-02b · sem sessão vai para o login", async () => {
     const { default: MapaPage } = await paginaDoMapa();
     session.token = null;
 
-    expect(await redirectTargetOf(() => MapaPage())).toBe("/login");
+    expect(await redirectTargetOf(() => MapaPage({}))).toBe("/login");
   });
 
   it("UI-MAP-03 · capability desligada: a página não existe", async () => {
@@ -129,7 +140,7 @@ describe("UI-MAP-01/02/03 — acesso à página", () => {
     const { default: MapaPage } = await paginaDoMapa();
     session.token = await createTokenFor(fixture.adminA.id);
 
-    expect(await digestOf(() => MapaPage())).toMatch(/^NEXT_NOT_FOUND|^NEXT_HTTP_ERROR_FALLBACK;404/);
+    expect(await digestOf(() => MapaPage({}))).toMatch(/^NEXT_NOT_FOUND|^NEXT_HTTP_ERROR_FALLBACK;404/);
   });
 
   it("UI-MAP-03b · o item de menu segue a mesma capability", async () => {
@@ -372,70 +383,202 @@ describe("UI-MAP-05/06 — cadência e ordem das respostas", () => {
 // Configuração de tiles
 // ---------------------------------------------------------------------------
 
-describe("Tiles — a configuração é uma só", () => {
-  it("o padrão é OpenStreetMap, com atribuição", () => {
+// ---------------------------------------------------------------------------
+// MAPUX-01..06 — as três bases e a CSP
+// ---------------------------------------------------------------------------
+
+describe("MAPUX-01..06 — configuração das bases de mapa", () => {
+  it("MAPUX-01 · a base normal é o OpenStreetMap, com atribuição", () => {
     const config = readMapTileConfig({});
 
-    expect(config.urlTemplate).toBe(DEFAULT_TILE_URL);
-    expect(config.attribution).toContain("OpenStreetMap");
-    expect(config.maxZoom).toBe(19);
+    expect(config.normal.urlTemplate).toBe(DEFAULT_NORMAL_URL);
+    expect(config.normal.attribution).toContain("OpenStreetMap");
+    expect(config.normal.maxZoom).toBe(19);
   });
 
-  it("o ambiente troca o provedor sem tocar em componente", () => {
+  it("MAPUX-02 · o satélite tem provedor PRÓPRIO, e não é o da base normal", () => {
+    const config = readMapTileConfig({});
+
+    expect(config.satellite).not.toBeNull();
+    expect(config.satellite!.urlTemplate).not.toBe(config.normal.urlTemplate);
+    expect(config.satellite!.attribution).not.toBe("");
+
+    // Hosts diferentes: se um dia alguém apontar o satélite para o mesmo
+    // provedor da base normal, o botão passaria a trocar duas imagens iguais.
+    const host = (u: string) => new URL(u.replace("{s}", "s")).host;
+    expect(host(config.satellite!.urlTemplate)).not.toBe(
+      host(config.normal.urlTemplate),
+    );
+  });
+
+  it("MAPUX-02b · o satélite padrão usa a ordem `{z}/{y}/{x}` do provedor", () => {
+    /*
+      Medido ao vivo antes de virar padrão: o Esri publica LINHA antes de
+      coluna. Escrever na ordem habitual `{z}/{x}/{y}` devolve tiles de outro
+      lugar do planeta — e esse é o pior tipo de defeito, porque o mapa carrega,
+      parece funcionar, e mostra a cidade errada.
+    */
+    const url = readMapTileConfig({}).satellite!.urlTemplate;
+
+    expect(url.indexOf("{y}")).toBeLessThan(url.indexOf("{x}"));
+    expect(url).toContain("{z}");
+  });
+
+  it("MAPUX-03 · o híbrido é o satélite MAIS uma camada de rótulos", () => {
+    const config = readMapTileConfig({});
+
+    expect(config.hybrid).not.toBeNull();
+    // A base do híbrido é a MESMA do satélite, e não uma segunda configuração:
+    // duas cópias divergiriam na primeira troca de provedor.
+    expect(config.hybrid!.base).toBe(config.satellite);
+    expect(config.hybrid!.labels.urlTemplate).not.toBe(
+      config.satellite!.urlTemplate,
+    );
+    expect(config.hybrid!.labels.attribution).not.toBe("");
+  });
+
+  it("MAPUX-03b · a camada de rótulos é SÓ rótulos, e é a variante clara", () => {
+    // `dark_only_labels` é a de texto CLARO — a legível sobre imagem de
+    // satélite, que é escura. A `light` sumiria sobre asfalto e telhado.
+    expect(readMapTileConfig({}).hybrid!.labels.urlTemplate).toContain(
+      "only_labels",
+    );
+  });
+
+  it("MAPUX-04 · a preferência de base tem chave e parser próprios", () => {
+    expect(MAP_MODE_STORAGE_KEY).toMatch(/^alfaos\./);
+
+    for (const modo of MAP_MODES) {
+      expect(parseMapMode(modo)).toBe(modo);
+    }
+    // Tolerante ao que o navegador devolveu, estrito com o resto.
+    expect(parseMapMode("satellite")).toBe("SATELLITE");
+    expect(parseMapMode(" hybrid ")).toBe("HYBRID");
+    expect(parseMapMode("TERRAIN")).toBeNull();
+    expect(parseMapMode(null)).toBeNull();
+    expect(parseMapMode(3)).toBeNull();
+  });
+
+  it("MAPUX-05 · sem satélite o mapa CONTINUA, com um modo a menos", () => {
+    const config = readMapTileConfig({ MAP_SATELLITE_ENABLED: "false" });
+
+    // O que importa: a base normal sobrevive inteira.
+    expect(config.normal.urlTemplate).toBe(DEFAULT_NORMAL_URL);
+    expect(config.satellite).toBeNull();
+    // O híbrido cai junto por consequência: ele É o satélite com rótulos.
+    expect(config.hybrid).toBeNull();
+
+    expect(availableMapModes(config as never)).toEqual(["NORMAL"]);
+  });
+
+  it("MAPUX-05b · variável escrita errada NÃO desliga o satélite em silêncio", () => {
+    // Comparação exata com "false", o mesmo padrão de `SGP_ACTIVATION_ENABLED`.
+    for (const valor of ["FALSE", "0", "no", "nao", "off", ""]) {
+      expect(
+        readMapTileConfig({ MAP_SATELLITE_ENABLED: valor }).satellite,
+        `"${valor}" desligou o satélite`,
+      ).not.toBeNull();
+    }
+  });
+
+  it("MAPUX-05c · com tudo ligado, os três modos ficam disponíveis", () => {
+    expect(availableMapModes(readMapTileConfig({}) as never)).toEqual([
+      "NORMAL",
+      "SATELLITE",
+      "HYBRID",
+    ]);
+  });
+
+  it("MAPUX-06 · a CSP recebe as TRÊS origens, derivadas da configuração", () => {
+    const origens = tileImageSources(readMapTileConfig({}));
+
+    expect(origens).toHaveLength(3);
+    expect(origens).toContain("https://tile.openstreetmap.org");
+    expect(origens).toContain("https://server.arcgisonline.com");
+    // `{s}` vira curinga PRESO ao domínio configurado.
+    expect(origens).toContain("https://*.basemaps.cartocdn.com");
+  });
+
+  it("MAPUX-06b · desligar o satélite ENCOLHE a política", () => {
+    const origens = tileImageSources(
+      readMapTileConfig({ MAP_SATELLITE_ENABLED: "false" }),
+    );
+
+    expect(origens).toEqual(["https://tile.openstreetmap.org"]);
+  });
+
+  it("MAPUX-06c · a CSP do projeto NÃO usa curinga global", () => {
+    /*
+      `img-src *` resolveria o sintoma de tile bloqueado e destruiria a
+      política: qualquer host da internet passaria a entregar imagem para
+      dentro da aplicação. Este teste lê a configuração REAL do Next.
+    */
+    const config = semComentarios(leia("next.config.mjs"));
+
+    expect(config).toMatch(/img-src/);
+    expect(config).not.toMatch(/img-src[^`"']*\*(?!\.)/);
+    expect(config).not.toMatch(/img-src\s+\*/);
+    // E a política é montada a partir da configuração, não de hosts escritos
+    // à mão: um host repetido aqui seria o segundo lugar a esquecer.
+    expect(config).toContain("tileImageSources");
+    expect(config).not.toContain("openstreetmap.org");
+    expect(config).not.toContain("arcgisonline.com");
+    expect(config).not.toContain("cartocdn.com");
+  });
+
+  it("MAPUX-06d · cada origem é um host concreto, nunca um esquema solto", () => {
+    for (const origem of tileImageSources(readMapTileConfig({}))) {
+      expect(origem).toMatch(/^https:\/\/(\*\.)?[a-z0-9.-]+(:\d+)?$/);
+      expect(origem).not.toBe("https:");
+      expect(origem).not.toBe("*");
+    }
+  });
+
+  it("o ambiente troca qualquer das três sem tocar em componente", () => {
     const config = readMapTileConfig({
-      MAP_TILE_URL: "https://tiles.exemplo.com/{z}/{x}/{y}.png",
-      MAP_TILE_ATTRIBUTION: "© Exemplo",
-      MAP_TILE_MAX_ZOOM: "17",
+      MAP_TILE_URL: "https://normal.exemplo.com/{z}/{x}/{y}.png",
+      MAP_TILE_SATELLITE_URL: "https://sat.exemplo.com/{z}/{x}/{y}.jpg",
+      MAP_TILE_HYBRID_LABELS_URL: "https://rot.exemplo.com/{z}/{x}/{y}.png",
+      MAP_TILE_SATELLITE_MAX_ZOOM: "17",
     });
 
-    expect(config.urlTemplate).toBe("https://tiles.exemplo.com/{z}/{x}/{y}.png");
-    expect(config.attribution).toBe("© Exemplo");
-    expect(config.maxZoom).toBe(17);
+    expect(config.normal.urlTemplate).toContain("normal.exemplo.com");
+    expect(config.satellite!.urlTemplate).toContain("sat.exemplo.com");
+    expect(config.satellite!.maxZoom).toBe(17);
+    expect(config.hybrid!.labels.urlTemplate).toContain("rot.exemplo.com");
+    expect(tileImageSources(config)).toEqual([
+      "https://normal.exemplo.com",
+      "https://sat.exemplo.com",
+      "https://rot.exemplo.com",
+    ]);
   });
 
-  it("provedor trocado NÃO herda a atribuição do OpenStreetMap", () => {
+  it("provedor trocado NÃO herda a atribuição do padrão", () => {
     /*
-      Herdar seria creditar o OSM por um mapa que não é dele — e a atribuição é
+      Herdar seria creditar um provedor pelo mapa de outro — e a atribuição é
       exigência de licença, não enfeite.
     */
     const config = readMapTileConfig({
-      MAP_TILE_URL: "https://tiles.exemplo.com/{z}/{x}/{y}.png",
+      MAP_TILE_URL: "https://normal.exemplo.com/{z}/{x}/{y}.png",
+      MAP_TILE_SATELLITE_URL: "https://sat.exemplo.com/{z}/{x}/{y}.jpg",
     });
 
-    expect(config.attribution).toBe("");
+    expect(config.normal.attribution).toBe("");
+    expect(config.satellite!.attribution).toBe("");
   });
 
   it("variável em branco cai no padrão, em vez de virar URL vazia", () => {
-    const config = readMapTileConfig({ MAP_TILE_URL: "   " });
-    expect(config.urlTemplate).toBe(DEFAULT_TILE_URL);
+    expect(readMapTileConfig({ MAP_TILE_URL: "   " }).normal.urlTemplate).toBe(
+      DEFAULT_NORMAL_URL,
+    );
   });
 
   it("zoom inválido cai no padrão", () => {
     for (const bruto of ["0", "23", "abc", "12.5", ""]) {
-      expect(readMapTileConfig({ MAP_TILE_MAX_ZOOM: bruto }).maxZoom).toBe(19);
+      expect(readMapTileConfig({ MAP_TILE_MAX_ZOOM: bruto }).normal.maxZoom).toBe(
+        19,
+      );
     }
-  });
-
-  it("a CSP recebe a ORIGEM derivada da mesma URL", () => {
-    expect(tileImageSource(DEFAULT_TILE_URL)).toBe(
-      "https://tile.openstreetmap.org",
-    );
-    expect(tileImageSource("https://tiles.exemplo.com/{z}/{x}/{y}.png")).toBe(
-      "https://tiles.exemplo.com",
-    );
-    expect(tileImageSource("https://cdn.local:8443/{z}/{x}/{y}.png")).toBe(
-      "https://cdn.local:8443",
-    );
-  });
-
-  it("o `{s}` vira curinga PRESO ao domínio, nunca `https:` solto", () => {
-    const origem = tileImageSource("https://{s}.tile.exemplo.com/{z}/{x}/{y}.png");
-
-    expect(origem).toBe("https://*.tile.exemplo.com");
-    // Um curinga solto liberaria imagem de qualquer host da internet, e a CSP
-    // viraria decoração.
-    expect(origem).not.toBe("https:");
-    expect(origem).not.toBe("*");
   });
 
   it("URL inválida falha ALTO, e não vira CSP silenciosamente inútil", () => {
@@ -445,43 +588,413 @@ describe("Tiles — a configuração é uma só", () => {
     expect(() => tileImageSource("")).toThrow();
   });
 
-  it("`getMapTileConfig` valida a URL ao montar a página", () => {
+  it("`getMapTileConfig` valida TODAS as camadas ao montar a página", () => {
+    // A falha precisa acontecer aqui, e não como um mapa cinza sem explicação
+    // no navegador de quem despacha.
     expect(() =>
       getMapTileConfig({ MAP_TILE_URL: "ftp://tiles.exemplo.com/{z}.png" }),
+    ).toThrow();
+    expect(() =>
+      getMapTileConfig({ MAP_TILE_SATELLITE_URL: "nao-e-url" }),
+    ).toThrow();
+    expect(() =>
+      getMapTileConfig({ MAP_TILE_HYBRID_LABELS_URL: "javascript:1" }),
     ).toThrow();
   });
 
   /*
-    A CSP e o componente NÃO podem ter fontes diferentes.
+    S1 · a sabotagem que este teste precisa derrubar.
 
-    Este é o teste que a sabotagem `S6` precisa derrubar: se alguém escrever a
-    URL do tile dentro do componente, a CSP continuará liberando o host da
-    configuração — e o mapa abre cinza sem nenhum erro visível, porque violação
-    de CSP apaga a imagem em vez de quebrar a página.
+    Se alguém escrever a URL do tile dentro do componente, a CSP continuará
+    liberando o host da configuração — e o mapa abre cinza sem nenhum erro
+    visível, porque violação de CSP apaga a imagem em vez de quebrar a página.
   */
-  it("S6 · nenhum componente do mapa contém URL de tile", () => {
+  it("S1 · nenhum componente do mapa contém URL de tile", () => {
     const arquivos = [
       "src/components/map/MapCanvas.tsx",
       "src/components/map/OperationalMap.tsx",
       "src/components/map/CtoMapLayer.tsx",
       "src/components/map/CtoMarkers.tsx",
+      "src/components/map/cto-marker-icon.ts",
       "src/app/(app)/mapa/page.tsx",
     ];
 
     for (const arquivo of arquivos) {
       const codigo = semComentarios(leia(arquivo));
 
-      // O padrão de tile do Leaflet, em qualquer provedor.
       expect(codigo, `${arquivo} contém template de tile`).not.toMatch(
         /\{z\}[^\n]*\{x\}[^\n]*\{y\}/,
       );
       expect(codigo, `${arquivo} contém host de tile`).not.toMatch(
-        /https?:\/\/[^"'\s]*tile/i,
+        /https?:\/\/[^"'\s]*(tile|basemap|arcgis)/i,
       );
       expect(codigo, `${arquivo} cita o OpenStreetMap`).not.toMatch(
         /openstreetmap/i,
       );
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MAPUX-07..11 — o marcador de caixa óptica
+// ---------------------------------------------------------------------------
+
+describe("MAPUX-07..11 — o marcador é uma CTO, não um alfinete", () => {
+  it("MAPUX-07 · o marcador é SVG próprio do projeto", () => {
+    const html = ctoMarkerHtml(ctoMapStatusPresentation("AVAILABLE"), false);
+
+    expect(html.startsWith("<svg")).toBe(true);
+    expect(html).toContain("viewBox");
+    // A silhueta da caixa: corpo, tampa e portas. É isto que distingue a CTO de
+    // um ponto genérico quando técnico, cliente e OS estiverem no mesmo mapa.
+    expect(html).toContain("cto-box__body");
+    expect(html).toContain("cto-box__lid");
+    expect(html).toContain("cto-box__ports");
+    expect(html.match(/<circle/g)?.length ?? 0).toBeGreaterThanOrEqual(6);
+  });
+
+  it("MAPUX-07b · o alfinete padrão do Leaflet NÃO é usado", () => {
+    /*
+      O Leaflet cai no `marker-icon.png` dele quando nenhum ícone é informado —
+      e com bundler esse caminho costuma nem resolver, produzindo um marcador
+      quebrado. Aqui todo marcador recebe `divIcon` explícito.
+    */
+    const codigo = semComentarios(leia("src/components/map/CtoMarkers.tsx"));
+
+    expect(codigo).toContain("divIcon");
+    expect(codigo).toContain("ctoMarkerHtml");
+    /*
+      O alvo é o ASSET do Leaflet, e não a palavra.
+
+      A primeira versão deste teste procurava `marker-icon` e falhava no meu
+      próprio `import "./cto-marker-icon"` — exatamente o defeito de teste
+      estrutural que a `CTO-2.5` já tinha cobrado três vezes: a busca casava com
+      o nome do arquivo que existe justamente para NÃO usar o alfinete padrão.
+    */
+    expect(codigo).not.toMatch(/marker-icon\.png/);
+    expect(codigo).not.toMatch(/leaflet\/dist\/images/);
+    expect(codigo).not.toMatch(/new\s+Icon\(/);
+    expect(codigo).not.toMatch(/\bL\.Icon\b/);
+    // Todo `<Marker` do arquivo carrega `icon=`: um marcador sem ícone cairia
+    // no alfinete padrão sem que nada quebrasse.
+    const marcadores = codigo.match(/<Marker[\s\S]*?>/g) ?? [];
+    expect(marcadores.length).toBeGreaterThan(0);
+    for (const m of marcadores) expect(m).toContain("icon=");
+  });
+
+  const estados: { id: string; status: CtoMapStatus; forma: string }[] = [
+    { id: "MAPUX-08", status: "AVAILABLE", forma: "circle" },
+    { id: "MAPUX-09", status: "FULL", forma: "rect" },
+    { id: "MAPUX-10", status: "DAMAGED", forma: "polygon" },
+    { id: "MAPUX-11", status: "INACTIVE", forma: "polygon" },
+  ];
+
+  for (const caso of estados) {
+    it(`${caso.id} · ${caso.status} tem caixa, selo e glifo`, () => {
+      const p = ctoMapStatusPresentation(caso.status);
+      const html = ctoMarkerHtml(p, false);
+
+      // A caixa é a mesma nos quatro: é a identidade da CTO.
+      expect(html).toContain("cto-box__body");
+      // O selo é o que muda, e ele carrega FORMA e GLIFO — nunca só cor.
+      expect(html).toContain("cto-box__badge");
+      expect(html).toContain(p.glyph);
+      expect(html).toContain(`cto-box--${p.tone}`);
+      expect(html).toMatch(
+        new RegExp(`<g class="cto-box__badge"><${caso.forma}`),
+      );
+    });
+  }
+
+  it("S4 · remover o glifo deixaria o estado só na cor — e isto detecta", () => {
+    const glifos = (["AVAILABLE", "FULL", "DAMAGED", "INACTIVE"] as const).map(
+      (s) => {
+        const html = ctoMarkerHtml(ctoMapStatusPresentation(s), false);
+        const texto = /<text[^>]*>([^<]*)<\/text>/.exec(html)?.[1] ?? "";
+        return texto;
+      },
+    );
+
+    // Quatro glifos distintos e nenhum vazio: cada estado é legível sem cor.
+    expect(new Set(glifos).size).toBe(4);
+    for (const g of glifos) expect(g.trim()).not.toBe("");
+  });
+
+  it("S4b · as quatro formas do selo são elementos SVG DIFERENTES", () => {
+    const selos = (["AVAILABLE", "FULL", "DAMAGED", "INACTIVE"] as const).map(
+      (s) =>
+        /<g class="cto-box__badge">(.*?)<\/g>/.exec(
+          ctoMarkerHtml(ctoMapStatusPresentation(s), false),
+        )?.[1] ?? "",
+    );
+
+    // Sem isto, trocar as quatro formas pela mesma passaria: a cor mudaria e o
+    // teste de tom continuaria verde.
+    expect(new Set(selos).size).toBe(4);
+  });
+
+  it("MAPUX-07c · o marcador selecionado ganha ANEL, não outra cor", () => {
+    const p = ctoMapStatusPresentation("AVAILABLE");
+    const normal = ctoMarkerHtml(p, false);
+    const selecionado = ctoMarkerHtml(p, true);
+
+    expect(selecionado).toContain("cto-box--selected");
+    expect(normal).not.toContain("cto-box--selected");
+    // O tom NÃO muda: mudar a cor se confundiria com mudança de estado.
+    expect(selecionado).toContain(`cto-box--${p.tone}`);
+  });
+
+  it("MAPUX-07d · nome e código NUNCA entram no HTML do ícone", () => {
+    /*
+      `divIcon` injeta HTML cru. Uma interpolação de `marker.name` aqui
+      transformaria o nome da caixa em markup — e o nome é digitado por gente.
+    */
+    const codigo = semComentarios(
+      leia("src/components/map/cto-marker-icon.ts"),
+    );
+
+    for (const proibido of ["name", "code", "marker."]) {
+      expect(codigo, `o ícone referencia ${proibido}`).not.toContain(proibido);
+    }
+
+    // E o construtor só recebe apresentação e um booleano.
+    expect(ctoMarkerHtml.length).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NAVMAP — a origem da navegação
+// ---------------------------------------------------------------------------
+
+describe("NAVMAP-01/02/03/09 — de onde o operador veio", () => {
+  const abrirDetalhe = async (
+    id: string,
+    searchParams?: Record<string, string | string[] | undefined>,
+  ) => {
+    const { default: Pagina } = await import("@/app/(app)/ctos/[id]/page");
+    return Pagina({ params: { id }, searchParams });
+  };
+
+  /** Procura um nó da árvore de React pelo `data-testid`. */
+  function acharPorTestId(no: unknown, testId: string): Record<string, unknown> | null {
+    if (!no || typeof no !== "object") return null;
+    if (Array.isArray(no)) {
+      for (const filho of no) {
+        const achado = acharPorTestId(filho, testId);
+        if (achado) return achado;
+      }
+      return null;
+    }
+    const props = (no as { props?: Record<string, unknown> }).props;
+    if (!props) return null;
+    if (props["data-testid"] === testId) return props;
+    return acharPorTestId(props.children, testId);
+  }
+
+  let ctoId = "";
+
+  beforeEach(async () => {
+    session.token = await createTokenFor(fixture.adminA.id);
+    const cto = await createCto(fixture.companyA.id, fixture.adminA.id, {
+      name: "Caixa da navegação",
+      capacity: 8,
+      latitude: -20.5,
+      longitude: -41.5,
+    });
+    ctoId = cto.id;
+  });
+
+  it("NAVMAP-01 · vindo do mapa, o retorno é o Mapa Operacional — com a vista", async () => {
+    const arvore = await abrirDetalhe(ctoId, {
+      returnTo: "/mapa",
+      lat: "-20.512345",
+      lng: "-41.498765",
+      z: "17",
+      mode: "HYBRID",
+      q: "A16",
+    });
+
+    const link = acharPorTestId(arvore, "cto-back-link");
+    expect(link).not.toBeNull();
+    expect(link!.children).toBe("← Mapa Operacional");
+
+    const href = String(link!.href);
+    expect(href.startsWith("/mapa?")).toBe(true);
+    const params = new URLSearchParams(href.split("?")[1]);
+    expect(params.get("lat")).toBe("-20.512345");
+    expect(params.get("lng")).toBe("-41.498765");
+    expect(params.get("z")).toBe("17");
+    expect(params.get("mode")).toBe("HYBRID");
+    expect(params.get("q")).toBe("A16");
+  });
+
+  it("NAVMAP-02 · sem origem declarada, o retorno continua sendo a listagem", async () => {
+    const link = acharPorTestId(await abrirDetalhe(ctoId), "cto-back-link");
+
+    expect(link!.children).toBe("← CTOs");
+    expect(link!.href).toBe("/ctos");
+  });
+
+  it("NAVMAP-03 · link direto com vista, mas SEM origem, não vira volta ao mapa", async () => {
+    // Alguém colou os parâmetros sem o `returnTo`: a origem é o que decide, e
+    // ela não está declarada. O fallback é o seguro.
+    const link = acharPorTestId(
+      await abrirDetalhe(ctoId, { lat: "-20.5", lng: "-41.5", z: "16" }),
+      "cto-back-link",
+    );
+
+    expect(link!.href).toBe("/ctos");
+    expect(link!.children).toBe("← CTOs");
+  });
+
+  it("NAVMAP-09 · origem externa NÃO produz redirect aberto", async () => {
+    const hostis = [
+      "https://evil.example.com",
+      "//evil.example.com",
+      "/\\evil.example.com",
+      "javascript:alert(1)",
+      "/mapa/../../evil",
+      "/mapa?x=1",
+      "/mapa/",
+      "%2Fmapa",
+      "  /mapa",
+      "/MAPA",
+    ];
+
+    for (const bruto of hostis) {
+      const link = acharPorTestId(
+        await abrirDetalhe(ctoId, { returnTo: bruto }),
+        "cto-back-link",
+      );
+      expect(link!.href, `"${bruto}" escapou`).toBe("/ctos");
+    }
+  });
+
+  it("NAVMAP-09b · a allowlist é ANCORADA, e o mapa entrou como caminho puro", () => {
+    expect(parseReturnTo("/mapa")).toEqual({ kind: "operational-map" });
+    expect(buildReturnTo({ kind: "operational-map" })).toBe("/mapa");
+
+    // Nada de query dentro do `returnTo`: a vista viaja em parâmetros próprios,
+    // cada um validado, e o parser continua sendo uma igualdade.
+    expect(parseReturnTo("/mapa?lat=1")).toBeNull();
+    expect(parseReturnTo("/mapa#x")).toBeNull();
+  });
+
+  it("NAVMAP-09c · coordenada hostil na volta é DESCARTADA, não ecoada", async () => {
+    const link = acharPorTestId(
+      await abrirDetalhe(ctoId, {
+        returnTo: "/mapa",
+        lat: "1e400",
+        lng: "NaN",
+        z: "-5",
+        mode: "<script>",
+        q: "x".repeat(500),
+      }),
+      "cto-back-link",
+    );
+
+    const href = String(link!.href);
+    expect(href).toBe("/mapa");
+    // Nada do que o cliente escreveu sobreviveu até a `href`.
+    expect(href).not.toContain("script");
+    expect(href).not.toContain("1e400");
+    expect(href).not.toContain("NaN");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NAVMAP-04..08 — o núcleo determinístico da restauração
+// ---------------------------------------------------------------------------
+
+describe("NAVMAP-04..08 — a vista sobrevive à ida e à volta", () => {
+  const vista = {
+    latitude: -20.512345,
+    longitude: -41.498765,
+    zoom: 17,
+    mode: "HYBRID" as const,
+    search: "A16",
+    selectedId: "c" + "a1b2c3d4e5f6g7h8i9j0",
+  };
+
+  it("NAVMAP-04..08 · o que é montado é exatamente o que é lido de volta", () => {
+    const query = buildMapViewQuery(vista);
+    const lido = parseMapViewParams(
+      Object.fromEntries(new URLSearchParams(query)),
+    );
+
+    expect(lido.latitude).toBeCloseTo(vista.latitude, 6); // centro
+    expect(lido.longitude).toBeCloseTo(vista.longitude, 6);
+    expect(lido.zoom).toBe(vista.zoom); // zoom
+    expect(lido.search).toBe(vista.search); // busca
+    expect(lido.selectedId).toBe(vista.selectedId); // seleção
+    expect(lido.mode).toBe(vista.mode); // base
+  });
+
+  it("campo vazio é OMITIDO, e não escrito em branco", () => {
+    const query = buildMapViewQuery({ mode: "NORMAL" });
+
+    expect(query).toBe("mode=NORMAL");
+    expect(query).not.toContain("q=");
+    expect(query).not.toContain("sel=");
+    expect(query).not.toContain("lat=");
+  });
+
+  it("a URL não carrega marcador nenhum — ela é endereço, não cache", () => {
+    const query = buildMapViewQuery(vista);
+    const chaves = Array.from(new URLSearchParams(query).keys()).sort();
+
+    expect(chaves).toEqual(["lat", "lng", "mode", "q", "sel", "z"]);
+  });
+
+  it("coordenada fora do planeta não chega ao Leaflet", () => {
+    /*
+      `setView` com `Infinity` não desenha o mapa em lugar errado: ele lança, e
+      o componente inteiro cai. Mesma lição da `CTO-1.1`, onde `Number.isNaN`
+      deixava `"Infinity"` passar e só `Number.isFinite` fechava.
+    */
+    for (const bruto of ["1e400", "Infinity", "-Infinity", "NaN", "abc", "91"]) {
+      const lido = parseMapViewParams({ lat: bruto, lng: "-41.5" });
+      expect(lido.latitude, `lat=${bruto}`).toBeUndefined();
+      expect(lido.longitude, `lat=${bruto}`).toBeUndefined();
+    }
+
+    expect(parseMapViewParams({ lat: "-20.5", lng: "181" }).longitude)
+      .toBeUndefined();
+    expect(parseMapViewParams({ z: "0" }).zoom).toBeUndefined();
+    expect(parseMapViewParams({ z: "99" }).zoom).toBeUndefined();
+  });
+
+  it("meia coordenada não posiciona nada", () => {
+    // A mesma regra que a `CTO-3.1` aplica à caixa sem localização.
+    expect(parseMapViewParams({ lat: "-20.5" }).latitude).toBeUndefined();
+    expect(parseMapViewParams({ lng: "-41.5" }).longitude).toBeUndefined();
+  });
+
+  it("um campo inválido não descarta os campos bons", () => {
+    const lido = parseMapViewParams({
+      lat: "-20.5",
+      lng: "-41.5",
+      z: "999",
+      mode: "TERRAIN",
+    });
+
+    expect(lido.latitude).toBe(-20.5);
+    expect(lido.longitude).toBe(-41.5);
+    expect(lido.zoom).toBeUndefined();
+    expect(lido.mode).toBeUndefined();
+  });
+
+  it("o termo de busca tem o MESMO teto do domínio", () => {
+    const longo = "x".repeat(200);
+    expect(parseMapViewParams({ q: longo }).search).toBeUndefined();
+    expect(buildMapViewQuery({ search: longo }).length).toBeLessThan(120);
+  });
+
+  it("o identificador selecionado é conferido contra o formato interno", () => {
+    expect(parseMapViewParams({ sel: "../../etc/passwd" }).selectedId)
+      .toBeUndefined();
+    expect(parseMapViewParams({ sel: "<script>" }).selectedId).toBeUndefined();
+    expect(buildMapViewQuery({ selectedId: "<script>" })).toBe("");
   });
 });
 

@@ -64,6 +64,16 @@ import type { MapCamera, MapCanvasHandle } from "./MapCanvas";
  */
 const CtoMarkers = dynamic(() => import("./CtoMarkers"), { ssr: false });
 
+/**
+ * Um array vazio ESTAVEL.
+ *
+ * Sem ele, cada render produziria um array novo, e o memo de `CtoMarkers`
+ * nunca bloquearia nada. Aquele memo existe para fechar a realimentacao
+ * popup -> autoPan -> moveend -> render; uma prop que muda de identidade a
+ * cada render a reabriria em silencio.
+ */
+const SEM_MARCADORES: CtoMapView["markers"] = [];
+
 interface CtoMapLayerProps {
   tiles: MapTilesConfig;
   /** Os modos que a configuração consegue desenhar. */
@@ -177,8 +187,23 @@ export function CtoMapLayer({
   */
   useEffect(() => {
     if (!viewQuery) return;
+
+    /*
+      O PRIMEIRO argumento é `history.state`, e passar `null` ali quebra a
+      navegação do Next.
+
+      Isto não é teoria: a primeira versão passava `null`, e o teste de
+      navegador mostrou o clique em "Abrir CTO" simplesmente não acontecendo —
+      a URL continuava em `/mapa`, sem erro no console. O App Router guarda o
+      próprio estado de roteamento em `history.state`, e sobrescrevê-lo com
+      `null` deixa o roteador sem a árvore que ele usa para navegar. O sintoma é
+      um link que não faz nada.
+
+      Repassar `window.history.state` troca só a URL e devolve ao Next
+      exatamente o que ele havia guardado.
+    */
     window.history.replaceState(
-      null,
+      window.history.state,
       "",
       `${window.location.pathname}?${viewQuery}`,
     );
@@ -272,13 +297,23 @@ export function CtoMapLayer({
     void carregar(bbox);
   }, [carregar]);
 
+  /*
+    Estavel, e nao um arrow inline.
+
+    O efeito de `CanvasHandle` depende desta funcao; um arrow novo a cada
+    render faria o efeito reexecutar a cada movimento do mapa.
+  */
+  const guardarMapa = useCallback((handle: MapCanvasHandle) => {
+    mapRef.current = handle;
+  }, []);
+
   const focarEm = useCallback((hit: CtoMapSearchHit) => {
     if (hit.latitude === null || hit.longitude === null) return;
     mapRef.current?.focusOn(hit.latitude, hit.longitude);
     setSelectedId(hit.id);
   }, []);
 
-  const markers = view?.markers ?? [];
+  const markers = view?.markers ?? SEM_MARCADORES;
 
   return (
     <div className="space-y-4">
@@ -296,9 +331,7 @@ export function CtoMapLayer({
         onModeChange={trocarModo}
         initialView={initialView}
         onViewportChange={handleViewport}
-        onReady={(handle) => {
-          mapRef.current = handle;
-        }}
+        onReady={guardarMapa}
         loading={loading}
         error={error}
         onRetry={tentarNovamente}
@@ -319,7 +352,6 @@ export function CtoMapLayer({
           markers={markers}
           selectedId={selectedId}
           onSelect={setSelectedId}
-          viewQuery={viewQuery}
           canOpenDetail={canOpenDetail}
         />
       </OperationalMap>
