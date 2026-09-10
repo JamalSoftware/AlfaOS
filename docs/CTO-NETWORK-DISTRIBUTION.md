@@ -4514,6 +4514,91 @@ E a `ML-06` tem dentes de propósito: *"mais alta que larga"* aprovaria a versã
 mais de altura**, raio de cúpula perto da metade da largura, placa mais estreita
 que o corpo, e tronco reto contra drop curva.
 
+### 6. Delta do dono: o CORPO da caixa passou a carregar o estado
+
+Uma decisão visual não tinha ficado evidenciada, e o dono a nomeou depois da
+primeira leitura desta fase: **o estado não pode viver só no selo.**
+
+O argumento é de leitura à distância. O selo tem 14 unidades num ícone de 38
+pixels; num mapa com dezenas de marcadores, o que se enxerga primeiro é a
+**silhueta**, não o adesivo no canto dela.
+
+```text
+AVAILABLE   contorno verde     selo ● "+"
+FULL        contorno âmbar     selo ■ "0"
+DAMAGED     contorno vermelho  selo ▲ "!"
+INACTIVE    contorno cinza     selo ◆ "×"   + figura apagada + "INATIVA"
+```
+
+**O contorno usa o MESMO token do selo** — `success-fg`, `warning-fg`,
+`danger-fg`, `neutral-fg`. Não é economia de código: é o que impede o contorno e
+o selo de discordarem. Um token próprio para o contorno criaria **duas fontes de
+verdade para a mesma pergunta**, e a que divergisse seria a que ninguém revisou,
+porque isoladas as duas parecem certas. É a mesma razão de `summarizePortCounts`
+ser uma função só.
+
+O traço subiu de `2` para `2.4`: o contorno deixou de ser delimitação de desenho
+e virou **informação**, e precisa sobreviver a vegetação, telhado e asfalto.
+
+#### A inativa apaga a FIGURA, e nunca o selo
+
+Por isso o desenho passou a viver num grupo próprio, `cto-box__figure`, com o
+selo **fora** dele. Apagar o marcador inteiro levaria o selo junto — e uma caixa
+desbotada **sem** selo esconde justamente o motivo de ela estar desbotada.
+
+São quatro sinais, e nenhum deles é cor sozinha:
+
+1. a figura dessatura (`grayscale`) e perde opacidade (`0.55`);
+2. o contorno vira cinza e **tracejado** — sinal exclusivo dela;
+3. o selo continua cheio, losango com `×`;
+4. a plaqueta escreve **INATIVA**.
+
+**O quarto existe porque o dono nomeou a ambiguidade:** *"apagado"* é vocabulário
+de controle que a **interface** desabilitou, e aqui significa um fato da rede — a
+caixa saiu de operação. Só o texto desfaz isso. E **só** a inativa o recebe:
+escrever o estado em toda plaqueta transformaria o mapa numa lista de palavras,
+já que nos outros três o contorno e o selo bastam.
+
+O termo vem de `apresentacao.label`, a **mesma** tabela que nomeia o estado no
+popup e na legenda, em versalete por `.toUpperCase()`. **O nome armazenado da CTO
+não é tocado** — isto é apresentação derivada do status.
+
+#### Seleção e estado são DUAS camadas
+
+```text
+halo externo ao ícone ....... seleção   (outline, cor de foco)
+contorno do corpo ........... estado    (stroke, cor do estado)
+```
+
+Uma caixa danificada e selecionada mostra as duas ao mesmo tempo. Se a seleção
+pintasse o corpo, **clicar apagaria a informação que fez alguém clicar**. O
+`outline` vive no elemento SVG inteiro, fora do desenho, e por construção não tem
+como colidir com o traço do corpo.
+
+#### O que as sabotagens do delta mediram
+
+| | mutação | quem caiu |
+|---|---|---|
+| `V1` | contorno volta ao traço neutro | `STATUSVIS-01/02/03` (estrutural **e** navegador) |
+| `V2` | dois estados dividem a mesma cor | `STATUSVIS-01/02/03` |
+| `V3` | traço afina para 1 | `STATUSVIS-01/02/03b` |
+| `V4` | a inativa deixa de apagar | `STATUSVIS-04` (nos dois) |
+| `V5` | o apagamento pega o marcador inteiro | `STATUSVIS-04` |
+| `V6` | a plaqueta perde "INATIVA" | `STATUSVIS-05` |
+| `V7` | a seleção pinta o corpo | `STATUSVIS-06` (nos dois) |
+| `V8` | a figura deixa de ser grupo próprio | `STATUSVIS-04` |
+| `V9` | a inativa perde o tracejado | `STATUSVIS-07` |
+| `V10` | todas as plaquetas escrevem o estado | `STATUSVIS-05` (nos dois) |
+
+**Dez de dez** — e a `V5` **passou no navegador** na primeira rodada, por um
+motivo que vale mais que o placar: `opacity` **não é herdada, ela COMPÕE**. Lendo
+`getComputedStyle(selo).opacity` o valor é `1` mesmo enquanto um ancestral apaga o
+selo na tela, então a asserção afirmava algo que não tinha como enxergar. Ela
+passou a **multiplicar a opacidade do selo até o `svg`**, que é a pergunta certa:
+*quanto disto chega aos olhos?* O detector estrutural já pegava a `V5`, então nada
+saiu descoberto — mas uma asserção de navegador que afirma o que não mede é pior
+que a ausência dela, porque parece prova.
+
 ### O que as sabotagens mediram
 
 | | mutação | quem caiu |

@@ -944,6 +944,14 @@ Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §38.
 
 **Dez sabotagens, dez detectadas — e a `S5` passou na primeira rodada**, por um motivo que é achado e não acaso: a `ML-09` recarregava uma URL que já carregava `mode=HYBRID`, então o modo voltava da **URL** e a preferência do aparelho nunca era consultada. Um teste chamado *"a persistência não regrediu"* cobrindo metade do assunto é pior que a ausência dele; ele passou a entrar também pela porta **sem query**, com queda provada nos dois sentidos.
 
+**Delta visual do dono, dentro da mesma fase: o CORPO da caixa passou a carregar o estado.** O selo tem 14 unidades num ícone de 38 pixels, e num mapa com dezenas de marcadores o que se enxerga primeiro é a **silhueta**. Agora o contorno do corpo é verde/âmbar/vermelho/cinza — **com o MESMO token do selo**, e isso não é economia: um token próprio criaria duas fontes de verdade para o mesmo estado, e a que divergisse seria a que ninguém revisou.
+
+**A inativa apaga a FIGURA, e nunca o selo** — por isso o desenho virou um grupo próprio (`cto-box__figure`) com o selo fora dele. Uma caixa desbotada **sem** selo esconderia o motivo de estar desbotada. São quatro sinais e nenhum é cor sozinha: dessaturação, contorno cinza **tracejado** (exclusivo dela), o selo cheio com `×`, e a palavra **INATIVA** na plaqueta. **O quarto existe porque "apagado" é vocabulário de controle desabilitado pela INTERFACE**, e aqui significa um fato da rede; só o texto desfaz a ambiguidade. Só a inativa o recebe — escrever o estado em toda plaqueta viraria uma lista de palavras. O termo sai de `apresentacao.label`, a mesma tabela do popup e da legenda; **o nome armazenado da CTO não é tocado**.
+
+**Seleção e estado são DUAS camadas que nunca disputam a mesma propriedade:** halo `outline` por fora do ícone para a seleção, `stroke` no corpo para o estado. Se a seleção pintasse o corpo, clicar numa caixa apagaria justamente a informação que fez alguém clicar.
+
+**Dez sabotagens do delta, dez detectadas — e a `V5` passou no navegador na primeira rodada, por um fato de CSS que vale registrar: `opacity` NÃO é herdada, ela COMPÕE.** Ler `getComputedStyle(selo).opacity` devolve `1` mesmo enquanto um ancestral apaga o selo na tela, então a asserção afirmava o que não tinha como enxergar. Ela passou a **multiplicar a opacidade do selo até o `svg`**. O detector estrutural já pegava a `V5`, então nada saiu descoberto — mas asserção de navegador que afirma o que não mede é pior que a ausência dela, porque parece prova.
+
 Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §39.
 
 **Próxima fatia: `CTO-3.2.2` — clientes e OS abertas no mapa.** Não iniciada.
