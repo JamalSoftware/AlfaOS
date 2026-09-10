@@ -12621,8 +12621,40 @@ A fonte da verdade continua sendo `CTO.latitude` / `CTO.longitude`. **Não criar
 `Customer.latitude/longitude` já existia e não podia ser removida; a CTO não tem
 esse legado, e criar tabela ao lado reproduziria a duplicação em vez de evitá-la.
 
-Confirmação e correção avançada da coordenada da CTO continuam na fase própria
-já planejada (`CTO-3.4`).
+### `DECISION UPDATED` — correção manual pelo ADMIN entra na V1
+
+Este parágrafo dizia que *"confirmação e correção avançada da coordenada da CTO
+continuam na fase própria já planejada (`CTO-3.4`)"*, e tratava as duas coisas
+como uma só. **A validação em uso real separou-as.**
+
+**Na V1, o `ADMIN` pode definir e corrigir MANUALMENTE a posição geográfica da
+CTO, direto no Mapa Operacional.** A necessidade é banal e imediata: a
+coordenada foi digitada, está errada, e quem vê o erro é quem está olhando o
+mapa — mandá-lo transcrever números numa tela de formulário é pedir para errar de
+novo.
+
+O que **continua pós-V1**, sem exceção:
+
+```text
+confirmação da posição pelo TÉCNICO em campo
+GPS do Field
+accuracyMeters
+source detalhada da coordenada
+confirmedAt · confirmedBy
+workflow avançado de verificação
+histórico especializado de geolocalização, se ainda for necessário
+```
+
+A distinção que sustenta o corte é a mesma da `CustomerLocation` logo acima:
+**receber uma coordenada não é confirmá-la.** O ADMIN corrigindo pelo mapa está
+dizendo *"o ponto é aqui"*; ele não esteve no poste. Colapsar as duas coisas
+destruiria a única distinção que torna a confirmação útil — e é por isso que a
+V1 **não** grava `verified`, `confirmedBy` nem `source` para a CTO: ela não tem
+esses campos, e a V1 não os cria.
+
+**Nenhuma coluna nova, nenhuma migration.** `CTO.latitude` / `CTO.longitude` já
+existem e já são a fonte da verdade; a V1 só acrescenta um caminho de escrita
+para elas.
 
 ---
 
@@ -12804,6 +12836,7 @@ O que precisa estar de pé para o primeiro lançamento.
 | Modos Mapa / Satélite / Híbrido | **implementado** (`CTO-3.2.1`) |
 | Marcador de CTO com estado derivado | **implementado** (`CTO-3.2.1`) |
 | Navegação com origem e vista preservada | **implementado** (`CTO-3.2.1`) |
+| Correção manual da posição da CTO pelo ADMIN, no mapa | **implementado** (`CTO-3.2.1d`) |
 | Camada de OS abertas | **falta** — `CTO-3.2.2` |
 | Camada de clientes ativos | **falta** — `CTO-3.2.2` |
 | Online/Offline reutilizado da OS, em lote | **falta** — extração, `CTO-3.2.2` |
@@ -12899,6 +12932,23 @@ com a camada de CTO **primeiro**. A dependência não foi invertida — ela foi
 satisfeita construindo o motor agnóstico de camada, que é o que a §207 pede. O
 resto da §339 continua inteiro, inclusive a regra de que, no Field, a proximidade
 **ordena a lista e não escolhe**.
+
+## §377 — `DECISION UPDATED`
+
+A §377 tratava *"confirmação e correção avançada da coordenada da CTO"* como uma
+coisa só, adiada inteira para a `CTO-3.4`.
+
+**Atualização, decidida pelo dono depois da validação em uso real da
+`CTO-3.2.1c`:** **correção manual pelo `ADMIN`, no mapa, é V1**. Confirmação em
+campo, GPS do Field, `accuracyMeters`, `source`, `confirmedAt`/`confirmedBy` e o
+workflow de verificação continuam pós-V1, sem alteração.
+
+A regra que separa as duas continua sendo a mesma da `CustomerLocation`:
+**receber uma coordenada não é confirmá-la.** O texto anterior não foi apagado —
+está na própria §377, com a atualização abaixo dele.
+
+Nada disso cria coluna, tabela ou migration: `CTO.latitude`/`CTO.longitude` já
+são a fonte da verdade, e **`CTOLocation` continua proibida**.
 
 ## §201 — reafirmada e qualificada
 

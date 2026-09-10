@@ -46,6 +46,10 @@ CTO-3.2.1
    ↓  validação do dono — bases, marcador de caixa, voltar ao mapa
 PRD V1 Launch Scope Freeze                                    ← concluído
    ↓
+CTO-3.2.1b · 3.2.1c   polimento de UX e o estado na silhueta   ← concluído
+   ↓  validação do dono em uso real
+CTO-3.2.1d   ADMIN corrige a posição da CTO no mapa            ← concluído
+   ↓
 CTO-3.2.2   camada de clientes + OS abertas + Online/Offline em lote
    ↓  validação do dono — Mapa Operacional V1 completo
 DASH-1 · TL-1 · EV-1 · GS-1    (ordem entre si: decisão do dono)
@@ -59,6 +63,26 @@ V2 (PRD §388)  →  V3 (PRD §389)
 independentes entre si e todas dependem apenas do que já existe. Congelar a
 ordem agora seria decidir por antecipação algo que o uso real vai informar
 melhor.
+
+---
+
+## 2.1. `CTO-3.2.1d` — a posição da CTO, corrigida no mapa
+
+Entrou na sequência depois da validação em uso real da `CTO-3.2.1c`: o dono viu
+uma coordenada errada e não tinha como corrigi-la de onde estava olhando.
+
+**Escopo, e ele é estreito de propósito:** o `ADMIN` seleciona a caixa, entra em
+modo de edição explícito, arrasta, confere e salva — ou cancela. Enquanto não
+houver `Salvar`, **o banco não muda**. A escrita reaproveita o caminho que a tela
+de detalhe já usa (`PATCH /api/ctos/[id]` com payload só de coordenada), então
+não existe segunda validação nem segundo serviço.
+
+**PRD §377, `DECISION UPDATED`.** Confirmação em campo, GPS do Field,
+`accuracyMeters`, `source`, `confirmedAt`/`confirmedBy` e o workflow de
+verificação continuam **pós-V1**. Receber uma coordenada não é confirmá-la, e o
+ADMIN corrigindo pelo mapa não esteve no poste.
+
+Zero migration, zero Prisma, zero Dart, zero dependência.
 
 ---
 
