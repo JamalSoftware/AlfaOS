@@ -4195,3 +4195,150 @@ linha.
 
 > **`CTO-3.2.2` — `READY FOR DISCOVERY / IMPLEMENTATION`.** Não iniciada.
 > `CTO-3.3` e `CTO-3.4` seguem sob a §119.
+
+---
+
+## 38. `CTO-3.2.1b` — os quatro pontos que a validação do dono levantou
+
+A validação funcional da `CTO-3.2.1` **passou**: mapa, satélite, híbrido,
+persistência do modo, preservação do estado, `Mapa → CTO → Mapa`,
+`CTOs → CTO → CTOs`, popup e marcador. Quatro problemas de UX ficaram, e esta
+fase resolve **somente** eles.
+
+**Zero produto novo, zero migration, zero Prisma, zero Dart, zero dependência.**
+O PRD V1 continua `FROZEN`.
+
+### 1. Altura — o mapa comia a página
+
+Com `vh`, a moldura crescia junto com a tela e empurrava busca, contadores e
+legenda para fora da primeira dobra; num notebook com barra de tarefas ela nunca
+cabia inteira.
+
+```text
+celular  380px      tablet   500px
+pequeno  440px      desktop  560px
+```
+
+**Altura de mapa não é fração de tela**, é uma faixa de leitura: acima de uns
+560px ela deixa de acrescentar contexto e só passa a esconder o resto da página.
+`100vh` ficou proibido — e a proibição é de **qualquer** unidade de viewport,
+porque `60vh` produz o mesmo comportamento, só que mais devagar.
+
+### 2. Zoom — a placa do satélite, medida provedor por provedor
+
+O dono viu tiles com **"Map data not yet available"**. A causa foi medida em três
+lugares, buscando quatro tiles vizinhos por nível e comparando os bytes: quando
+os quatro são idênticos, não é imagem — é uma placa.
+
+| provedor | São Paulo | cidade média | rural | acima disso |
+|---|---|---|---|---|
+| `NORMAL` (OSM) | z19 | z19 | z19 | HTTP **400**, 30 B |
+| `SATELLITE` (Esri) | z19 | **z18** | **z18** | HTTP **200** + placa |
+| `LABELS` (CARTO) | z19 | z20 | z19 | PNG transparente |
+
+**O que torna o satélite traiçoeiro é o `200`.** A placa é um JPEG de 2.521
+bytes, byte a byte igual em qualquer região e qualquer zoom — o Leaflet não tem
+como saber que aquilo não é imagem, então desenha. Um `404` teria produzido um
+buraco visível; um `200` produz uma mentira.
+
+A cura é **`maxNativeZoom` por camada** mais **um `maxZoom` para o mapa**:
+
+```text
+NORMAL     maxNativeZoom 19
+SATELLITE  maxNativeZoom 18     ← o PIOR caso medido, de propósito
+LABELS     maxNativeZoom 19
+mapa       maxZoom       20     ← um nível de ampliação acima do mais restritivo
+```
+
+Acima do nativo o Leaflet **amplia o último nível real** em vez de pedir um que
+não existe. Adotar 19 no satélite devolveria a placa para a maior parte do país;
+adotar 18 custa um nível de nitidez nas capitais. **Um defeito é cosmético; o
+outro faz o mapa afirmar que não há dado onde há.**
+
+> **Esconder a placa com CSS teria sido o oposto:** o tile continuaria sendo
+> pedido, a banda continuaria sendo gasta, e o mapa mentiria em silêncio.
+
+O híbrido não precisa de regra própria: cada camada amplia a partir do próprio
+nativo, e **nenhuma quebra enquanto a outra continua** — que é o que o
+enunciado exigia.
+
+### 3. Enquadramento inicial
+
+`fitBounds` sobre um retângulo de área zero — uma caixa só, ou várias no mesmo
+poste — ia ao zoom máximo, e o operador abria o mapa olhando uma calçada. O teto
+passou de `z16` para **`z17`**: a caixa, a rua dela e as quadras em volta.
+
+### 4. O marcador — de teclado para caixa óptica
+
+A primeira versão desenhava as portas como **duas fileiras de três pontos**.
+Funcionava, e o dono a recusou pelo motivo certo: no tamanho real aquilo lê como
+teclado ou calculadora.
+
+```text
+   ╭─────────────╮ ◀ tampa, com a linha de fecho
+   │ ▌▌▌▌▌▌      │ ◀ régua de portas — traços verticais, contíguos
+   ╰──────┬──────╯
+          │        ◀ prensa-cabo e a descida da fibra
+```
+
+**A contiguidade é o ponto.** Portas ópticas ficam enfileiradas numa bandeja, e
+traços lado a lado leem como conector; pontos espalhados leem como botão. O
+**prensa-cabo** é o que remove a leitura de "roteador" ou "caixa de luz".
+
+O estado continua no **selo**, com forma **e** glifo, e a silhueta é idêntica nos
+quatro — ela é a identidade da CTO, não o estado dela.
+
+### 5. "Abrir CTO" — o defeito era de ESPECIFICIDADE
+
+```text
+leaflet.css:264   .leaflet-container a { color: #0078A8 }   (0,1,1)
+Tailwind          .text-primary-fg                          (0,1,0)
+```
+
+A regra do Leaflet vence. O texto do botão saía `#0078A8` sobre o `#2563eb` do
+`bg-primary` — **azul sobre azul, contraste de 1,05:1**, medido no navegador.
+
+**Nenhuma asserção existente pegaria isso**: o elemento estava lá, com o texto
+certo, no lugar certo, visível. É a `CTO-1.5` de novo, com outra causa — lá uma
+classe Tailwind inexistente, aqui uma regra de terceiro vencendo por
+especificidade. A correção usa os **mesmos tokens** `primary`, numa regra
+específica o bastante para o design system voltar a decidir dentro do mapa.
+
+O teste que fecha isso **calcula o contraste WCAG** a partir do
+`getComputedStyle`, nos dois temas. Ele reproduz o número exato do defeito:
+`contraste 1.05:1 entre rgb(0, 120, 168) e rgb(37, 99, 235)`.
+
+### Uma regressão de bundle, pega pelo teste da fase anterior
+
+Ao centralizar as constantes de zoom, `MapCanvas` passou a importar **valor** de
+`map-config` — que importa `prisma`. É o defeito da `DQ-4`, que custou a página
+de login inteira, renascendo um commit depois de ser prevenido.
+
+O teste estrutural escrito na `CTO-3.2` pegou no mesmo dia. As constantes
+passaram a vir do `.mjs` puro.
+
+### O que as sabotagens mediram
+
+| | mutação | quem caiu |
+|---|---|---|
+| `S1` | limite de altura removido | `UXP-01`, `UXP-03` |
+| `S2` | altura vira `100vh` | `UXP-01/02/03` + os quatro de navegador |
+| `S3` | satélite acima da política | `UXP-05`, `05b`, `06`, `06b` |
+| `S4` | marcador antigo restaurado | `MAPUX-07`, `UXP-09`, `09b`, `10` |
+| `S5` | representação de portas removida | idem |
+| `S6` | botão volta à utility | `UXP-12` estrutural **e** o de contraste |
+| `S7` | retorno do mapa apontando para `/ctos` | `NAVMAP-01`, `09c` |
+| `S8` | persistência do modo removida | `MAPUX-04` (navegador) |
+
+**Oito de oito.** A mais informativa é a `S6`: o teste de contraste devolveu
+`1.05:1` com as cores exatas, que é o defeito do dono reproduzido em número.
+
+### O que NÃO mudou
+
+Contratos de cliente, Online/Offline, OS abertas, camadas futuras, `bbox`,
+tenancy, API, domínio da CTO, `CONNECT`/`MOVE`/`DISCONNECT`, `CustomerLocation`,
+permissões, schema, Prisma e Dart.
+
+> **`CTO-3.2.1b` — `READY FOR OWNER VALIDATION`.** `CTO-2` continua `DONE`,
+> `CTO-3.0` `DISCOVERY DONE`, `CTO-3.1` `APPROVED`, o PRD V1 `FROZEN`. A
+> `CTO-3.2.2` não começou.

@@ -908,6 +908,26 @@ Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §36. **Aguarda validação do do
 
 Duas decisões marcadas como `DECISION UPDATED`, sem apagar histórico (§390): a **§136** era `[DIFERENCIAL]` e o subconjunto CTO + clientes + OS abertas passou a `V1 MUST HAVE` — a camada de **técnico** continua `FUTURO` e continua dependendo de `TechnicianLocation`, que não existe; e a **§339** dizia que a `CTO-3` dependia do §136 existir, o que o dono resolveu na `CTO-3.0` com motor compartilhado e camada de CTO primeiro.
 
+**`CTO-3.2.1b` ENTREGUE — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** A validação funcional da `CTO-3.2.1` **passou**; ficaram quatro problemas de UX, e esta fase resolve só eles. **Zero produto novo, zero migration, zero Prisma, zero Dart, zero dependência.** O PRD V1 continua `FROZEN`.
+
+**Altura em pixels, nunca em viewport.** Com `vh` o mapa crescia com a tela e empurrava busca, contadores e legenda para fora da primeira dobra. **Altura de mapa não é fração de tela** — é faixa de leitura: 380 / 440 / 500 / 560 px. A proibição vale para **qualquer** unidade de viewport, porque `60vh` produz o mesmo defeito mais devagar.
+
+**A placa "Map data not yet available" foi MEDIDA, provedor por provedor.** Buscando quatro tiles vizinhos por nível e comparando bytes — quatro idênticos significa placa, não imagem: o OSM tem `z19` em todo lugar; o **Esri tem `z19` só em São Paulo e `z18` em cidade média e área rural**; a CARTO tem `z19`. **O que torna o satélite traiçoeiro é ele responder `200 image/jpeg`** com uma placa de 2.521 bytes byte-idêntica em qualquer região — o Leaflet não tem como saber que aquilo não é imagem, então desenha. Um `404` teria feito um buraco visível; um `200` faz uma mentira.
+
+A cura é **`maxNativeZoom` por camada** (19 · **18** · 19) mais **um `maxZoom` de mapa** (20): acima do nativo o Leaflet amplia o último nível real em vez de pedir um que não existe. **O valor do satélite é o pior caso medido, de propósito** — adotar 19 devolveria a placa para a maior parte do país, e adotar 18 custa um nível de nitidez nas capitais. Um defeito é cosmético; o outro faz o mapa afirmar que não há dado onde há. **Esconder com CSS seria o oposto**: o tile continuaria sendo pedido e o mapa mentiria em silêncio. O híbrido não precisou de regra própria — cada camada amplia a partir do próprio nativo, e nenhuma quebra enquanto a outra continua.
+
+**O marcador virou uma caixa óptica de verdade.** A primeira versão desenhava as portas como duas fileiras de três pontos, e o dono recusou pelo motivo certo: no tamanho real aquilo lê como teclado. Agora é corpo com linha de tampa, **bandeja com uma régua de traços verticais contíguos** — contiguidade lê como conector, pontos espalhados leem como botão — e **prensa-cabo** com a fibra descendo, que é o que remove a leitura de "roteador" ou "caixa de luz".
+
+**O botão "Abrir CTO" era um defeito de ESPECIFICIDADE.** `leaflet.css:264` pinta todo `<a>` do mapa com `#0078A8` (`0,1,1`) e vence a utility do Tailwind (`0,1,0`) — o texto saía **azul sobre azul, 1,05:1**, medido no navegador. **Nenhuma asserção existente pegaria**: o elemento estava lá, com o texto certo, no lugar certo, visível. É a `CTO-1.5` com outra causa. O teste que fecha isso **calcula o contraste WCAG** a partir do `getComputedStyle`, nos dois temas, e reproduz o número exato do defeito.
+
+**Uma regressão de bundle nasceu e morreu no mesmo dia.** Ao centralizar as constantes de zoom, `MapCanvas` passou a importar **valor** de `map-config`, que importa `prisma` — o defeito da `DQ-4` renascendo um commit depois de ser prevenido. O teste estrutural escrito na `CTO-3.2` pegou; as constantes passaram a vir do `.mjs` puro.
+
+Oito sabotagens, **oito detectadas**. A mais informativa é a do botão: o teste devolveu `contraste 1.05:1 entre rgb(0, 120, 168) e rgb(37, 99, 235)` — o defeito do dono reproduzido em número.
+
+**INFO pré-existente, medido e não corrigido:** o bundle de cliente contém o **shim de navegador** do Prisma (~58 KB), porque componentes de cliente importam o enum `AccessProfile`. Não é o cliente real — `getPrismaClient`, `libquery_engine`, `datasources` e `$connect` estão ausentes, e os construtores de erro são stubs que lançam "unable to run in this browser". Sem engine, sem credencial, sem capacidade de consulta.
+
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §38.
+
 **Próxima fatia: `CTO-3.2.2` — clientes e OS abertas no mapa.** Não iniciada.
 
 ## Princípios
