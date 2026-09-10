@@ -1307,8 +1307,15 @@ test.describe("Mapa Operacional — marcador e ação", () => {
     // A silhueta.
     await expect(caixa.locator(".cto-box__body")).toHaveCount(1);
     await expect(caixa.locator(".cto-box__lid")).toHaveCount(1);
-    await expect(caixa.locator(".cto-box__gland")).toHaveCount(1);
-    await expect(caixa.locator(".cto-box__cable")).toHaveCount(1);
+    /*
+      DOIS prensa-cabos e DOIS cabos desde a `CTO-3.2.1c`.
+
+      A contagem era 1, e mudou porque o dono pediu "entrada/saída de cabo
+      melhor resolvida": o tronco entra pelo prensa-cabo maior, a drop do
+      assinante sai pelo menor. Um cabo só descrevia metade do que a caixa faz.
+    */
+    await expect(caixa.locator(".cto-box__gland")).toHaveCount(2);
+    await expect(caixa.locator(".cto-box__cable")).toHaveCount(2);
 
     // A régua — e não a grade de pontos que o dono recusou.
     await expect(caixa.locator(".cto-box__tray")).toHaveCount(1);
@@ -1418,5 +1425,374 @@ test.describe("Mapa Operacional — marcador e ação", () => {
       "aria-pressed",
       "true",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CTO-3.2.1c — a plaqueta com o nome da CTO
+// ---------------------------------------------------------------------------
+
+/**
+ * Abre o mapa numa vista EXPLÍCITA.
+ *
+ * `abrirMapa` deixa o enquadramento por conta do `fitBounds`, e o zoom que ele
+ * escolhe depende do tamanho da janela — as quatro caixas de teste cabem em
+ * `z16` numa viewport e em `z15` noutra. Como a plaqueta tem limiar de zoom,
+ * um teste que dependesse disso mediria a viewport, não a regra.
+ */
+async function abrirMapaEm(page: Page, zoom: number, extra = "") {
+  await interceptarTiles(page);
+  await page.goto(
+    `/mapa?lat=${BASE.latitude}&lng=${BASE.longitude}&z=${zoom}${extra}`,
+  );
+  await expect(page.locator(".leaflet-container")).toBeVisible();
+  await expect(page.locator(".leaflet-marker-icon").first()).toBeVisible({
+    timeout: 15_000,
+  });
+}
+
+/** A plaqueta de uma caixa, achada pelo nome que ela mostra. */
+function plaquetaDe(page: Page, nome: string) {
+  return page.locator(".leaflet-tooltip.cto-map-label").filter({ hasText: nome });
+}
+
+/** O marcador daquela mesma caixa: o `title` carrega o nome. */
+function marcadorDe(page: Page, nome: string) {
+  return page.locator(`.leaflet-marker-icon[title^="${nome}"]`);
+}
+
+test.describe("Mapa Operacional — plaqueta com o nome da CTO", () => {
+  test("ML-01/02 · o nome aparece POR CIMA da caixa, sem clicar em nada", async ({
+    page,
+  }) => {
+    const erros = coletarErros(page);
+    await login(page, ADMIN_EMAIL);
+    /*
+      `z16` e não `z17`, e a razão é do BACKEND, não da plaqueta.
+
+      As quatro caixas do fixture estão a cerca de 440 m do centro. Em `z17` o
+      recorte da janela não as alcança, e a API — corretamente — devolve só a
+      caixa central: o mapa nunca carrega o que está fora da vista. Em `z16` a
+      janela cobre cerca de 1,2 km e as quatro entram.
+
+      É também o limiar exato da plaqueta, o que torna este teste mais forte:
+      ele afirma que no PRIMEIRO zoom em que as plaquetas aparecem elas já
+      aparecem todas.
+    */
+    await abrirMapaEm(page, 16);
+
+    /*
+      A afirmação central da fase, e ela é sobre o que o dono vê ao ABRIR.
+
+      Nada foi clicado, nada foi apontado. As quatro caixas do recorte mostram o
+      próprio nome — que é literalmente o pedido: "o nome da CTO deve aparecer
+      por cima dela no mapa".
+    */
+    await expect(page.getByTestId("cto-map-label")).toHaveCount(4, {
+      timeout: 15_000,
+    });
+    await expect(plaquetaDe(page, "MAPA QA DISPONIVEL")).toHaveCount(1);
+    await expect(plaquetaDe(page, "MAPA QA LOTADA")).toHaveCount(1);
+
+    // E é PERMANENTE: continua ali depois de clicar no mapa vazio, que é onde
+    // um tooltip comum do Leaflet se fecharia.
+    await page.locator(".leaflet-container").click({ position: { x: 8, y: 8 } });
+    await expect(page.getByTestId("cto-map-label")).toHaveCount(4);
+
+    expect(erros).toEqual([]);
+  });
+
+  test("ML-04 · a plaqueta fica ACIMA do marcador e centrada nele", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaEm(page, 17);
+
+    const nome = "MAPA QA DISPONIVEL";
+    const plaqueta = plaquetaDe(page, nome);
+    const marcador = marcadorDe(page, nome);
+    await expect(plaqueta).toBeVisible();
+    await expect(marcador).toBeVisible();
+
+    const p = (await plaqueta.boundingBox())!;
+    const m = (await marcador.boundingBox())!;
+
+    /*
+      ACIMA de verdade, medido — e não "tem a classe que diz top".
+
+      A sabotagem `S2` desta fase troca `direction` para `bottom`; a única
+      asserção que a derruba é esta comparação de retângulos.
+    */
+    expect(
+      p.y + p.height,
+      `a plaqueta (base ${p.y + p.height}) precisa ficar acima do marcador (topo ${m.y})`,
+    ).toBeLessThanOrEqual(m.y + 2);
+
+    // ANCORADA: centrada no marcador, e encostada nele.
+    const centroPlaqueta = p.x + p.width / 2;
+    const centroMarcador = m.x + m.width / 2;
+    expect(Math.abs(centroPlaqueta - centroMarcador)).toBeLessThanOrEqual(6);
+    expect(
+      m.y - (p.y + p.height),
+      "plaqueta solta, longe do marcador",
+    ).toBeLessThanOrEqual(24);
+
+    // Truncada com critério: ela nunca vira uma faixa atravessando o mapa.
+    expect(p.width).toBeLessThanOrEqual(130);
+
+    // A cauda repintada é o conector: sem ela a plaqueta flutua desligada.
+    const cauda = await plaqueta.evaluate((el) => {
+      const s = getComputedStyle(el, "::before");
+      return { cor: s.borderTopColor, largura: s.borderTopWidth };
+    });
+    expect(cauda.cor).not.toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+    expect(parseFloat(cauda.largura)).toBeGreaterThan(0);
+  });
+
+  for (const tema of ["light", "dark"] as const) {
+    test(`ML-03 · a plaqueta tem contraste real no tema ${tema}`, async ({
+      page,
+    }) => {
+      await login(page, ADMIN_EMAIL);
+      await page.addInitScript((t) => {
+        window.localStorage.setItem("alfaos-theme", t);
+      }, tema);
+      await abrirMapaEm(page, 17);
+
+      const plaqueta = plaquetaDe(page, "MAPA QA DISPONIVEL");
+      await expect(plaqueta).toBeVisible();
+
+      /*
+        O mesmo detector que reproduziu o defeito do botão na `CTO-3.2.1b`.
+
+        "Tem contraste suficiente" é afirmação numérica, e presença de elemento
+        não a responde. Aqui ela vale duas vezes: a plaqueta flutua sobre imagem
+        que não é nossa, e sem fundo OPACO o número dependeria do tile atrás.
+      */
+      const cores = await plaqueta.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { frente: s.color, fundo: s.backgroundColor };
+      });
+
+      const razao = contraste(cores.frente, cores.fundo);
+      expect(
+        razao,
+        `contraste ${razao.toFixed(2)}:1 entre ${cores.frente} e ${cores.fundo}`,
+      ).toBeGreaterThanOrEqual(4.5);
+
+      // OPACA: com alfa, o número acima seria uma meia-verdade.
+      expect(cores.fundo).not.toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+      expect(cores.fundo, "fundo semitransparente").not.toMatch(
+        /rgba\([^)]*,\s*0?\.\d+\)/,
+      );
+    });
+  }
+
+  test("ML-05 · a plaqueta NÃO substitui o popup, e não come o clique", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaEm(page, 17);
+
+    const plaqueta = plaquetaDe(page, "MAPA QA DISPONIVEL");
+    await expect(plaqueta).toBeVisible();
+
+    /*
+      INERTE ao ponteiro.
+
+      Uma plaqueta que aceitasse eventos cobriria o marcador do vizinho e
+      engoliria o clique dele — e o operador veria um marcador que simplesmente
+      não abre, sem nenhuma pista do porquê.
+    */
+    expect(
+      await plaqueta.evaluate((el) => getComputedStyle(el).pointerEvents),
+    ).toBe("none");
+
+    // E o popup continua sendo o lugar do detalhe.
+    await marcadorDe(page, "MAPA QA DISPONIVEL").click();
+    await expect(page.getByTestId("cto-map-popup")).toBeVisible();
+    await expect(page.getByTestId("cto-map-popup-free")).toBeVisible();
+    await expect(page.getByTestId("cto-map-popup-open")).toBeVisible();
+
+    // Com o popup aberto, a plaqueta continua lá: elas não competem.
+    await expect(plaqueta).toBeVisible();
+  });
+
+  test("ML-03b · a plaqueta continua legível sobre satélite e híbrido", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaEm(page, 17);
+
+    for (const modo of ["satellite", "hybrid"]) {
+      await page.getByTestId(`map-mode-${modo}`).click();
+      await page.waitForTimeout(600);
+
+      const plaqueta = plaquetaDe(page, "MAPA QA DISPONIVEL");
+      await expect(plaqueta, `plaqueta sumiu no modo ${modo}`).toBeVisible();
+
+      const estilo = await plaqueta.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { fundo: s.backgroundColor, sombra: s.boxShadow, cor: s.color };
+      });
+
+      // Sobre imagem aérea não há fundo previsível: fundo opaco mais sombra é o
+      // que separa a plaqueta de um telhado escuro ou de uma laje clara.
+      expect(estilo.fundo).not.toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+      expect(estilo.sombra, `sem sombra no modo ${modo}`).not.toBe("none");
+      expect(contraste(estilo.cor, estilo.fundo)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  test("ML-DENS-05 · afastar apaga as plaquetas; a selecionada permanece", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+
+    // No limiar, todas as caixas do recorte mostram o nome.
+    await abrirMapaEm(page, 16);
+    await expect(page.getByTestId("cto-map-label")).toHaveCount(4, {
+      timeout: 15_000,
+    });
+
+    /*
+      Abaixo do limiar, NENHUMA — e é isso que evita a parede de texto.
+
+      Em `z13` as quatro caixas do teste ficam a poucos pixels umas das outras;
+      quatro plaquetas ali seriam quatro retângulos empilhados, ilegíveis, por
+      cima do mapa.
+    */
+    await abrirMapaEm(page, 13);
+    await expect(page.locator(".leaflet-marker-icon").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("cto-map-label")).toHaveCount(0);
+
+    /*
+      Menos a SELECIONADA, e é a exceção que torna a regra usável: quem achou
+      uma caixa na busca precisa saber qual mancha é a dela.
+    */
+    await abrirMapaEm(page, 13, `&sel=${criadas[0]}`);
+    await expect(page.getByTestId("cto-map-label")).toHaveCount(1, {
+      timeout: 15_000,
+    });
+    await expect(plaquetaDe(page, "MAPA QA DISPONIVEL")).toHaveCount(1);
+
+    // E ela se distingue: a borda acompanha o anel do marcador selecionado.
+    await expect(
+      page.locator(".leaflet-tooltip.cto-map-label--selected"),
+    ).toHaveCount(1);
+  });
+
+  test("ML-06/07/08 · o marcador refinado, no navegador", async ({ page }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaEm(page, 17);
+
+    const caixa = page.locator("svg.cto-box").first();
+    await expect(caixa).toBeVisible();
+
+    // ML-06: corpo, tampa com fecho, orelhas de fixação e DOIS prensa-cabos.
+    await expect(caixa.locator(".cto-box__body")).toHaveCount(1);
+    await expect(caixa.locator(".cto-box__lid")).toHaveCount(1);
+    await expect(caixa.locator(".cto-box__latch")).toHaveCount(1);
+    await expect(caixa.locator(".cto-box__ear")).toHaveCount(2);
+    await expect(caixa.locator(".cto-box__gland")).toHaveCount(2);
+    await expect(caixa.locator(".cto-box__cable")).toHaveCount(2);
+
+    // ML-07: a régua de adaptadores, e nenhum ponto solto.
+    await expect(caixa.locator(".cto-box__tray")).toHaveCount(1);
+    expect(
+      await caixa.locator(".cto-box__ports line").count(),
+    ).toBeGreaterThanOrEqual(4);
+    await expect(caixa.locator(".cto-box__ports circle")).toHaveCount(0);
+
+    // ML-08: o estado continua por forma e glifo, não só por cor.
+    await expect(caixa.locator(".cto-box__badge")).toHaveCount(1);
+    await expect(caixa.locator(".cto-box__glyph")).toHaveCount(1);
+
+    /*
+      E o desenho continua PINTADO pelos tokens.
+
+      As orelhas e o fecho são as peças novas; nasceram sem regra de CSS numa
+      primeira versão, e um `fill` ausente no SVG significa preto — a única cor
+      que ignora o tema.
+    */
+    for (const parte of [".cto-box__ear", ".cto-box__latch"]) {
+      const preenchimento = await caixa
+        .locator(parte)
+        .first()
+        .evaluate((el) => getComputedStyle(el).fill);
+      expect(preenchimento, `${parte} sem cor de token`).not.toBe("none");
+      expect(preenchimento).toMatch(/^rgb/);
+    }
+
+    // Continua pequeno: aponta para o mapa, não compete com ele.
+    const medida = await caixa.boundingBox();
+    expect(medida?.width ?? 0).toBeLessThanOrEqual(48);
+    expect(medida?.width ?? 0).toBeGreaterThanOrEqual(24);
+  });
+
+  test("ML-09 · a persistência do mapa NÃO regrediu", async ({ page }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaEm(page, 17);
+
+    await page.getByTestId("map-mode-hybrid").click();
+    await expect(page.getByTestId("map-mode-hybrid")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    const antes = vistaDaUrl(page);
+    await page.reload();
+    await expect(page.locator(".leaflet-container")).toBeVisible();
+
+    // Modo, zoom e centro sobrevivem — a plaqueta não pode ter custado isso.
+    await expect(page.getByTestId("map-mode-hybrid")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+      { timeout: 10_000 },
+    );
+    const depois = vistaDaUrl(page);
+    expect(depois.get("z")).toBe(antes.get("z"));
+    expect(Number(depois.get("lat"))).toBeCloseTo(Number(antes.get("lat")), 3);
+
+    // E a plaqueta volta junto.
+    await expect(page.getByTestId("cto-map-label").first()).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
+  test("ML-10 · o retorno ao Mapa Operacional NÃO regrediu", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaEm(page, 17);
+
+    const antes = vistaDaUrl(page);
+
+    await marcadorDe(page, "MAPA QA DISPONIVEL").click();
+    await expect(page.getByTestId("cto-map-popup")).toBeVisible();
+    await page.getByTestId("cto-map-popup-open").click();
+
+    await expect(page.getByTestId("cto-back-link")).toHaveText(
+      "← Mapa Operacional",
+    );
+    await page.getByTestId("cto-back-link").click();
+
+    await expect(page.locator(".leaflet-container")).toBeVisible({
+      timeout: 15_000,
+    });
+    const depois = vistaDaUrl(page);
+    expect(depois.get("z")).toBe(antes.get("z"));
+    expect(Number(depois.get("lat"))).toBeCloseTo(Number(antes.get("lat")), 3);
+
+    // De volta ao mapa, o nome está lá de novo — e o da caixa aberta em
+    // destaque, porque ela voltou selecionada.
+    await expect(page.getByTestId("cto-map-label").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(
+      page.locator(".leaflet-tooltip.cto-map-label--selected"),
+    ).toHaveCount(1);
   });
 });

@@ -27,12 +27,14 @@ import {
 } from "@/lib/map-view-params";
 import { buildReturnTo, parseReturnTo } from "@/lib/return-to";
 import {
+  CTO_MARKER_GEOMETRY,
   CTO_MARKER_SIZE,
   ctoMarkerHtml,
 } from "@/components/map/cto-marker-icon";
 import {
   DEFAULT_NORMAL_URL,
   MAP_INITIAL_FIT_MAX_ZOOM,
+  MAP_LABEL_MIN_ZOOM,
   MAP_MAX_ZOOM,
   readMapTileConfig,
   tileImageSource,
@@ -1531,21 +1533,43 @@ describe("UXP-08..10 — a caixa óptica", () => {
   });
 
   it("UXP-09b · a régua está DENTRO do corpo da caixa", () => {
-    // Um desenho em que as portas escapam do corpo não lê como caixa.
-    const html = svg();
-    const corpo = /<rect class="cto-box__body" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/.exec(html);
-    const bandeja = /<rect class="cto-box__tray" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/.exec(html);
+    /*
+      Um desenho em que as portas escapam do corpo não lê como caixa.
 
-    expect(corpo).not.toBeNull();
-    expect(bandeja).not.toBeNull();
+      A asserção MUDOU DE MÉTODO na `CTO-3.2.1c`, e não de afirmação. Antes ela
+      extraía as coordenadas do SVG com expressão regular sobre um `<rect>` — e
+      o corpo virou um `<path>`, porque a cúpula do topo não é um retângulo. Uma
+      regex que procura a forma antiga não reprova o desenho novo: ela só deixa
+      de encontrar o que procurava, que é o pior tipo de teste — o que quebra
+      quando nada está errado e o que passa quando casa com outro trecho.
 
-    const [, cx, cy, cw, ch] = corpo!.map(Number) as unknown as number[];
-    const [, bx, by, bw, bh] = bandeja!.map(Number) as unknown as number[];
+      Agora a pergunta é aritmética sobre `CTO_MARKER_GEOMETRY`, que é a MESMA
+      fonte de onde o SVG é montado. Não existe segunda cópia das coordenadas
+      para divergir.
+    */
+    const { shell, tray, ports, latch } = CTO_MARKER_GEOMETRY;
 
-    expect(bx).toBeGreaterThanOrEqual(cx);
-    expect(by).toBeGreaterThanOrEqual(cy);
-    expect(bx + bw).toBeLessThanOrEqual(cx + cw);
-    expect(by + bh).toBeLessThanOrEqual(cy + ch);
+    const dentro = (fora: typeof shell, dentroDe: typeof shell) =>
+      dentroDe.x >= fora.x &&
+      dentroDe.y >= fora.y &&
+      dentroDe.x + dentroDe.width <= fora.x + fora.width &&
+      dentroDe.y + dentroDe.height <= fora.y + fora.height;
+
+    expect(dentro(shell, tray), "a bandeja escapa do corpo").toBe(true);
+    expect(dentro(shell, latch), "o fecho escapa do corpo").toBe(true);
+
+    // E os adaptadores dentro da bandeja, não vazando por cima dela.
+    const primeiro = ports.first;
+    const ultimo = ports.first + (ports.count - 1) * ports.step;
+    expect(primeiro).toBeGreaterThanOrEqual(tray.x);
+    expect(ultimo).toBeLessThanOrEqual(tray.x + tray.width);
+    expect(ports.top).toBeGreaterThanOrEqual(tray.y);
+    expect(ports.bottom).toBeLessThanOrEqual(tray.y + tray.height);
+
+    // A geometria descreve o SVG DE VERDADE, e não um documento paralelo: o
+    // caminho do corpo tem de começar nas coordenadas declaradas.
+    const topo = CTO_MARKER_GEOMETRY.shellRadius.top;
+    expect(svg()).toContain(`d="M ${shell.x} ${shell.y + topo}`);
   });
 
   it("UXP-10 · o estado continua sendo forma + glifo", () => {
@@ -1637,6 +1661,404 @@ describe("UXP-12 — legibilidade da ação do popup", () => {
     expect(css).toContain(".cto-map-shell .leaflet-popup-content a.cto-map-action:hover");
     expect(css).toContain(
       ".cto-map-shell .leaflet-popup-content a.cto-map-action:focus-visible",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ML-01..ML-08 — CTO-3.2.1c: a plaqueta com o nome, e o marcador refinado
+// ---------------------------------------------------------------------------
+
+/**
+ * O dono pediu duas coisas e só duas: o **nome da CTO por cima dela** no mapa,
+ * e um marcador que pareça de verdade uma caixa óptica de poste.
+ *
+ * O que dá para afirmar sem navegador está aqui — estrutura do componente,
+ * geometria do desenho e as regras de CSS. O que só o navegador mede — posição
+ * real da plaqueta, contraste computado, popup abrindo — está em
+ * `e2e/operational-map.spec.ts`.
+ */
+describe("ML-01..ML-08 — a plaqueta e o marcador refinado", () => {
+  const componente = () =>
+    semComentarios(leia("src/components/map/CtoMarkers.tsx"));
+  const css = () => leia("src/app/globals.css");
+
+  it("ML-01 · o marcador renderiza uma plaqueta PERMANENTE acima da caixa", () => {
+    const codigo = componente();
+
+    const plaqueta = /<Tooltip[\s\S]*?>/.exec(codigo);
+    expect(plaqueta, "não achei a plaqueta").not.toBeNull();
+
+    /*
+      `permanent` é o contrato, e não um detalhe de configuração.
+
+      Sem ele o Leaflet abre no `mouseover` e fecha no `mouseout` — é dica
+      passageira, exatamente o que o enunciado proibiu ("não criar uma solução
+      que só mostra o nome quando clica", e apontar não é melhor que clicar).
+    */
+    expect(plaqueta![0], "a plaqueta precisa ser permanente").toContain(
+      "permanent",
+    );
+    expect(plaqueta![0], "a plaqueta precisa ficar ACIMA").toContain(
+      "direction=" + JSON.stringify("top"),
+    );
+    expect(plaqueta![0]).toContain("cto-map-label");
+
+    // E ela é do react-leaflet, não uma segunda camada montada à mão.
+    expect(codigo).toMatch(/import[^;]*Tooltip[^;]*from "react-leaflet"/);
+  });
+
+  it("ML-02 · a plaqueta mostra o NOME da caixa, renderizado pelo React", () => {
+    const codigo = componente();
+
+    const corpo = /<Tooltip[\s\S]*?<\/Tooltip>/.exec(codigo);
+    expect(corpo).not.toBeNull();
+    expect(corpo![0]).toContain("{marker.name}");
+    expect(corpo![0]).toContain("cto-map-label");
+
+    /*
+      O texto vem por FILHO de componente, e nunca pelo `divIcon`.
+
+      Esta é a asserção de segurança da fase. `divIcon` recebe HTML cru e o
+      injeta no DOM; um nome de caixa é digitado por gente. O `Tooltip` do
+      react-leaflet renderiza os filhos por portal, e o React escapa texto — uma
+      caixa batizada de `<img src=x onerror=…>` aparece com esse nome escrito.
+
+      O ícone continua sem saber que existe nome: `UXP-10b` prova isso lendo o
+      módulo do desenho, e aqui a contraparte é que ninguém passou o nome a ele.
+    */
+    const icone = /ctoMarkerHtml\(([^)]*)\)/.exec(codigo);
+    expect(icone, "não achei a chamada do ícone").not.toBeNull();
+    expect(icone![1]).not.toContain("name");
+    expect(icone![1]).not.toContain("code");
+  });
+
+  it("ML-03 · a plaqueta tem estrutura de contraste, por TOKEN e sem hexadecimal", () => {
+    const folha = css();
+    const regra =
+      /\.cto-map-shell \.leaflet-tooltip\.cto-map-label \{([\s\S]*?)\}/.exec(
+        folha,
+      );
+    expect(regra, "falta a regra da plaqueta no globals.css").not.toBeNull();
+
+    // Fundo e texto declarados: sem os dois, o branco padrão do Leaflet volta a
+    // valer e a plaqueta deixa de acompanhar o tema.
+    expect(regra![1]).toContain("background:");
+    expect(regra![1]).toContain("color:");
+    expect(regra![1]).toContain("--surface");
+    expect(regra![1]).toContain("--fg");
+
+    // A lição da `CTO-1.5`: cor de paleta escrita direto no lugar do token.
+    expect(regra![1], "hexadecimal solto na plaqueta").not.toMatch(
+      /#[0-9a-fA-F]{3,8}/,
+    );
+
+    /*
+      OPACA, e isso é decisão medível — não preferência.
+
+      Com fundo semitransparente o contraste do texto passa a depender do pixel
+      do tile que estiver atrás, e deixa de existir um número para afirmar.
+      Opaca, o teste de navegador calcula a razão da WCAG e ela vale igual sobre
+      asfalto e sobre telhado.
+    */
+    expect(regra![1]).toMatch(/background:\s*rgb\(var\(--surface\)\)/);
+
+    // A cauda repintada é o que prende a plaqueta ao marcador.
+    expect(folha).toContain(
+      ".cto-map-shell .leaflet-tooltip-top.cto-map-label::before",
+    );
+  });
+
+  it("ML-04 · a plaqueta fica ANCORADA acima do marcador, e centrada nele", () => {
+    const codigo = componente();
+
+    const ancora = /tooltipAnchor:\s*\[([^\]]*)\]/.exec(codigo);
+    expect(
+      ancora,
+      "sem tooltipAnchor a plaqueta nasce em cima da base da caixa",
+    ).not.toBeNull();
+
+    const [x, y] = ancora![1].split(",").map((p) => p.trim());
+    // Centrada horizontalmente sobre a caixa.
+    expect(x).toBe("0");
+    /*
+      E ACIMA: o valor é negativo e da ordem do tamanho do marcador.
+
+      Um `y` positivo ou zero poria a plaqueta sobre a base da caixa — cobrindo
+      justamente o desenho que ela existe para identificar.
+    */
+    expect(y).toContain("-CTO_MARKER_SIZE");
+
+    // A âncora do ícone continua na base: é a ponta da fibra que toca o poste.
+    expect(codigo).toContain(
+      "iconAnchor: [CTO_MARKER_SIZE / 2, CTO_MARKER_SIZE - 2]",
+    );
+  });
+
+  it("ML-05 · a plaqueta NÃO substitui o popup, e não rouba o clique", () => {
+    const codigo = componente();
+
+    // O popup continua existindo, com a ação dentro dele.
+    expect(codigo).toContain("<Popup>");
+    expect(codigo).toContain("cto-map-popup");
+    expect(codigo).toContain("cto-map-popup-open");
+
+    /*
+      A plaqueta é INERTE.
+
+      `.leaflet-tooltip` nasce com `pointer-events: none`, e é isso que impede
+      uma plaqueta de cobrir o marcador do vizinho e comer o clique dele. A
+      opção `interactive` do Leaflet reverteria isso; ela não pode aparecer.
+    */
+    const plaqueta = /<Tooltip[\s\S]*?>/.exec(codigo)!;
+    expect(plaqueta[0], "plaqueta interativa engoliria o clique").not.toContain(
+      "interactive",
+    );
+    expect(css(), "a plaqueta não pode reativar o ponteiro").not.toMatch(
+      /\.cto-map-label[^{]*\{[^}]*pointer-events:\s*auto/,
+    );
+  });
+
+  it("ML-06 · o marcador refinado mantém identidade de caixa óptica", () => {
+    const { shell, shellRadius, latch, seamY, glandBar } = CTO_MARKER_GEOMETRY;
+    const html = ctoMarkerHtml(ctoMapStatusPresentation("AVAILABLE"), false);
+
+    /*
+      A proporção EM PÉ é o achado da fase.
+
+      A versão que o dono recusou media 29 × 21 — deitada. Caixa deitada com uma
+      faixa dentro lê como aparelho de mesa; caixa de terminação de poste é em
+      pé. Nenhum detalhe interno compensa a proporção errada, porque a proporção
+      é o que sobrevive a 38 pixels.
+
+      A margem não é simbólica: 24 × 24,5 passaria num teste de "altura maior
+      que largura" e continuaria lendo como quadrado. Exigir um quarto a mais de
+      altura é o que torna a asserção capaz de reprovar o desenho intermediário
+      que esta fase já descartou.
+    */
+    expect(
+      shell.height,
+      `corpo ${shell.width} × ${shell.height}: quadrado demais para ler como caixa de poste`,
+    ).toBeGreaterThanOrEqual(shell.width * 1.25);
+
+    /*
+      A CÚPULA: raio de topo próximo da metade da largura.
+
+      Com raio pequeno o contorno volta a ser um retângulo arredondado, que é o
+      que qualquer ícone de aplicativo também é. Perto da metade da largura, o
+      topo é praticamente meia circunferência — e isso é perfil de caixa de
+      terminação, não de aplicativo.
+    */
+    expect(shellRadius.top).toBeGreaterThanOrEqual(shell.width * 0.4);
+    expect(shellRadius.top, "o raio não pode passar da metade").toBeLessThanOrEqual(
+      shell.width / 2,
+    );
+    // E embaixo o canto é seco: a caixa apoia, não flutua.
+    expect(shellRadius.bottom).toBeLessThan(shellRadius.top / 2);
+
+    // A tampa: costura mais fecho. Linha sozinha não resolve leitura de tampa.
+    expect(html).toContain("cto-box__lid");
+    expect(html).toContain("cto-box__latch");
+    expect(seamY).toBeGreaterThan(shell.y);
+    expect(seamY).toBeLessThan(shell.y + shell.height);
+    expect(latch.y, "o fecho precisa montar SOBRE a costura").toBeLessThan(
+      seamY,
+    );
+    expect(latch.y + latch.height).toBeGreaterThan(seamY);
+
+    /*
+      ENTRADA e SAÍDA, e a diferença entre elas é a FORMA do traço.
+
+      O tronco desce reto até a âncora — é o cabo que chega da rede, e a ponta
+      dele é o ponto no chão. A drop sai em CURVA, porque fibra não corre em
+      ângulo reto. Duas retas paralelas seriam dois fios quaisquer; uma reta e
+      uma curva são um tronco e uma derivação.
+
+      A placa é UMA. Dois blocos pequenos sob a caixa leem como pés — foi assim
+      que a primeira tentativa desta fase ficou, e é por isso que a asserção
+      olha a barra e não uma contagem.
+    */
+    expect(html).toContain("cto-box__gland");
+    // BARRA, e não bloco: larga em relação à própria altura, e tucada sob a
+    // caixa. Uma placa tão larga quanto o corpo vira prateleira, e o conjunto
+    // com os dois cabos vira cavalete.
+    expect(glandBar.width).toBeGreaterThanOrEqual(glandBar.height * 2.5);
+    expect(glandBar.width, "placa larga demais lê como base").toBeLessThan(
+      shell.width * 0.75,
+    );
+    expect(glandBar.x).toBeGreaterThan(shell.x);
+    expect(glandBar.x + glandBar.width).toBeLessThan(shell.x + shell.width);
+
+    const tronco = /<path class="cto-box__cable" d="([^"]*)"/.exec(html);
+    const drop = /<path class="cto-box__cable cto-box__cable--drop" d="([^"]*)"/.exec(
+      html,
+    );
+    expect(tronco, "falta o tronco").not.toBeNull();
+    expect(drop, "falta a drop").not.toBeNull();
+    expect(tronco![1], "o tronco tem de descer RETO").toContain("L ");
+    expect(tronco![1], "o tronco não curva").not.toContain("C ");
+    expect(drop![1], "a drop tem de sair em CURVA").toContain("C ");
+  });
+
+  it("ML-07 · as portas ópticas continuam explícitas, contíguas e verticais", () => {
+    const { ports, tray } = CTO_MARKER_GEOMETRY;
+    const html = ctoMarkerHtml(ctoMapStatusPresentation("AVAILABLE"), false);
+
+    expect(html).toContain("cto-box__tray");
+    expect(ports.count).toBeGreaterThanOrEqual(4);
+
+    const regua = /<g class="cto-box__ports">([\s\S]*?)<\/g>/.exec(html);
+    expect(regua).not.toBeNull();
+    expect((regua![1].match(/<line/g) ?? []).length).toBe(ports.count);
+    expect(regua![1], "ponto no lugar de conector").not.toContain("<circle");
+
+    // VERTICAIS: mesmo x nas duas pontas.
+    const coords = Array.from(
+      regua![1].matchAll(/x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/g),
+    );
+    expect(coords.length).toBe(ports.count);
+    for (const [, x1, , x2] of coords) {
+      expect(x1).toBe(x2);
+    }
+
+    /*
+      CONTÍGUAS, e é isso que separa conector de teclado.
+
+      Traços lado a lado leem como régua óptica; espalhá-los pela largura da
+      bandeja foi o que fez a primeira versão parecer calculadora. A régua tem
+      de caber com folga dentro da bandeja — se o passo crescer até ocupar tudo,
+      os traços viram grade de novo.
+    */
+    const largura = (ports.count - 1) * ports.step;
+    expect(largura).toBeLessThan(tray.width);
+    expect(ports.step).toBeLessThan(tray.height / 2);
+  });
+
+  it("ML-08 · o selo de estado continua presente, e convive com a plaqueta", () => {
+    const estados = ["AVAILABLE", "FULL", "DAMAGED", "INACTIVE"] as const;
+
+    for (const estado of estados) {
+      const html = ctoMarkerHtml(ctoMapStatusPresentation(estado), false);
+      expect(html, estado + " perdeu o selo").toContain("cto-box__badge");
+      expect(html, estado + " perdeu o glifo").toContain("cto-box__glyph");
+    }
+
+    // Forma E glifo distintos nos quatro: a plaqueta acrescentou nome, e não
+    // substituiu a única pista que funciona sem cor.
+    const selos = estados.map(
+      (s) =>
+        /<g class="cto-box__badge">(.*?)<\/g>/.exec(
+          ctoMarkerHtml(ctoMapStatusPresentation(s), false),
+        )?.[1] ?? "",
+    );
+    expect(new Set(selos).size).toBe(4);
+
+    // O glifo cabe no próprio selo: maior que a forma, ele encosta na borda e a
+    // forma deixa de ser lida como forma.
+    const glifo = /\.cto-box__glyph \{([\s\S]*?)\}/.exec(css());
+    expect(glifo).not.toBeNull();
+    const tamanho = /font-size:\s*(\d+(?:\.\d+)?)px/.exec(glifo![1]);
+    expect(tamanho).not.toBeNull();
+    expect(Number(tamanho![1])).toBeLessThanOrEqual(
+      CTO_MARKER_GEOMETRY.badge.r * 1.5,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ML-DENS — a política de densidade da plaqueta
+// ---------------------------------------------------------------------------
+
+describe("ML-DENS — quando o nome aparece, e por quê", () => {
+  /** Metros por pixel no Web Mercator, na latitude onde o dono valida. */
+  function metrosPorPixel(zoom: number, latitude = -20.77): number {
+    return (156543.03392 * Math.cos((latitude * Math.PI) / 180)) / 2 ** zoom;
+  }
+
+  it("ML-DENS-01 · o limiar cai onde a conta diz que a parede de texto acaba", () => {
+    /*
+      Isto NÃO é gosto, e a medição está registrada em `map-tiles.config.mjs`.
+
+      Não havia densidade real para observar — o banco de desenvolvimento tem
+      uma caixa com coordenada —, então o que se mede é a projeção. Uma plaqueta
+      tem no máximo 112px, e duas colidem quando a distância entre as caixas
+      rende menos que isso na tela.
+    */
+    const CHIP = 112;
+    const separacao = (metros: number, zoom: number) =>
+      metros / metrosPorPixel(zoom);
+
+    // A 300 m — rede urbana esparsa — o limiar já separa as plaquetas.
+    expect(separacao(300, MAP_LABEL_MIN_ZOOM)).toBeGreaterThanOrEqual(CHIP);
+
+    // Um nível abaixo dele, não separa. É essa a fronteira que o número marca.
+    expect(separacao(300, MAP_LABEL_MIN_ZOOM - 1)).toBeLessThan(CHIP);
+
+    /*
+      E a parede que o limiar existe para evitar: em `z14` duas caixas a 300 m
+      ficam a algumas dezenas de pixels, ou seja, as plaquetas se empilham por
+      cima da cidade inteira.
+    */
+    expect(separacao(300, 14)).toBeLessThan(40);
+  });
+
+  it("ML-DENS-02 · o limiar é operacional: cabe entre o enquadramento inicial e o teto", () => {
+    // Abrir o mapa já tem de mostrar nome — senão o dono abre e não vê o que
+    // pediu.
+    expect(MAP_INITIAL_FIT_MAX_ZOOM).toBeGreaterThanOrEqual(MAP_LABEL_MIN_ZOOM);
+    expect(MAP_LABEL_MIN_ZOOM).toBeLessThan(MAP_MAX_ZOOM);
+    expect(MAP_LABEL_MIN_ZOOM).toBeGreaterThan(10);
+  });
+
+  it("ML-DENS-03 · a fronteira recebe um BOOLEANO, e nunca o zoom", () => {
+    /*
+      A regra que fecha a realimentação da `CTO-3.2.1`.
+
+      Uma prop derivada da câmera chegando aos marcadores fecha o laço
+      `popup → autoPan → moveend → render`, que custou `Maximum update depth
+      exceeded` e o popup parando de abrir. Um número muda a cada
+      micro-movimento; um booleano só muda quando alguém cruza o limiar, e o
+      `memo` bloqueia o resto.
+    */
+    const camada = semComentarios(leia("src/components/map/CtoMapLayer.tsx"));
+    const marcadores = semComentarios(
+      leia("src/components/map/CtoMarkers.tsx"),
+    );
+
+    expect(camada).toContain("showLabels={mostrarPlaquetas}");
+    expect(camada).toMatch(/const mostrarPlaquetas = .*MAP_LABEL_MIN_ZOOM/);
+    expect(marcadores).toContain("showLabels: boolean");
+
+    // Nenhum zoom cru atravessa: uma prop `zoom` no marcador seria o número de
+    // volta, e com ele o laço.
+    expect(camada).not.toMatch(/<CtoMarkers[\s\S]*?zoom=/);
+
+    // E a constante vem do módulo PURO, não de `map-config` (que alcança
+    // Prisma). É a regressão que a `CTO-3.2.1b` cometeu e o teste estrutural
+    // pegou no mesmo dia.
+    expect(camada).toMatch(
+      /import \{[^}]*MAP_LABEL_MIN_ZOOM[^}]*\} from "@\/lib\/map-tiles\.config\.mjs"/,
+    );
+  });
+
+  it("ML-DENS-04 · a caixa SELECIONADA mostra o nome em qualquer zoom", () => {
+    /*
+      A exceção que torna a regra usável.
+
+      Quem achou uma CTO na busca, ou voltou de uma CTO com `sel=` na URL,
+      precisa saber qual mancha do mapa é a dela. Sem esta cláusula, buscar uma
+      caixa e cair num zoom afastado devolveria um marcador anônimo.
+    */
+    const marcadores = semComentarios(
+      leia("src/components/map/CtoMarkers.tsx"),
+    );
+    expect(marcadores).toMatch(/const comPlaqueta = showLabels \|\| selecionado/);
+
+    // E ela é distinguível: a plaqueta da selecionada acompanha o anel do
+    // marcador, senão o operador não saberia por que só aquele nome apareceu.
+    expect(marcadores).toContain("cto-map-label--selected");
+    expect(leia("src/app/globals.css")).toContain(
+      ".cto-map-shell .leaflet-tooltip.cto-map-label--selected",
     );
   });
 });
