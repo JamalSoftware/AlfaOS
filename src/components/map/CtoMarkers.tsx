@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { memo } from "react";
 import { divIcon, type DivIcon } from "leaflet";
-import { Marker, Popup } from "react-leaflet";
+import { Marker, Popup, Tooltip } from "react-leaflet";
 import type { CtoMapMarker } from "@/lib/cto-map";
 import { ctoMapStatusPresentation } from "@/lib/cto-map-presentation";
 import { OPERATIONAL_MAP_PATH } from "@/lib/return-to";
@@ -44,9 +44,20 @@ function iconePara(marker: CtoMapMarker, selecionado: boolean): DivIcon {
     html: ctoMarkerHtml(ctoMapStatusPresentation(marker.status), selecionado),
     iconSize: [CTO_MARKER_SIZE, CTO_MARKER_SIZE],
     // A âncora fica na BASE da caixa, e não no centro: um marcador que
-    // representa um objeto físico aponta para onde ele está no chão.
+    // representa um objeto físico aponta para onde ele está no chão. É a ponta
+    // da fibra que encosta no ponto — o poste.
     iconAnchor: [CTO_MARKER_SIZE / 2, CTO_MARKER_SIZE - 2],
     popupAnchor: [0, -CTO_MARKER_SIZE + 6],
+    /*
+      Onde a plaqueta encosta — CTO-3.2.1c.
+
+      Sem este valor a plaqueta nasceria no PONTO do mapa, ou seja, em cima da
+      base da caixa, cobrindo justamente o desenho que ela deveria identificar.
+      Medido a partir da âncora, para que ela fique logo acima do topo do
+      marcador: perto o bastante para a cauda encostar, longe o bastante para
+      não tapar o selo de estado.
+    */
+    tooltipAnchor: [0, -CTO_MARKER_SIZE + 4],
   });
 
   cacheDeIcones.set(chave, icone);
@@ -107,6 +118,23 @@ interface CtoMarkersProps {
    * continua sendo a página.
    */
   canOpenDetail: boolean;
+  /**
+   * O zoom já permite mostrar o nome de TODAS as caixas visíveis?
+   *
+   * ## É um BOOLEANO, e não o zoom — essa escolha é o que fecha a
+   * realimentação
+   *
+   * A `CTO-3.2.1` pagou caro por uma prop derivada da câmera chegando aqui: o
+   * popup re-renderizava, o `autoPan` do Leaflet movia o mapa, o `moveend`
+   * mudava a prop, e o console enchia de `Maximum update depth exceeded` até o
+   * popup parar de abrir.
+   *
+   * Um número mudaria a cada micro-movimento e reabriria exatamente esse laço.
+   * Um booleano só muda quando o operador **cruza** o limiar — o `memo` lá
+   * embaixo bloqueia todos os outros renders, e arrastar o mapa a `z18` não
+   * chega aqui.
+   */
+  showLabels: boolean;
 }
 
 function CtoMarkers({
@@ -114,16 +142,27 @@ function CtoMarkers({
   selectedId,
   onSelect,
   canOpenDetail,
+  showLabels,
 }: CtoMarkersProps) {
   return (
     <>
       {markers.map((marker) => {
         const apresentacao = ctoMapStatusPresentation(marker.status);
+        const selecionado = marker.id === selectedId;
+        /*
+          A SELECIONADA sempre mostra o nome, em qualquer zoom.
+
+          É esta cláusula que torna o limiar usável. Quem achou uma caixa na
+          busca, ou voltou de uma CTO com `sel=` na URL, precisa saber qual das
+          manchas do mapa é a dela — e num zoom afastado nenhuma outra plaqueta
+          aparece para disputar espaço com essa.
+        */
+        const comPlaqueta = showLabels || selecionado;
         return (
           <Marker
             key={marker.id}
             position={[marker.latitude, marker.longitude]}
-            icon={iconePara(marker, marker.id === selectedId)}
+            icon={iconePara(marker, selecionado)}
             // `title` vira o atributo nativo no elemento focável do Leaflet: é
             // o que dá ao marcador um nome acessível sem depender da cor nem
             // de abrir o popup.
@@ -134,6 +173,48 @@ function CtoMarkers({
               popupclose: () => onSelect(null),
             }}
           >
+            {/*
+              A PLAQUETA com o nome da caixa.
+
+              ## `permanent`, e a palavra é o contrato
+
+              Um tooltip comum abre no `mouseover` e some — é dica passageira, e
+              o dono pediu o oposto: o nome POR CIMA da caixa, sem clicar e sem
+              apontar. Com `permanent` o Leaflet o abre junto com o marcador,
+              mantém, e deixa de fechá-lo no `preclick` — clicar no mapa não
+              apaga mais nada.
+
+              ## O texto vem pelo REACT, e é isso que o mantém seguro
+
+              O `divIcon` do marcador recebe HTML cru; este conteúdo não. O
+              react-leaflet renderiza os filhos do tooltip por portal, então o
+              nome digitado pelo operador é escapado como texto. Uma caixa
+              batizada de `<img src=x onerror=…>` aparece com esse nome escrito.
+              Injetar o mesmo texto no `divIcon` seria um elemento a menos no
+              DOM e uma porta de HTML cru a mais.
+
+              ## O `key` existe porque o Leaflet lê `className` UMA vez
+
+              A classe é opção de construção do tooltip: trocá-la num tooltip já
+              montado não muda nada. Trocar o `key` refaz o elemento — e isso
+              acontece só quando a seleção muda, que é um gesto do operador, e
+              nunca durante um arrasto.
+            */}
+            {comPlaqueta ? (
+              <Tooltip
+                key={selecionado ? "sel" : "std"}
+                permanent
+                direction="top"
+                className={`cto-map-label${
+                  selecionado ? " cto-map-label--selected" : ""
+                }`}
+              >
+                <span data-testid="cto-map-label" data-cto-id={marker.id}>
+                  {marker.name}
+                </span>
+              </Tooltip>
+            ) : null}
+
             <Popup>
               <div
                 className="min-w-[220px] max-w-[280px] p-3"

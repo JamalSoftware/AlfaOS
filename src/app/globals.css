@@ -446,11 +446,18 @@
   fill: rgb(var(--surface));
   stroke: rgb(var(--fg));
   stroke-width: 2;
+  stroke-linejoin: round;
 }
 
 .cto-box__lid {
   stroke: rgb(var(--fg-muted));
   stroke-width: 1.5;
+}
+
+/* O fecho, sobre a costura: é a peça que diz "isto abre" — sem ela a costura
+   é só uma linha, e linha sozinha não resolve a leitura de tampa. */
+.cto-box__latch {
+  fill: rgb(var(--fg-muted));
 }
 
 /*
@@ -486,6 +493,19 @@
   fill: none;
 }
 
+/*
+  A drop é MAIS FINA que o tronco, e a diferença é a informação.
+
+  Dois traços com o mesmo peso seriam dois fios quaisquer. Um grosso descendo
+  reto e um fino saindo em curva são o tronco que chega da rede e a derivação
+  que vai ao assinante — que é o que a caixa faz. Igualar as espessuras apagaria
+  a pista de qual é qual.
+*/
+.cto-box__cable--drop {
+  stroke-width: 1.4;
+  opacity: 0.85;
+}
+
 .cto-box__badge > * {
   stroke: rgb(var(--surface));
   stroke-width: 2;
@@ -494,7 +514,9 @@
 
 .cto-box__glyph {
   font-family: inherit;
-  font-size: 11px;
+  /* Acompanha o raio do selo: o glifo precisa caber dentro da forma, senão ele
+     encosta na borda e a forma deixa de ser lida como forma. */
+  font-size: 10px;
   font-weight: 700;
 }
 
@@ -576,4 +598,77 @@
 .cto-map-shell .leaflet-popup-content a.cto-map-action:focus-visible {
   outline: 2px solid rgb(var(--focus));
   outline-offset: 2px;
+}
+
+/*
+  ---------------------------------------------------------------------------
+  A plaqueta com o nome da CTO — CTO-3.2.1c
+  ---------------------------------------------------------------------------
+
+  O dono pediu o nome da caixa POR CIMA dela no mapa, sem clicar. Isto é a
+  plaqueta.
+
+  ## Ela é um `Tooltip` PERMANENTE, e a palavra permanente é o ponto
+
+  O tooltip comum do Leaflet abre no `mouseover` e some — é dica passageira. Com
+  `permanent`, ele abre junto com o marcador e fica; o Leaflet inclusive deixa
+  de fechá-lo no `preclick`, então clicar no mapa não apaga o nome. É rótulo de
+  carta, e não dica de ferramenta.
+
+  ## Os tokens do POPUP, e não uma paleta nova
+
+  A plaqueta flutua sobre imagem que não é nossa: mapa claro, satélite escuro,
+  telhado, laje, mata. Ela usa exatamente os tokens que o popup já usa —
+  `surface` com `fg` —, e o popup já foi validado pelo dono sobre as três bases.
+  Inventar cor para a plaqueta criaria uma segunda decisão de contraste para o
+  mesmo problema.
+
+  Ela é OPACA de propósito. Fundo semitransparente foi a preferência do
+  enunciado e foi recusada por uma razão que se mede: com alfa, o contraste do
+  texto passa a depender do pixel do tile que estiver atrás, e deixa de haver um
+  número para afirmar. Opaca, o teste de navegador calcula a razão da WCAG e ela
+  vale igual sobre asfalto e sobre telhado — que é o que "contraste suficiente"
+  precisa significar.
+
+  ## A cauda é o conector
+
+  `.leaflet-tooltip-top:before` é um triângulo que aponta para baixo, na cor do
+  fundo padrão do Leaflet. Repintá-lo com o token é o que faz a plaqueta parecer
+  presa à caixa em vez de flutuar solta ao lado dela.
+*/
+.cto-map-shell .leaflet-tooltip.cto-map-label {
+  /* Truncar é decisão de LARGURA, e o texto completo continua no DOM: quem lê
+     por leitor de tela e quem abre o popup recebem o nome inteiro. */
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+  padding: 2px 7px;
+  border: 1px solid rgb(var(--border));
+  border-radius: 8px;
+  background: rgb(var(--surface));
+  color: rgb(var(--fg));
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  box-shadow: 0 1px 4px rgb(var(--overlay) / 0.45);
+}
+
+.cto-map-shell .leaflet-tooltip-top.cto-map-label::before {
+  border-top-color: rgb(var(--surface));
+}
+
+/*
+  A plaqueta da caixa SELECIONADA acompanha o anel do marcador.
+
+  Abaixo de `MAP_LABEL_MIN_ZOOM` ela é a única visível — quem buscou uma CTO vê
+  o nome dela mesmo com o mapa afastado —, e sem esta distinção o operador não
+  teria como saber por que só aquele nome apareceu.
+*/
+.cto-map-shell .leaflet-tooltip.cto-map-label--selected {
+  border-color: rgb(var(--focus));
+}
+
+.cto-map-shell .leaflet-tooltip-top.cto-map-label--selected::before {
+  border-top-color: rgb(var(--focus));
 }

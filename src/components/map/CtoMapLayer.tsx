@@ -19,6 +19,13 @@ import {
   usefulSearchLength,
 } from "@/lib/cto-map-presentation";
 import type { MapInitialView, MapTilesConfig } from "@/lib/map-config";
+/*
+  Do .mjs PURO, pela mesma razão de sempre: `map-config` importa `prisma`, e um
+  valor importado dele num componente de cliente arrastaria o Prisma para o
+  bundle do navegador. Foi o que a `DQ-4` pagou com a página de login inteira,
+  e o que a `CTO-3.2.1b` quase repetiu ao centralizar constantes de zoom.
+*/
+import { MAP_LABEL_MIN_ZOOM } from "@/lib/map-tiles.config.mjs";
 import {
   DEFAULT_MAP_MODE,
   MAP_MODE_STORAGE_KEY,
@@ -343,6 +350,23 @@ export function CtoMapLayer({
 
   const markers = view?.markers ?? SEM_MARCADORES;
 
+  /*
+    A política de densidade da plaqueta, em uma linha.
+
+    Um BOOLEANO atravessa a fronteira, e nunca o zoom. `CtoMarkers` é `memo`, e
+    booleano só muda quando o operador cruza o limiar — arrastar o mapa dentro
+    da mesma faixa não re-renderiza marcador nenhum. Passar o número daqui
+    reabriria a realimentação `popup → autoPan → moveend → render` que custou o
+    popup inteiro na `CTO-3.2.1`.
+
+    Câmera ainda nula é o instante entre montar o mapa e ele reportar a primeira
+    posição. Não aparece na tela: nesse intervalo ainda não houve leitura de
+    recorte, então também não há marcador para rotular.
+
+    O porquê do 16 está medido em `map-tiles.config.mjs`.
+  */
+  const mostrarPlaquetas = (camera?.zoom ?? 0) >= MAP_LABEL_MIN_ZOOM;
+
   return (
     <div className="space-y-4">
       <CtoMapSearch
@@ -381,6 +405,7 @@ export function CtoMapLayer({
           selectedId={selectedId}
           onSelect={setSelectedId}
           canOpenDetail={canOpenDetail}
+          showLabels={mostrarPlaquetas}
         />
       </OperationalMap>
 

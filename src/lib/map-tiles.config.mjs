@@ -151,6 +151,51 @@ export const MAP_MAX_ZOOM = 20;
 export const MAP_INITIAL_FIT_MAX_ZOOM = 17;
 
 /**
+ * A partir de qual zoom o nome da CTO aparece por cima dela.
+ *
+ * ## Isto foi MEDIDO — e o que existia para medir era geometria, não dado
+ *
+ * O banco de desenvolvimento tem **uma** caixa com coordenada, então não há
+ * densidade real para observar, e isso fica dito em vez de suposto. O que
+ * existe é aritmética de projeção: no Web Mercator um pixel vale
+ * `156543,03 · cos(latitude) / 2^zoom` metros, e duas plaquetas de 112px
+ * colidem sempre que a distância entre as caixas render menos que isso na tela.
+ *
+ * ```text
+ * distância entre caixas   zoom mínimo para NÃO colidir   (latitude −20,77)
+ *      40 m                      z18,6
+ *      80 m                      z17,6
+ *     150 m                      z16,7
+ *     300 m                      z15,7
+ *     600 m                      z14,7
+ * ```
+ *
+ * ## Por que 16, e não 17 nem 15
+ *
+ * Uma CTO de 8 a 16 portas cobre aproximadamente uma quadra, o que põe a rede
+ * urbana típica na faixa de 100 a 300 m. Em `z16` a tela mostra cerca de 1,8 km
+ * de largura — uma vizinhança inteira, com as caixas mais espaçadas já
+ * separadas e as mais densas ainda encostando. É onde o nome passa a informar
+ * mais do que atrapalha.
+ *
+ * Abaixo disso a conta é implacável: em `z14` duas caixas a 300 m ficam a 34px
+ * uma da outra, e a tela vira uma parede de texto por cima da cidade. Acima,
+ * em `z17`, o operador teria de aproximar mais do que precisa só para ler um
+ * nome.
+ *
+ * ## O que este número NÃO resolve, e está declarado
+ *
+ * Ele não evita colisão; ele evita a **parede**. Duas caixas a 40 m continuam
+ * com as plaquetas encostadas em `z16`, e a saída é aproximar. Esconder
+ * rótulo por sobreposição foi recusado de propósito: seria uma regra que o
+ * operador não consegue prever — o nome sumindo sem que ele tenha feito nada.
+ *
+ * A caixa **selecionada** é a exceção, e é ela que torna a regra usável: quem
+ * achou uma CTO na busca vê o nome dela em qualquer zoom.
+ */
+export const MAP_LABEL_MIN_ZOOM = 16;
+
+/**
  * A configuração efetiva, a partir do ambiente.
  *
  * ## `satellite` e `hybrid` podem ser `null`, e o mapa continua inteiro
