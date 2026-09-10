@@ -865,7 +865,31 @@ Sete sabotagens, **sete detectadas**, e duas medições valem mais que o placar:
 
 **Aviso operacional registrado:** a política de uso dos tiles públicos do OpenStreetMap **não** é infraestrutura de produção. Antes de produção, `MAP_TILE_URL` aponta para provedor contratado ou tiles próprios — nenhuma linha de código muda.
 
-Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §35. **Aguarda validação do dono pela interface antes de qualquer tag.**
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §35.
+
+**`CTO-3.2.1` ENTREGUE — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** A validação da `CTO-3.2` foi **suspensa pelo dono a um passo do fim**: o mapa abriu, o Leaflet funcionou, a busca achou a `CTO QA FIELD 01` — e apareceram um defeito de UX e três melhorias aprovadas para a primeira versão. **Zero migration, zero schema, zero Prisma, zero Dart, zero dependência nova.**
+
+**O defeito: `Mapa Operacional → Abrir CTO → Voltar` caía em `/ctos`.** O operador perdia o bairro, o zoom e a caixa em destaque. **`router.back()` foi recusado** — ele responde *"a página anterior do navegador"*, que não é a mesma pergunta que *"de onde este fluxo veio"*: `F5`, link colado, aba nova e um `back` depois de três navegações produzem históricos diferentes. A origem é explícita, viaja na URL e **estende a allowlist que já existia** (`return-to.ts`) em vez de criar um segundo mecanismo — entrando como **caminho puro**, com a vista em parâmetros próprios validados um a um e o destino **remontado**, de modo que nada do que o cliente escreveu é ecoado na `href`.
+
+**Três bases num único `MapContainer`:** `NORMAL` (OSM), `SATELLITE` (Esri World Imagery) e `HYBRID` (satélite + rótulos da CARTO). Remontar o mapa a cada clique no controle jogaria fora centro e zoom — o oposto do que a fase conserta. Os dois provedores novos foram **testados ao vivo antes de virarem padrão**. E **o Esri usa `{z}/{y}/{x}`**, linha antes de coluna: escrever na ordem habitual devolve tiles de outro lugar do planeta, com o mapa carregando e mostrando a cidade errada.
+
+**`MAP_SATELLITE_ENABLED=false` remove os dois modos e encolhe a CSP sozinho** — o híbrido cai por consequência, porque ele **é** o satélite com rótulos. O que se perde é um botão; a base cartográfica não depende disso. As três origens saem de `tileImageSources`, derivadas da mesma configuração, e **nunca de curinga**.
+
+**O marcador virou uma caixa óptica em SVG próprio, sem dependência nova.** A silhueta é idêntica nos quatro estados — é a identidade da CTO —, e o **selo** carrega forma **e** glifo (`+ 0 ! ×`). A legenda mostra o selo e não redesenha a caixa: o que não varia não precisa de legenda.
+
+**A vista vive na URL** (centro, zoom, modo, busca, seleção), espelhada por `history.replaceState` e nunca pelo `router`, que trataria cada arrasto como navegação. Marcador nenhum entra ali: a URL é o endereço de uma vista, não um cache.
+
+**Dois defeitos que só o navegador encontrou, e os dois valem para qualquer tela futura com Leaflet.** `replaceState(null, …)` **apaga o estado de roteamento do App Router**, e o sintoma é um link que simplesmente não faz nada, sem erro no console — repasse sempre `window.history.state`. E uma prop derivada da câmera chegando aos marcadores fecha um **laço de realimentação**: o popup re-renderiza, o `autoPan` do Leaflet move o mapa, o `moveend` muda a prop de novo — `Maximum update depth exceeded`, e **o popup para de abrir**. A cura foi ler a vista da barra de endereço e `memo` nos marcadores, com array vazio estável e `onReady` estável.
+
+**Limite declarado:** abrir o popup e **arrastar** o mapa sem fechá-lo deixa a `href` com a vista de antes do arrasto, e a volta cai alguns metros ao lado. Fechar a fresta custaria interceptar o clique, tirando do link o "abrir em nova aba".
+
+Oito sabotagens, **oito detectadas** — e o `S4` cobrou um teste fraco meu antes de cair inteiro: o glifo do `FULL` é `"0"`, e `viewBox="0 0 40 40"` já contém um zero, então `toContain(glyph)` passava com o `<text>` removido.
+
+**Decisão aprovada e NÃO implementada (`CTO-3.2.2`):** camadas `CTOs` (ligada), `OS abertas` (ligada) e `Clientes` (desligada); cliente com OS aberta destacado; selo de OS abertas por CTO; busca alcançando CTO, cliente e número de OS. O motor continua **sem registro de camadas, sem seletor e sem interface `MapLayer`**. FiberMap segue `FUTURO`.
+
+**Divergência de nome, declarada:** o enunciado cita `/mapa-operacional`; a rota real, já validada pelo dono, é **`/mapa`**.
+
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §36. **Aguarda validação do dono pela interface antes de qualquer tag.**
 
 ## Princípios
 

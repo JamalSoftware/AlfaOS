@@ -105,7 +105,27 @@ export function CtoMapLayer({
   const [mode, setMode] = useState<MapMode>(() =>
     modoUtilizavel(initialState.mode, modes),
   );
-  const [camera, setCamera] = useState<MapCamera | null>(null);
+  /*
+    A câmera nasce COM o que veio na URL, e não vazia.
+
+    Isto foi encontrado pela suíte completa, e é defeito e não instabilidade: o
+    efeito que espelha a vista dispara antes de o mapa reportar a primeira
+    posição, e com a câmera vazia ele montava uma query SEM `lat`/`lng` — e
+    reescrevia a barra de endereço apagando justamente as coordenadas que a
+    navegação acabara de trazer. Quem recarregasse ou copiasse a URL naquela
+    janela perdia o lugar.
+
+    Semeando daqui, o primeiro espelhamento escreve exatamente o que chegou.
+  */
+  const [camera, setCamera] = useState<MapCamera | null>(() =>
+    initialState.latitude !== undefined && initialState.longitude !== undefined
+      ? {
+          latitude: initialState.latitude,
+          longitude: initialState.longitude,
+          zoom: initialState.zoom ?? 15,
+        }
+      : null,
+  );
   const [search, setSearch] = useState(initialState.search ?? "");
   const [selectedId, setSelectedId] = useState<string | null>(
     initialState.selectedId ?? null,
@@ -187,6 +207,14 @@ export function CtoMapLayer({
   */
   useEffect(() => {
     if (!viewQuery) return;
+    /*
+      Nunca escreve antes de o mapa saber onde está.
+
+      A segunda metade da mesma correção: sem esta linha, qualquer render
+      anterior ao primeiro `moveend` poderia publicar uma vista incompleta. A
+      regra é simples — o espelho só reflete o que já existe.
+    */
+    if (!camera) return;
 
     /*
       O PRIMEIRO argumento é `history.state`, e passar `null` ali quebra a
@@ -207,7 +235,7 @@ export function CtoMapLayer({
       "",
       `${window.location.pathname}?${viewQuery}`,
     );
-  }, [viewQuery]);
+  }, [viewQuery, camera]);
 
   // ---------------------------------------------------------------------
   // Leitura do recorte

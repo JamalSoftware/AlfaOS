@@ -3964,3 +3964,200 @@ agrupamento; heatmap; rotas; FiberMap; QR; falha coletiva; OLT/SNMP.
 > **`CTO-3.2` — `READY FOR OWNER VALIDATION`.** `CTO-2` continua `DONE`,
 > `CTO-3.0` `DISCOVERY DONE`, `CTO-3.1` `APPROVED`. `3.3` e `3.4` seguem sob a
 > §119.
+
+## 36. `CTO-3.2.1` — Operational Map V1: bases, marcador e estado de navegação
+
+A validação da `CTO-3.2` foi **suspensa** pelo dono a um passo do fim: o mapa
+abriu, o Leaflet funcionou, a busca achou a `CTO QA FIELD 01` — e um defeito de
+UX apareceu junto com três melhorias aprovadas para a primeira versão.
+
+**Zero migration, zero schema, zero Prisma, zero Dart, zero dependência nova.**
+
+### O defeito que o dono encontrou
+
+```text
+Mapa Operacional → Abrir CTO → Voltar   →   CTOs
+```
+
+Do ponto de vista de quem opera, o sistema **perdia o lugar onde ele estava**. A
+listagem não tem o bairro, não tem o zoom, não tem a caixa em destaque.
+
+**Não é `router.back()`.** Ele responde *"a página anterior do navegador"*, e essa
+não é a mesma pergunta que *"de onde este fluxo veio"*: `F5` no detalhe, link
+colado, aba nova e um `back` depois de três navegações produzem históricos
+diferentes, e em todos eles o botão precisa continuar dizendo a mesma coisa.
+
+A origem é **explícita** e viaja na URL, estendendo a allowlist que já existia
+(`src/lib/return-to.ts`, `docs/SECURITY.md` §8.11) em vez de criar um segundo
+mecanismo. E ela entra como **caminho puro**: a vista viaja em parâmetros
+próprios, cada um validado, e o destino é **remontado** a partir do que passou —
+nada do que o cliente escreveu é ecoado na `href`.
+
+O compilador cobrou a decisão na tela de cliente, onde um `else` silencioso
+trataria a origem nova como se fosse uma OS.
+
+### Três bases, um mapa
+
+```text
+NORMAL      OpenStreetMap
+SATELLITE   Esri World Imagery
+HYBRID      a imagem do satélite  +  rótulos da CARTO por cima
+```
+
+**Um `MapContainer` só.** Trocar de modo troca o `TileLayer`; remontar o mapa
+jogaria fora centro e zoom a cada clique no controle — o oposto do que a fase
+existe para consertar.
+
+**Os dois provedores novos foram testados ao vivo antes de virarem padrão.** O
+Esri responde `200 image/jpeg` com imagem real; a camada `dark_only_labels` da
+CARTO responde `200 image/png` com rótulos reais numa área urbana e tile
+praticamente vazio no oceano, que é o comportamento correto de uma camada de
+rótulos. A variante `dark` é a de texto **claro** — a legível sobre imagem
+escura.
+
+**Repare na ordem dos segmentos do satélite: `{z}/{y}/{x}`.** O Esri publica
+linha antes de coluna. Escrever na ordem habitual devolve tiles de outro lugar
+do planeta — o pior tipo de defeito, porque o mapa carrega, parece funcionar e
+mostra a cidade errada. Medido, não suposto.
+
+> **O aviso do OSM vale para os dois, e com mais força para o satélite.** Os
+> termos do ArcGIS Online não são contrato de produção para um SaaS comercial.
+> Antes de produção: `MAP_TILE_SATELLITE_URL` para provedor contratado ou imagem
+> própria. Nenhuma linha de código muda.
+
+**Sem satélite o mapa continua inteiro.** `MAP_SATELLITE_ENABLED=false` remove os
+dois modos — o híbrido cai por consequência, porque ele **é** o satélite com
+rótulos — e o que se perde é um botão. Um botão que responde com mapa cinza é
+pior que a ausência dele, a mesma escolha do "Abrir CTO" ausente para o
+`DISPATCHER`.
+
+### A CSP acompanha, e nunca por curinga
+
+As três origens saem de `tileImageSources`, derivadas da mesma configuração.
+Desligar o satélite **encolhe** a política sozinho. `img-src *` resolveria o
+sintoma e destruiria a política: qualquer host da internet passaria a entregar
+imagem para dentro da aplicação.
+
+O `{s}` de subdomínio vira `https://*.basemaps.cartocdn.com` — curinga **preso ao
+domínio configurado**, nunca `https:` solto.
+
+### O marcador é uma caixa óptica
+
+O alfinete genérico diz *"tem alguma coisa aqui"*. Num mapa que vai receber
+técnico, cliente e OS, isso é exatamente a informação que não serve: quatro
+camadas de alfinete são quatro camadas indistinguíveis.
+
+SVG escrito à mão, **sem dependência** — não há biblioteca de ícone no projeto, e
+trazer uma para desenhar um retângulo com pontinhos seria superfície de terceiro
+em troca de nada. Cores por token, e sombra projetada porque sobre imagem de
+satélite não existe fundo previsível.
+
+A silhueta é **idêntica nos quatro estados** — ela é a identidade da CTO. O que
+muda é o **selo**, e ele carrega forma **e** glifo:
+
+```text
+AVAILABLE  círculo    +
+FULL       quadrado   0
+DAMAGED    triângulo  !
+INACTIVE   losango    ×
+```
+
+A legenda mostra o selo, e não redesenha a caixa: o que não varia não precisa de
+legenda.
+
+### A vista vive na URL
+
+```text
+lat lng z    onde o mapa está
+mode         qual base está desenhada
+q            o que estava digitado na busca
+sel          qual caixa estava selecionada
+```
+
+Memória de componente morre na navegação — exatamente quando precisaria
+sobreviver. A URL atravessa `F5`, aba nova, link colado e o botão do navegador, e
+é o único lugar que o servidor consegue ler ao renderizar a página de destino.
+
+**Marcador nenhum entra ali, e nenhum DTO.** A URL é o endereço de uma vista, não
+um cache.
+
+`history.replaceState`, e não `router.replace`: o roteador trataria cada arrasto
+como navegação e refaria a consulta do servidor. `replace` e não `push`, senão
+cada pan viraria entrada de histórico e o botão voltar levaria trinta cliques
+para sair do mapa.
+
+### Dois defeitos que só o navegador encontrou
+
+**O primeiro:** `replaceState(null, ...)` **apaga o estado de roteamento do
+App Router**, que ele guarda em `history.state`. O sintoma foi um link que
+simplesmente não fazia nada — a URL continuava em `/mapa`, sem erro no console.
+A correção é repassar `window.history.state`.
+
+**O segundo, e o mais interessante: um laço de realimentação fechado.** A vista
+viajava para os marcadores como prop, então mudava a cada micro-movimento da
+câmera; isso re-renderizava o popup; o react-leaflet o atualizava; o `autoPan` do
+Leaflet movia o mapa para caber; e o `moveend` mudava a prop de novo. O console
+dizia `Maximum update depth exceeded` e **o popup parava de abrir**.
+
+Dois cortes, e os dois são necessários: a `href` passou a ler a barra de
+endereço, que a camada já mantém em dia, de modo que os marcadores não dependem
+mais da câmera; e `CtoMarkers` virou `memo`, para que um render causado pela
+câmera pare ali — o que exige um array vazio estável e um `onReady` estável para
+valer de fato.
+
+**Limite declarado:** abrir o popup e **arrastar** o mapa sem fechá-lo deixa a
+`href` com a vista de antes do arrasto, e a volta cai alguns metros ao lado.
+Fechar essa fresta custaria interceptar o clique, o que tiraria do link o "abrir
+em nova aba" que ele hoje tem de graça.
+
+### O que as sabotagens mediram
+
+| | mutação | quem caiu |
+|---|---|---|
+| `S1` | URL de tile escrita no componente | o teste estrutural de configuração |
+| `S2` | host do satélite fora da CSP | `MAPUX-06` + 2 |
+| `S3` | marcador trocado por alfinete genérico | `MAPUX-07`, `08`, `09`, `10`, `11`, `S4`, `S4b` |
+| `S4` | estado só por cor (glifo removido) | `MAPUX-08..11` + `S4` |
+| `S5` | retorno do mapa apontando para `/ctos` | `NAVMAP-01`, `NAVMAP-09c` |
+| `S6` | zoom não preservado | `NAVMAP-01/04..08` (navegador) |
+| `S7` | preferência de base não gravada | `MAPUX-04` (navegador) |
+| `S8` | URL crua do cliente como destino de volta | `NAVMAP-01`, `09`, `09b` |
+
+**Oito de oito.** E o `S4` cobrou um teste fraco meu antes de cair inteiro: o
+glifo do `FULL` é `"0"`, e `viewBox="0 0 40 40"` já contém um zero — o
+`toContain(glyph)` passava com o `<text>` removido. A asserção passou a ler o nó
+de texto, e aí os cinco detectores caem.
+
+### Decisão já aprovada para a `CTO-3.2.2` — registrada, NÃO implementada
+
+```text
+☑ CTOs             ligada por padrão
+☑ OS abertas       ligada por padrão
+☐ Clientes         desligada por padrão
+```
+
+Cliente com OS aberta aparece destacado; a CTO poderá exibir selo com a
+quantidade de OS abertas ligadas aos clientes dela; e a busca passa a alcançar
+CTO, cliente e número de OS. **Nada disso existe em código**, e o motor continua
+sem registro de camadas, sem seletor e sem interface `MapLayer` — hoje há uma
+camada, e inventar o mecanismo de composição antes da segunda escolheria uma
+forma sem caso real para validá-la.
+
+O FiberMap segue `FUTURO`, e cabo, poste e topologia continuam fora (§334).
+
+### Uma divergência de nome, declarada
+
+O enunciado desta fase cita `/mapa-operacional`; a rota que a `CTO-3.2` entregou
+e que o dono validou é **`/mapa`**. Ela ficou como está: renomear depois da
+validação quebraria links salvos e não muda nada para quem usa. A **superfície**
+continua se chamando Mapa Operacional em toda a interface.
+
+### O que continua fora
+
+Camadas de técnico, cliente e OS; `TechnicianLocation`; GPS do técnico e
+proximidade no Field; edição, confirmação e histórico de coordenada (`CTO-3.4`);
+agrupamento; heatmap; rotas; FiberMap; QR; falha coletiva; OLT/SNMP.
+
+> **`CTO-3.2.1` — `READY FOR OWNER VALIDATION`.** `CTO-2` continua `DONE`,
+> `CTO-3.0` `DISCOVERY DONE`, `CTO-3.1` `APPROVED`. `3.3` e `3.4` seguem sob a
+> §119, e a `CTO-3.2.2` não começou.
