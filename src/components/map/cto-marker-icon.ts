@@ -299,6 +299,17 @@ export function ctoMarkerHtml(
       `aria-hidden="true" focusable="false">`,
 
     /*
+      A FIGURA da caixa, separada do selo — `CTO-3.2.1c`, delta do dono.
+
+      Tudo o que é desenho da caixa entra neste grupo; o selo de estado fica de
+      fora. A separação existe por causa da `INACTIVE`: ela apaga a caixa, e
+      apagar o selo junto esconderia justamente o motivo de ela estar apagada.
+      Uma caixa desbotada SEM selo é indistinguível de um controle desabilitado
+      pela interface.
+    */
+    '<g class="cto-box__figure">',
+
+    /*
       ENTRADA e SAÍDA saindo da MESMA placa de prensa-cabos.
 
       O tronco desce RETO até a âncora — ele é o cabo que chega da rede, e é a
@@ -332,6 +343,8 @@ export function ctoMarkerHtml(
     */
     retangulo("cto-box__tray", G.tray, 1.5),
     reguaDePortas(),
+
+    "</g>",
 
     `<g class="cto-box__badge">${seloDaForma(apresentacao.shape)}</g>`,
     `<text class="cto-box__glyph" x="${G.badge.cx}" y="${G.badge.cy}" ` +

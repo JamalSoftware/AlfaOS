@@ -158,6 +158,13 @@ function CtoMarkers({
           aparece para disputar espaço com essa.
         */
         const comPlaqueta = showLabels || selecionado;
+        /*
+          A inativa é a ÚNICA que escreve o estado na plaqueta.
+
+          Derivado do `status` que o servidor mandou, e nunca de aparência: a
+          tela conhece a tradução, não a precedência (`CTO-3.1`).
+        */
+        const inativa = marker.status === "INACTIVE";
         return (
           <Marker
             key={marker.id}
@@ -202,15 +209,37 @@ function CtoMarkers({
             */}
             {comPlaqueta ? (
               <Tooltip
-                key={selecionado ? "sel" : "std"}
+                key={`${selecionado ? "sel" : "std"}:${marker.status}`}
                 permanent
                 direction="top"
                 className={`cto-map-label${
                   selecionado ? " cto-map-label--selected" : ""
-                }`}
+                }${inativa ? " cto-map-label--inactive" : ""}`}
               >
                 <span data-testid="cto-map-label" data-cto-id={marker.id}>
-                  {marker.name}
+                  <span className="cto-map-label__name">{marker.name}</span>
+                  {/*
+                    A segunda linha existe SÓ para a inativa — CTO-3.2.1c.
+
+                    Uma caixa apagada, sozinha, é indistinguível de um controle
+                    que a interface desabilitou: "apagado" é vocabulário de
+                    widget desligado, e aqui significa um fato da rede. O texto
+                    é o que desfaz a ambiguidade.
+
+                    O termo vem de `apresentacao.label`, a MESMA tabela que
+                    nomeia o estado no popup e na legenda — em versalete pelo
+                    `.toUpperCase()`, e não por uma segunda string escrita à
+                    mão. O nome ARMAZENADO da CTO não é tocado: isto é
+                    apresentação derivada do status.
+                  */}
+                  {inativa ? (
+                    <span
+                      className="cto-map-label__state"
+                      data-testid="cto-map-label-state"
+                    >
+                      {apresentacao.label.toUpperCase()}
+                    </span>
+                  ) : null}
                 </span>
               </Tooltip>
             ) : null}

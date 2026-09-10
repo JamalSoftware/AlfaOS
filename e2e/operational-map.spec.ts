@@ -1875,3 +1875,230 @@ test.describe("Mapa Operacional — plaqueta com o nome da CTO", () => {
     ).toHaveCount(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// CTO-3.2.1c — delta do dono: o CORPO da caixa carrega o estado
+// ---------------------------------------------------------------------------
+
+/** Os canais de um `rgb(...)` que o navegador devolveu. */
+function canais(cor: string): { r: number; g: number; b: number } {
+  const m = cor.match(/\d+(\.\d+)?/g);
+  if (!m) throw new Error("cor não reconhecida: " + cor);
+  const [r, g, b] = m.slice(0, 3).map(Number);
+  return { r, g, b };
+}
+
+/** Quanto o tom se afasta do cinza. Zero = cinza puro. */
+function saturacao(cor: string): number {
+  const { r, g, b } = canais(cor);
+  return Math.max(r, g, b) - Math.min(r, g, b);
+}
+
+/** O `svg.cto-box` da caixa com aquele nome. */
+function marcadorSvg(page: Page, nome: string) {
+  return page.locator(`.leaflet-marker-icon[title^="${nome}"] svg.cto-box`);
+}
+
+/** A cor de traço do CORPO, computada pelo navegador. */
+function contornoDe(page: Page, nome: string) {
+  return marcadorSvg(page, nome)
+    .locator(".cto-box__body")
+    .evaluate((el) => getComputedStyle(el).stroke);
+}
+
+test.describe("Mapa Operacional — o corpo comunica o estado", () => {
+  test("STATUSVIS-01/02/03 · cada estado tem contorno próprio, medido no navegador", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaEm(page, 16);
+    await expect(page.locator("svg.cto-box")).toHaveCount(4, { timeout: 15_000 });
+
+    const disponivel = await contornoDe(page, "MAPA QA DISPONIVEL");
+    const lotada = await contornoDe(page, "MAPA QA LOTADA");
+    const defeito = await contornoDe(page, "MAPA QA DEFEITO");
+    const inativa = await contornoDe(page, "MAPA QA INATIVA");
+
+    /*
+      As asserções olham o CANAL DOMINANTE, e não o valor exato.
+
+      Fixar `rgb(4, 120, 87)` amarraria o teste ao hexadecimal de hoje e
+      quebraria na primeira afinação do design system — sem que nada estivesse
+      errado. O que precisa continuar verdadeiro é a LEITURA: verde é verde,
+      vermelho é vermelho.
+    */
+    const verde = canais(disponivel);
+    expect(
+      verde.g,
+      `AVAILABLE deveria puxar para o verde, e veio ${disponivel}`,
+    ).toBeGreaterThan(verde.r);
+    expect(verde.g).toBeGreaterThan(verde.b);
+
+    const vermelho = canais(defeito);
+    expect(
+      vermelho.r,
+      `DAMAGED deveria puxar para o vermelho, e veio ${defeito}`,
+    ).toBeGreaterThan(vermelho.g);
+    expect(vermelho.r).toBeGreaterThan(vermelho.b);
+
+    // Âmbar: vermelho e verde altos, azul baixo — é o que separa amarelo de
+    // laranja-avermelhado e de verde.
+    const ambar = canais(lotada);
+    expect(ambar.r, `FULL veio ${lotada}`).toBeGreaterThan(ambar.b);
+    expect(ambar.g).toBeGreaterThan(ambar.b);
+
+    // E os quatro são DISTINTOS: um estado que reusasse a cor de outro não
+    // seria distinguível de relance, que é o ponto do delta.
+    const todos = [disponivel, lotada, defeito, inativa];
+    expect(
+      new Set(todos).size,
+      `contornos repetidos: ${todos.join(" | ")}`,
+    ).toBe(4);
+
+    // O contorno é grosso o bastante para sobreviver a fundo texturizado.
+    const largura = await marcadorSvg(page, "MAPA QA DISPONIVEL")
+      .locator(".cto-box__body")
+      .evaluate((el) => parseFloat(getComputedStyle(el).strokeWidth));
+    expect(largura).toBeGreaterThanOrEqual(2);
+  });
+
+  test("STATUSVIS-04/05 · INATIVA apaga a caixa, mantém o selo e escreve o estado", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaEm(page, 16);
+    await expect(page.locator("svg.cto-box")).toHaveCount(4, { timeout: 15_000 });
+
+    const svg = marcadorSvg(page, "MAPA QA INATIVA");
+    const figura = await svg.locator(".cto-box__figure").evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { opacidade: parseFloat(s.opacity), filtro: s.filter };
+    });
+
+    // APAGADA e DESSATURADA — de forma controlada, não invisível.
+    expect(figura.opacidade, "a inativa não apagou").toBeLessThan(1);
+    expect(figura.opacidade, "apagada demais deixa de ser legível").toBeGreaterThan(0.3);
+    expect(figura.filtro, "a inativa não dessaturou").toContain("grayscale");
+
+    // O contorno da inativa é CINZA: baixa saturação, ao contrário dos outros.
+    const cinza = await contornoDe(page, "MAPA QA INATIVA");
+    expect(
+      saturacao(cinza),
+      `o contorno da inativa deveria ser cinza, e veio ${cinza}`,
+    ).toBeLessThan(40);
+
+    /*
+      O SELO continua em opacidade cheia, e é isso que a figura separada
+      garante.
+
+      Se ele apagasse junto, a caixa desbotada esconderia o próprio motivo —
+      e ficaria indistinguível de um controle desabilitado pela interface.
+    */
+    const selo = await svg
+      .locator(".cto-box__badge")
+      .evaluate((el) => parseFloat(getComputedStyle(el).opacity));
+    expect(selo, "o selo apagou junto com a caixa").toBe(1);
+    await expect(svg.locator(".cto-box__glyph")).toHaveCount(1);
+
+    // STATUSVIS-05: a plaqueta escreve o estado, e o nome continua inteiro.
+    const plaqueta = page
+      .locator(".leaflet-tooltip.cto-map-label")
+      .filter({ hasText: "MAPA QA INATIVA" });
+    await expect(plaqueta).toBeVisible();
+    await expect(plaqueta.getByTestId("cto-map-label-state")).toHaveText("INATIVA");
+    await expect(plaqueta.locator(".cto-map-label__name")).toHaveText(
+      "MAPA QA INATIVA",
+    );
+
+    // Duas LINHAS de verdade: o estado embaixo do nome, e não emendado nele.
+    const nome = (await plaqueta.locator(".cto-map-label__name").boundingBox())!;
+    const estado = (await plaqueta.getByTestId("cto-map-label-state").boundingBox())!;
+    expect(
+      estado.y,
+      "o estado precisa ficar ABAIXO do nome, e não ao lado",
+    ).toBeGreaterThanOrEqual(nome.y + nome.height - 1);
+
+    /*
+      E SÓ a inativa escreve o estado.
+
+      Escrever em todas transformaria o mapa numa lista de palavras — nos outros
+      três o contorno e o selo já dizem tudo.
+    */
+    await expect(page.getByTestId("cto-map-label-state")).toHaveCount(1);
+  });
+
+  test("STATUSVIS-06 · selecionar NÃO apaga o estado", async ({ page }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaEm(page, 16);
+    await expect(page.locator("svg.cto-box")).toHaveCount(4, { timeout: 15_000 });
+
+    const antes = await contornoDe(page, "MAPA QA DEFEITO");
+
+    await page
+      .locator('.leaflet-marker-icon[title^="MAPA QA DEFEITO"]')
+      .click();
+    await expect(page.getByTestId("cto-map-popup")).toBeVisible();
+
+    const svg = marcadorSvg(page, "MAPA QA DEFEITO");
+    await expect(svg).toHaveClass(/cto-box--selected/);
+
+    /*
+      As duas camadas ao mesmo tempo, e é esta a afirmação da fase.
+
+          halo externo ..... seleção, na cor de foco
+          contorno do corpo  estado, na cor do estado
+
+      Uma caixa com defeito e selecionada mostra as duas. Se a seleção pintasse
+      o corpo, clicar apagaria justamente a informação que fez alguém clicar.
+    */
+    const depois = await contornoDe(page, "MAPA QA DEFEITO");
+    expect(depois, "a seleção mudou a cor do estado").toBe(antes);
+    const vermelho = canais(depois);
+    expect(vermelho.r).toBeGreaterThan(vermelho.g);
+
+    const halo = await svg.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { cor: s.outlineColor, largura: parseFloat(s.outlineWidth) };
+    });
+    expect(halo.largura, "selecionado sem halo").toBeGreaterThan(0);
+    // O halo é de OUTRA cor que o contorno: se fossem iguais, as duas camadas
+    // se confundiriam e nada seria distinguível.
+    expect(halo.cor).not.toBe(depois);
+  });
+
+  test("STATUSVIS-07 · o contorno sobrevive a Mapa, Satélite e Híbrido", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaEm(page, 16);
+    await expect(page.locator("svg.cto-box")).toHaveCount(4, { timeout: 15_000 });
+
+    for (const modo of ["normal", "satellite", "hybrid"]) {
+      await page.getByTestId(`map-mode-${modo}`).click();
+      await page.waitForTimeout(500);
+
+      /*
+        Sobre vegetação, telhado e asfalto não há fundo previsível.
+
+        O que mantém o contorno perceptível é a sombra projetada do marcador
+        mais a espessura do traço — os dois precisam continuar existindo em
+        qualquer base, e é isso que se mede aqui.
+      */
+      const svg = marcadorSvg(page, "MAPA QA DEFEITO");
+      const sombra = await svg.evaluate((el) => getComputedStyle(el).filter);
+      expect(sombra, `sem sombra no modo ${modo}`).toContain("drop-shadow");
+
+      const traco = await svg.locator(".cto-box__body").evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { cor: s.stroke, largura: parseFloat(s.strokeWidth) };
+      });
+      expect(traco.largura, `traço fino demais no modo ${modo}`).toBeGreaterThanOrEqual(2);
+      const c = canais(traco.cor);
+      expect(c.r, `DAMAGED perdeu o vermelho no modo ${modo}`).toBeGreaterThan(c.g);
+
+      // E o estado continua não dependendo só de cor: o selo segue lá.
+      await expect(svg.locator(".cto-box__badge")).toHaveCount(1);
+      await expect(svg.locator(".cto-box__glyph")).toHaveCount(1);
+    }
+  });
+});

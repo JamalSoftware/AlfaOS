@@ -442,11 +442,40 @@
   filter: drop-shadow(0 1px 2px rgb(var(--overlay) / 0.55));
 }
 
+/*
+  O CORPO CARREGA O ESTADO — CTO-3.2.1c, delta do dono.
+
+  Até aqui o estado morava só no selo, que tem 14 unidades num ícone de 38
+  pixels. O dono pediu que a própria caixa comunicasse, e a razão é de leitura à
+  distância: num mapa com dezenas de marcadores, o que se enxerga primeiro é a
+  silhueta, não o adesivo no canto dela.
+
+  O contorno usa **o MESMO token do selo** — `success-fg`, `warning-fg`,
+  `danger-fg`, `neutral-fg`. Não é economia: é o que garante que o contorno e o
+  selo nunca discordem. Duas cores para o mesmo estado seriam duas fontes de
+  verdade, e a que divergiria seria a que ninguém revisou.
+
+  A largura sobe de 2 para 2,4: o contorno agora é informação, e não só
+  delimitação. Junto com o `drop-shadow` do `.cto-box`, é o que o mantém
+  perceptível sobre vegetação, telhado, asfalto e fundo escuro.
+*/
 .cto-box__body {
   fill: rgb(var(--surface));
   stroke: rgb(var(--fg));
-  stroke-width: 2;
+  stroke-width: 2.4;
   stroke-linejoin: round;
+}
+
+.cto-box--success .cto-box__body {
+  stroke: rgb(var(--success-fg));
+}
+
+.cto-box--warning .cto-box__body {
+  stroke: rgb(var(--warning-fg));
+}
+
+.cto-box--danger .cto-box__body {
+  stroke: rgb(var(--danger-fg));
 }
 
 .cto-box__lid {
@@ -548,16 +577,51 @@
   fill: rgb(var(--neutral-bg));
 }
 
-/* Inativa: o corpo perde presença, porque a caixa saiu de operação. O selo
-   continua cheio — ele é a informação, e apagá-lo junto esconderia o motivo. */
+/*
+  INATIVA: a caixa APAGA, o selo não — CTO-3.2.1c.
+
+  Quatro sinais, e nenhum deles é cor sozinha:
+
+      1. a figura inteira dessatura e perde opacidade
+      2. o contorno vira cinza e TRACEJADO
+      3. o selo continua cheio, com a forma de losango e o glifo "×"
+      4. a plaqueta escreve INATIVA
+
+  O quarto existe por um motivo que o dono nomeou: uma caixa desbotada, sozinha,
+  é indistinguível de um controle que a INTERFACE desabilitou. "Apagado" é
+  vocabulário de widget desligado, e aqui significa um fato da rede — a caixa
+  saiu de operação. Só o texto desfaz essa ambiguidade.
+
+  O apagamento vale para a FIGURA, e é por isso que ela é um grupo próprio: o
+  selo fora dele continua em opacidade cheia, porque ele é justamente a
+  informação que explica o apagamento.
+*/
+.cto-box--neutral .cto-box__figure {
+  opacity: 0.55;
+  filter: grayscale(1);
+}
+
 .cto-box--neutral .cto-box__body {
   fill: rgb(var(--neutral-bg));
   stroke: rgb(var(--neutral-fg));
   stroke-dasharray: 3 2;
 }
 
-/* Selecionado ganha ANEL, e não outra cor: mudar a cor se confundiria com
-   mudança de estado, que é o que a cor significa em todo o resto do mapa. */
+/*
+  SELEÇÃO e ESTADO são duas camadas, e nunca disputam a mesma.
+
+      halo EXTERNO ao ícone .... seleção     (outline, cor de foco)
+      contorno do CORPO ........ estado      (stroke, cor do estado)
+
+  A separação é o que permite ler as duas coisas ao mesmo tempo: uma CTO
+  danificada e selecionada mostra o halo azul por fora e o contorno vermelho no
+  corpo. Se a seleção pintasse o corpo, selecionar apagaria o estado — e o
+  operador que clicou numa caixa perderia exatamente a informação que o fez
+  clicar.
+
+  `outline` e não `stroke` justamente por isso: `outline` vive no elemento SVG
+  inteiro, fora do desenho, e não tem como colidir com o contorno do corpo.
+*/
 .cto-box--selected {
   outline: 3px solid rgb(var(--focus));
   outline-offset: 1px;
@@ -637,12 +701,6 @@
   presa à caixa em vez de flutuar solta ao lado dela.
 */
 .cto-map-shell .leaflet-tooltip.cto-map-label {
-  /* Truncar é decisão de LARGURA, e o texto completo continua no DOM: quem lê
-     por leitor de tela e quem abre o popup recebem o nome inteiro. */
-  max-width: 112px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-
   padding: 2px 7px;
   border: 1px solid rgb(var(--border));
   border-radius: 8px;
@@ -656,6 +714,45 @@
 
 .cto-map-shell .leaflet-tooltip-top.cto-map-label::before {
   border-top-color: rgb(var(--surface));
+}
+
+/*
+  O truncamento desceu para o NOME — CTO-3.2.1c.
+
+  Ele estava no contêiner, e ali ele cortaria a linha do estado junto quando a
+  plaqueta passou a ter duas linhas. Cortar "INATIVA" seria perder exatamente o
+  sinal que a segunda linha existe para dar.
+
+  O texto completo continua no DOM: quem usa leitor de tela e quem abre o popup
+  recebem o nome inteiro, e o `title` do marcador o mostra no hover.
+*/
+.cto-map-shell .cto-map-label__name {
+  display: block;
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+  A linha do estado, hoje só para INATIVA.
+
+  Menor, em versalete e com o tom neutro do design system: ela informa sem
+  competir com o nome. `AVAILABLE`, `FULL` e `DAMAGED` NÃO ganham segunda linha
+  — nesses três o contorno e o selo já dizem tudo, e escrever o estado em cada
+  plaqueta transformaria o mapa numa lista de palavras.
+*/
+.cto-map-shell .cto-map-label__state {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  color: rgb(var(--neutral-fg));
+}
+
+/* A plaqueta da inativa acompanha o cinza do contorno da caixa. */
+.cto-map-shell .leaflet-tooltip.cto-map-label--inactive {
+  border-color: rgb(var(--neutral-fg));
 }
 
 /*

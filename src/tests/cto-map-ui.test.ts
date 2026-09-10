@@ -2062,3 +2062,236 @@ describe("ML-DENS — quando o nome aparece, e por quê", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// STATUSVIS-01..07 — CTO-3.2.1c: o CORPO da caixa carrega o estado
+// ---------------------------------------------------------------------------
+
+/**
+ * O delta visual que o dono pediu depois da primeira leitura da `CTO-3.2.1c`.
+ *
+ * Até aqui o estado morava só no selo — 14 unidades num ícone de 38 pixels. Num
+ * mapa com dezenas de marcadores, o que se enxerga primeiro é a **silhueta**, e
+ * não o adesivo no canto dela.
+ *
+ * O contrato passou a ser somatório, e nenhuma parcela sozinha responde:
+ *
+ * ```text
+ * contorno do corpo  +  selo (forma + glifo)  +  tratamento  +  texto (só INATIVA)
+ * ```
+ */
+describe("STATUSVIS-01..07 — o corpo da caixa carrega o estado", () => {
+  const css = () => leia("src/app/globals.css");
+
+  /** A regra `.cto-box--<tom> .cto-box__body`, se existir. */
+  function contornoDoTom(tom: string): string | null {
+    const regra = new RegExp(
+      `\\.cto-box--${tom} \\.cto-box__body \\{([\\s\\S]*?)\\}`,
+    ).exec(css());
+    return regra?.[1] ?? null;
+  }
+
+  /** O token que a regra usa como `stroke`. */
+  function tokenDoContorno(tom: string): string | null {
+    const corpo = contornoDoTom(tom);
+    if (!corpo) return null;
+    return /stroke:\s*rgb\(var\(--([a-z-]+)\)\)/.exec(corpo)?.[1] ?? null;
+  }
+
+  /** O token que a regra do selo usa como `fill`. */
+  function tokenDoSelo(tom: string): string | null {
+    const regra = new RegExp(
+      `\\.cto-box--${tom} \\.cto-box__badge > \\* \\{([\\s\\S]*?)\\}`,
+    ).exec(css());
+    return /fill:\s*rgb\(var\(--([a-z-]+)\)\)/.exec(regra?.[1] ?? "")?.[1] ?? null;
+  }
+
+  const TONS = {
+    AVAILABLE: "success",
+    FULL: "warning",
+    DAMAGED: "danger",
+    INACTIVE: "neutral",
+  } as const;
+
+  it("STATUSVIS-01/02/03 · cada estado pinta o CORPO, e com o mesmo token do selo", () => {
+    /*
+      UMA cor por estado, e ela vale para as duas peças.
+
+      Se o contorno tivesse token próprio, existiriam duas fontes de verdade
+      para a mesma pergunta — e a que divergisse seria a que ninguém revisou,
+      porque as duas parecem certas isoladamente. É a mesma razão de
+      `summarizePortCounts` ser uma função só.
+    */
+    for (const estado of ["AVAILABLE", "FULL", "DAMAGED"] as const) {
+      const tom = TONS[estado];
+      const contorno = tokenDoContorno(tom);
+      const selo = tokenDoSelo(tom);
+
+      expect(contorno, `${estado} não pinta o corpo`).not.toBeNull();
+      expect(selo, `${estado} perdeu o selo`).not.toBeNull();
+      expect(
+        contorno,
+        `${estado}: contorno usa --${contorno} e o selo usa --${selo}`,
+      ).toBe(selo);
+    }
+
+    // E as três cores são DIFERENTES entre si: um estado que reusasse a cor de
+    // outro não seria distinguível de relance, que é o ponto do delta.
+    const cores = (["AVAILABLE", "FULL", "DAMAGED"] as const).map((e) =>
+      tokenDoContorno(TONS[e]),
+    );
+    expect(new Set(cores).size, `cores repetidas: ${cores.join(", ")}`).toBe(3);
+  });
+
+  it("STATUSVIS-01/02/03b · o contorno é grosso o bastante para ser informação", () => {
+    /*
+      Contorno de estado não é delimitação de desenho.
+
+      Ele precisa sobreviver a vegetação, telhado e asfalto num ícone de 38px, e
+      abaixo de ~2px ele vira uma linha que some contra fundo texturizado.
+    */
+    const base = /\.cto-box__body \{([\s\S]*?)\}/.exec(css());
+    expect(base).not.toBeNull();
+    const largura = /stroke-width:\s*([\d.]+)/.exec(base![1]);
+    expect(largura, "o corpo perdeu a largura de traço").not.toBeNull();
+    expect(Number(largura![1])).toBeGreaterThanOrEqual(2.2);
+  });
+
+  it("STATUSVIS-04 · INATIVA apaga a FIGURA, e nunca o selo", () => {
+    const html = ctoMarkerHtml(ctoMapStatusPresentation("INACTIVE"), false);
+
+    /*
+      A figura é um grupo PRÓPRIO, e é isso que torna o apagamento seletivo.
+
+      Apagar o marcador inteiro levaria o selo junto — e uma caixa desbotada sem
+      selo esconde justamente o motivo de ela estar desbotada.
+    */
+    const figura = /<g class="cto-box__figure">([\s\S]*?)<\/g>\s*<g class="cto-box__badge">/.exec(
+      html,
+    );
+    expect(figura, "a figura precisa ser um grupo separado do selo").not.toBeNull();
+    expect(figura![1]).toContain("cto-box__body");
+    expect(figura![1]).toContain("cto-box__tray");
+    expect(figura![1], "o selo não pode estar dentro da figura").not.toContain(
+      "cto-box__badge",
+    );
+
+    // E o selo continua presente, fora dela.
+    expect(html).toContain("cto-box__badge");
+    expect(html).toContain("cto-box__glyph");
+
+    // O tratamento: opacidade reduzida E dessaturação, na figura.
+    const regra = /\.cto-box--neutral \.cto-box__figure \{([\s\S]*?)\}/.exec(css());
+    expect(regra, "falta o tratamento da inativa").not.toBeNull();
+    const opacidade = /opacity:\s*([\d.]+)/.exec(regra![1]);
+    expect(opacidade, "a inativa não perde opacidade").not.toBeNull();
+    expect(Number(opacidade![1])).toBeLessThan(1);
+    expect(Number(opacidade![1]), "apagada demais deixa de ser legível").toBeGreaterThan(0.3);
+    expect(regra![1], "a inativa não dessatura").toContain("grayscale");
+
+    // Nenhuma regra apaga o marcador INTEIRO — seria levar o selo junto.
+    expect(css()).not.toMatch(/\.cto-box--neutral \{[^}]*opacity/);
+  });
+
+  it("STATUSVIS-05 · INATIVA escreve o estado na plaqueta, e SÓ ela", () => {
+    const codigo = semComentarios(leia("src/components/map/CtoMarkers.tsx"));
+
+    // A condição é sobre o STATUS que veio do servidor, não sobre aparência.
+    expect(codigo).toMatch(/const inativa = marker\.status === "INACTIVE"/);
+
+    const plaqueta = /<Tooltip[\s\S]*?<\/Tooltip>/.exec(codigo);
+    expect(plaqueta).not.toBeNull();
+    expect(plaqueta![0]).toContain("cto-map-label-state");
+    expect(plaqueta![0]).toContain("cto-map-label__state");
+
+    /*
+      O termo vem da TABELA de apresentação, e não de uma string escrita à mão.
+
+      `apresentacao.label` é o mesmo "Inativa" que o popup e a legenda mostram;
+      o versalete é do `.toUpperCase()`. Uma string literal aqui seria uma
+      segunda grafia do mesmo estado, livre para divergir na primeira revisão de
+      texto.
+    */
+    expect(plaqueta![0]).toContain("apresentacao.label.toUpperCase()");
+    expect(plaqueta![0], "estado escrito à mão na plaqueta").not.toMatch(
+      /["']INATIVA["']/,
+    );
+
+    // E é CONDICIONAL: os outros três não ganham segunda linha.
+    expect(plaqueta![0]).toMatch(/inativa \?[\s\S]*?: null/);
+
+    // O nome ARMAZENADO não é tocado: a plaqueta compõe, não renomeia.
+    expect(plaqueta![0]).toContain("{marker.name}");
+  });
+
+  it("STATUSVIS-06 · a seleção NÃO substitui o indicador de estado", () => {
+    /*
+      Duas camadas, e elas não disputam a mesma propriedade:
+
+          halo externo ao ícone .... seleção   (outline)
+          contorno do corpo ........ estado    (stroke)
+
+      Se a seleção pintasse o corpo, clicar numa caixa apagaria o estado dela —
+      e o operador perderia exatamente a informação que o fez clicar.
+    */
+    const selecao = /\.cto-box--selected \{([\s\S]*?)\}/.exec(css());
+    expect(selecao, "falta a regra de seleção").not.toBeNull();
+    expect(selecao![1]).toContain("outline:");
+    expect(
+      selecao![1],
+      "a seleção não pode tocar o traço do corpo",
+    ).not.toContain("stroke");
+
+    // Nenhuma regra de seleção sobrescreve o corpo, em nenhum tom.
+    expect(css(), "seleção pintando o corpo").not.toMatch(
+      /\.cto-box--selected[^{]*\.cto-box__body\s*\{/,
+    );
+
+    // E o SVG do selecionado continua trazendo o tom do estado.
+    for (const estado of ["AVAILABLE", "DAMAGED", "INACTIVE"] as const) {
+      const html = ctoMarkerHtml(ctoMapStatusPresentation(estado), true);
+      expect(html).toContain("cto-box--selected");
+      expect(html, `${estado} selecionado perdeu o tom`).toContain(
+        `cto-box--${TONS[estado]}`,
+      );
+    }
+  });
+
+  it("STATUSVIS-07 · o estado continua legível SEM cor nenhuma", () => {
+    /*
+      O teste de sanidade do contrato: apagando toda a cor, o que sobra ainda
+      distingue os quatro?
+
+      Sobra forma do selo, glifo, e — na inativa — traço tracejado, opacidade e
+      a palavra escrita. Se a resposta dependesse do tom, o marcador seria
+      ilegível para quem não distingue vermelho de verde, sob sol, ou impresso.
+    */
+    const estados = ["AVAILABLE", "FULL", "DAMAGED", "INACTIVE"] as const;
+
+    const formas = estados.map(
+      (e) =>
+        /<g class="cto-box__badge">(.*?)<\/g>/.exec(
+          ctoMarkerHtml(ctoMapStatusPresentation(e), false),
+        )?.[1] ?? "",
+    );
+    const glifos = estados.map(
+      (e) =>
+        /<text[^>]*>([^<]*)<\/text>/.exec(
+          ctoMarkerHtml(ctoMapStatusPresentation(e), false),
+        )?.[1] ?? "",
+    );
+
+    expect(new Set(formas).size, "duas formas de selo iguais").toBe(4);
+    expect(new Set(glifos).size, "dois glifos iguais").toBe(4);
+
+    // A inativa acrescenta um sinal que não é nem cor nem forma: o traço
+    // tracejado. E ele é EXCLUSIVO dela — senão não distinguiria nada.
+    expect(contornoDoTom("neutral")).toContain("stroke-dasharray");
+    for (const tom of ["success", "warning", "danger"]) {
+      expect(
+        contornoDoTom(tom) ?? "",
+        `${tom} não pode usar traço tracejado`,
+      ).not.toContain("stroke-dasharray");
+    }
+  });
+});
