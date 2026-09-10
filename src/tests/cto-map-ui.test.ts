@@ -698,8 +698,19 @@ describe("MAPUX-07..11 — o marcador é uma CTO, não um alfinete", () => {
       expect(html).toContain("cto-box__body");
       // O selo é o que muda, e ele carrega FORMA e GLIFO — nunca só cor.
       expect(html).toContain("cto-box__badge");
-      expect(html).toContain(p.glyph);
       expect(html).toContain(`cto-box--${p.tone}`);
+
+      /*
+        O glifo é procurado DENTRO do `<text>`, e não no HTML inteiro.
+
+        A primeira versão fazia `toContain(p.glyph)`, e a sabotagem `S4` mostrou
+        o preço: o glifo do `FULL` é `"0"`, e `viewBox="0 0 40 40"` já contém um
+        zero. O teste passava com o `<text>` inteiro removido — verde por
+        coincidência de substring, sobre um marcador que tinha perdido o único
+        sinal que não é cor.
+      */
+      const texto = /<text[^>]*>([^<]*)<\/text>/.exec(html)?.[1];
+      expect(texto, "o marcador perdeu o glifo").toBe(p.glyph);
       expect(html).toMatch(
         new RegExp(`<g class="cto-box__badge"><${caso.forma}`),
       );
