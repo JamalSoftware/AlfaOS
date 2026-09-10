@@ -49,7 +49,16 @@ async function resolverVolta(
   bruto: string | string[] | undefined,
 ): Promise<Volta> {
   const destino = parseReturnTo(Array.isArray(bruto) ? bruto[0] : bruto);
-  if (!destino || destino.kind === "customers") {
+  /*
+    Só a OS produz um destino próprio AQUI.
+
+    `customers` já é o padrão, e `operational-map` — que a `CTO-3.2.1`
+    acrescentou — não alcança esta tela: não existe caminho do mapa para o
+    cadastro de cliente. Cair no padrão é o comportamento certo, e foi o
+    compilador que cobrou a decisão quando a variante nasceu, em vez de deixar
+    um `else` silencioso tratar o caso novo como se fosse uma OS.
+  */
+  if (!destino || destino.kind !== "order") {
     return VOLTA_PADRAO;
   }
 

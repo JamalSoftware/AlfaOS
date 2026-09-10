@@ -16,7 +16,25 @@
 /** Rotas internas que o botão de voltar sabe construir. */
 export type ReturnTo =
   | { kind: "customers" }
-  | { kind: "order"; orderId: string };
+  | { kind: "order"; orderId: string }
+  | { kind: "operational-map" };
+
+/**
+ * O Mapa Operacional entrou na `CTO-3.2.1`, e entrou como CAMINHO PURO.
+ *
+ * A vista do mapa — centro, zoom, modo, busca, seleção — **não** viaja dentro
+ * desta string. Ela vai em parâmetros próprios, cada um validado por
+ * `parseMapViewParams`, e o destino é remontado a partir dos valores já
+ * conferidos.
+ *
+ * A alternativa seria aceitar `/mapa?lat=...&mode=...` aqui, e ela é pior por
+ * dois motivos. O parser deixaria de ser uma comparação exata e passaria a
+ * interpretar query — que é justamente onde a criatividade de codificação
+ * mora. E o valor voltaria para a tela como uma string que ninguém inspecionou
+ * campo a campo. Mantendo o caminho puro, esta função continua sendo o que ela
+ * sempre foi: uma igualdade contra rotas conhecidas.
+ */
+export const OPERATIONAL_MAP_PATH = "/mapa";
 
 /**
  * Formato de `cuid()`, que é o que o Prisma gera para `ServiceOrder.id`.
@@ -44,6 +62,10 @@ export function parseReturnTo(raw: unknown): ReturnTo | null {
     return { kind: "customers" };
   }
 
+  if (raw === OPERATIONAL_MAP_PATH) {
+    return { kind: "operational-map" };
+  }
+
   const os = /^\/ordens\/([^/]+)$/.exec(raw);
   if (os && ID_INTERNO.test(os[1])) {
     return { kind: "order", orderId: os[1] };
@@ -59,7 +81,7 @@ export function parseReturnTo(raw: unknown): ReturnTo | null {
  * formato que o parser aceita — as duas pontas usam a mesma definição.
  */
 export function buildReturnTo(destino: ReturnTo): string {
-  return destino.kind === "customers"
-    ? "/clientes"
-    : `/ordens/${destino.orderId}`;
+  if (destino.kind === "customers") return "/clientes";
+  if (destino.kind === "operational-map") return OPERATIONAL_MAP_PATH;
+  return `/ordens/${destino.orderId}`;
 }

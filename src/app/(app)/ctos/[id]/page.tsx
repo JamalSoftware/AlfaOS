@@ -4,16 +4,81 @@ import { notFound } from "next/navigation";
 import { isCtoNetworkEnabled } from "@/lib/cto";
 import { getOperationalCtoDetail } from "@/lib/cto-read-model";
 import { requirePageProfile } from "@/lib/guards";
+import { buildMapViewQuery, parseMapViewParams } from "@/lib/map-view-params";
+import { OPERATIONAL_MAP_PATH, parseReturnTo } from "@/lib/return-to";
 import { CtoDetailManager } from "./CtoDetailManager";
 
 export const metadata: Metadata = {
   title: "CTO",
 };
 
+/** Para onde o botão de voltar aponta, e o que ele diz. */
+interface Volta {
+  href: string;
+  label: string;
+}
+
+const VOLTA_PADRAO: Volta = { href: "/ctos", label: "← CTOs" };
+
+/**
+ * Resolve o destino de volta a partir da query string.
+ *
+ * ## O defeito que isto corrige
+ *
+ * Na validação da `CTO-3.2` o dono abriu uma CTO **pelo mapa**, clicou em
+ * voltar, e caiu na listagem `/ctos`. Do ponto de vista de quem opera, o
+ * sistema perdeu o lugar onde ele estava — e a listagem não tem nem o bairro,
+ * nem o zoom, nem a caixa em destaque.
+ *
+ * ## Por que não `router.back()`
+ *
+ * Porque ele responde *"a página anterior do navegador"*, e essa não é a mesma
+ * pergunta que *"de onde este fluxo veio"*. `F5` no detalhe, link colado, aba
+ * nova e um `back` depois de três navegações produzem históricos diferentes —
+ * e em todos eles o botão precisaria continuar dizendo a mesma coisa. A origem
+ * é **explícita**, viaja na URL, e por isso sobrevive a tudo isso.
+ *
+ * ## Duas checagens, e as duas são necessárias
+ *
+ * 1. **A origem**, por `parseReturnTo` — allowlist ancorada, comparação exata
+ *    contra rotas conhecidas. É o que impede redirect aberto: um link montado
+ *    por terceiro levaria o operador autenticado para fora do AlfaOS, numa tela
+ *    que imita a de origem.
+ *
+ * 2. **A vista**, por `parseMapViewParams` — cada campo conferido, e o destino
+ *    **remontado** por `buildMapViewQuery` a partir do que passou. Nada do que
+ *    o cliente escreveu é ecoado de volta na `href`; o que sai é uma query
+ *    construída de valores já validados.
+ *
+ * Falhar aqui nunca é erro de tela: um destino ruim vira "← CTOs", que sempre
+ * funciona.
+ */
+function resolverVolta(
+  searchParams: Record<string, string | string[] | undefined> | undefined,
+): Volta {
+  const origem = parseReturnTo(
+    Array.isArray(searchParams?.returnTo)
+      ? searchParams?.returnTo[0]
+      : searchParams?.returnTo,
+  );
+
+  if (origem?.kind !== "operational-map") {
+    return VOLTA_PADRAO;
+  }
+
+  const query = buildMapViewQuery(parseMapViewParams(searchParams));
+  return {
+    href: query ? `${OPERATIONAL_MAP_PATH}?${query}` : OPERATIONAL_MAP_PATH,
+    label: "← Mapa Operacional",
+  };
+}
+
 export default async function CtoDetailPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const session = await requirePageProfile(["ADMIN"]);
 
@@ -28,14 +93,17 @@ export default async function CtoDetailPage({
     notFound();
   }
 
+  const volta = resolverVolta(searchParams);
+
   return (
     <div>
       <div className="mb-6">
         <Link
-          href="/ctos"
+          href={volta.href}
+          data-testid="cto-back-link"
           className="text-sm text-fg-muted transition-colors hover:text-fg"
         >
-          ← CTOs
+          {volta.label}
         </Link>
         <h1 className="mt-2 text-2xl font-bold text-fg">{cto.name}</h1>
         <p className="mt-1 text-sm text-fg-muted">
