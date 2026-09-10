@@ -23,11 +23,18 @@ import { prisma } from "./prisma";
  * consegue afirmar que nenhum componente contém URL de tile.
  */
 
-/** Uma camada de tiles: o que o `TileLayer` do Leaflet precisa saber. */
+/**
+ * Uma camada de tiles: o que o `TileLayer` do Leaflet precisa saber.
+ *
+ * `maxNativeZoom` e nao `maxZoom`: ele diz ate onde EXISTE tile neste provedor,
+ * e acima disso o Leaflet amplia o ultimo nivel real em vez de pedir um que nao
+ * existe. Quem decide ate onde a pessoa pode aproximar e o mapa (`MAP_MAX_ZOOM`),
+ * nao a camada. Ver a politica medida em `map-tiles.config.mjs`.
+ */
 export interface MapTileLayer {
   urlTemplate: string;
   attribution: string;
-  maxZoom: number;
+  maxNativeZoom: number;
 }
 
 /**
@@ -201,3 +208,4 @@ export async function getCtoMapInitialView(
     },
   };
 }
+

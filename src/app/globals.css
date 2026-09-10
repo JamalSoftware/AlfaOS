@@ -453,12 +453,39 @@
   stroke-width: 1.5;
 }
 
-.cto-box__ports circle {
-  fill: rgb(var(--fg-muted));
+/*
+  A régua de portas.
+
+  A bandeja é um recorte mais escuro dentro do corpo, e os conectores são
+  traços verticais CONTÍGUOS. A contiguidade é o ponto: traços lado a lado leem
+  como régua óptica, e pontos espalhados — como na primeira versão — leem como
+  teclado. Foi essa leitura que o dono recusou.
+*/
+.cto-box__tray {
+  fill: rgb(var(--surface-muted));
+  stroke: rgb(var(--fg-muted));
+  stroke-width: 0.8;
 }
 
-/* O selo é o ESTADO. A borda na cor da superfície o descola do corpo da caixa
-   sem depender de espaço em branco, que não existe neste tamanho. */
+.cto-box__ports line {
+  stroke: rgb(var(--fg));
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+/* O prensa-cabo e a descida da fibra: é o que diz "equipamento de rede" em vez
+   de "caixa de luz", e some do desenho se for grosso demais. */
+.cto-box__gland {
+  fill: rgb(var(--fg-secondary));
+}
+
+.cto-box__cable {
+  stroke: rgb(var(--fg-secondary));
+  stroke-width: 2;
+  stroke-linecap: round;
+  fill: none;
+}
+
 .cto-box__badge > * {
   stroke: rgb(var(--surface));
   stroke-width: 2;
@@ -513,4 +540,40 @@
   outline: 3px solid rgb(var(--focus));
   outline-offset: 1px;
   border-radius: 8px;
+}
+
+/*
+  ---------------------------------------------------------------------------
+  Ação do popup — CTO-3.2.1b
+  ---------------------------------------------------------------------------
+
+  O dono relatou que "Abrir CTO" estava ilegível. A causa é do Leaflet, e é de
+  ESPECIFICIDADE:
+
+      leaflet.css:264   .leaflet-container a { color: #0078A8 }   (0,1,1)
+      Tailwind          .text-primary-fg                          (0,1,0)
+
+  A regra do Leaflet vence, então o texto do botão saía em #0078A8 sobre o
+  fundo #2563eb do `bg-primary` — azul sobre azul, contraste de cerca de
+  1,06:1. Praticamente invisível, e nenhuma asserção de existência ou de texto
+  pegaria isso: o elemento estava lá, com o conteúdo certo, no lugar certo.
+
+  A correção não inventa paleta: são os mesmos tokens `primary`, numa regra com
+  especificidade suficiente para o design system voltar a decidir dentro do
+  mapa.
+*/
+.cto-map-shell .leaflet-popup-content a.cto-map-action {
+  color: rgb(var(--primary-fg));
+  background: rgb(var(--primary));
+  text-decoration: none;
+}
+
+.cto-map-shell .leaflet-popup-content a.cto-map-action:hover {
+  color: rgb(var(--primary-fg));
+  background: rgb(var(--primary-hover));
+}
+
+.cto-map-shell .leaflet-popup-content a.cto-map-action:focus-visible {
+  outline: 2px solid rgb(var(--focus));
+  outline-offset: 2px;
 }

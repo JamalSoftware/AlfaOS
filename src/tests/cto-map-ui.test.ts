@@ -26,9 +26,14 @@ import {
   parseMapViewParams,
 } from "@/lib/map-view-params";
 import { buildReturnTo, parseReturnTo } from "@/lib/return-to";
-import { ctoMarkerHtml } from "@/components/map/cto-marker-icon";
+import {
+  CTO_MARKER_SIZE,
+  ctoMarkerHtml,
+} from "@/components/map/cto-marker-icon";
 import {
   DEFAULT_NORMAL_URL,
+  MAP_INITIAL_FIT_MAX_ZOOM,
+  MAP_MAX_ZOOM,
   readMapTileConfig,
   tileImageSource,
   tileImageSources,
@@ -393,7 +398,7 @@ describe("MAPUX-01..06 — configuração das bases de mapa", () => {
 
     expect(config.normal.urlTemplate).toBe(DEFAULT_NORMAL_URL);
     expect(config.normal.attribution).toContain("OpenStreetMap");
-    expect(config.normal.maxZoom).toBe(19);
+    expect(config.normal.maxNativeZoom).toBe(19);
   });
 
   it("MAPUX-02 · o satélite tem provedor PRÓPRIO, e não é o da base normal", () => {
@@ -539,12 +544,12 @@ describe("MAPUX-01..06 — configuração das bases de mapa", () => {
       MAP_TILE_URL: "https://normal.exemplo.com/{z}/{x}/{y}.png",
       MAP_TILE_SATELLITE_URL: "https://sat.exemplo.com/{z}/{x}/{y}.jpg",
       MAP_TILE_HYBRID_LABELS_URL: "https://rot.exemplo.com/{z}/{x}/{y}.png",
-      MAP_TILE_SATELLITE_MAX_ZOOM: "17",
+      MAP_TILE_SATELLITE_MAX_NATIVE_ZOOM: "17",
     });
 
     expect(config.normal.urlTemplate).toContain("normal.exemplo.com");
     expect(config.satellite!.urlTemplate).toContain("sat.exemplo.com");
-    expect(config.satellite!.maxZoom).toBe(17);
+    expect(config.satellite!.maxNativeZoom).toBe(17);
     expect(config.hybrid!.labels.urlTemplate).toContain("rot.exemplo.com");
     expect(tileImageSources(config)).toEqual([
       "https://normal.exemplo.com",
@@ -575,9 +580,9 @@ describe("MAPUX-01..06 — configuração das bases de mapa", () => {
 
   it("zoom inválido cai no padrão", () => {
     for (const bruto of ["0", "23", "abc", "12.5", ""]) {
-      expect(readMapTileConfig({ MAP_TILE_MAX_ZOOM: bruto }).normal.maxZoom).toBe(
-        19,
-      );
+      expect(
+        readMapTileConfig({ MAP_TILE_MAX_NATIVE_ZOOM: bruto }).normal.maxNativeZoom,
+      ).toBe(19);
     }
   });
 
@@ -650,7 +655,7 @@ describe("MAPUX-07..11 — o marcador é uma CTO, não um alfinete", () => {
     expect(html).toContain("cto-box__body");
     expect(html).toContain("cto-box__lid");
     expect(html).toContain("cto-box__ports");
-    expect(html.match(/<circle/g)?.length ?? 0).toBeGreaterThanOrEqual(6);
+    expect(html).toContain("cto-box__tray");
   });
 
   it("MAPUX-07b · o alfinete padrão do Leaflet NÃO é usado", () => {
@@ -1281,5 +1286,357 @@ describe("UI-MAP-13 — o que o popup NÃO mostra", () => {
     ]) {
       expect(html, `divIcon interpola ${proibido}`).not.toContain(proibido);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UXP-01..03 — a altura do mapa
+// ---------------------------------------------------------------------------
+
+/**
+ * A moldura do mapa é a única coisa deste módulo que o navegador mede e o
+ * `jsdom` não. O que dá para afirmar aqui é a POLÍTICA — quais alturas o
+ * componente declara —, e a medida real fica no Playwright.
+ */
+function classesDaMoldura(): string {
+  const codigo = leia("src/components/map/OperationalMap.tsx");
+  const m = /className="(cto-map-shell[^"]*)"/.exec(codigo);
+  if (!m) throw new Error("não achei a className da moldura do mapa");
+  return m[1];
+}
+
+describe("UXP-01..03 — altura do mapa", () => {
+  it("UXP-01 · a altura de desktop é limitada, e não cresce com a tela", () => {
+    const classes = classesDaMoldura();
+
+    // `lg` é o degrau de notebook/desktop, e ele é um NÚMERO de pixels.
+    const lg = /lg:h-\[(\d+)px\]/.exec(classes);
+    expect(lg, "falta a altura de desktop em pixels").not.toBeNull();
+
+    const altura = Number(lg![1]);
+    expect(altura).toBeGreaterThanOrEqual(500);
+    expect(altura).toBeLessThanOrEqual(600);
+  });
+
+  it("UXP-02 · NENHUMA altura do mapa é fração de viewport", () => {
+    /*
+      O defeito que o dono relatou. Com `vh`, o mapa cresce com a tela e empurra
+      busca, contadores e legenda para fora da primeira dobra — e num notebook
+      com barra de tarefas ele nunca cabe inteiro.
+
+      A proibição é de QUALQUER unidade de viewport, e não só de `100vh`: `60vh`
+      produz o mesmo comportamento, só que mais devagar.
+    */
+    const classes = classesDaMoldura();
+
+    expect(classes).not.toMatch(/h-\[[^\]]*v(h|min|max|dvh)/);
+    expect(classes).not.toMatch(/h-screen/);
+    expect(classes).not.toMatch(/calc\(100vh/);
+  });
+
+  it("UXP-03 · a altura é responsiva, e cresce com o tamanho da tela", () => {
+    const classes = classesDaMoldura();
+
+    const base = /(?:^|\s)h-\[(\d+)px\]/.exec(classes);
+    const sm = /sm:h-\[(\d+)px\]/.exec(classes);
+    const md = /md:h-\[(\d+)px\]/.exec(classes);
+    const lg = /lg:h-\[(\d+)px\]/.exec(classes);
+
+    for (const [nome, achado] of [
+      ["base (celular)", base],
+      ["sm", sm],
+      ["md (tablet)", md],
+      ["lg (desktop)", lg],
+    ] as const) {
+      expect(achado, `falta o degrau ${nome}`).not.toBeNull();
+    }
+
+    const alturas = [base, sm, md, lg].map((m) => Number(m![1]));
+
+    // Monotônica: nenhum degrau encolhe em relação ao anterior.
+    for (let i = 1; i < alturas.length; i += 1) {
+      expect(alturas[i]).toBeGreaterThanOrEqual(alturas[i - 1]);
+    }
+
+    // E dentro das faixas que o dono pediu.
+    expect(alturas[0]).toBeGreaterThanOrEqual(360);
+    expect(alturas[0]).toBeLessThanOrEqual(440);
+    expect(alturas[2]).toBeGreaterThanOrEqual(420);
+    expect(alturas[2]).toBeLessThanOrEqual(560);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UXP-04..07 — a política de zoom, medida
+// ---------------------------------------------------------------------------
+
+describe("UXP-04..07 — política de zoom", () => {
+  it("UXP-04 · NORMAL declara o zoom nativo do OpenStreetMap", () => {
+    // Medido: acima de `z19` o OSM responde HTTP 400 com 30 bytes.
+    expect(readMapTileConfig({}).normal.maxNativeZoom).toBe(19);
+  });
+
+  it("UXP-05 · SATELLITE para onde a imagem do Esri realmente acaba", () => {
+    /*
+      Este é o número que tira a placa "Map data not yet available" da tela.
+
+      Medido em três lugares: `z19` em São Paulo, `z18` em cidade média e `z18`
+      na área rural onde o dono validou. Acima disso o Esri responde
+      `200 image/jpeg` com uma placa de 2.521 bytes, byte a byte idêntica em
+      qualquer região — o Leaflet não tem como saber que aquilo não é imagem.
+
+      O valor é o PIOR caso medido de propósito: adotar 19 devolveria a placa
+      para a maior parte do país, e adotar 18 custa um nível de nitidez nas
+      capitais. Um defeito é cosmético; o outro faz o mapa afirmar que não há
+      dado onde há.
+    */
+    expect(readMapTileConfig({}).satellite!.maxNativeZoom).toBe(18);
+  });
+
+  it("UXP-05b · o satélite nunca declara nativo ACIMA do medido", () => {
+    // A guarda contra o ajuste otimista: subir este número traz a placa de volta.
+    expect(
+      readMapTileConfig({}).satellite!.maxNativeZoom,
+    ).toBeLessThanOrEqual(18);
+  });
+
+  it("UXP-06 · o híbrido respeita a camada mais restritiva", () => {
+    const c = readMapTileConfig({});
+
+    /*
+      As duas camadas do híbrido declaram o próprio nativo, e o Leaflet amplia
+      cada uma a partir do dela. É isso que impede a experiência em que uma
+      continua e a outra quebra: nenhuma quebra — ambas ampliam.
+
+      A base é a mais restritiva das duas, e o teto do mapa fica acima de ambas.
+    */
+    expect(c.hybrid!.base.maxNativeZoom).toBeLessThanOrEqual(
+      c.hybrid!.labels.maxNativeZoom,
+    );
+    expect(MAP_MAX_ZOOM).toBeGreaterThanOrEqual(c.hybrid!.labels.maxNativeZoom);
+    expect(MAP_MAX_ZOOM).toBeGreaterThanOrEqual(c.hybrid!.base.maxNativeZoom);
+
+    // E a base do híbrido continua sendo o MESMO objeto do satélite: duas
+    // cópias divergiriam na primeira troca de provedor.
+    expect(c.hybrid!.base).toBe(c.satellite);
+  });
+
+  it("UXP-06b · o teto do mapa é um só, e fica acima de toda camada", () => {
+    const c = readMapTileConfig({});
+    const nativos = [
+      c.normal.maxNativeZoom,
+      c.satellite!.maxNativeZoom,
+      c.hybrid!.labels.maxNativeZoom,
+    ];
+
+    for (const nativo of nativos) {
+      expect(MAP_MAX_ZOOM).toBeGreaterThanOrEqual(nativo);
+    }
+    // Um teto igual ao maior nativo tiraria a ampliação; muito acima produziria
+    // uma imagem borrada demais para servir.
+    expect(MAP_MAX_ZOOM - Math.max(...nativos)).toBeGreaterThanOrEqual(1);
+    expect(MAP_MAX_ZOOM - Math.min(...nativos)).toBeLessThanOrEqual(3);
+  });
+
+  it("UXP-07 · uma CTO só não abre colada demais", () => {
+    /*
+      `fitBounds` sobre um retângulo de área zero — uma caixa só, ou várias no
+      mesmo poste — vai ao zoom máximo sem um teto. O operador abriria o mapa
+      olhando uma calçada, sem nenhuma referência de onde aquilo fica.
+
+      O teto precisa mostrar a caixa, a rua dela e as quadras em volta.
+    */
+    expect(MAP_INITIAL_FIT_MAX_ZOOM).toBeGreaterThanOrEqual(15);
+    expect(MAP_INITIAL_FIT_MAX_ZOOM).toBeLessThanOrEqual(17);
+    // E nunca acima do que o satélite consegue desenhar sem ampliar.
+    expect(MAP_INITIAL_FIT_MAX_ZOOM).toBeLessThanOrEqual(
+      readMapTileConfig({}).satellite!.maxNativeZoom,
+    );
+  });
+
+  it("UXP-07b · o enquadramento inicial é usado pelo canvas", () => {
+    // Sem isto, a constante existiria e o `fitBounds` continuaria sem teto.
+    const codigo = semComentarios(leia("src/components/map/MapCanvas.tsx"));
+
+    expect(codigo).toContain("MAP_INITIAL_FIT_MAX_ZOOM");
+    expect(codigo).toMatch(/maxZoom:\s*MAP_INITIAL_FIT_MAX_ZOOM/);
+  });
+
+  it("UXP-05c · cada TileLayer declara maxNativeZoom, e não só maxZoom", () => {
+    /*
+      A asserção que a sabotagem `S3` precisa derrubar. Sem `maxNativeZoom`, o
+      Leaflet PEDE o tile inexistente — e no satélite recebe a placa com
+      `200 OK`, que ele desenha.
+    */
+    const codigo = semComentarios(leia("src/components/map/MapCanvas.tsx"));
+    const camadas = codigo.match(/<TileLayer[\s\S]*?\/>/g) ?? [];
+
+    expect(camadas.length).toBeGreaterThanOrEqual(4);
+    for (const camada of camadas) {
+      expect(camada, "TileLayer sem maxNativeZoom").toContain("maxNativeZoom");
+      expect(camada, "TileLayer sem teto de mapa").toContain("MAP_MAX_ZOOM");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UXP-08..10 — o marcador redesenhado
+// ---------------------------------------------------------------------------
+
+describe("UXP-08..10 — a caixa óptica", () => {
+  const svg = () => ctoMarkerHtml(ctoMapStatusPresentation("AVAILABLE"), false);
+
+  it("UXP-08 · o marcador tem estrutura de caixa óptica", () => {
+    const html = svg();
+
+    // Corpo, tampa e — o que diz "equipamento de rede" — o prensa-cabo.
+    expect(html).toContain("cto-box__body");
+    expect(html).toContain("cto-box__lid");
+    expect(html).toContain("cto-box__gland");
+    expect(html).toContain("cto-box__cable");
+    expect(html.startsWith("<svg")).toBe(true);
+  });
+
+  it("UXP-09 · as portas ópticas são uma RÉGUA, e não uma grade de pontos", () => {
+    /*
+      O defeito que o dono nomeou: duas fileiras de pontos leem como calculadora
+      ou teclado. Uma régua de traços verticais contíguos lê como conector.
+
+      A asserção olha a estrutura — bandeja mais traços — e não uma substring
+      qualquer do SVG.
+    */
+    const html = svg();
+
+    expect(html, "falta a bandeja das portas").toContain("cto-box__tray");
+
+    const regua = /<g class="cto-box__ports">([\s\S]*?)<\/g>/.exec(html);
+    expect(regua, "falta o grupo de portas").not.toBeNull();
+
+    const tracos = regua![1].match(/<line/g) ?? [];
+    expect(tracos.length, "a régua precisa de vários conectores").toBeGreaterThanOrEqual(4);
+
+    // Traços VERTICAIS: mesmo x nas duas pontas, y diferente. Um traço
+    // horizontal aqui seria de novo uma fileira, não uma régua.
+    const coords = Array.from(
+      regua![1].matchAll(/x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/g),
+    );
+    expect(coords.length).toBe(tracos.length);
+    for (const [, x1, y1, x2, y2] of coords) {
+      expect(x1).toBe(x2);
+      expect(y1).not.toBe(y2);
+    }
+
+    // E nenhum `<circle>` na régua — os pontos da versão anterior sumiram.
+    expect(regua![1]).not.toContain("<circle");
+  });
+
+  it("UXP-09b · a régua está DENTRO do corpo da caixa", () => {
+    // Um desenho em que as portas escapam do corpo não lê como caixa.
+    const html = svg();
+    const corpo = /<rect class="cto-box__body" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/.exec(html);
+    const bandeja = /<rect class="cto-box__tray" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/.exec(html);
+
+    expect(corpo).not.toBeNull();
+    expect(bandeja).not.toBeNull();
+
+    const [, cx, cy, cw, ch] = corpo!.map(Number) as unknown as number[];
+    const [, bx, by, bw, bh] = bandeja!.map(Number) as unknown as number[];
+
+    expect(bx).toBeGreaterThanOrEqual(cx);
+    expect(by).toBeGreaterThanOrEqual(cy);
+    expect(bx + bw).toBeLessThanOrEqual(cx + cw);
+    expect(by + bh).toBeLessThanOrEqual(cy + ch);
+  });
+
+  it("UXP-10 · o estado continua sendo forma + glifo", () => {
+    const estados = ["AVAILABLE", "FULL", "DAMAGED", "INACTIVE"] as const;
+
+    const selos = estados.map(
+      (s) =>
+        /<g class="cto-box__badge">(.*?)<\/g>/.exec(
+          ctoMarkerHtml(ctoMapStatusPresentation(s), false),
+        )?.[1] ?? "",
+    );
+    const glifos = estados.map(
+      (s) =>
+        /<text[^>]*>([^<]*)<\/text>/.exec(
+          ctoMarkerHtml(ctoMapStatusPresentation(s), false),
+        )?.[1] ?? "",
+    );
+
+    expect(new Set(selos).size, "duas formas de selo iguais").toBe(4);
+    expect(new Set(glifos).size, "dois glifos iguais").toBe(4);
+    for (const g of glifos) expect(g.trim()).not.toBe("");
+
+    // E a silhueta é a MESMA nos quatro: ela é a identidade da CTO.
+    for (const s of estados) {
+      expect(ctoMarkerHtml(ctoMapStatusPresentation(s), false)).toContain(
+        "cto-box__tray",
+      );
+    }
+  });
+
+  it("UXP-10b · o marcador continua sem interpolar dado de usuário", () => {
+    const codigo = semComentarios(
+      leia("src/components/map/cto-marker-icon.ts"),
+    );
+    for (const proibido of ["name", "code", "marker."]) {
+      expect(codigo, `o ícone referencia ${proibido}`).not.toContain(proibido);
+    }
+    expect(ctoMarkerHtml.length).toBe(2);
+  });
+
+  it("UXP-10c · o marcador é pequeno o bastante para não competir com o mapa", () => {
+    expect(CTO_MARKER_SIZE).toBeGreaterThanOrEqual(28);
+    expect(CTO_MARKER_SIZE).toBeLessThanOrEqual(44);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UXP-12 — o botão "Abrir CTO"
+// ---------------------------------------------------------------------------
+
+describe("UXP-12 — legibilidade da ação do popup", () => {
+  it("UXP-12 · a ação usa a classe que vence a regra do Leaflet", () => {
+    /*
+      O defeito que o dono viu, e a causa é de ESPECIFICIDADE:
+
+        leaflet.css   .leaflet-container a { color: #0078A8 }   (0,1,1)
+        Tailwind      .text-primary-fg                          (0,1,0)
+
+      A regra do Leaflet vence, então o texto saía #0078A8 sobre o #2563eb do
+      `bg-primary` — azul sobre azul, contraste de cerca de 1,06:1. Nenhuma
+      asserção de existência ou de texto pegaria isso: o elemento estava lá, com
+      o conteúdo certo, no lugar certo.
+    */
+    const componente = semComentarios(leia("src/components/map/CtoMarkers.tsx"));
+    const acao = /<Link[\s\S]*?data-testid="cto-map-popup-open"/.exec(componente);
+    expect(acao, "não achei a ação do popup").not.toBeNull();
+
+    expect(acao![0], "a ação precisa da classe própria").toContain(
+      "cto-map-action",
+    );
+    // A utility de cor sozinha PERDE para o Leaflet; ela não pode voltar como
+    // se resolvesse.
+    expect(acao![0]).not.toContain("text-primary-fg");
+  });
+
+  it("UXP-12b · a classe existe no CSS, com especificidade maior que a do Leaflet", () => {
+    const css = leia("src/app/globals.css");
+    const regra = /\.cto-map-shell \.leaflet-popup-content a\.cto-map-action \{([\s\S]*?)\}/.exec(css);
+
+    expect(regra, "falta a regra da ação no globals.css").not.toBeNull();
+
+    // Três classes + um elemento (0,3,1) vence `.leaflet-container a` (0,1,1).
+    expect(regra![1]).toContain("color:");
+    expect(regra![1]).toContain("--primary-fg");
+    expect(regra![1]).toContain("--primary");
+
+    // Tokens, e nunca hexadecimal solto — inclusive o azul do Leaflet.
+    expect(regra![1]).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+    expect(css).toContain(".cto-map-shell .leaflet-popup-content a.cto-map-action:hover");
+    expect(css).toContain(
+      ".cto-map-shell .leaflet-popup-content a.cto-map-action:focus-visible",
+    );
   });
 });

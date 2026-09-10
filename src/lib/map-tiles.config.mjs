@@ -89,7 +89,66 @@ export const DEFAULT_HYBRID_LABELS_URL =
 export const DEFAULT_HYBRID_LABELS_ATTRIBUTION =
   'Rótulos &copy; <a href="https://carto.com/attributions" target="_blank" rel="noreferrer noopener">CARTO</a>';
 
-export const DEFAULT_TILE_MAX_ZOOM = 19;
+/**
+ * # A política de zoom — MEDIDA, não estimada
+ *
+ * A validação do dono encontrou tiles com a placa **"Map data not yet
+ * available"** no satélite. A causa foi medida provedor por provedor, em três
+ * lugares diferentes, buscando quatro tiles vizinhos por nível e comparando os
+ * bytes: quando os quatro são **idênticos**, não é imagem — é uma placa.
+ *
+ * ```text
+ * provedor            São Paulo   cidade média   rural       acima disso
+ * NORMAL   (OSM)         z19          z19         z19        HTTP 400, 30 B
+ * SATELLITE(Esri)        z19          z18         z18        HTTP 200 + placa
+ * LABELS   (CARTO)       z19          z20         z19        PNG transparente
+ * ```
+ *
+ * **O que torna o satélite traiçoeiro: ele responde `200 image/jpeg`.** A placa
+ * é um JPEG de 2.521 bytes, byte a byte igual em qualquer região e qualquer
+ * zoom — o Leaflet não tem como saber que aquilo não é imagem, então desenha.
+ * Um `404` teria produzido um buraco visível; um `200` produz uma mentira.
+ *
+ * ## `maxNativeZoom` é a resposta, e não `maxZoom`
+ *
+ * `maxNativeZoom` diz ao Leaflet **até onde existe tile**; acima disso ele
+ * amplia o último nível real em vez de pedir um que não existe. `maxZoom` diz
+ * até onde a pessoa pode aproximar. Separá-los é o que troca a placa por uma
+ * imagem um pouco mais grosseira — que é honesta, porque é a mesma imagem.
+ *
+ * Esconder a placa com CSS teria sido o oposto: o tile continuaria sendo
+ * pedido, a rede continuaria sendo gasta, e o mapa mentiria em silêncio.
+ *
+ * ## Os valores adotados são o PIOR caso medido
+ *
+ * O satélite chega a `z19` em São Paulo e para em `z18` em cidade média e na
+ * área rural onde o dono validou. Adotar 19 devolveria a placa para a maior
+ * parte do país; adotar 18 custa um nível de nitidez nas capitais e nunca
+ * mostra placa. **A escolha é pelo pior caso**, porque o defeito de um lado é
+ * cosmético e o do outro faz o mapa afirmar que não há dado onde há.
+ */
+export const DEFAULT_NORMAL_MAX_NATIVE_ZOOM = 19;
+export const DEFAULT_SATELLITE_MAX_NATIVE_ZOOM = 18;
+export const DEFAULT_LABELS_MAX_NATIVE_ZOOM = 19;
+
+/**
+ * Até onde a pessoa pode aproximar, em qualquer modo.
+ *
+ * Um nível além do `maxNativeZoom` mais restritivo. O Leaflet amplia o último
+ * tile real, e as três camadas continuam desenhando — nenhuma "quebra"
+ * enquanto a outra continua, que é o que o híbrido exige.
+ */
+export const MAP_MAX_ZOOM = 20;
+
+/**
+ * O zoom do enquadramento inicial de UMA caixa.
+ *
+ * `fitBounds` sobre um retângulo de área zero — uma CTO só, ou várias no mesmo
+ * poste — vai ao zoom máximo e abre o mapa mostrando uma calçada, sem nenhuma
+ * referência de onde aquilo fica. Em `z17` o operador enxerga a caixa, a rua
+ * dela e as quadras em volta, que é o que orienta.
+ */
+export const MAP_INITIAL_FIT_MAX_ZOOM = 17;
 
 /**
  * A configuração efetiva, a partir do ambiente.
@@ -110,7 +169,7 @@ export function readMapTileConfig(env = process.env) {
   const normal = {
     urlTemplate: trimmedOr(env.MAP_TILE_URL, DEFAULT_NORMAL_URL),
     attribution: "",
-    maxZoom: zoomOr(env.MAP_TILE_MAX_ZOOM),
+    maxNativeZoom: zoomOr(env.MAP_TILE_MAX_NATIVE_ZOOM, DEFAULT_NORMAL_MAX_NATIVE_ZOOM),
   };
   normal.attribution = trimmedOr(
     env.MAP_TILE_ATTRIBUTION,
@@ -129,7 +188,10 @@ export function readMapTileConfig(env = process.env) {
   const satellite = {
     urlTemplate: trimmedOr(env.MAP_TILE_SATELLITE_URL, DEFAULT_SATELLITE_URL),
     attribution: "",
-    maxZoom: zoomOr(env.MAP_TILE_SATELLITE_MAX_ZOOM),
+    maxNativeZoom: zoomOr(
+      env.MAP_TILE_SATELLITE_MAX_NATIVE_ZOOM,
+      DEFAULT_SATELLITE_MAX_NATIVE_ZOOM,
+    ),
   };
   satellite.attribution = trimmedOr(
     env.MAP_TILE_SATELLITE_ATTRIBUTION,
@@ -144,7 +206,10 @@ export function readMapTileConfig(env = process.env) {
       DEFAULT_HYBRID_LABELS_URL,
     ),
     attribution: "",
-    maxZoom: zoomOr(env.MAP_TILE_HYBRID_LABELS_MAX_ZOOM),
+    maxNativeZoom: zoomOr(
+      env.MAP_TILE_HYBRID_LABELS_MAX_NATIVE_ZOOM,
+      DEFAULT_LABELS_MAX_NATIVE_ZOOM,
+    ),
   };
   labels.attribution = trimmedOr(
     env.MAP_TILE_HYBRID_LABELS_ATTRIBUTION,
@@ -227,11 +292,9 @@ export function tileImageSource(urlTemplate) {
   return `${url.protocol}//*.${host}`;
 }
 
-function zoomOr(bruto) {
+function zoomOr(bruto, padrao) {
   const valor = Number(bruto);
-  return Number.isInteger(valor) && valor >= 1 && valor <= 22
-    ? valor
-    : DEFAULT_TILE_MAX_ZOOM;
+  return Number.isInteger(valor) && valor >= 1 && valor <= 22 ? valor : padrao;
 }
 
 /**

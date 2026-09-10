@@ -207,7 +207,15 @@ function CtoMarkers({
                 {canOpenDetail ? (
                   <Link
                     href={hrefDoDetalhe(marker.id)}
-                    className="mt-3 inline-flex w-full items-center justify-center rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-fg transition-colors hover:bg-primary-hover"
+                    /*
+                      A cor vive no CSS, e nao numa utility.
+
+                      O Leaflet pinta TODO <a> do mapa com o azul dele, e essa
+                      regra vence a utility do Tailwind por especificidade — o
+                      texto saia azul sobre azul. `cto-map-action` e a classe
+                      que devolve a decisao ao design system; ver globals.css.
+                    */
+                    className="cto-map-action mt-3 inline-flex w-full items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition-colors"
                     data-testid="cto-map-popup-open"
                   >
                     Abrir CTO

@@ -7,6 +7,18 @@ import "leaflet/dist/leaflet.css";
 import type { BoundingBox } from "@/lib/cto-map";
 import { boundingBoxFromLatLngBounds } from "@/lib/cto-map-presentation";
 import type { MapInitialView, MapTilesConfig } from "@/lib/map-config";
+/*
+  Os valores vem do .mjs PURO, e nao de `map-config`.
+
+  `map-config` importa `prisma`. Importar valor dele num componente de cliente
+  arrastaria o Prisma para o bundle do navegador — o defeito que a `DQ-4` pagou
+  com a pagina de login inteira. O teste estrutural da `CTO-3.2` pegou esta
+  regressao no momento em que ela nasceu.
+*/
+import {
+  MAP_INITIAL_FIT_MAX_ZOOM,
+  MAP_MAX_ZOOM,
+} from "@/lib/map-tiles.config.mjs";
 import type { MapMode } from "@/lib/map-view-params";
 
 /**
@@ -59,15 +71,6 @@ export interface MapCanvasProps {
   onReady?: (handle: MapCanvasHandle) => void;
   children?: ReactNode;
 }
-
-/**
- * O zoom máximo do enquadramento inicial.
- *
- * Uma empresa com uma caixa só — ou com todas no mesmo poste — produz um
- * retângulo de área zero, e `fitBounds` sem teto vai ao zoom máximo. O mapa
- * abriria mostrando uma calçada, sem nenhuma referência de onde aquilo fica.
- */
-const INITIAL_FIT_MAX_ZOOM = 16;
 
 function ViewportReporter({
   onViewportChange,
@@ -122,7 +125,12 @@ function CanvasHandle({ onReady }: { onReady?: (h: MapCanvasHandle) => void }) {
     if (!onReady) return;
     onReady({
       focusOn: (latitude, longitude, zoom) => {
-        map.setView([latitude, longitude], zoom ?? Math.max(map.getZoom(), 16));
+        map.setView(
+          [latitude, longitude],
+          // Nunca AFASTA: quem clicou num resultado quer chegar. E o piso e o
+          // mesmo enquadramento confortavel do mapa recem-aberto.
+          zoom ?? Math.max(map.getZoom(), MAP_INITIAL_FIT_MAX_ZOOM),
+        );
       },
     });
   }, [map, onReady]);
@@ -187,7 +195,8 @@ function BaseLayers({
         key="satellite"
         url={tiles.satellite.urlTemplate}
         attribution={tiles.satellite.attribution}
-        maxZoom={tiles.satellite.maxZoom}
+        maxNativeZoom={tiles.satellite.maxNativeZoom}
+        maxZoom={MAP_MAX_ZOOM}
       />
     );
   }
@@ -199,14 +208,16 @@ function BaseLayers({
           key="hybrid-base"
           url={tiles.hybrid.base.urlTemplate}
           attribution={tiles.hybrid.base.attribution}
-          maxZoom={tiles.hybrid.base.maxZoom}
+          maxNativeZoom={tiles.hybrid.base.maxNativeZoom}
+          maxZoom={MAP_MAX_ZOOM}
           zIndex={1}
         />
         <TileLayer
           key="hybrid-labels"
           url={tiles.hybrid.labels.urlTemplate}
           attribution={tiles.hybrid.labels.attribution}
-          maxZoom={tiles.hybrid.labels.maxZoom}
+          maxNativeZoom={tiles.hybrid.labels.maxNativeZoom}
+          maxZoom={MAP_MAX_ZOOM}
           zIndex={2}
         />
       </>
@@ -226,7 +237,8 @@ function BaseLayers({
       key="normal"
       url={tiles.normal.urlTemplate}
       attribution={tiles.normal.attribution}
-      maxZoom={tiles.normal.maxZoom}
+      maxNativeZoom={tiles.normal.maxNativeZoom}
+      maxZoom={MAP_MAX_ZOOM}
     />
   );
 }
@@ -247,7 +259,7 @@ export default function MapCanvas({
             [initialView.bounds.north, initialView.bounds.east],
           ] as [[number, number], [number, number]],
           boundsOptions: {
-            maxZoom: INITIAL_FIT_MAX_ZOOM,
+            maxZoom: MAP_INITIAL_FIT_MAX_ZOOM,
             padding: [32, 32] as [number, number],
           },
         }
@@ -260,23 +272,23 @@ export default function MapCanvas({
         };
 
   /*
-    O teto de zoom do MAPA é o do provedor mais generoso.
+    O teto do MAPA é único; o de cada CAMADA é próprio.
 
-    Preso ao do modo atual, trocar de satélite (19) para uma base com 17
-    deixaria o mapa num zoom que ela não serve — e o Leaflet mostraria cinza em
-    vez de esticar o último tile válido. O `TileLayer` de cada modo continua
-    declarando o seu, que é quem decide de onde vem a imagem.
+    `MAP_MAX_ZOOM` diz até onde a pessoa pode aproximar, e vale igual nos três
+    modos — assim trocar de base nunca muda o zoom debaixo da mão de quem está
+    olhando. Quem diz "até onde existe tile" é o `maxNativeZoom` de cada
+    `TileLayer`, e acima dele o Leaflet amplia o último nível real.
+
+    Foi essa separação que tirou a placa "Map data not yet available" da tela: o
+    satélite tem imagem até `z18` na maior parte do país, o mapa vai até `z20`, e
+    os dois últimos níveis são ampliação — não um pedido a um tile que não
+    existe. Ver a medição em `map-tiles.config.mjs`.
   */
-  const zoomMaximo = Math.max(
-    tiles.normal.maxZoom,
-    tiles.satellite?.maxZoom ?? 0,
-    tiles.hybrid?.labels.maxZoom ?? 0,
-  );
 
   return (
     <MapContainer
       {...enquadramento}
-      maxZoom={zoomMaximo}
+      maxZoom={MAP_MAX_ZOOM}
       scrollWheelZoom
       className="h-full w-full"
       // O mapa é operado com o mouse e com o teclado: `Tab` até ele, setas para

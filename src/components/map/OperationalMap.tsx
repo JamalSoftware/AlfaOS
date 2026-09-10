@@ -149,15 +149,27 @@ export function OperationalMap({
   return (
     <div
       /*
-        Altura EXPLÍCITA, e o motivo é banal e fatal: o Leaflet mede o
-        contêiner, e um contêiner sem altura declarada colapsa em zero. O mapa
-        "não aparece" sem nenhum erro — só um `div` de 0px.
+        Altura EXPLÍCITA, em PIXELS, e por dois motivos diferentes.
 
-        `min-h` junto do `vh` porque numa janela baixa (notebook com a barra de
-        tarefas, tablet deitado) 60vh pode dar 250px, e aí o mapa existe mas não
-        serve para nada.
+        O primeiro é banal e fatal: o Leaflet mede o contêiner, e um contêiner
+        sem altura declarada colapsa em zero. O mapa "não aparece" sem nenhum
+        erro — só um `div` de 0px.
+
+        O segundo veio da validação do dono: com `vh`, o mapa crescia com a
+        tela e empurrava busca, contadores e legenda para fora da primeira
+        dobra. **Altura de mapa não é fração de tela**, é uma faixa de leitura:
+        acima de uns 560px ela deixa de acrescentar contexto e só passa a
+        esconder o resto da página.
+
+        ```text
+        celular   380px      tablet   500px
+        pequeno   440px      desktop  560px
+        ```
+
+        `100vh` continua fora de propósito, e não só como padrão: num notebook
+        com barra de tarefas ele produz um mapa que nunca cabe inteiro.
       */
-      className="cto-map-shell relative h-[60vh] min-h-[380px] w-full overflow-hidden rounded-2xl border border-border bg-surface-muted lg:h-[calc(100vh-14rem)]"
+      className="cto-map-shell relative h-[380px] w-full overflow-hidden rounded-2xl border border-border bg-surface-muted sm:h-[440px] md:h-[500px] lg:h-[560px]"
       data-testid="operational-map"
     >
       <MapCanvas
