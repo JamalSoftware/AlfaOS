@@ -1108,3 +1108,315 @@ test.describe("Mapa Operacional — voltar de uma CTO", () => {
     expect(erros).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// CTO-3.2.1b — os quatro pontos que o dono levantou
+// ---------------------------------------------------------------------------
+
+/** Luminância relativa da WCAG, a partir de um `rgb()` do navegador. */
+function luminancia(cor: string): number {
+  const m = cor.match(/\d+(\.\d+)?/g);
+  if (!m) throw new Error("cor não reconhecida: " + cor);
+  const [r, g, b] = m.slice(0, 3).map((v) => {
+    const c = Number(v) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contraste(frente: string, fundo: string): number {
+  const a = luminancia(frente);
+  const b = luminancia(fundo);
+  const [claro, escuro] = a > b ? [a, b] : [b, a];
+  return (claro + 0.05) / (escuro + 0.05);
+}
+
+test.describe("Mapa Operacional — altura", () => {
+  for (const caso of [
+    { nome: "desktop", width: 1440, height: 900, min: 500, max: 600 },
+    { nome: "notebook", width: 1280, height: 800, min: 500, max: 600 },
+    { nome: "tablet", width: 768, height: 1024, min: 420, max: 560 },
+    { nome: "celular", width: 390, height: 844, min: 360, max: 440 },
+  ]) {
+    test(`UXP-01/03 · a altura fica na faixa em ${caso.nome}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: caso.width, height: caso.height });
+      await login(page, ADMIN_EMAIL);
+      await abrirMapa(page);
+
+      const caixa = await page.getByTestId("operational-map").boundingBox();
+      const altura = caixa?.height ?? 0;
+
+      expect(altura).toBeGreaterThanOrEqual(caso.min);
+      expect(altura).toBeLessThanOrEqual(caso.max);
+
+      /*
+        UXP-02, medido e não lido do CSS: o mapa não pode ocupar a tela toda.
+
+        Era esse o defeito — com `vh` ele crescia junto com a janela e empurrava
+        busca, contadores e legenda para fora da primeira dobra.
+      */
+      expect(altura).toBeLessThan(caso.height * 0.85);
+
+      // E o que vem depois dele continua na página, não numa rolagem absurda.
+      const documento = await page.evaluate(
+        () => document.documentElement.scrollHeight,
+      );
+      expect(documento).toBeLessThan(caso.height * 2.5);
+    });
+  }
+
+  test("UXP-02 · a legenda continua visível sem rolar em desktop", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await login(page, ADMIN_EMAIL);
+    await abrirMapa(page);
+
+    // O sintoma concreto do mapa alto: a legenda saía da primeira dobra.
+    await expect(page.getByTestId("map-legend")).toBeInViewport();
+  });
+});
+
+test.describe("Mapa Operacional — política de zoom", () => {
+  /** Os níveis `z` que o navegador chegou a pedir de cada provedor. */
+  function zoomsPedidos(page: Page) {
+    const pedidos: { provedor: string; z: number }[] = [];
+    page.on("request", (r) => {
+      const url = r.url();
+      let provedor = "";
+      let z = NaN;
+      if (url.includes("tile.openstreetmap.org")) {
+        provedor = "normal";
+        z = Number(/\/(\d+)\/\d+\/\d+\.png/.exec(url)?.[1]);
+      } else if (url.includes("arcgisonline.com")) {
+        provedor = "satellite";
+        z = Number(/\/tile\/(\d+)\/\d+\/\d+/.exec(url)?.[1]);
+      } else if (url.includes("cartocdn.com")) {
+        provedor = "labels";
+        z = Number(/\/(\d+)\/\d+\/\d+\.png/.exec(url)?.[1]);
+      }
+      if (provedor && Number.isFinite(z)) pedidos.push({ provedor, z });
+    });
+    return pedidos;
+  }
+
+  async function aproximarAteOLimite(page: Page) {
+    // Doze cliques passam com folga de qualquer zoom inicial até o teto.
+    for (let i = 0; i < 12; i += 1) {
+      const botao = page.locator(".leaflet-control-zoom-in");
+      if ((await botao.getAttribute("class"))?.includes("disabled")) break;
+      await botao.click();
+      await page.waitForTimeout(120);
+    }
+    await page.waitForTimeout(1200);
+  }
+
+  test("UXP-04 · NORMAL nunca pede acima do zoom nativo do OSM", async ({
+    page,
+  }) => {
+    const pedidos = zoomsPedidos(page);
+    await login(page, ADMIN_EMAIL);
+    await abrirMapa(page);
+    await aproximarAteOLimite(page);
+
+    const normais = pedidos.filter((p) => p.provedor === "normal");
+    expect(normais.length).toBeGreaterThan(0);
+    expect(Math.max(...normais.map((p) => p.z))).toBeLessThanOrEqual(19);
+  });
+
+  test("UXP-05 · SATELLITE nunca pede o tile da placa", async ({ page }) => {
+    /*
+      A prova de que a placa "Map data not yet available" não volta.
+
+      Ela aparece quando o Leaflet PEDE um tile acima da cobertura do Esri — e
+      o Esri responde `200` com a placa em vez de `404`. Com `maxNativeZoom`,
+      o pedido nunca sai: o Leaflet amplia o último nível real.
+    */
+    const pedidos = zoomsPedidos(page);
+    await login(page, ADMIN_EMAIL);
+    await abrirMapa(page);
+
+    await page.getByTestId("map-mode-satellite").click();
+    await aproximarAteOLimite(page);
+
+    const satelite = pedidos.filter((p) => p.provedor === "satellite");
+    expect(satelite.length, "o satélite não pediu tile nenhum").toBeGreaterThan(0);
+    expect(
+      Math.max(...satelite.map((p) => p.z)),
+      "pediu tile acima da cobertura medida do Esri",
+    ).toBeLessThanOrEqual(18);
+
+    // E o mapa continua desenhando: ampliar não é ficar cinza.
+    await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible();
+  });
+
+  test("UXP-06 · HYBRID respeita o limite das DUAS camadas", async ({
+    page,
+  }) => {
+    const pedidos = zoomsPedidos(page);
+    await login(page, ADMIN_EMAIL);
+    await abrirMapa(page);
+
+    await page.getByTestId("map-mode-hybrid").click();
+    await aproximarAteOLimite(page);
+
+    const base = pedidos.filter((p) => p.provedor === "satellite");
+    const rotulos = pedidos.filter((p) => p.provedor === "labels");
+
+    expect(base.length).toBeGreaterThan(0);
+    expect(rotulos.length).toBeGreaterThan(0);
+    expect(Math.max(...base.map((p) => p.z))).toBeLessThanOrEqual(18);
+    expect(Math.max(...rotulos.map((p) => p.z))).toBeLessThanOrEqual(19);
+
+    /*
+      Nenhuma das duas "quebra" enquanto a outra continua: as duas ampliam a
+      partir do próprio nativo, e as duas seguem desenhadas.
+    */
+    await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible();
+    await expect(page.getByTestId("map-mode-hybrid")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  test("UXP-07 · uma CTO só não abre colada demais", async ({ page }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapa(page);
+
+    const z = Number(new URL(page.url()).searchParams.get("z"));
+    expect(Number.isFinite(z)).toBe(true);
+    // Enxerga a caixa, a rua dela e as quadras em volta — nem o país, nem a
+    // calçada.
+    expect(z).toBeGreaterThanOrEqual(12);
+    expect(z).toBeLessThanOrEqual(17);
+  });
+});
+
+test.describe("Mapa Operacional — marcador e ação", () => {
+  test("UXP-08/09/10 · o marcador é uma caixa óptica com régua de portas", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapa(page);
+
+    const caixa = page.locator("svg.cto-box").first();
+    await expect(caixa).toBeVisible();
+
+    // A silhueta.
+    await expect(caixa.locator(".cto-box__body")).toHaveCount(1);
+    await expect(caixa.locator(".cto-box__lid")).toHaveCount(1);
+    await expect(caixa.locator(".cto-box__gland")).toHaveCount(1);
+    await expect(caixa.locator(".cto-box__cable")).toHaveCount(1);
+
+    // A régua — e não a grade de pontos que o dono recusou.
+    await expect(caixa.locator(".cto-box__tray")).toHaveCount(1);
+    expect(
+      await caixa.locator(".cto-box__ports line").count(),
+    ).toBeGreaterThanOrEqual(4);
+    await expect(caixa.locator(".cto-box__ports circle")).toHaveCount(0);
+
+    // O estado continua por forma e glifo.
+    await expect(caixa.locator(".cto-box__badge")).toHaveCount(1);
+    await expect(caixa.locator(".cto-box__glyph")).toHaveCount(1);
+
+    // E o marcador é pequeno: ele aponta para o mapa, não compete com ele.
+    const medida = await caixa.boundingBox();
+    expect(medida?.width ?? 0).toBeLessThanOrEqual(48);
+    expect(medida?.width ?? 0).toBeGreaterThanOrEqual(24);
+  });
+
+  test("UXP-08b · a caixa continua legível sobre satélite e híbrido", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapa(page);
+
+    for (const modo of ["satellite", "hybrid"]) {
+      await page.getByTestId(`map-mode-${modo}`).click();
+      await page.waitForTimeout(600);
+      // Sobre imagem aérea não há fundo previsível: a sombra é o que separa o
+      // desenho de um telhado escuro ou de uma laje clara.
+      const filtro = await page
+        .locator("svg.cto-box")
+        .first()
+        .evaluate((el) => getComputedStyle(el).filter);
+      expect(filtro, `sem sombra no modo ${modo}`).toContain("drop-shadow");
+    }
+  });
+
+  for (const tema of ["light", "dark"] as const) {
+    test(`UXP-12 · "Abrir CTO" tem contraste real no tema ${tema}`, async ({
+      page,
+    }) => {
+      await login(page, ADMIN_EMAIL);
+
+      await page.addInitScript((t) => {
+        window.localStorage.setItem("alfaos-theme", t);
+      }, tema);
+      await abrirMapa(page);
+
+      await page.locator("svg.cto-box").first().click();
+      const botao = page.getByTestId("cto-map-popup-open");
+      await expect(botao).toBeVisible();
+
+      /*
+        A asserção que faltava, e que nenhum teste anterior faria.
+
+        O botão sempre esteve lá, com o texto certo, no lugar certo — e ilegível:
+        `leaflet.css` pinta TODO <a> do mapa com #0078A8, vencendo a utility do
+        Tailwind por especificidade, e o resultado era azul sobre azul com
+        contraste de cerca de 1,06:1.
+
+        Presença e texto não pegam isso. Contraste calculado pega.
+      */
+      const cores = await botao.evaluate((el) => {
+        const s = getComputedStyle(el);
+        return { frente: s.color, fundo: s.backgroundColor };
+      });
+
+      const razao = contraste(cores.frente, cores.fundo);
+      expect(
+        razao,
+        `contraste ${razao.toFixed(2)}:1 entre ${cores.frente} e ${cores.fundo}`,
+      ).toBeGreaterThanOrEqual(4.5);
+
+      // E o fundo é mesmo o primário, não transparente por acidente.
+      expect(cores.fundo).not.toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
+    });
+  }
+
+  test("UXP-13/14 · a ação navega e o retorno preserva a vista", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapa(page);
+
+    await page.getByTestId("map-mode-hybrid").click();
+    await page.waitForTimeout(800);
+
+    const antes = new URL(page.url()).searchParams;
+
+    await page.locator("svg.cto-box").first().click();
+    await page.getByTestId("cto-map-popup-open").click();
+
+    await expect(page.getByTestId("cto-back-link")).toHaveText(
+      "← Mapa Operacional",
+    );
+    await page.getByTestId("cto-back-link").click();
+
+    await expect(page.locator(".leaflet-container")).toBeVisible({
+      timeout: 15000,
+    });
+    const depois = new URL(page.url()).searchParams;
+
+    expect(depois.get("mode")).toBe("HYBRID");
+    expect(depois.get("z")).toBe(antes.get("z"));
+    expect(Number(depois.get("lat"))).toBeCloseTo(Number(antes.get("lat")), 3);
+    await expect(page.getByTestId("map-mode-hybrid")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+});
