@@ -1382,6 +1382,47 @@ test.describe("Mapa Operacional — marcador e ação", () => {
 
         Presença e texto não pegam isso. Contraste calculado pega.
       */
+
+      /*
+        O PONTEIRO SAI DE CIMA ANTES DE MEDIR — e isto foi diagnosticado, não
+        chutado.
+
+        Este teste falhou uma vez na suíte inteira, com
+        `contraste 4.06:1 entre rgb(255, 255, 255) e rgb(52, 121, 243)`, e
+        `rgb(52,121,243)` não é token nenhum: `--primary` é `rgb(37,99,235)` e
+        `--primary-hover` é `rgb(59,130,246)`. O valor está ENTRE os dois, ou
+        seja, era a transição de 0,15s correndo.
+
+        A causa é o clique no marcador deixar o cursor parado onde clicou, e o
+        popup — que o `autoPan` do Leaflet ainda pode deslocar — vir a passar
+        por baixo dele. O botão entra em `:hover`, a cor começa a andar, e a
+        leitura pega o meio do caminho.
+
+        Medir uma cor em movimento é medir coisa nenhuma. Tirando o ponteiro e
+        esperando a transição assentar, o teste volta a afirmar sobre o estado
+        que ele diz medir. Isso NÃO afrouxa a asserção: o limiar continua 4,5.
+
+        INFO pré-existente que o episódio revelou, e que NÃO é desta fase.
+        Medido no navegador, o hover anda em direções OPOSTAS nos dois temas:
+
+            claro   repouso rgb(37,99,235)  5,17:1  ->  hover rgb(29,78,216)  6,70:1
+            escuro  repouso rgb(37,99,235)  5,17:1  ->  hover rgb(59,130,246) 3,68:1
+
+        No tema claro o hover escurece e o contraste MELHORA; no escuro ele
+        clareia e cai para **3,68:1**, abaixo de AA. É propriedade do design
+        system — `bg-primary` com `hover:bg-primary-hover` aparece no produto
+        inteiro —, e mudá-la é decisão de design com alcance muito maior que o
+        polimento de duas coisas no mapa. Fica registrado, não corrigido em
+        silêncio e não transformado numa asserção frouxa que documentaria 3,68
+        como aceitável.
+      */
+      await page.mouse.move(4, 4);
+      await expect
+        .poll(() => botao.evaluate((el) => el.matches(":hover")))
+        .toBe(false);
+      // Duas vezes a transição de 150ms: a cor já assentou quando a leitura sai.
+      await page.waitForTimeout(300);
+
       const cores = await botao.evaluate((el) => {
         const s = getComputedStyle(el);
         return { frente: s.color, fundo: s.backgroundColor };
