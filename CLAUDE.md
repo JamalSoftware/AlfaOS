@@ -928,6 +928,24 @@ Oito sabotagens, **oito detectadas**. A mais informativa é a do botão: o teste
 
 Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §38.
 
+**`CTO-3.2.1c` ENTREGUE — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** A validação da `CTO-3.2.1b` passou no resto — altura, zoom, as três bases, retorno, popup, botão e persistência —, e ficaram dois pontos: o **nome da CTO por cima dela** no mapa, e um marcador que ainda não convencia. **Zero produto novo, zero migration, zero Prisma, zero Dart, zero dependência.** O PRD V1 continua `FROZEN`.
+
+**A plaqueta é um `Tooltip` `permanent` do react-leaflet, e o texto NUNCA entra no `divIcon`.** `divIcon` recebe HTML cru e o injeta no DOM, e nome de caixa é digitado por gente; o `Tooltip` renderiza os filhos por **portal do React**, que escapa texto — uma caixa batizada de `<img src=x onerror=…>` aparece com esse nome escrito. Injetar no ícone economizaria um elemento e abriria uma porta de HTML cru para dado de usuário. Ela usa os **tokens do popup** (`surface` + `fg`), que o dono já validou sobre as três bases, e é **opaca de propósito**: com alfa, o contraste do texto passaria a depender do pixel do tile atrás e deixaria de haver um número para afirmar.
+
+**A densidade foi MEDIDA, e o que havia para medir era geometria — não dado.** O banco de desenvolvimento tem **uma** caixa com coordenada, então não existe densidade real para observar, e isso fica dito em vez de suposto. Pela projeção do Web Mercator, duas plaquetas de 112px colidem abaixo de `z16,7` a 150 m e abaixo de `z15,7` a 300 m. Adotado **`MAP_LABEL_MIN_ZOOM = 16`**, com **duas cláusulas e nada além**: no zoom operacional todas as caixas do recorte mostram o nome, e a **selecionada** mostra em qualquer zoom — é a segunda que torna a primeira usável, porque quem achou uma CTO na busca precisa saber qual mancha é a dela. **Limite declarado:** o limiar não evita colisão, evita a **parede**; duas caixas a 40 m continuam encostadas em `z16`, e esconder rótulo por sobreposição foi recusado de propósito — seria uma regra que o operador não consegue prever.
+
+**Um BOOLEANO atravessa a fronteira, e nunca o zoom.** É a realimentação da `CTO-3.2.1` de novo: prop derivada da câmera chegando aos marcadores fecha o laço `popup → autoPan → moveend → render`, que custou `Maximum update depth exceeded` e o popup parando de abrir. Um número muda a cada micro-movimento; `showLabels` só muda ao **cruzar** o limiar, e o `memo` bloqueia o resto. `MAP_LABEL_MIN_ZOOM` mora no `.mjs` puro, junto das outras constantes de zoom, para nenhum componente de cliente importar valor de módulo que alcança Prisma.
+
+**No marcador, o defeito era a PROPORÇÃO — não a falta de detalhe.** O corpo media **29 × 21**, deitado, e caixa deitada com uma faixa dentro lê como aparelho de mesa. Agora é **20 × 27** com cúpula quase semicircular (raio 8,5 numa largura 20), costura de tampa com **fecho**, **quatro** adaptadores em vez de seis — seis ficavam a 2,6px um do outro no tamanho real e se fundiam num borrão de radiador —, uma placa de prensa-cabos estreita e tucada, e a **drop saindo em curva** contra o tronco reto: fibra nunca corre em ângulo reto, e é a curva que faz o desenho ler como telecom.
+
+**Duas tentativas foram DESCARTADAS na própria fase, e o motivo fica registrado:** **orelhas** de fixação nas laterais e **dois prensa-cabos** separados embaixo leem como **pés** a 5×, e as orelhas ainda somavam largura justamente onde a fase tentava estreitar, anulando a única mudança que importava. As duas foram reprovadas **olhando o desenho renderizado**, não por inspeção de código — marcador é peça visual, e a única forma de reprovar um desenho é olhar para ele.
+
+**A geometria virou DADO exportado (`CTO_MARKER_GEOMETRY`), e o SVG é montado a partir dela.** Antes o teste extraía coordenadas com expressão regular, e quando o corpo virou `<path>` por causa da cúpula a `UXP-09b` quebrou **sem que nada estivesse errado** — pior seria o caso simétrico, uma regex que continua passando por casar com outro trecho.
+
+**Dez sabotagens, dez detectadas — e a `S5` passou na primeira rodada**, por um motivo que é achado e não acaso: a `ML-09` recarregava uma URL que já carregava `mode=HYBRID`, então o modo voltava da **URL** e a preferência do aparelho nunca era consultada. Um teste chamado *"a persistência não regrediu"* cobrindo metade do assunto é pior que a ausência dele; ele passou a entrar também pela porta **sem query**, com queda provada nos dois sentidos.
+
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §39.
+
 **Próxima fatia: `CTO-3.2.2` — clientes e OS abertas no mapa.** Não iniciada.
 
 ## Princípios

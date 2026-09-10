@@ -4342,3 +4342,208 @@ permissões, schema, Prisma e Dart.
 > **`CTO-3.2.1b` — `READY FOR OWNER VALIDATION`.** `CTO-2` continua `DONE`,
 > `CTO-3.0` `DISCOVERY DONE`, `CTO-3.1` `APPROVED`, o PRD V1 `FROZEN`. A
 > `CTO-3.2.2` não começou.
+
+---
+
+## 39. `CTO-3.2.1c` — o nome por cima da caixa, e o marcador que faltava
+
+A validação da `CTO-3.2.1b` **passou** no resto: altura, zoom, as três bases,
+retorno ao mapa, popup, botão "Abrir CTO" e persistência do modo. Ficaram dois
+pontos, e esta microfase resolve **somente** eles.
+
+**Zero produto novo, zero migration, zero Prisma, zero Dart, zero dependência.**
+O PRD V1 continua `FROZEN`.
+
+### 1. A plaqueta com o nome da CTO
+
+O pedido do dono foi literal: *"o nome da CTO deve aparecer por cima dela no
+mapa"*. Sem clicar — e apontar também não vale, porque dica que aparece no
+`mouseover` é dica passageira.
+
+Ela é um **`Tooltip` `permanent`** do react-leaflet, com `direction="top"`. A
+palavra `permanent` é o contrato inteiro: o Leaflet abre o rótulo junto com o
+marcador, mantém, e deixa de fechá-lo no `preclick` — clicar no mapa não apaga
+mais nada.
+
+```text
+   ╭──────────────────╮
+   │ CTO BAIRRO ALTO  │  ◀ plaqueta: tokens do popup, cauda repintada
+   ╰────────┬─────────╯
+            ▼            ◀ a cauda é o conector; sem ela a plaqueta flutua
+        [ caixa ]
+```
+
+**O texto NÃO entra no `divIcon`, e essa é a decisão de segurança da fase.**
+`divIcon` recebe HTML cru e o injeta no DOM, e nome de caixa é digitado por
+gente. O `Tooltip` renderiza os filhos por **portal do React**, que escapa
+texto: uma caixa batizada de `<img src=x onerror=…>` aparece com esse nome
+escrito. Injetar o mesmo texto no ícone economizaria um elemento no DOM e
+abriria uma porta de HTML cru para dado de usuário.
+
+**Tokens do popup, e não paleta nova.** A plaqueta flutua sobre imagem que não é
+nossa — mapa claro, satélite escuro, telhado, laje, mata. Ela usa `surface` com
+`fg`, exatamente o que o popup já usa, e o popup já foi validado pelo dono sobre
+as três bases.
+
+**Opaca, e isso é medição — não preferência.** O enunciado preferia fundo
+semitransparente. Com alfa, o contraste do texto passa a depender do pixel do
+tile atrás, e deixa de existir um número para afirmar. Opaca, o teste calcula a
+razão da WCAG a partir do `getComputedStyle` e ela vale igual sobre asfalto e
+sobre telhado.
+
+### 2. A política de densidade — medida, porque não havia dado
+
+Antes de "mostrar sempre todos os nomes", o enunciado mandou medir o impacto. E
+aqui a primeira coisa honesta a dizer é que **não havia densidade real para
+observar**: o banco de desenvolvimento tem **uma** caixa com coordenada. O que
+existe é aritmética de projeção — no Web Mercator um pixel vale
+`156543,03 · cos(latitude) / 2^zoom` metros, e duas plaquetas de 112px colidem
+quando a distância entre as caixas rende menos que isso na tela.
+
+| distância entre caixas | zoom mínimo para NÃO colidir |
+|---|---|
+| 40 m | z18,6 |
+| 80 m | z17,6 |
+| **150 m** | **z16,7** |
+| **300 m** | **z15,7** |
+| 600 m | z14,7 |
+
+Uma CTO de 8 a 16 portas cobre aproximadamente uma quadra, o que põe a rede
+urbana típica entre 100 e 300 m. Adotado: **`MAP_LABEL_MIN_ZOOM = 16`**.
+
+```text
+z16   a tela cobre ~1,8 km — vizinhança inteira, plaquetas separadas
+z14   duas caixas a 300 m ficam a 34px: parede de texto sobre a cidade
+z17   nítido, e obrigaria a aproximar mais do que o operador precisa
+```
+
+**Duas cláusulas, e nada além** — o enunciado pediu a menor solução que atenda
+sem destruir a legibilidade:
+
+1. no zoom operacional (`≥ 16`), **todas** as caixas do recorte mostram o nome;
+2. a caixa **selecionada** mostra o nome em **qualquer** zoom.
+
+A segunda é o que torna a primeira usável: quem achou uma CTO na busca, ou
+voltou de uma com `sel=` na URL, precisa saber qual mancha do mapa é a dela.
+
+**O que este número NÃO resolve, declarado:** ele não evita colisão, evita a
+**parede**. Duas caixas a 40 m continuam com as plaquetas encostadas em `z16`, e
+a saída é aproximar. Esconder rótulo por sobreposição foi **recusado de
+propósito** — seria uma regra que o operador não consegue prever, com o nome
+sumindo sem que ele tenha feito nada.
+
+### 3. Um BOOLEANO atravessa a fronteira, e nunca o zoom
+
+Esta é a parte que a `CTO-3.2.1` já pagou uma vez. Uma prop derivada da câmera
+chegando aos marcadores fecha o laço `popup → autoPan → moveend → render`, que
+custou `Maximum update depth exceeded` e o popup **parando de abrir**.
+
+```text
+zoom (número)     muda a cada micro-movimento  →  o laço volta
+showLabels (bool) muda só ao CRUZAR o limiar   →  o memo bloqueia o resto
+```
+
+Arrastar o mapa a `z18` não re-renderiza marcador nenhum. `ML-DENS-03` fixa isso
+estruturalmente, porque é o tipo de regressão que reaparece na primeira
+refatoração que "simplifica" a prop.
+
+### 4. O marcador — a proporção era o defeito, não a falta de detalhe
+
+A versão da `CTO-3.2.1b` já tinha corpo, tampa, régua de portas e prensa-cabo, e
+o dono ainda a recusou. O diagnóstico não é "faltava detalhe": o corpo media
+**29 × 21**, ou seja **deitado**, e caixa deitada com uma faixa dentro lê como
+aparelho de mesa.
+
+```text
+    ╭─────╮      ◀ cúpula quase semicircular (raio 8,5 numa largura 20)
+   │       │
+   │───█───│     ◀ costura da tampa, com o fecho montado sobre ela
+   │ ┌───┐ │
+   │ │▌▌▌▌│ │    ◀ bandeja com QUATRO adaptadores
+   ╰───────╯
+    ▬▬▬▬▬        ◀ placa de prensa-cabos, tucada sob a caixa
+       │╰        ◀ tronco reto até o poste, drop saindo em curva
+```
+
+| pedido do dono | resposta |
+|---|---|
+| "corpo principal mais convincente" | proporção **em pé**, 20 × 27 |
+| "silhueta menos genérica" | cúpula de raio 8,5 num corpo de largura 20 |
+| "frente/tampa melhor resolvida" | costura com o **fecho** sobre ela |
+| "portas ópticas mais críveis" | **quatro** adaptadores, não seis |
+| "entrada/saída de cabo" | placa única, tronco **reto**, drop em **curva** |
+
+**Seis portas viraram quatro por medição, não por gosto.** Num corpo desta
+largura, seis traços ficam a 2,6px um do outro no tamanho real e se fundem num
+borrão cinza — que é exatamente o que fazia a bandeja ler como grade de
+radiador. O ícone não precisa contar portas: o número real está no popup.
+
+**A curva da drop é a peça mais telecom do desenho.** Fibra nunca corre em
+ângulo reto; ela sai fazendo raio. Duas retas paralelas seriam dois fios
+quaisquer — uma reta e uma curva são um tronco e uma derivação.
+
+#### Duas tentativas foram DESCARTADAS nesta mesma fase
+
+E ficam registradas, porque são o tipo de ideia que volta:
+
+* **orelhas de fixação** nas laterais, para quebrar a silhueta genérica. Vistas
+  a 5×, leem como **pés** — e, pior, somavam largura justamente onde a fase
+  tentava estreitar: o conjunto voltava a ficar mais largo que alto, anulando a
+  única mudança que importava;
+* **dois prensa-cabos separados** sob a caixa, pelo mesmo motivo: dois blocos
+  pequenos embaixo leem como pés. Viraram uma placa só, estreita e tucada.
+
+As duas foram encontradas **olhando o desenho renderizado a 5× e a 8×**, não por
+inspeção de código. Um marcador é uma peça visual, e a única forma de reprovar
+um desenho é olhar para ele.
+
+### 5. A geometria virou DADO
+
+`CTO_MARKER_GEOMETRY` é exportada, e o SVG é montado a partir dela. Antes o teste
+extraía coordenadas do SVG com expressão regular — e quando o corpo virou
+`<path>` por causa da cúpula, a `UXP-09b` quebrou **sem que nada estivesse
+errado**. Pior ainda seria o caso simétrico: uma regex que continua passando por
+casar com outro trecho.
+
+Com a geometria exportada, *"a bandeja está dentro do corpo?"* vira aritmética
+sobre a **mesma** fonte que desenha. Não existe segunda cópia das coordenadas
+para divergir.
+
+E a `ML-06` tem dentes de propósito: *"mais alta que larga"* aprovaria a versão
+24 × 24,5 que esta própria fase descartou, então a asserção exige **um quarto a
+mais de altura**, raio de cúpula perto da metade da largura, placa mais estreita
+que o corpo, e tronco reto contra drop curva.
+
+### O que as sabotagens mediram
+
+| | mutação | quem caiu |
+|---|---|---|
+| `S1` | plaqueta removida | `ML-01`, `ML-02`, `ML-05`, `ML-DENS-04` |
+| `S2` | plaqueta abaixo do marcador | `ML-01` **e** `ML-04` no navegador |
+| `S2b` | `tooltipAnchor` zerado | `ML-04` |
+| `S3` | corpo volta a ser deitado | `ML-06` |
+| `S4` | régua de portas removida | `UXP-09`, `UXP-10`, `MAPUX-07`, `ML-07` |
+| `S5` | preferência de base não gravada | `MAPUX-04` — e `ML-09` **só depois de corrigido** |
+| `S6` | retorno apontando para `/ctos` | `NAVMAP-01`, `ML-10` |
+| `S7` | limiar vira `true` | `ML-DENS-03` **e** `ML-DENS-05` no navegador |
+| `S8` | plaqueta sem token de cor | `ML-03` |
+| `S9` | plaqueta aceitando ponteiro | `ML-05` |
+
+**Dez de dez** — e a `S5` é a mais informativa, porque **passou** na primeira
+rodada. A razão é boa: a `ML-09` recarregava uma URL que já carregava
+`mode=HYBRID`, porque a vista se espelha na barra de endereço, então o modo
+voltava da URL e a preferência do aparelho nunca era consultada. Um teste com o
+nome *"a persistência não regrediu"* cobrindo metade do assunto é pior que a
+ausência dele. Ele passou a entrar também pela porta **sem query**, e a queda foi
+provada nos dois sentidos.
+
+### O que NÃO mudou
+
+`bbox`, API de mapa, DTOs, política de zoom, altura do mapa, tenancy, contrato do
+popup, navegação, persistência, permissões, domínio da CTO,
+`CONNECT`/`MOVE`/`DISCONNECT`, schema, Prisma e Dart. Nenhuma camada de cliente,
+de OS aberta ou de Online/Offline foi iniciada.
+
+> **`CTO-3.2.1c` — `READY FOR OWNER VALIDATION`.** `CTO-2` continua `DONE`,
+> `CTO-3.0` `DISCOVERY DONE`, `CTO-3.1` `APPROVED`, o PRD V1 `FROZEN`. A
+> `CTO-3.2.2` não começou.
