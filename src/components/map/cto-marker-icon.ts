@@ -274,11 +274,25 @@ function seloDaForma(shape: CtoMapStatusPresentation["shape"]): string {
 export function ctoMarkerHtml(
   apresentacao: CtoMapStatusPresentation,
   selecionado: boolean,
+  editando = false,
 ): string {
+  /*
+    TRÊS dimensões independentes, e nenhuma apaga a outra — `CTO-3.2.1d`.
+
+        cto-box--<tom>      o ESTADO da caixa      (contorno do corpo)
+        cto-box--selected   a SELEÇÃO              (halo sólido)
+        cto-box--editing    o MODO DE EDIÇÃO       (halo tracejado)
+
+    Modo de edição **não** é estado da rede, e por isso não toca o corpo: uma
+    CTO disponível continua verde enquanto está sendo movida. Reaproveitar
+    verde/amarelo/vermelho para dizer "está sendo arrastada" faria o operador
+    ler uma mudança de operação onde houve apenas um gesto de interface.
+  */
   const classes = [
     "cto-box",
     `cto-box--${apresentacao.tone}`,
     selecionado ? "cto-box--selected" : "",
+    editando ? "cto-box--editing" : "",
   ]
     .filter(Boolean)
     .join(" ");

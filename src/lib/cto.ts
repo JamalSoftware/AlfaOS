@@ -372,6 +372,17 @@ function assertCoordinates(
   }
 }
 
+/**
+ * Um par de coordenadas para a trilha de auditoria.
+ *
+ * Seis casas: cerca de 11 cm no equador. Mais que isso registraria ruído de
+ * ponto flutuante como se fosse precisão.
+ */
+function formatarPar(latitude: number | null, longitude: number | null): string {
+  if (latitude === null || longitude === null) return "sem coordenada";
+  return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+}
+
 function normalizeOptionalText(
   value: string | null | undefined,
   max: number,
@@ -566,6 +577,8 @@ export async function updateCto(
 
   const data: Prisma.CTOUpdateInput = {};
   const changed: string[] = [];
+  /** Detalhe adicional por campo, quando o VALOR também é auditável. */
+  const detalhes: string[] = [];
 
   if (input.name !== undefined) {
     const name = normalizeName(input.name);
@@ -620,6 +633,28 @@ export async function updateCto(
       data.latitude = proximaLat;
       data.longitude = proximaLon;
       changed.push("coordenadas");
+      /*
+        A COORDENADA é o caso em que o conteúdo entra na trilha — `CTO-3.2.1d`.
+
+        A regra do módulo é registrar o nome do campo, e não o texto alterado:
+        uma observação pode ter parágrafos, possivelmente com dado de cliente, e
+        a auditoria não é lugar de copiá-los. Ela continua valendo para todo o
+        resto.
+
+        Coordenada é diferente por duas razões. São dois números, então não há
+        volume a vazar. E o VALOR é a informação auditável: agora que o ADMIN
+        pode arrastar a caixa no mapa, "as coordenadas mudaram" não responde a
+        pergunta que alguém faz seis meses depois, que é *de onde para onde*.
+        Sem o par anterior, desfazer um arrasto errado vira arqueologia.
+
+        E ela não é dado pessoal: é a coordenada da CAIXA, que fica no poste.
+      */
+      detalhes.push(
+        `coordenadas: ${formatarPar(atualLat, atualLon)} → ${formatarPar(
+          proximaLat,
+          proximaLon,
+        )}`,
+      );
     }
   }
 
@@ -670,9 +705,18 @@ export async function updateCto(
         action: "CTO.UPDATED",
         entity: "CTO",
         entityId: ctoId,
-        // Nomes dos campos, nunca o conteúdo: uma observação pode ter texto
-        // livre extenso, e a auditoria não é lugar de copiá-lo.
-        details: `Campos alterados: ${changed.join(", ")}`,
+        /*
+          Nomes dos campos — e o VALOR só onde ele é curto e é a informação.
+
+          Texto livre continua fora: uma observação pode ter parágrafos, e a
+          auditoria não é lugar de copiá-los. A coordenada entra porque são dois
+          números e porque, sem o "de → para", a trilha não responde a única
+          pergunta que se faz depois de um arrasto errado.
+        */
+        details:
+          detalhes.length > 0
+            ? `Campos alterados: ${changed.join(", ")} · ${detalhes.join(" · ")}`
+            : `Campos alterados: ${changed.join(", ")}`,
       });
 
       const cto = await tx.cTO.findFirstOrThrow({ where: { id: ctoId, companyId } });

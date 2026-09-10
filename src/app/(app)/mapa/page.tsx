@@ -119,6 +119,19 @@ export default async function MapaOperacionalPage({
           URL continua terminando no mesmo redirecionamento.
         */
         canOpenDetail={session.profile === "ADMIN"}
+        /*
+          Prop SEPARADA, e não um reuso de `canOpenDetail` — CTO-3.2.1d.
+
+          Hoje as duas respondem `ADMIN`, e é tentador passar uma só. Mas elas
+          respondem perguntas diferentes — *"pode abrir a ficha?"* e *"pode
+          mover a caixa?"* —, e colapsá-las faria uma futura mudança em uma
+          alterar a outra em silêncio. Abrir a leitura do detalhe ao
+          `DISPATCHER`, por exemplo, lhe daria escrita de coordenada de brinde.
+
+          Continua sendo APRESENTAÇÃO: quem barra é `requireCtoAccess` na rota,
+          que exige `ADMIN` e a capability antes de qualquer escrita.
+        */
+        canEditPosition={session.profile === "ADMIN"}
       />
     </div>
   );

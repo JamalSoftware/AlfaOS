@@ -129,6 +129,25 @@ export interface OperationalMapProps {
   onRetry?: () => void;
   /** Faixa da camada — contagem, truncamento, o que a camada precisar dizer. */
   overlay?: ReactNode;
+  /**
+   * Painel de edição, ancorado DENTRO do mapa — `CTO-3.2.1d`.
+   *
+   * ## Ele não pode empurrar o mapa, e isso foi medido
+   *
+   * A primeira versão renderizava o painel de ajuste de posição **acima** do
+   * mapa, no fluxo da página. Medido no navegador: entrar em modo de edição
+   * descia o mapa **206 pixels** — ou seja, o mapa saltava debaixo da mão
+   * exatamente no instante em que a pessoa vai arrastar com precisão. Somado
+   * aos 138px que o `autoPan` do popup já havia deslocado, a caixa que se quer
+   * mover simplesmente muda de lugar duas vezes antes do primeiro arrasto.
+   *
+   * Ancorado dentro do mapa, nada no fluxo se move: a caixa fica onde estava, e
+   * o painel aparece garantidamente na área visível, perto do que ele controla.
+   *
+   * Canto inferior ESQUERDO: o controle de base ocupa o superior direito e a
+   * faixa de status o topo central.
+   */
+  editor?: ReactNode;
   children?: ReactNode;
 }
 
@@ -144,6 +163,7 @@ export function OperationalMap({
   error = null,
   onRetry,
   overlay,
+  editor,
   children,
 }: OperationalMapProps) {
   return (
@@ -187,6 +207,12 @@ export function OperationalMap({
       {overlay ? (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] flex flex-col items-center gap-2 p-3">
           {overlay}
+        </div>
+      ) : null}
+
+      {editor ? (
+        <div className="pointer-events-auto absolute bottom-3 left-3 z-[600] w-[min(19rem,calc(100%-1.5rem))]">
+          {editor}
         </div>
       ) : null}
 

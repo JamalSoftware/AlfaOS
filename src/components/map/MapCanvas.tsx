@@ -52,6 +52,15 @@ export interface MapCanvasHandle {
    * assistir ao trajeto.
    */
   focusOn: (latitude: number, longitude: number, zoom?: number) => void;
+  /**
+   * Fecha o popup aberto, se houver.
+   *
+   * Existe para a `CTO-3.2.1d`: entrar em modo de edição precisa tirar o popup
+   * da frente da caixa que vai ser arrastada. É do canvas e não da camada
+   * porque quem conhece o mapa do Leaflet é este arquivo — a camada de CTO não
+   * tem, e não deve ter, a instância dele.
+   */
+  closePopup: () => void;
 }
 
 /** Onde a câmera está: o que a URL precisa para reconstruir a vista. */
@@ -131,6 +140,9 @@ function CanvasHandle({ onReady }: { onReady?: (h: MapCanvasHandle) => void }) {
           // mesmo enquadramento confortavel do mapa recem-aberto.
           zoom ?? Math.max(map.getZoom(), MAP_INITIAL_FIT_MAX_ZOOM),
         );
+      },
+      closePopup: () => {
+        map.closePopup();
       },
     });
   }, [map, onReady]);

@@ -2295,3 +2295,315 @@ describe("STATUSVIS-01..07 — o corpo da caixa carrega o estado", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// MAPEDIT — CTO-3.2.1d: ajustar a posição da CTO pelo mapa
+// ---------------------------------------------------------------------------
+
+/**
+ * O contrato de UX da fase cabe numa frase: **arrastar não é salvar.**
+ *
+ * Num mapa a mão está sempre arrastando alguma coisa. Se soltar o marcador
+ * gravasse, uma coordenada certa viraria errada sem que ninguém tivesse pedido e
+ * sem nada na tela para desfazer. Por isso a sequência é declarada:
+ *
+ * ```text
+ * visualização → Ajustar posição → modo de edição → arrastar → Salvar / Cancelar
+ * ```
+ *
+ * O que só o navegador mede — arrasto real, posição do rótulo, contorno de
+ * estado durante a edição — está em `e2e/operational-map.spec.ts`.
+ */
+describe("MAPEDIT-01..14 — ajustar a posição pelo mapa", () => {
+  const marcadores = () =>
+    semComentarios(leia("src/components/map/CtoMarkers.tsx"));
+  const camada = () => semComentarios(leia("src/components/map/CtoMapLayer.tsx"));
+  const pagina = () => semComentarios(leia("src/app/(app)/mapa/page.tsx"));
+
+  it("MAPEDIT-01/02 · a ação é de ADMIN, e a página é quem decide", () => {
+    /*
+      A prop nasce de `session.profile === "ADMIN"` no servidor, e é SEPARADA de
+      `canOpenDetail`. As duas respondem `ADMIN` hoje e respondem perguntas
+      diferentes — *"pode abrir a ficha?"* e *"pode mover a caixa?"*. Colapsá-las
+      faria abrir a leitura do detalhe ao `DISPATCHER` lhe dar escrita de
+      coordenada de brinde.
+    */
+    expect(pagina()).toContain('canEditPosition={session.profile === "ADMIN"}');
+    expect(pagina()).toContain('canOpenDetail={session.profile === "ADMIN"}');
+
+    // E o botão só existe sob a prop: o DISPATCHER não o vê.
+    const codigo = marcadores();
+    const acao = /\{canEditPosition \? \([\s\S]*?\) : null\}/.exec(codigo);
+    expect(acao, "a ação não está sob a permissão").not.toBeNull();
+    expect(acao![0]).toContain("cto-map-popup-edit-position");
+    expect(acao![0]).toContain("Ajustar posição");
+
+    // Secundária: o botão principal continua sendo Abrir CTO, com o primário.
+    expect(acao![0]).toContain("cto-map-secondary");
+    expect(acao![0], "a ação secundária virou botão primário").not.toContain(
+      "bg-primary ",
+    );
+  });
+
+  it("MAPEDIT-03/04 · só a caixa em edição é arrastável", () => {
+    const codigo = marcadores();
+
+    /*
+      `draggable` derivado do id em edição, e não uma constante.
+
+      Marcador permanentemente arrastável é o defeito que a fase existe para não
+      cometer — e a sabotagem `S1` é exatamente `draggable` fixo em `true`.
+    */
+    expect(codigo).toContain("draggable={editando}");
+    expect(codigo).toMatch(/const editando = marker\.id === editingId/);
+
+    // Nenhum caminho torna todos arrastáveis.
+    expect(codigo).not.toMatch(/draggable(=\{true\}|\s*$|>)/m);
+  });
+
+  it("MAPEDIT-05/06 · arrastar mexe SÓ no rascunho — o banco não é tocado", () => {
+    const codigo = marcadores();
+
+    /*
+      `dragend` escreve no rascunho, e o rascunho é uma prop que veio da camada.
+      Não existe `fetch` nenhum no componente dos marcadores: ele desenha e
+      avisa, e quem grava é a camada, no clique em Salvar.
+    */
+    expect(codigo).toMatch(/dragend: \(evento\) => \{[\s\S]*?onDragEnd\(/);
+    expect(codigo, "o marcador não pode falar com o servidor").not.toContain(
+      "fetch(",
+    );
+
+    // E o arrasto não dispara nada além de avisar a camada.
+    const handler = /dragend: \(evento\) => \{([\s\S]*?)\},/.exec(codigo);
+    expect(handler).not.toBeNull();
+    expect(handler![1]).not.toContain("PATCH");
+    expect(handler![1]).not.toContain("salvar");
+  });
+
+  it("MAPEDIT-05b · o rascunho manda na posição, e o gravado nunca é alterado", () => {
+    const codigo = marcadores();
+
+    /*
+      A posição vem do rascunho enquanto ele existe, e do par gravado quando
+      não. É essa expressão que torna o Cancelar confiável depois de quantos
+      arrastos forem: não há estado acumulado a desfazer, há uma origem que
+      ninguém tocou.
+    */
+    const posicao = /position=\{([\s\S]*?)\}\r?\n/.exec(codigo);
+    expect(posicao, "não achei a posição do marcador").not.toBeNull();
+    expect(posicao![1]).toContain("draftPosition");
+    expect(posicao![1]).toContain("marker.latitude");
+  });
+
+  it("MAPEDIT-07 · Cancelar não faz requisição, e só descarta o rascunho", () => {
+    const codigo = camada();
+
+    const cancelar = /const cancelarEdicao = useCallback\(\(\) => \{([\s\S]*?)\}, \[/.exec(
+      codigo,
+    );
+    expect(cancelar, "não achei o cancelamento").not.toBeNull();
+
+    // Nenhuma escrita: cancelar é um gesto local, e um `fetch` aqui seria um
+    // efeito que ninguém pediu.
+    expect(cancelar![1]).not.toContain("fetch");
+    expect(cancelar![1]).not.toContain("PATCH");
+
+    // Ele zera as três coisas: a caixa em edição, o rascunho e o erro.
+    expect(cancelar![1]).toContain("setCtoEmEdicao(null)");
+    expect(cancelar![1]).toContain("setEsboco(null)");
+    expect(cancelar![1]).toContain("setErroPosicao(null)");
+  });
+
+  it("MAPEDIT-08 · Salvar manda o par pelo caminho que já existia", () => {
+    const codigo = camada();
+
+    expect(codigo).toMatch(/method: "PATCH"/);
+    expect(codigo).toMatch(/fetch\(`\/api\/ctos\/\$\{[^}]+\}`/);
+
+    // O corpo tem exatamente duas chaves — a garantia contra lost update.
+    const corpo = /body: JSON\.stringify\(\{([\s\S]*?)\}\)/.exec(codigo);
+    expect(corpo).not.toBeNull();
+    const chaves = corpo![1]
+      .split(",")
+      .map((p) => p.split(":")[0].trim())
+      .filter(Boolean);
+    expect(chaves.sort()).toEqual(["latitude", "longitude"]);
+  });
+
+  it("MAPEDIT-08b · depois de salvar, quem confirma é a LEITURA", () => {
+    const codigo = camada();
+    const salvar = /const salvarPosicao = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[/.exec(
+      codigo,
+    );
+    expect(salvar, "não achei o salvamento").not.toBeNull();
+
+    /*
+      Sair do modo de edição com o rascunho na tela seria afirmar sucesso com
+      estado local. A releitura do recorte traz a posição que o SERVIDOR tem — e
+      se ela divergir, o mapa mostra a verdade em vez da esperança.
+    */
+    expect(salvar![1]).toContain("carregar(bbox)");
+    expect(salvar![1]).toContain("setCtoEmEdicao(null)");
+    expect(salvar![1]).toContain("setEsboco(null)");
+  });
+
+  it("MAPEDIT-11 · falha ao salvar NÃO finge sucesso", () => {
+    const codigo = camada();
+    const salvar = /const salvarPosicao = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[/.exec(
+      codigo,
+    )!;
+
+    // O caminho de erro sai ANTES de limpar o modo de edição.
+    const recusa = /if \(!res\.ok\) \{([\s\S]*?)\n      \}/.exec(salvar[1]);
+    expect(recusa, "não achei o tratamento de recusa").not.toBeNull();
+    expect(recusa![1]).toContain("setErroPosicao");
+    expect(
+      recusa![1],
+      "a recusa não pode encerrar a edição como se tivesse salvo",
+    ).not.toContain("setCtoEmEdicao(null)");
+
+    // Falha de rede também tem mensagem própria, e não silêncio.
+    expect(salvar[1]).toMatch(/catch \{[\s\S]*?setErroPosicao/);
+
+    // A mensagem exibida é a do servidor OU uma frase nossa — nunca o objeto
+    // de erro cru, que é por onde detalhe interno vazaria para a tela.
+    expect(codigo).toMatch(/payload\?\.error \?\? "Não foi possível salvar/);
+  });
+
+  it("MAPEDIT-09/23 · a plaqueta acompanha, inclusive fora do zoom operacional", () => {
+    const codigo = marcadores();
+
+    /*
+      Entrar em edição fecha o popup, e fechar o popup limpa a seleção. Sem a
+      terceira cláusula, quem estivesse abaixo do limiar de zoom perderia o nome
+      da caixa exatamente enquanto a arrasta.
+    */
+    expect(codigo).toMatch(
+      /const comPlaqueta = showLabels \|\| selecionado \|\| editando/,
+    );
+
+    // O rótulo continua sendo do Leaflet, preso ao marcador — é o que faz ele
+    // acompanhar o arrasto em tempo real sem uma linha de código nossa.
+    expect(codigo).toContain("permanent");
+    expect(codigo).toContain('direction="top"');
+  });
+
+  it("MAPEDIT-10 · o modo de edição NÃO reaproveita a cor de estado", () => {
+    /*
+      Três dimensões independentes. Modo de edição não é estado da rede: uma CTO
+      disponível continua verde enquanto está sendo movida. Pintá-la de outra
+      cor faria o operador ler uma mudança de operação onde houve um gesto de
+      interface.
+    */
+    const html = ctoMarkerHtml(
+      ctoMapStatusPresentation("AVAILABLE"),
+      true,
+      true,
+    );
+    expect(html).toContain("cto-box--editing");
+    expect(html, "a edição apagou o tom do estado").toContain("cto-box--success");
+    expect(html).toContain("cto-box--selected");
+
+    const css = leia("src/app/globals.css");
+    const regra = /\.cto-box--editing \{([\s\S]*?)\}/.exec(css);
+    expect(regra, "falta a regra do modo de edição").not.toBeNull();
+
+    // Ela mexe no HALO e no cursor, e nunca no traço do corpo.
+    expect(regra![1]).toContain("outline");
+    expect(regra![1]).toContain("cursor: grab");
+    expect(regra![1], "a edição não pode tocar o contorno de estado").not.toContain(
+      "stroke",
+    );
+
+    // E o halo de edição é distinguível do de seleção: tracejado contra sólido.
+    expect(regra![1]).toContain("dashed");
+    const selecao = /\.cto-box--selected \{([\s\S]*?)\}/.exec(css)!;
+    expect(selecao[1]).toContain("solid");
+  });
+
+  it("MAPEDIT-12 · o popup fecha ao entrar em edição, e o arrasto não o reabre", () => {
+    const codigo = camada();
+
+    /*
+      A realimentação histórica: `popup → autoPan → moveend → render`. Um popup
+      aberto sobre a caixa que está sendo arrastada reabre a briga entre
+      `click`, `drag` e `autoPan` — além de cobrir justamente o que se quer ver.
+    */
+    const iniciar = /const iniciarEdicao = useCallback\([\s\S]*?\n    \},/.exec(
+      codigo,
+    );
+    expect(iniciar, "não achei a entrada em edição").not.toBeNull();
+    expect(iniciar![0]).toContain("closePopup()");
+
+    /*
+      E o rascunho chega aos marcadores por `dragend`, nunca por `drag`.
+
+      `drag` dispara por quadro; como a posição é uma prop, atualizá-la a cada
+      quadro re-renderizaria todos os marcadores dezenas de vezes por segundo —
+      que é a forma exata do laço que a `CTO-3.2.1` pagou.
+    */
+    const marc = marcadores();
+    expect(marc).toContain("dragend:");
+    expect(marc, "`drag` contínuo reabre o laço de realimentação").not.toMatch(
+      /\n\s+drag: /,
+    );
+  });
+
+  it("MAPEDIT-13 · a caixa em edição sobrevive a arrastar e dar zoom no mapa", () => {
+    const codigo = camada();
+
+    /*
+      A `§7` exige que pan e zoom continuem funcionando durante a edição, e isso
+      dispara releitura do recorte. Se o operador afastar o mapa, a caixa que
+      ele está movendo pode sair da lista que o servidor devolve.
+
+      Guardar a CÓPIA — e não só o id — é o que a mantém desenhada. Com o id
+      sozinho, o marcador sumiria debaixo da mão e levaria o painel junto.
+    */
+    expect(codigo).toMatch(/const \[ctoEmEdicao, setCtoEmEdicao\] = useState/);
+    expect(codigo).toMatch(/const marcadores = useMemo\(/);
+    expect(codigo).toContain("[...markers, ctoEmEdicao]");
+
+    // E o modo/zoom continuam vivendo onde sempre viveram: nada da edição toca
+    // o espelho da vista na URL.
+    const salvar = /const salvarPosicao = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[/.exec(
+      codigo,
+    )!;
+    expect(salvar[1]).not.toContain("setMode");
+    expect(salvar[1]).not.toContain("setCamera");
+    expect(salvar[1]).not.toContain("replaceState");
+  });
+
+  it("MAPEDIT-14 · o painel mostra as DUAS posições, e Salvar exige um arrasto", () => {
+    const codigo = camada();
+
+    expect(codigo).toContain("cto-map-position-before");
+    expect(codigo).toContain("cto-map-position-after");
+
+    /*
+      Sem a posição anterior não há como conferir nada — e conferir é o passo que
+      separa "corrigi a caixa" de "movi a caixa".
+    */
+    expect(codigo).toMatch(/Posição anterior/);
+    expect(codigo).toMatch(/Nova posição/);
+
+    // Sem arrasto, Salvar fica indisponível: clicar não pode parecer que gravou.
+    expect(codigo).toMatch(/disabled=\{salvando \|\| !esboco\}/);
+  });
+
+  it("MAPEDIT-SEC · a camada do mapa não conhece faixa de coordenada", () => {
+    /*
+      A validação é do DOMÍNIO, e uma cópia na tela seria a segunda autoridade
+      que a `CTO-1.6` já custou: duas camadas sabendo `-90..90`, e quem falava
+      era a que tinha menos a dizer.
+
+      A tela desabilita o botão sem rascunho e mostra o que o servidor recusar.
+      Ela não decide o que é uma coordenada.
+    */
+    const codigo = camada();
+    expect(codigo).not.toContain("-90");
+    expect(codigo).not.toContain("Number.isFinite");
+    expect(codigo).not.toMatch(/latitude\s*[<>]=?\s*-?\d/);
+  });
+});

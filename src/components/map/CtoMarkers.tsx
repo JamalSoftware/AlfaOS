@@ -32,8 +32,14 @@ import { CTO_MARKER_SIZE, ctoMarkerHtml } from "./cto-marker-icon";
  */
 const cacheDeIcones = new Map<string, DivIcon>();
 
-function iconePara(marker: CtoMapMarker, selecionado: boolean): DivIcon {
-  const chave = `${marker.status}:${selecionado ? "1" : "0"}`;
+function iconePara(
+  marker: CtoMapMarker,
+  selecionado: boolean,
+  editando: boolean,
+): DivIcon {
+  const chave = `${marker.status}:${selecionado ? "1" : "0"}:${
+    editando ? "1" : "0"
+  }`;
   const guardado = cacheDeIcones.get(chave);
   if (guardado) return guardado;
 
@@ -41,7 +47,11 @@ function iconePara(marker: CtoMapMarker, selecionado: boolean): DivIcon {
     // Vazio de propósito: o padrão do Leaflet traz fundo e borda próprios, que
     // brigariam com a silhueta da caixa.
     className: "",
-    html: ctoMarkerHtml(ctoMapStatusPresentation(marker.status), selecionado),
+    html: ctoMarkerHtml(
+      ctoMapStatusPresentation(marker.status),
+      selecionado,
+      editando,
+    ),
     iconSize: [CTO_MARKER_SIZE, CTO_MARKER_SIZE],
     // A âncora fica na BASE da caixa, e não no centro: um marcador que
     // representa um objeto físico aponta para onde ele está no chão. É a ponta
@@ -135,6 +145,26 @@ interface CtoMarkersProps {
    * chega aqui.
    */
   showLabels: boolean;
+  /** `ADMIN` corrige a posição da caixa pelo mapa (`CTO-3.2.1d`). */
+  canEditPosition: boolean;
+  /**
+   * A caixa em modo de edição, ou `null`.
+   *
+   * **Só ela fica arrastável.** Marcador permanentemente arrastável é o defeito
+   * que a fase existe para não cometer: um arrasto acidental viraria uma
+   * correção de posição que ninguém pediu, e o mapa é justamente uma superfície
+   * onde a mão está sempre arrastando alguma coisa.
+   */
+  editingId: string | null;
+  /**
+   * Onde a caixa em edição está AGORA, antes de salvar.
+   *
+   * Enquanto isto existe, o banco não sabe de nada. É o rascunho — e é a razão
+   * de "arrastou" não significar "salvou".
+   */
+  draftPosition: { latitude: number; longitude: number } | null;
+  onStartEdit: (id: string) => void;
+  onDragEnd: (latitude: number, longitude: number) => void;
 }
 
 function CtoMarkers({
@@ -143,6 +173,11 @@ function CtoMarkers({
   onSelect,
   canOpenDetail,
   showLabels,
+  canEditPosition,
+  editingId,
+  draftPosition,
+  onStartEdit,
+  onDragEnd,
 }: CtoMarkersProps) {
   return (
     <>
@@ -157,7 +192,16 @@ function CtoMarkers({
           manchas do mapa é a dela — e num zoom afastado nenhuma outra plaqueta
           aparece para disputar espaço com essa.
         */
-        const comPlaqueta = showLabels || selecionado;
+        const editando = marker.id === editingId;
+        /*
+          A plaqueta sobrevive à edição, em qualquer zoom.
+
+          Entrar em modo de edição FECHA o popup, e fechar o popup limpa a
+          seleção. Sem esta terceira cláusula, quem estivesse abaixo do limiar
+          de zoom perderia o nome da caixa exatamente enquanto a arrasta — que é
+          o único momento em que ele importa mais.
+        */
+        const comPlaqueta = showLabels || selecionado || editando;
         /*
           A inativa é a ÚNICA que escreve o estado na plaqueta.
 
@@ -168,8 +212,27 @@ function CtoMarkers({
         return (
           <Marker
             key={marker.id}
-            position={[marker.latitude, marker.longitude]}
-            icon={iconePara(marker, selecionado)}
+            /*
+              O RASCUNHO manda enquanto a edição durar.
+
+              O par gravado continua em `marker`, intocado, e é ele que volta
+              quando alguém cancela — por isso Cancelar é confiável depois de
+              quantos arrastos forem: não existe estado acumulado para desfazer,
+              existe uma origem que nunca foi alterada.
+            */
+            position={
+              editando && draftPosition
+                ? [draftPosition.latitude, draftPosition.longitude]
+                : [marker.latitude, marker.longitude]
+            }
+            /*
+              Arrastável SÓ a caixa em edição, e só enquanto ela estiver.
+
+              `draggable` é por marcador, então os demais continuam inertes ao
+              arrasto mesmo com o modo ligado.
+            */
+            draggable={editando}
+            icon={iconePara(marker, selecionado, editando)}
             // `title` vira o atributo nativo no elemento focável do Leaflet: é
             // o que dá ao marcador um nome acessível sem depender da cor nem
             // de abrir o popup.
@@ -178,6 +241,25 @@ function CtoMarkers({
             eventHandlers={{
               popupopen: () => onSelect(marker.id),
               popupclose: () => onSelect(null),
+              /*
+                `dragend`, e NÃO `drag`.
+
+                `drag` dispara por quadro. Como a posição do marcador é uma
+                prop, atualizá-la a cada quadro re-renderizaria todos os
+                marcadores dezenas de vezes por segundo — e é exatamente uma
+                prop mudando durante interação com o mapa que fechou a
+                realimentação `popup → autoPan → moveend → render` na
+                `CTO-3.2.1`, com o popup parando de abrir.
+
+                O rótulo NÃO precisa disto: o Leaflet move o tooltip junto com o
+                marcador nativamente, então ele acompanha em tempo real de graça.
+                O que espera o fim do arrasto é o painel de coordenadas, e ele é
+                lido justamente quando a mão para.
+              */
+              dragend: (evento) => {
+                const ponto = evento.target.getLatLng();
+                onDragEnd(ponto.lat, ponto.lng);
+              },
             }}
           >
             {/*
@@ -330,6 +412,29 @@ function CtoMarkers({
                   >
                     Abrir CTO
                   </Link>
+                ) : null}
+
+                {/*
+                  A ação SECUNDÁRIA, e ela é deliberadamente discreta.
+
+                  O popup não vira painel de ações: "Abrir CTO" continua sendo o
+                  caminho principal, cheio e com a cor do primário, e "Ajustar
+                  posição" é um botão de texto abaixo dele. Corrigir coordenada é
+                  raro; abrir a ficha é o que se faz o tempo todo.
+
+                  Quem barra continua sendo o servidor — `requireCtoAccess`
+                  exige `ADMIN` e a capability antes de qualquer escrita. Esconder
+                  o botão é apresentação, e nada mais.
+                */}
+                {canEditPosition ? (
+                  <button
+                    type="button"
+                    onClick={() => onStartEdit(marker.id)}
+                    className="cto-map-secondary mt-1.5 inline-flex w-full items-center justify-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+                    data-testid="cto-map-popup-edit-position"
+                  >
+                    Ajustar posição
+                  </button>
                 ) : null}
               </div>
             </Popup>

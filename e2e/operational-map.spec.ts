@@ -2130,3 +2130,490 @@ test.describe("Mapa Operacional — o corpo comunica o estado", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// CTO-3.2.1d — ajustar a posição da CTO pelo mapa
+// ---------------------------------------------------------------------------
+
+/**
+ * Uma caixa SÓ para estas provas, e longe de todas as outras.
+ *
+ * Ela é movida de verdade, e movê-la é o ponto. Reaproveitar uma das quatro do
+ * fixture faria um teste de posição mudar o enquadramento de que os testes de
+ * estado e de plaqueta dependem — e a suíte passaria a falhar por ordem de
+ * execução, que é a pior forma de flakiness porque parece defeito de código.
+ *
+ * `+0,1°` são cerca de 11 km: fora do recorte de qualquer outro teste, inclusive
+ * do `z13` da política de densidade.
+ */
+const POS = { latitude: BASE.latitude + 0.1, longitude: BASE.longitude + 0.1 };
+const NOME_POS = "MAPA QA POSICAO";
+let ctoPosicaoId = "";
+
+test.beforeAll(async () => {
+  const cto = await criarCto(NOME_POS, {
+    latitude: POS.latitude,
+    longitude: POS.longitude,
+  });
+  ctoPosicaoId = cto.id;
+});
+
+/** A coordenada gravada, lida direto do banco. */
+async function coordenadaGravada() {
+  const linha = await prisma.cTO.findUniqueOrThrow({
+    where: { id: ctoPosicaoId },
+  });
+  return {
+    latitude: linha.latitude === null ? null : Number(linha.latitude),
+    longitude: linha.longitude === null ? null : Number(linha.longitude),
+  };
+}
+
+/** Devolve a caixa ao ponto de origem, para cada teste começar igual. */
+async function restaurarCoordenada() {
+  await prisma.cTO.update({
+    where: { id: ctoPosicaoId },
+    data: { latitude: POS.latitude, longitude: POS.longitude },
+  });
+}
+
+/** Abre o mapa enquadrado na caixa de posição. */
+async function abrirMapaNaCaixaDePosicao(page: Page) {
+  await interceptarTiles(page);
+  await page.goto(`/mapa?lat=${POS.latitude}&lng=${POS.longitude}&z=17`);
+  await expect(page.locator(".leaflet-container")).toBeVisible();
+  await expect(marcadorDe(page, NOME_POS)).toBeVisible({ timeout: 15_000 });
+}
+
+/** Arrasta o marcador por alguns pixels, como uma mão faria. */
+async function arrastar(page: Page, dx: number, dy: number) {
+  const alvo = marcadorDe(page, NOME_POS);
+  const caixa = (await alvo.boundingBox())!;
+  const x = caixa.x + caixa.width / 2;
+  const y = caixa.y + caixa.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  // Em passos: um salto único não produz os `mousemove` que o Leaflet escuta.
+  await page.mouse.move(x + dx / 2, y + dy / 2, { steps: 6 });
+  await page.mouse.move(x + dx, y + dy, { steps: 6 });
+  await page.mouse.up();
+}
+
+test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
+  test.beforeEach(async () => {
+    await restaurarCoordenada();
+  });
+
+  test("MAPEDIT-01/02 · a ação é do ADMIN, e o DISPATCHER não a vê", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaNaCaixaDePosicao(page);
+
+    await marcadorDe(page, NOME_POS).click();
+    await expect(page.getByTestId("cto-map-popup")).toBeVisible();
+    await expect(page.getByTestId("cto-map-popup-edit-position")).toBeVisible();
+
+    // E ela é SECUNDÁRIA: "Abrir CTO" continua sendo o caminho principal.
+    await expect(page.getByTestId("cto-map-popup-open")).toBeVisible();
+    const principal = (await page
+      .getByTestId("cto-map-popup-open")
+      .boundingBox())!;
+    const secundaria = (await page
+      .getByTestId("cto-map-popup-edit-position")
+      .boundingBox())!;
+    expect(
+      secundaria.y,
+      "a ação secundária precisa vir DEPOIS da principal",
+    ).toBeGreaterThan(principal.y);
+
+    // O DISPATCHER lê o mapa e não recebe escrita nenhuma.
+    await page.context().clearCookies();
+    await login(page, DISPATCHER_EMAIL);
+    await abrirMapaNaCaixaDePosicao(page);
+    await marcadorDe(page, NOME_POS).click();
+    await expect(page.getByTestId("cto-map-popup")).toBeVisible();
+    await expect(page.getByTestId("cto-map-popup-edit-position")).toHaveCount(0);
+  });
+
+  test("MAPEDIT-03/04 · fora do modo de edição nada é arrastável", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaNaCaixaDePosicao(page);
+
+    const svg = marcadorSvg(page, NOME_POS);
+    await expect(svg).not.toHaveClass(/cto-box--editing/);
+
+    /*
+      Arrastar sem ter entrado em edição move o MAPA, não a caixa.
+
+      É a prova de que o marcador não é arrastável por padrão: o gesto é o
+      mesmo, e o que acontece é diferente.
+    */
+    const antes = await coordenadaGravada();
+    await arrastar(page, 60, 40);
+    await page.waitForTimeout(600);
+    expect(await coordenadaGravada()).toEqual(antes);
+    await expect(page.getByTestId("cto-map-position-panel")).toHaveCount(0);
+
+    // Entrando em edição, só ELA fica arrastável.
+    await marcadorDe(page, NOME_POS).click();
+    await page.getByTestId("cto-map-popup-edit-position").click();
+    await expect(page.getByTestId("cto-map-position-panel")).toBeVisible();
+    await expect(svg).toHaveClass(/cto-box--editing/);
+    expect(
+      await svg.evaluate((el) => getComputedStyle(el).cursor),
+      "sem cursor de arrasto, nada promete que dá para arrastar",
+    ).toBe("grab");
+
+    // O popup saiu da frente da caixa que vai ser movida.
+    await expect(page.getByTestId("cto-map-popup")).toHaveCount(0);
+  });
+
+  test("MAPEDIT-05/06/07 · arrastar não salva, e Cancelar devolve o ponto", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaNaCaixaDePosicao(page);
+
+    const antes = await coordenadaGravada();
+
+    await marcadorDe(page, NOME_POS).click();
+    await page.getByTestId("cto-map-popup-edit-position").click();
+    await expect(page.getByTestId("cto-map-position-panel")).toBeVisible();
+
+    /*
+      A referência é capturada DEPOIS de entrar em edição, e isso foi medido.
+
+      Abrir o popup dispara o `autoPan` do Leaflet, que move o mapa para o popup
+      caber — 138 pixels, medidos numa sonda. Uma referência tirada antes do
+      clique compararia dois enquadramentos diferentes, e o teste acusaria o
+      Cancelar de não restaurar quando quem se moveu foi o mapa.
+
+      Daqui em diante o enquadramento está estável: o painel é ancorado dentro
+      do mapa e não desloca nada, e os arrastos abaixo são do marcador.
+    */
+    await page.waitForTimeout(400);
+    const posicaoOriginal = (await marcadorDe(page, NOME_POS).boundingBox())!;
+
+    // Antes de qualquer arrasto não existe "nova posição" a mostrar.
+    await expect(page.getByTestId("cto-map-position-after")).toHaveText("—");
+    await expect(page.getByTestId("cto-map-position-save")).toBeDisabled();
+
+    await arrastar(page, 70, 50);
+
+    // O painel passou a mostrar um par novo...
+    const depoisDoArrasto = await page
+      .getByTestId("cto-map-position-after")
+      .textContent();
+    expect(depoisDoArrasto).not.toBe("—");
+    await expect(page.getByTestId("cto-map-position-save")).toBeEnabled();
+
+    // ...e o marcador saiu do lugar na tela.
+    const arrastado = (await marcadorDe(page, NOME_POS).boundingBox())!;
+    expect(Math.abs(arrastado.x - posicaoOriginal.x)).toBeGreaterThan(20);
+
+    /*
+      MAPEDIT-06: o BANCO não mudou.
+
+      É a afirmação inteira da fase. "Arrastou" e "salvou" são coisas
+      diferentes, e a única prova disso é ler a linha.
+    */
+    await page.waitForTimeout(700);
+    expect(await coordenadaGravada()).toEqual(antes);
+
+    /*
+      MAPEDIT-07: Cancelar depois de VÁRIOS arrastos.
+
+      O enunciado pede confiabilidade justamente depois de muitos eventos — e é
+      onde uma implementação que fosse acumulando deltas erraria. Aqui não há
+      acumulação: existe uma origem que nunca foi tocada.
+    */
+    await arrastar(page, -40, 30);
+    await arrastar(page, 25, -60);
+    await page.getByTestId("cto-map-position-cancel").click();
+
+    await expect(page.getByTestId("cto-map-position-panel")).toHaveCount(0);
+    await expect(marcadorSvg(page, NOME_POS)).not.toHaveClass(
+      /cto-box--editing/,
+    );
+
+    const restaurado = (await marcadorDe(page, NOME_POS).boundingBox())!;
+    expect(Math.abs(restaurado.x - posicaoOriginal.x)).toBeLessThanOrEqual(2);
+    expect(Math.abs(restaurado.y - posicaoOriginal.y)).toBeLessThanOrEqual(2);
+    expect(await coordenadaGravada()).toEqual(antes);
+  });
+
+  test("MAPEDIT-08/14 · Salvar persiste, e a nova posição sobrevive ao reload", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaNaCaixaDePosicao(page);
+
+    const antes = await coordenadaGravada();
+
+    await marcadorDe(page, NOME_POS).click();
+    await page.getByTestId("cto-map-popup-edit-position").click();
+    await arrastar(page, 80, 60);
+    await page.getByTestId("cto-map-position-save").click();
+
+    // Sai do modo de edição sozinho, sem erro na tela.
+    await expect(page.getByTestId("cto-map-position-panel")).toHaveCount(0, {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("cto-map-position-error")).toHaveCount(0);
+
+    const depois = await coordenadaGravada();
+    expect(depois.latitude).not.toBe(antes.latitude);
+    expect(depois.longitude).not.toBe(antes.longitude);
+    // Arrastar para a direita e para baixo: longitude sobe, latitude desce.
+    expect(depois.longitude!).toBeGreaterThan(antes.longitude!);
+    expect(depois.latitude!).toBeLessThan(antes.latitude!);
+
+    /*
+      MAPEDIT-14: o reload é quem confirma.
+
+      Estado local otimista mostraria a caixa no lugar novo mesmo se nada tivesse
+      sido gravado. Recarregando, o que aparece vem do servidor.
+    */
+    await page.reload();
+    await expect(marcadorDe(page, NOME_POS)).toBeVisible({ timeout: 15_000 });
+
+    await marcadorDe(page, NOME_POS).click();
+    await expect(page.getByTestId("cto-map-popup")).toBeVisible();
+    // O popup abre no ponto novo, e o estado da caixa continua o mesmo.
+    await expect(page.getByTestId("cto-map-popup-status")).toContainText(
+      "Com vaga",
+    );
+    expect(await coordenadaGravada()).toEqual(depois);
+  });
+
+  test("MAPEDIT-09/10 · durante o arrasto a plaqueta acompanha e o estado fica", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaNaCaixaDePosicao(page);
+
+    await marcadorDe(page, NOME_POS).click();
+    await page.getByTestId("cto-map-popup-edit-position").click();
+
+    const svg = marcadorSvg(page, NOME_POS);
+    const contornoAntes = await contornoDe(page, NOME_POS);
+
+    await arrastar(page, 90, 70);
+
+    /*
+      MAPEDIT-09: a plaqueta ficou junto.
+
+      O rótulo é um tooltip do Leaflet preso ao marcador, então ele acompanha
+      nativamente — mas "acompanha" é afirmação de posição, e só a medição a
+      sustenta. Uma plaqueta que ficasse para trás apontaria para o lugar errado
+      com o nome certo, que é pior que não ter plaqueta.
+    */
+    const marcador = (await marcadorDe(page, NOME_POS).boundingBox())!;
+    const plaqueta = (await plaquetaDe(page, NOME_POS).boundingBox())!;
+    const centroMarcador = marcador.x + marcador.width / 2;
+    const centroPlaqueta = plaqueta.x + plaqueta.width / 2;
+    expect(
+      Math.abs(centroPlaqueta - centroMarcador),
+      "a plaqueta ficou para trás no arrasto",
+    ).toBeLessThanOrEqual(8);
+    expect(
+      plaqueta.y + plaqueta.height,
+      "a plaqueta precisa continuar ACIMA do marcador",
+    ).toBeLessThanOrEqual(marcador.y + 2);
+
+    /*
+      MAPEDIT-10: o estado NÃO muda de cor por estar sendo movido.
+
+      Modo de edição é gesto de interface; verde/amarelo/vermelho são operação.
+      Misturá-los faria alguém ler que a caixa mudou de situação por ter sido
+      arrastada.
+    */
+    expect(await contornoDe(page, NOME_POS)).toBe(contornoAntes);
+    await expect(svg).toHaveClass(/cto-box--success/);
+    await expect(svg.locator(".cto-box__badge")).toHaveCount(1);
+
+    // E o halo de edição é TRACEJADO, distinto do halo sólido da seleção.
+    expect(await svg.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe(
+      "dashed",
+    );
+
+    await page.getByTestId("cto-map-position-cancel").click();
+  });
+
+  test("MAPEDIT-11 · falha ao salvar aparece, e nada é gravado", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaNaCaixaDePosicao(page);
+
+    const antes = await coordenadaGravada();
+
+    // O servidor recusa. O que importa é o que a tela faz com isso.
+    await page.route("**/api/ctos/**", (route) => {
+      if (route.request().method() === "PATCH") {
+        return route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ ok: false, error: "Falha ao salvar." }),
+        });
+      }
+      return route.fallback();
+    });
+
+    await marcadorDe(page, NOME_POS).click();
+    await page.getByTestId("cto-map-popup-edit-position").click();
+    await arrastar(page, 60, 40);
+    await page.getByTestId("cto-map-position-save").click();
+
+    /*
+      O erro é VISÍVEL, e o modo de edição CONTINUA.
+
+      É a alternativa mais honesta: o marcador fica onde a mão o deixou, mas o
+      painel segue na tela dizendo "Ajustando posição" com o erro ao lado —
+      ninguém confunde isso com uma posição salva. Devolver o marcador ao ponto
+      antigo apagaria o trabalho de quem acabou de posicionar a caixa por causa
+      de uma falha que pode ser de rede.
+    */
+    const erro = page.getByTestId("cto-map-position-error");
+    await expect(erro).toBeVisible();
+    await expect(page.getByTestId("cto-map-position-panel")).toBeVisible();
+
+    // E a mensagem não vaza detalhe interno.
+    const texto = (await erro.textContent()) ?? "";
+    for (const proibido of ["prisma", "Prisma", "SELECT", "cTO", "at Object"]) {
+      expect(texto, `a mensagem vaza ${proibido}`).not.toContain(proibido);
+    }
+
+    expect(await coordenadaGravada()).toEqual(antes);
+
+    // Dá para desistir depois do erro, e desistir também não grava.
+    await page.getByTestId("cto-map-position-cancel").click();
+    await expect(page.getByTestId("cto-map-position-panel")).toHaveCount(0);
+    expect(await coordenadaGravada()).toEqual(antes);
+  });
+
+  test("MAPEDIT-12/13 · pan, zoom e troca de base durante a edição", async ({
+    page,
+  }) => {
+    const erros = coletarErros(page);
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaNaCaixaDePosicao(page);
+
+    const antes = await coordenadaGravada();
+
+    await marcadorDe(page, NOME_POS).click();
+    await page.getByTestId("cto-map-popup-edit-position").click();
+    await expect(page.getByTestId("cto-map-position-panel")).toBeVisible();
+
+    /*
+      Satélite e Híbrido são justamente as melhores bases para achar o poste, e
+      por isso trocar de base durante a edição precisa continuar valendo — sem
+      que a troca seja confundida com uma alteração da CTO.
+    */
+    for (const modo of ["satellite", "hybrid", "normal"]) {
+      await page.getByTestId(`map-mode-${modo}`).click();
+      await page.waitForTimeout(400);
+      await expect(
+        page.getByTestId("cto-map-position-panel"),
+        `o painel morreu ao trocar para ${modo}`,
+      ).toBeVisible();
+    }
+    expect(await coordenadaGravada()).toEqual(antes);
+
+    /*
+      Arrastar o MAPA durante a edição dispara releitura do recorte. A caixa em
+      edição precisa sobreviver a isso — com só o id em mãos, ela sumiria
+      debaixo da mão e levaria o painel junto.
+    */
+    await page.mouse.move(200, 200);
+    await page.mouse.down();
+    await page.mouse.move(320, 260, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(900);
+
+    await expect(page.getByTestId("cto-map-position-panel")).toBeVisible();
+    await expect(marcadorDe(page, NOME_POS)).toBeVisible();
+
+    await page.getByTestId("cto-map-position-cancel").click();
+    expect(await coordenadaGravada()).toEqual(antes);
+
+    // MAPEDIT-12: nenhum laço de render durante tudo isso.
+    expect(
+      erros.filter((e) => /Maximum update depth|too many re-renders/i.test(e)),
+    ).toEqual([]);
+  });
+
+  test("MAPEDIT-04b · abrir o painel NÃO empurra o mapa", async ({ page }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaNaCaixaDePosicao(page);
+
+    /*
+      Regressão medida e corrigida nesta fase.
+
+      A primeira versão renderizava o painel no fluxo da página, acima do mapa:
+      entrar em edição descia o mapa **206 pixels**, ou seja, o mapa saltava
+      debaixo da mão no instante exato em que a pessoa vai arrastar com
+      precisão. Ancorado dentro do mapa, nada no fluxo se move.
+
+      A moldura é a referência certa — o marcador não serve, porque o `autoPan`
+      do popup o desloca legitimamente ao abrir.
+    */
+    const molduraAntes = (await page.getByTestId("operational-map").boundingBox())!;
+
+    await marcadorDe(page, NOME_POS).click();
+    await page.getByTestId("cto-map-popup-edit-position").click();
+    await expect(page.getByTestId("cto-map-position-panel")).toBeVisible();
+
+    const molduraDepois = (await page
+      .getByTestId("operational-map")
+      .boundingBox())!;
+    expect(
+      Math.abs(molduraDepois.y - molduraAntes.y),
+      `o mapa desceu ${(molduraDepois.y - molduraAntes.y).toFixed(0)}px ao abrir o painel`,
+    ).toBeLessThanOrEqual(1);
+    expect(molduraDepois.height).toBe(molduraAntes.height);
+
+    // E o painel está DENTRO da moldura, onde ele não some da vista.
+    const painel = (await page
+      .getByTestId("cto-map-position-panel")
+      .boundingBox())!;
+    expect(painel.y).toBeGreaterThanOrEqual(molduraAntes.y - 1);
+    expect(painel.y + painel.height).toBeLessThanOrEqual(
+      molduraAntes.y + molduraAntes.height + 1,
+    );
+
+    await page.getByTestId("cto-map-position-cancel").click();
+  });
+
+  test("MAPEDIT-13b · a vista do mapa sobrevive ao salvamento", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaNaCaixaDePosicao(page);
+
+    await page.getByTestId("map-mode-hybrid").click();
+    await expect(page.getByTestId("map-mode-hybrid")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    const zoomAntes = vistaDaUrl(page).get("z");
+
+    await marcadorDe(page, NOME_POS).click();
+    await page.getByTestId("cto-map-popup-edit-position").click();
+    await arrastar(page, 50, 40);
+    await page.getByTestId("cto-map-position-save").click();
+    await expect(page.getByTestId("cto-map-position-panel")).toHaveCount(0, {
+      timeout: 15_000,
+    });
+
+    // Mover a caixa não é navegar: zoom e base continuam onde estavam.
+    expect(vistaDaUrl(page).get("z")).toBe(zoomAntes);
+    await expect(page.getByTestId("map-mode-hybrid")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+});

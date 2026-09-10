@@ -629,6 +629,29 @@
 }
 
 /*
+  MODO DE EDIÇÃO — CTO-3.2.1c/d.
+
+  Terceira camada, e ela também não toca o corpo: uma CTO disponível continua
+  verde enquanto está sendo arrastada. Reaproveitar verde/amarelo/vermelho para
+  dizer "está sendo movida" faria o operador ler mudança de operação onde houve
+  apenas um gesto de interface.
+
+  O halo vira TRACEJADO e muda de papel — `focus` sólido continua significando
+  "selecionada", `primary` tracejado significa "você está movendo esta". Vem
+  depois da regra de seleção de propósito: as duas usam `outline`, e um elemento
+  só tem um, então quem manda enquanto a edição durar é esta.
+
+  `cursor: grab` é o que promete o arrasto antes de a pessoa tentar; o Leaflet
+  troca para `grabbing` sozinho durante o movimento.
+*/
+.cto-box--editing {
+  outline: 3px dashed rgb(var(--primary));
+  outline-offset: 3px;
+  border-radius: 8px;
+  cursor: grab;
+}
+
+/*
   ---------------------------------------------------------------------------
   Ação do popup — CTO-3.2.1b
   ---------------------------------------------------------------------------
@@ -660,6 +683,34 @@
 }
 
 .cto-map-shell .leaflet-popup-content a.cto-map-action:focus-visible {
+  outline: 2px solid rgb(var(--focus));
+  outline-offset: 2px;
+}
+
+/*
+  A ação SECUNDÁRIA do popup — CTO-3.2.1d.
+
+  Mesma armadilha de especificidade que a `cto-map-action` resolveu, com um
+  detalhe a mais: aqui o elemento é um `<button>`, e a regra do Leaflet que
+  pintava todo `<a>` não o alcança. A classe existe pela razão oposta — garantir
+  que ele fique visivelmente ABAIXO de "Abrir CTO" na hierarquia, e não
+  competindo com ele.
+
+  Contorno e texto no tom de `primary`, fundo transparente: é a forma que o
+  design system usa para dizer "ação, mas não a principal".
+*/
+.cto-map-shell .leaflet-popup-content button.cto-map-secondary {
+  color: rgb(var(--primary-text));
+  background: transparent;
+  border: 1px solid rgb(var(--border));
+}
+
+.cto-map-shell .leaflet-popup-content button.cto-map-secondary:hover {
+  color: rgb(var(--primary-text-hover));
+  background: rgb(var(--surface-muted));
+}
+
+.cto-map-shell .leaflet-popup-content button.cto-map-secondary:focus-visible {
   outline: 2px solid rgb(var(--focus));
   outline-offset: 2px;
 }

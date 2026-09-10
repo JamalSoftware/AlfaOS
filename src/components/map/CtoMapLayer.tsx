@@ -90,6 +90,19 @@ interface CtoMapLayerProps {
   initialState: Partial<MapViewState>;
   /** `ADMIN` abre `/ctos/[id]`; `DISPATCHER` lê o mapa e não o detalhe. */
   canOpenDetail: boolean;
+  /** `ADMIN` corrige a posição da caixa pelo mapa (`CTO-3.2.1d`). */
+  canEditPosition: boolean;
+}
+
+/** Onde a caixa em edição está agora, antes de qualquer escrita. */
+interface PosicaoEsboco {
+  latitude: number;
+  longitude: number;
+}
+
+/** Seis casas decimais: cerca de 11 cm no equador, muito além do que um poste pede. */
+function formatarCoordenada(valor: number): string {
+  return valor.toFixed(6);
 }
 
 /** Um modo pedido que a configuração não desenha cai no padrão. */
@@ -104,6 +117,7 @@ export function CtoMapLayer({
   initialView,
   initialState,
   canOpenDetail,
+  canEditPosition,
 }: CtoMapLayerProps) {
   const [view, setView] = useState<CtoMapView | null>(null);
   const [loading, setLoading] = useState(false);
@@ -351,6 +365,135 @@ export function CtoMapLayer({
   const markers = view?.markers ?? SEM_MARCADORES;
 
   /*
+    A caixa em edição é GUARDADA, e não apenas apontada por id — CTO-3.2.1d.
+
+    A `§7` exige que arrastar e dar zoom continuem funcionando durante a edição,
+    e isso dispara releitura do recorte. Se o operador afastar o mapa ou
+    arrastar para o lado, a caixa que ele está movendo pode sair da lista que o
+    servidor devolve — e com só o id em mãos o marcador sumiria debaixo da mão,
+    levando o painel junto.
+
+    Guardando a cópia, ela continua desenhada enquanto a edição durar. O par
+    gravado dentro dela é a ORIGEM para o Cancelar, e é o que torna o cancelamento
+    confiável depois de quantos arrastos forem: nada nele é alterado pelo arrasto.
+  */
+  const [ctoEmEdicao, setCtoEmEdicao] = useState<CtoMapView["markers"][number] | null>(
+    null,
+  );
+  const [esboco, setEsboco] = useState<PosicaoEsboco | null>(null);
+  const [salvandoPosicao, setSalvandoPosicao] = useState(false);
+  const [erroPosicao, setErroPosicao] = useState<string | null>(null);
+
+  const marcadores = useMemo(() => {
+    if (!ctoEmEdicao) return markers;
+    return markers.some((m) => m.id === ctoEmEdicao.id)
+      ? markers.map((m) => (m.id === ctoEmEdicao.id ? ctoEmEdicao : m))
+      : [...markers, ctoEmEdicao];
+  }, [markers, ctoEmEdicao]);
+
+  const iniciarEdicao = useCallback(
+    (id: string) => {
+      const alvo = markers.find((m) => m.id === id);
+      if (!alvo) return;
+      setCtoEmEdicao(alvo);
+      setEsboco(null);
+      setErroPosicao(null);
+      /*
+        O popup FECHA ao entrar em edição.
+
+        Ele cobriria justamente a caixa que se quer arrastar, e um popup aberto
+        durante o arrasto reabre a briga entre `click`, `drag` e `autoPan` que
+        custou o popup inteiro na `CTO-3.2.1`.
+      */
+      mapRef.current?.closePopup();
+    },
+    [markers],
+  );
+
+  const moverEsboco = useCallback((latitude: number, longitude: number) => {
+    setEsboco({ latitude, longitude });
+    // Um arrasto novo é uma tentativa nova: o erro anterior deixa de valer.
+    setErroPosicao(null);
+  }, []);
+
+  /*
+    CANCELAR não faz requisição nenhuma.
+
+    Só descarta o rascunho. O marcador volta ao par gravado porque é ele que a
+    prop de posição passa a devolver — não existe "desfazer" a executar, existe
+    uma origem que nunca foi tocada.
+  */
+  const cancelarEdicao = useCallback(() => {
+    setCtoEmEdicao(null);
+    setEsboco(null);
+    setErroPosicao(null);
+    setSalvandoPosicao(false);
+  }, []);
+
+  const salvarPosicao = useCallback(async () => {
+    if (!ctoEmEdicao || !esboco) return;
+    setSalvandoPosicao(true);
+    setErroPosicao(null);
+    try {
+      /*
+        O MESMO caminho de escrita da tela de detalhe, com payload estreito.
+
+        `PATCH /api/ctos/[id]` já valida com `.strict()`, já exige `ADMIN` e a
+        capability em `requireCtoAccess`, já filtra tenant no `updateMany` e já
+        chama `assertCoordinates` no domínio. Mandando SÓ o par, `updateCto`
+        monta um `data` com só ele — nenhum outro campo é sequer lido, então não
+        há como sobrescrever nome, capacidade ou observações por acidente.
+
+        Criar `PATCH /api/ctos/[id]/location` seria uma segunda implementação da
+        mesma regra, e a que divergisse seria a que ninguém revisou.
+      */
+      const res = await fetch(`/api/ctos/${ctoEmEdicao.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          latitude: esboco.latitude,
+          longitude: esboco.longitude,
+        }),
+      });
+      const payload = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        /*
+          Falhou: o modo de edição CONTINUA aberto.
+
+          É a alternativa mais honesta das duas que o enunciado admite. O
+          marcador fica onde a mão o deixou, mas o painel segue na tela dizendo
+          "Ajustando posição" e mostrando o erro — ninguém pode confundir isso
+          com uma posição salva. Devolver o marcador ao ponto antigo apagaria o
+          trabalho de quem acabou de posicionar a caixa, por causa de uma falha
+          que pode ser de rede.
+        */
+        setErroPosicao(
+          payload?.error ?? "Não foi possível salvar a posição da CTO.",
+        );
+        return;
+      }
+
+      setCtoEmEdicao(null);
+      setEsboco(null);
+      /*
+        A LEITURA CANÔNICA confirma o que foi salvo.
+
+        Sair do modo de edição com o rascunho na tela seria afirmar sucesso com
+        estado local. Relendo o recorte, a posição que aparece é a que o
+        servidor devolve — e se ela não for a esperada, o mapa mostra a verdade
+        em vez da esperança.
+      */
+      const bbox = bboxRef.current;
+      if (bbox) void carregar(bbox);
+    } catch {
+      setErroPosicao("Erro de conexão ao salvar a posição da CTO.");
+    } finally {
+      setSalvandoPosicao(false);
+    }
+  }, [carregar, ctoEmEdicao, esboco]);
+
+  /*
     A política de densidade da plaqueta, em uma linha.
 
     Um BOOLEANO atravessa a fronteira, e nunca o zoom. `CtoMarkers` é `memo`, e
@@ -387,6 +530,26 @@ export function CtoMapLayer({
         loading={loading}
         error={error}
         onRetry={tentarNovamente}
+        /*
+          O painel vive DENTRO do mapa, e a razão foi medida.
+
+          Renderizado no fluxo da página, acima do mapa, entrar em modo de
+          edição descia o mapa 206 pixels — o mapa saltava debaixo da mão no
+          instante exato em que a pessoa vai arrastar com precisão. Ancorado no
+          canto, nada no fluxo se move.
+        */
+        editor={
+          ctoEmEdicao ? (
+            <PainelDePosicao
+              cto={ctoEmEdicao}
+              esboco={esboco}
+              salvando={salvandoPosicao}
+              erro={erroPosicao}
+              onCancelar={cancelarEdicao}
+              onSalvar={salvarPosicao}
+            />
+          ) : null
+        }
         overlay={
           view?.truncated ? (
             <p
@@ -401,11 +564,16 @@ export function CtoMapLayer({
         }
       >
         <CtoMarkers
-          markers={markers}
+          markers={marcadores}
           selectedId={selectedId}
           onSelect={setSelectedId}
           canOpenDetail={canOpenDetail}
           showLabels={mostrarPlaquetas}
+          canEditPosition={canEditPosition}
+          editingId={ctoEmEdicao?.id ?? null}
+          draftPosition={esboco}
+          onStartEdit={iniciarEdicao}
+          onDragEnd={moverEsboco}
         />
       </OperationalMap>
 
@@ -462,6 +630,127 @@ export function CtoMapLayer({
       </div>
 
       <MapLegend />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Ajuste de posição — CTO-3.2.1d
+// ---------------------------------------------------------------------------
+
+/**
+ * O painel que torna a edição um ATO, e não um efeito colateral do arrasto.
+ *
+ * ## Por que ele existe, em vez de "arrastou = salvou"
+ *
+ * Num mapa a mão está sempre arrastando alguma coisa. Se soltar o marcador
+ * gravasse, uma coordenada correta viraria uma errada sem que ninguém tivesse
+ * pedido, e sem nada na tela para desfazer. O painel transforma a sequência em
+ * uma intenção declarada: entrar, mover, conferir, e só então salvar.
+ *
+ * ## Ele mostra as DUAS posições
+ *
+ * A anterior e a nova, lado a lado. Sem a anterior não há como conferir nada —
+ * e conferir é o passo que separa "corrigi a caixa" de "movi a caixa".
+ */
+function PainelDePosicao({
+  cto,
+  esboco,
+  salvando,
+  erro,
+  onCancelar,
+  onSalvar,
+}: {
+  cto: CtoMapView["markers"][number];
+  esboco: PosicaoEsboco | null;
+  salvando: boolean;
+  erro: string | null;
+  onCancelar: () => void;
+  onSalvar: () => void;
+}) {
+  return (
+    <div
+      /*
+        Fundo OPACO e sombra, como a plaqueta e o popup.
+
+        Ele flutua sobre imagem que não é nossa — mapa, satélite, telhado,
+        vegetação. `bg-surface` com sombra é a mesma solução que o popup e a
+        plaqueta já usam sobre as três bases, e a borda em `primary` é o que o
+        liga ao halo tracejado do marcador em edição.
+
+        Uma tentativa anterior usou `bg-primary-soft`, que **não existe**: o
+        design system tem `primary` em `DEFAULT`, `hover`, `fg`, `text` e
+        `text-hover`. Classe inexistente é o defeito da `CTO-1.5` — o Tailwind a
+        ignora em silêncio, e o painel sairia transparente sem nada falhar.
+      */
+      className="rounded-xl border border-primary bg-surface p-3 shadow-lg"
+      role="region"
+      aria-label="Ajuste de posição da CTO"
+      data-testid="cto-map-position-panel"
+    >
+      <p className="text-sm font-semibold text-fg">Ajustando posição</p>
+      <p className="mt-0.5 text-sm text-fg-secondary">{cto.name}</p>
+      <p className="mt-2 text-xs text-fg-muted">
+        Arraste a caixa no mapa até o ponto correto. Nada é gravado até você
+        salvar.
+      </p>
+
+      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        <dt className="text-fg-muted">Posição anterior</dt>
+        <dt className="text-fg-muted">Nova posição</dt>
+        <dd className="font-mono text-fg" data-testid="cto-map-position-before">
+          {formatarCoordenada(cto.latitude)}, {formatarCoordenada(cto.longitude)}
+        </dd>
+        <dd className="font-mono text-fg" data-testid="cto-map-position-after">
+          {/*
+            Sem arrasto ainda, não existe "nova posição" — e inventar uma
+            repetindo a anterior faria o botão Salvar parecer disponível para
+            gravar o que já está gravado.
+          */}
+          {esboco
+            ? `${formatarCoordenada(esboco.latitude)}, ${formatarCoordenada(
+                esboco.longitude,
+              )}`
+            : "—"}
+        </dd>
+      </dl>
+
+      {erro ? (
+        <p
+          className="mt-3 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-xs font-medium text-danger-fg"
+          role="alert"
+          data-testid="cto-map-position-error"
+        >
+          {erro}
+        </p>
+      ) : null}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onCancelar}
+          disabled={salvando}
+          className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-fg-secondary transition-colors hover:bg-surface-muted disabled:opacity-60"
+          data-testid="cto-map-position-cancel"
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          onClick={onSalvar}
+          /*
+            Sem arrasto, não há o que salvar.
+
+            Desabilitar aqui evita a requisição que o domínio recusaria como
+            no-op — e evita que alguém conclua que salvou algo por ter clicado.
+          */
+          disabled={salvando || !esboco}
+          className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-fg transition-colors hover:bg-primary-hover disabled:opacity-60"
+          data-testid="cto-map-position-save"
+        >
+          {salvando ? "Salvando…" : "Salvar posição"}
+        </button>
+      </div>
     </div>
   );
 }
