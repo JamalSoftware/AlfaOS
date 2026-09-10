@@ -1308,13 +1308,17 @@ test.describe("Mapa Operacional — marcador e ação", () => {
     await expect(caixa.locator(".cto-box__body")).toHaveCount(1);
     await expect(caixa.locator(".cto-box__lid")).toHaveCount(1);
     /*
-      DOIS prensa-cabos e DOIS cabos desde a `CTO-3.2.1c`.
+      UMA placa de prensa-cabos, DOIS cabos — desde a `CTO-3.2.1c`.
 
-      A contagem era 1, e mudou porque o dono pediu "entrada/saída de cabo
-      melhor resolvida": o tronco entra pelo prensa-cabo maior, a drop do
-      assinante sai pelo menor. Um cabo só descrevia metade do que a caixa faz.
+      A contagem de cabos era 1 e virou 2 porque o dono pediu "entrada/saída de
+      cabo melhor resolvida": o tronco desce reto até o poste, a drop do
+      assinante sai em curva. Um cabo só descrevia metade do que a caixa faz.
+
+      A placa continua sendo UMA. Dois blocos pequenos sob a caixa leem como
+      pés — foi a primeira tentativa desta fase, e ela foi descartada olhando o
+      desenho renderizado.
     */
-    await expect(caixa.locator(".cto-box__gland")).toHaveCount(2);
+    await expect(caixa.locator(".cto-box__gland")).toHaveCount(1);
     await expect(caixa.locator(".cto-box__cable")).toHaveCount(2);
 
     // A régua — e não a grade de pontos que o dono recusou.
@@ -1691,13 +1695,25 @@ test.describe("Mapa Operacional — plaqueta com o nome da CTO", () => {
     const caixa = page.locator("svg.cto-box").first();
     await expect(caixa).toBeVisible();
 
-    // ML-06: corpo, tampa com fecho, orelhas de fixação e DOIS prensa-cabos.
+    // ML-06: corpo, tampa com fecho, UMA placa de prensa-cabos e DOIS cabos.
     await expect(caixa.locator(".cto-box__body")).toHaveCount(1);
     await expect(caixa.locator(".cto-box__lid")).toHaveCount(1);
     await expect(caixa.locator(".cto-box__latch")).toHaveCount(1);
-    await expect(caixa.locator(".cto-box__ear")).toHaveCount(2);
-    await expect(caixa.locator(".cto-box__gland")).toHaveCount(2);
+    await expect(caixa.locator(".cto-box__gland")).toHaveCount(1);
     await expect(caixa.locator(".cto-box__cable")).toHaveCount(2);
+
+    /*
+      O corpo é um `<path>`, e a asserção mede a proporção NA TELA.
+
+      A estrutural olha `CTO_MARKER_GEOMETRY`; esta olha o que o navegador
+      desenhou, que é onde a proporção de fato acontece. Foi por olhar o
+      desenho renderizado que as duas tentativas anteriores desta fase caíram.
+    */
+    const corpo = (await caixa.locator(".cto-box__body").boundingBox())!;
+    expect(
+      corpo.height,
+      `corpo ${corpo.width.toFixed(1)} × ${corpo.height.toFixed(1)}px: precisa ler como caixa em pé`,
+    ).toBeGreaterThan(corpo.width);
 
     // ML-07: a régua de adaptadores, e nenhum ponto solto.
     await expect(caixa.locator(".cto-box__tray")).toHaveCount(1);
@@ -1713,11 +1729,13 @@ test.describe("Mapa Operacional — plaqueta com o nome da CTO", () => {
     /*
       E o desenho continua PINTADO pelos tokens.
 
-      As orelhas e o fecho são as peças novas; nasceram sem regra de CSS numa
-      primeira versão, e um `fill` ausente no SVG significa preto — a única cor
-      que ignora o tema.
+      O fecho e a placa de prensa-cabos são as peças novas, e peça nova é
+      exatamente a que nasce sem regra de CSS. Um `fill` ausente no SVG não
+      falha: ele significa PRETO, a única cor que ignora o tema escolhido — e
+      foi assim que a primeira prévia desta fase saiu, com o marcador inteiro em
+      preto porque a folha de estilo não fora carregada junto.
     */
-    for (const parte of [".cto-box__ear", ".cto-box__latch"]) {
+    for (const parte of [".cto-box__latch", ".cto-box__gland"]) {
       const preenchimento = await caixa
         .locator(parte)
         .first()
