@@ -65,7 +65,7 @@ descobrir isso é com o técnico já no poste.
 A regra prescreve **consultar** o FiberMap. Só que:
 
 ```text
-FiberMap no AlfaOS      integração FUTURO (PRD §107, §2650)
+FiberMap no AlfaOS      integração FUTURO (PRD §107, §202)
 código                  nenhum
 rota                    nenhuma
 data prevista           nenhuma
@@ -4161,3 +4161,37 @@ agrupamento; heatmap; rotas; FiberMap; QR; falha coletiva; OLT/SNMP.
 > **`CTO-3.2.1` — `READY FOR OWNER VALIDATION`.** `CTO-2` continua `DONE`,
 > `CTO-3.0` `DISCOVERY DONE`, `CTO-3.1` `APPROVED`. `3.3` e `3.4` seguem sob a
 > §119, e a `CTO-3.2.2` não começou.
+
+---
+
+## 37. O escopo da `CTO-3.2.2` foi congelado no PRD
+
+A decisão de camadas que a §36 registrou como *"aprovada e não implementada"*
+deixou de viver só aqui: ela agora é contrato de produto na **Parte XVI do PRD
+(§362–§391)**, junto do resto do escopo do primeiro lançamento.
+
+**O que muda para esta trilha, e não estava escrito antes:**
+
+* **A autoridade de Online/Offline é única, e já existe** — PRD §370. O mapa
+  reutiliza `getCustomerDiagnostic` / `CustomerDiagnosticSnapshot`, a mesma que a
+  tela da OS usa. Três estados (`ONLINE`, `OFFLINE`, `UNKNOWN`), **sem `STALE`**;
+  o que acompanha o estado é a **idade** da leitura.
+* **A extração autorizada é uma leitura em LOTE.** A de hoje é de um cliente por
+  chamada, e uma camada de mapa faria `N+1`. Ampliar a autoridade existente,
+  nunca criar uma segunda.
+* **O mapa LÊ; ele não atualiza.** O refresh tem teto de 10 chamadas por minuto
+  por empresa (§337) — um mapa que atualizasse por marcador queimaria a cota da
+  OS num arrasto.
+* **Falha de integração nunca vira `OFFLINE`.** Já é invariante do código, e
+  passa a ser invariante escrita do produto.
+* **Cliente da CTO vem do VÍNCULO**, nunca de endereço ou proximidade (§372).
+* **Contagem de online/offline por CTO é derivada** — nada de
+  `cto.onlineCount` (§372).
+
+O sequenciamento da fatia, com dependências, entregas, testes e risco, está em
+`docs/MASTER-PLAN.md` §3 — incluindo o **portão de discovery** que a
+implementação precisa reconfirmar contra o código antes de escrever a primeira
+linha.
+
+> **`CTO-3.2.2` — `READY FOR DISCOVERY / IMPLEMENTATION`.** Não iniciada.
+> `CTO-3.3` e `CTO-3.4` seguem sob a §119.

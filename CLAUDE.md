@@ -891,6 +891,25 @@ Oito sabotagens, **oito detectadas** — e o `S4` cobrou um teste fraco meu ante
 
 Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §36. **Aguarda validação do dono pela interface antes de qualquer tag.**
 
+**ESCOPO DA V1 CONGELADO — PRD Parte XVI (§362–§391). Execução documental, zero produção.** O AlfaOS tinha mais visão registrada do que cabe num primeiro lançamento, e agora tem uma fronteira. **`docs/PRD.md` continua sendo a fonte canônica** — a Parte XVI diz o que entra na V1, não descreve funcionalidade nova por descrever. A §119 continua valendo linha por linha.
+
+**O que a V1 promove:** camada de clientes ativos e de OS abertas no Mapa Operacional, Online/Offline reaproveitado da OS, busca operacional, timeline do cliente, dashboard acionável e pacote técnico de evidências. **O que fica fora, nomeado:** §388 é V2 (falha coletiva, incidentes, NOC, manutenção preventiva, camada de técnico, métricas) e §389 é V3 (FiberMap e rede física).
+
+**Quatro premissas do enunciado foram corrigidas por medição, e valem mais que o resto:**
+
+* **`STALE` não existe.** `ConnectivityStatus` tem três valores — `ONLINE`, `OFFLINE`, `UNKNOWN`. Não há limiar de frescor em lugar nenhum; o que existe é `observedAt`, a **idade** da leitura, que viaja junto do estado (§370). Inventar um limiar seria uma regra que ninguém definiu para um provider cuja cadência ninguém mediu.
+* **O checklist por tipo de OS JÁ EXISTE** desde a v0.10 — `ChecklistTemplate`, único por `(companyId, serviceOrderTypeId)`, com superfície administrativa e aplicado como snapshot na execução. Foi apresentado como escopo novo por engano; o trabalho real é verificar cobertura (§382).
+* **A máquina de estados da OS tem CINCO valores** (`PENDING · ASSIGNED · IN_PROGRESS · COMPLETED · CANCELLED`). *Agendada* é o campo `scheduledAt`, não um estado; *em deslocamento* e *pausada* não existem; e `CANCELLED` continua declarado e inalcançável. Os gaps ficaram registrados em §385 **sem inventar enum** que contradiga o código.
+* **O pacote de evidências já tem todas as peças** — execução, treze categorias de evidência (incluindo medição óptica, speedtest e etiqueta), assinatura, equipamento, check-in e snapshot de checklist. Falta a **reunião**, não o dado (§383).
+
+**O contrato mais importante da Parte é a autoridade única de Online/Offline (§370).** Ela já existe em código, e um invariante dela também: **falha de integração é afirmação sobre a integração, nunca sobre o cliente** — nenhum caminho de erro escreve `OFFLINE`. O que a fase seguinte precisa é **extrair uma leitura em LOTE** sobre a mesma tabela e o mesmo DTO, porque hoje a leitura é de um cliente por chamada e um mapa faria `N+1`. **O mapa lê; ele não dispara refresh** — o teto de 10 chamadas por minuto por empresa é da OS, e um mapa que atualizasse por marcador o queimaria num arrasto.
+
+**Nasceu `docs/MASTER-PLAN.md`** — ele **não existia**: havia planos por trilha e nenhum lugar que respondesse "o que vem depois, e por quê" olhando o produto inteiro. Traz a sequência até o lançamento e cinco fatias propostas (`CTO-3.2.2`, `DASH-1`, `TL-1`, `EV-1`, `GS-1`), cada uma com dependências, entregas, testes, segurança e risco. **Não é um segundo PRD**: onde divergirem, o PRD vence.
+
+Duas decisões marcadas como `DECISION UPDATED`, sem apagar histórico (§390): a **§136** era `[DIFERENCIAL]` e o subconjunto CTO + clientes + OS abertas passou a `V1 MUST HAVE` — a camada de **técnico** continua `FUTURO` e continua dependendo de `TechnicianLocation`, que não existe; e a **§339** dizia que a `CTO-3` dependia do §136 existir, o que o dono resolveu na `CTO-3.0` com motor compartilhado e camada de CTO primeiro.
+
+**Próxima fatia: `CTO-3.2.2` — clientes e OS abertas no mapa.** Não iniciada.
+
 ## Princípios
 
 Integridade > velocidade

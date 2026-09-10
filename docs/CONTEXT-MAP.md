@@ -49,6 +49,14 @@ mesma porta** — aí o tráfego alterna entre eles e o diagnóstico fica sem ch
 **Quando:** a tarefa envolve decisão de escopo, prioridade de versão, ou dúvida sobre o que uma feature deveria fazer.
 **Quando NÃO:** implementação técnica de algo já especificado em outro doc mais específico (ex.: a regra de máquina de estados de OS já está detalhada em `SERVICE-ORDERS.md`, não precisa voltar ao PRD para isso).
 
+**O ESCOPO DA V1 ESTÁ CONGELADO: PRD Parte XVI (§362–§391).** Antes de propor qualquer funcionalidade nova, leia **§386** (o que é `MUST HAVE` e qual o estado real de cada item) e **§119** (estar no PRD nunca foi autorização para implementar). O que fica de fora está nomeado: §388 é V2 (falha coletiva, incidentes, NOC, manutenção preventiva, camada de técnico, métricas) e §389 é V3 (FiberMap e rede física).
+
+Quatro coisas dessa Parte que não se redescobrem: **`STALE` não existe** no AlfaOS — a conectividade tem três estados e o que viaja junto é a **idade** da leitura (§370); **o checklist por tipo de OS já está implementado** desde a v0.10, e foi apresentado como escopo novo por engano (§382); **a máquina de estados da OS tem cinco valores**, e *agendada*, *em deslocamento* e *pausada* **não são estados** — os gaps estão registrados em §385 sem inventar enum; e **`CANCELLED` é declarado e inalcançável**.
+
+**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias propostas (`CTO-3.2.2`, `DASH-1`, `TL-1`, `EV-1`, `GS-1`), cada uma com dependências, entregas, testes, segurança e risco. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
+
+**Antes de tocar em Online/Offline, leia PRD §370.** A autoridade é `CustomerDiagnosticSnapshot` + `getCustomerDiagnostic` (`src/lib/customer-diagnostics.ts`), e o invariante já está no código: **falha de integração é afirmação sobre a integração, nunca sobre o cliente** — nenhum caminho de erro escreve `OFFLINE`. A leitura de hoje é **de um cliente por chamada**, então um mapa faria `N+1`: a extração autorizada é uma leitura **em lote** sobre a mesma tabela e o mesmo DTO. E **o mapa lê, não atualiza** — o refresh tem teto de 10 chamadas por minuto por empresa (§337).
+
 ## Arquitetura
 
 **Carregar:** `docs/ARCHITECTURE.md`.

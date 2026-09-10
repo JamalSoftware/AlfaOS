@@ -12182,3 +12182,774 @@ Trabalho (§307), CTO (§333–§341) e Colaboração (§342–§351), e continu
 as duas escalas de prioridade (§117, §194).
 
 ---
+
+# PARTE XVI — ALFAOS V1: ESCOPO DE LANÇAMENTO
+
+> **Congelada em 2026-09-09.** Esta Parte existe para uma finalidade só: dizer o
+> que entra no primeiro lançamento e o que não entra. Ela **não** descreve
+> funcionalidade nova por prazer de descrever — cada seção aqui ou congela um
+> contrato que a implementação seguinte precisa obedecer, ou marca uma fronteira
+> que o escopo não deve cruzar.
+>
+> A §119 continua valendo **linha por linha**: estar no PRD não é autorização
+> para implementar. O que esta Parte acrescenta é o inverso — uma lista curta do
+> que **é** autorizado, para que o produto tenha um fim.
+
+---
+
+# 362. ALFAOS V1 — O ESCOPO DE LANÇAMENTO
+
+O AlfaOS tem hoje mais visão registrada do que qualquer equipe consegue
+implementar antes de um primeiro lançamento. Quinze Partes de PRD, catorze
+trilhas, e a maior parte delas classificada `DIFERENCIAL` ou `FUTURO`.
+
+Isso é um ativo enquanto houver uma fronteira. Sem ela, é a receita de um
+projeto que nunca sai.
+
+> **O propósito da V1 não é ser completa. É ser confiável num fluxo inteiro.**
+
+Um provedor consegue operar com o AlfaOS de ponta a ponta, ou não consegue. Se
+consegue, tudo o que falta é evolução; se não consegue, nenhuma quantidade de
+funcionalidade adicional compensa.
+
+---
+
+# 363. O FLUXO QUE A V1 PRECISA FAZER MUITO BEM
+
+```text
+Cliente → OS → Técnico → CTO → Mapa → Evidências → Estoque → Gestão
+```
+
+Cada seta é uma transição que hoje existe ou está a uma fatia de existir. A V1
+fecha o ciclo; ela não abre um segundo.
+
+**O que NÃO é critério de V1:** quantidade de módulos, paridade com concorrente,
+ou marcar como pronto tudo o que o PRD já descreve. O critério é o da §71 —
+confiabilidade, velocidade, simplicidade, segurança, experiência do técnico e
+integração correta com o ERP.
+
+---
+
+# 364. MAPA OPERACIONAL V1 — A SUPERFÍCIE E O MOTOR
+
+O Mapa Operacional passa a ser **superfície central** do AlfaOS, e não um anexo
+do módulo de CTO.
+
+```text
+Operational Map
+├── CTO layer                  V1 — implementada (CTO-3.1 · 3.2 · 3.2.1)
+├── Open Service Orders layer  V1 — CTO-3.2.2
+├── Customer layer             V1 — CTO-3.2.2
+├── Technician layer           FUTURO (§135, §136)
+└── Physical Network layer     FUTURO / FiberMap (§334)
+```
+
+**Ele não é um "Mapa de CTOs", e o nome é a decisão.** A §207 já fixou que
+quadro, mapa e agenda são três visões do **mesmo** trabalho sobre um motor só.
+Nomear a superfície pela primeira camada garantiria que a segunda nascesse como
+uma segunda tela — que é exatamente o que a §207 existe para evitar.
+
+**E não há abstração para camada que não existe.** O motor não tem registro de
+camadas, seletor de plugins nem interface `MapLayer`, e não deve ganhar um
+antes da segunda camada real. Escolher a forma de composição com um caso só
+produz uma forma que nenhum caso validou.
+
+---
+
+# 365. MODOS DE MAPA
+
+```text
+MAPA        base cartográfica
+SATÉLITE    imagem aérea
+HÍBRIDO     imagem aérea + rótulos por cima
+```
+
+**Um mapa, várias bases.** Trocar o modo troca a camada de tiles; nunca remonta
+o mapa. Remontar jogaria fora centro e zoom a cada clique no controle.
+
+A visualização escolhida é **preservada** — pela URL quando ela veio de uma
+navegação explícita, e pela preferência do aparelho quando não veio.
+
+Requisitos de tela: altura controlada e responsiva, zoom compatível com o
+provedor, e **o mapa não ocupa a página inteira na vertical** — ele convive com
+busca, contadores e legenda.
+
+> **Provedor público de tiles não é contrato de infraestrutura de produção.**
+> Vale para o OpenStreetMap e vale para qualquer imagem aérea gratuita usada em
+> desenvolvimento e QA. A troca é por configuração de ambiente, e a política de
+> segurança (`img-src`) é **derivada** dessa mesma configuração — nunca escrita
+> à mão, nunca curinga.
+
+---
+
+# 366. AS CAMADAS DA V1 E SEUS PADRÕES
+
+```text
+☑ CTOs             ON  por padrão
+☑ OS abertas       ON  por padrão
+☐ Clientes ativos  OFF por padrão
+```
+
+**Clientes nasce desligada, e o motivo é operacional.** Todos os assinantes
+ligados ao mesmo tempo transformam o mapa numa mancha, e a mancha esconde
+justamente o que o despachante abriu o mapa para ver. O administrador liga
+quando a pergunta dele for sobre clientes.
+
+O estado das camadas faz parte da vista preservada (§375).
+
+---
+
+# 367. MARCADOR DA CTO
+
+A CTO tem marcador **próprio**, com silhueta de caixa óptica FTTH — nunca um
+alfinete genérico. Num mapa que vai receber cliente, OS e futuramente técnico,
+quatro camadas de alfinete são quatro camadas indistinguíveis.
+
+Estados **derivados**, na precedência já congelada:
+
+```text
+INACTIVE  >  DAMAGED  >  FULL  >  AVAILABLE
+```
+
+**Nunca persistir `mapStatus`.** Seria um segundo lugar que precisa concordar
+com as portas, e o primeiro a divergir seria o que ninguém revisou — a mesma
+razão pela qual `OCCUPIED` nunca virou coluna (§333, `C-01`).
+
+O marcador carrega **silhueta + selo**, e o selo carrega **forma e glifo**:
+
+```text
+AVAILABLE  +      FULL  0      DAMAGED  !      INACTIVE  ×
+```
+
+A cor é a quarta pista. Um mapa impresso, ou visto por quem não distingue
+vermelho de verde, continua legível.
+
+---
+
+# 368. CLIENTES ATIVOS NO MAPA
+
+**Obrigatória para a V1.** O administrador e os perfis autorizados (§376) podem
+ver no Mapa Operacional os clientes **cadastralmente ativos** que tenham
+localização válida.
+
+Cliente sem coordenada válida **não vira marcador em `0,0`**. Ele alimenta um
+indicador próprio — *"X clientes ativos sem localização"* — pela mesma regra que
+a `CTO-3.1` já aplica às caixas: uma entidade sem coordenada não está em região
+nenhuma, e inventar um ponto é pior que admitir a ausência.
+
+---
+
+# 369. STATUS CADASTRAL ≠ STATUS DE CONECTIVIDADE
+
+São perguntas diferentes, e confundi-las produz decisão operacional errada.
+
+```text
+CADASTRAL       ATIVO · INATIVO          o contrato existe?
+CONECTIVIDADE   ONLINE · OFFLINE · SEM LEITURA   o link está de pé agora?
+```
+
+Um cliente **`ATIVO · OFFLINE`** é um caso absolutamente normal — é, aliás, o
+caso que mais interessa a quem despacha. A interface mostra as duas dimensões
+lado a lado.
+
+> **`OFFLINE` nunca é sinônimo de cliente inativo.** Um cliente inativo não tem
+> conectividade a discutir; um cliente ativo e offline tem um problema.
+
+---
+
+# 370. ONLINE / OFFLINE — A AUTORIDADE ÚNICA
+
+O AlfaOS **já responde** Online/Offline na tela da OS. O Mapa Operacional
+**não** cria uma segunda implementação.
+
+## A autoridade, tal como ela existe hoje
+
+```text
+tabela      CustomerDiagnosticSnapshot
+            unique (companyId, customerId, externalProvider)
+leitura     getCustomerDiagnostic(companyId, customerId)   src/lib/customer-diagnostics.ts
+escrita     refreshCustomerDiagnostic(...)                 sob demanda, gatilho na OS
+provider    lido da ERPIntegration da própria empresa, nunca da requisição
+```
+
+O DTO que chega à tela é deliberadamente estreito: `connectivityStatus`,
+`observedAt`, `sourceUpdatedAt`, `provider`, `technology`, `serverMaintenance`.
+Nenhum payload cru de provider chega tão longe.
+
+## Três estados, e apenas três
+
+```text
+ONLINE     o provider afirmou que está de pé
+OFFLINE    o provider afirmou que está caído
+UNKNOWN    ninguém afirmou nada — "sem leitura"
+```
+
+**Não existe `STALE` no AlfaOS, e esta Parte não o inventa.** O enunciado que
+originou este congelamento admitia `STALE` *"se a fonte atual possuir conceito
+confiável de freshness"* — ela **não possui**. O que existe é `observedAt`, a
+**idade** da leitura, que viaja junto do estado e é exibida ao lado dele
+(§337). Idade é um número honesto; um limiar de "velho demais" seria uma regra
+que ninguém definiu, aplicada a um provider cuja cadência ninguém mediu.
+
+## A regra que já é invariante do código
+
+> **Falha de integração é uma afirmação sobre a integração, nunca sobre o
+> cliente.**
+
+Nenhum caminho de erro escreve `OFFLINE`. `OFFLINE` só é persistido quando um
+provider positivamente o informou; qualquer falha devolve o snapshot anterior
+intacto. É isso que permite à tela dizer *"não consegui atualizar; última
+leitura conhecida: Online às 08:42"* em vez de colapsar num estado errado.
+
+**O mapa herda essa regra inteira.** Se a OS diz `ONLINE` para determinado
+snapshot, o mapa não pode dizer `OFFLINE`. Sem leitura é `SEM LEITURA`.
+
+## O que a implementação seguinte precisa EXTRAIR
+
+A leitura de hoje é **de um cliente por chamada** (`findFirst`). Uma camada de
+mapa com centenas de assinantes faria `N+1` — a rajada a cada arrasto que a
+§200 existe para impedir.
+
+**A extração autorizada é uma leitura em LOTE sobre a mesma tabela e o mesmo
+DTO.** Isso é ampliar a autoridade existente, não criar uma segunda. Está
+proibido: consultar o provider por marcador, manter cache próprio do mapa, ou
+derivar conectividade de qualquer outro sinal.
+
+## O mapa LÊ; ele não atualiza
+
+O refresh é sob demanda com gatilho na OS, e a capability usa o teto de **10
+chamadas por minuto por empresa** (§337). Um mapa que atualizasse por marcador
+queimaria o teto num único arrasto e deixaria a OS — que é o caso de uso real —
+sem cota. A camada de clientes apresenta o **último estado conhecido com a idade
+da leitura**, e nada mais.
+
+---
+
+# 371. OS ABERTAS NO MAPA, E O SELO NA CTO
+
+A camada **OS abertas** nasce ligada.
+
+Uma OS aberta aparece no mapa quando houver localização suficiente,
+preferencialmente **na posição do cliente** quando a OS for de cliente — a OS
+não tem geografia própria, ela herda a de quem é atendido.
+
+Cliente com OS aberta recebe **destaque visual**, e o destaque combina com o
+estado de conectividade em vez de substituí-lo:
+
+```text
+ONLINE + OS aberta        OFFLINE + OS aberta        SEM LEITURA + OS aberta
+```
+
+## O selo numérico da CTO
+
+Quando clientes vinculados a uma CTO têm OS abertas, o marcador da caixa pode
+exibir um selo numérico.
+
+```text
+[CTO]  🔧 4     →  4 OS abertas em clientes atualmente vinculados a esta caixa
+```
+
+**Isto é funcionalidade V1**, e é derivada — nunca uma coluna. Ela prepara o
+dado que a falha coletiva (§388) vai usar um dia, e **não** implementa falha
+coletiva: quatro OS abertas na mesma caixa é um número, não um diagnóstico.
+
+---
+
+# 372. CLIENTES DA CTO E RESUMO DE CONECTIVIDADE
+
+Ao selecionar uma CTO, o operador consegue ver os clientes **ativos** vinculados
+às portas dela:
+
+```text
+Porta 01   João Silva     Ativo · Online
+Porta 02   Maria Souza    Ativo · Offline
+Porta 03   Pedro Costa    Ativo · Offline · OS aberta #1847
+Porta 04   Ana Lima       Ativo · Sem leitura
+```
+
+**A lista vem do vínculo operacional real** (`CustomerNetworkConnection` com
+`disconnectedAt IS NULL`), e a conectividade vem da autoridade da §370.
+
+> **Nunca derivar o cliente da CTO por endereço ou proximidade.** Duas caixas a
+> trinta metros são indistinguíveis por GPS (§339), e um cliente atribuído à
+> caixa errada por cálculo geométrico produz um deslocamento perdido.
+
+## O resumo
+
+```text
+CTO-021
+8 portas · 7 ocupadas · 1 livre
+5 online · 2 offline · 0 sem leitura · 3 OS abertas
+```
+
+Todos derivados. **Nunca persistir `cto.onlineCount` ou `cto.offlineCount`** —
+seria uma segunda autoridade sobre a mesma pergunta, e a primeira a divergir
+seria a que ninguém revisou. Uma materialização futura é possível, e exige
+decisão de arquitetura explícita mais teste de consistência contra a função
+derivada — o mesmo que a `CTO-3.1` deixou escrito para `summarizePortCounts`.
+
+---
+
+# 373. POPUPS — CTO, CLIENTE E OS
+
+## CTO
+
+Nome · código · status · capacidade · livres · ocupadas · reservadas ·
+danificadas · clientes ativos vinculados (online / offline / sem leitura) ·
+OS abertas associadas.
+
+Ações: **Abrir CTO** e, se couber sem poluir, **Ver clientes**.
+
+**As contagens continuam sendo lista, nunca fatia de um todo.** `livres +
+reservadas + danificadas + ocupadas` pode passar da capacidade, porque uma porta
+danificada pode estar ocupada (`CTO-2.2`).
+
+## Cliente
+
+Nome · status cadastral · conectividade · idade da leitura, quando a autoridade
+a fornece · resumo de endereço · CTO · porta · OS aberta, quando existir.
+
+Ações: **Abrir cliente** · **Abrir OS** · **Abrir CTO**.
+
+## OS
+
+Número · cliente · tipo · status · tempo em aberto · técnico responsável quando
+atribuído · CTO e porta quando disponíveis · conectividade do cliente.
+
+Ações: **Abrir OS** · **Abrir cliente** · **Abrir CTO**.
+
+## O que nenhum popup faz
+
+`CONNECT`, `MOVE` e `DISCONNECT` **não** são duplicados no mapa na V1. Eles
+vivem no detalhe da CTO e no Field, com o portão de autorização e a arbitragem
+de concorrência que a `CTO-2` construiu. Um segundo caminho de escrita seria uma
+segunda chance de errar a mesma regra.
+
+Nenhum popup expõe dado pessoal além do necessário para agir (§379).
+
+---
+
+# 374. BUSCA OPERACIONAL DO MAPA
+
+A busca do mapa localiza:
+
+```text
+CTO por nome · CTO por código
+Cliente por nome · cliente pelos identificadores que o padrão atual permite
+Endereço
+Número da OS
+```
+
+**Busca não se mistura com o recorte.** O contrato do recorte tem `bbox`
+obrigatório e teto informado; a busca é global no tenant e tem teto próprio.
+Ensinar o endpoint do recorte a varrer a carteira quando um parâmetro aparece
+transformaria a única superfície com teto garantido numa com teto **condicional**
+— e a condição estaria num `if`.
+
+O fluxo é: achar → centralizar quando houver coordenada → destacar → oferecer a
+ação de abrir.
+
+**Resultado sem coordenada é encontrável e não recebe posição falsa.** Ele
+aparece marcado como sem localização, sem oferecer "ver no mapa", e continua
+oferecendo o que realmente tem.
+
+---
+
+# 375. NAVEGAÇÃO E ESTADO PRESERVADO
+
+A regra já validada na `CTO-3.2.1` passa a valer para **todas** as entidades do
+mapa:
+
+```text
+Mapa Operacional → Abrir CTO      → detalhe → ← Mapa Operacional
+Mapa Operacional → Abrir cliente  → detalhe → ← Mapa Operacional
+Mapa Operacional → Abrir OS       → detalhe → ← Mapa Operacional
+CTOs (listagem)  → detalhe        →          ← CTOs
+```
+
+A origem é **explícita** e viaja na URL. `router.back()` não serve: ele responde
+*"a página anterior do navegador"*, e essa não é a mesma pergunta que *"de onde
+este fluxo veio"* — `F5`, link colado, aba nova e um `back` depois de três
+navegações produzem históricos diferentes.
+
+A origem entra na **allowlist ancorada** que já existe, como caminho puro; a
+vista viaja em parâmetros próprios, validados um a um, e o destino é
+**remontado** a partir do que passou. Nada do que o cliente escreveu é ecoado
+numa `href`.
+
+Preservar, quando possível: **centro · zoom · modo · busca · entidade
+selecionada · camadas ativas**.
+
+---
+
+# 376. PERMISSÕES DA CAMADA DE CLIENTES
+
+```text
+ADMIN         vê clientes ativos no Mapa Operacional
+DISPATCHER    a decidir na fase de implementação, com levantamento de capabilities
+TECHNICIAN    NÃO — não ganha acesso só porque um mapa passou a existir
+```
+
+**Nenhuma autorização existe apenas no frontend.** Esconder um controle é
+conveniência; quem barra é o servidor, e digitar a URL termina no mesmo lugar.
+
+A ampliação de acesso a qualquer perfil exige levantamento das capabilities
+existentes **antes** de escrever código, e fica registrada como decisão — não
+como efeito colateral de uma tela nova.
+
+---
+
+# 377. LOCALIZAÇÃO — CLIENTE E CTO
+
+## Cliente
+
+Reutilizar `CustomerLocation` e as regras que ela já carrega: `accuracyMeters`,
+`source`, `verified`, `verifiedBy` (usuário **e** técnico), `verifiedAt`,
+`reference`, `version` próprio e trilha imutável de correção.
+
+> **Receber GPS não marca `verified`.** Confirmar é um ato de quem esteve lá, e
+> colapsá-lo com "chegou uma coordenada" destruiria a única distinção que torna
+> o campo útil.
+
+Se ajudar visualmente, a V1 pode distinguir **localização confirmada** de **não
+confirmada** — sem poluir o mapa principal.
+
+## CTO
+
+A fonte da verdade continua sendo `CTO.latitude` / `CTO.longitude`. **Não criar
+`CTOLocation`**: a `CustomerLocation` virou tabela separada porque
+`Customer.latitude/longitude` já existia e não podia ser removida; a CTO não tem
+esse legado, e criar tabela ao lado reproduziria a duplicação em vez de evitá-la.
+
+Confirmação e correção avançada da coordenada da CTO continuam na fase própria
+já planejada (`CTO-3.4`).
+
+---
+
+# 378. DESEMPENHO DA CAMADA DE CLIENTES
+
+A camada nasce pensando em **centenas a milhares** de assinantes.
+
+```text
+recorte obrigatório   nenhuma resposta carrega a carteira inteira (§200)
+teto por resposta     informado, nunca silencioso
+filtro de tenant      em SQL, no mesmo predicado do recorte
+consulta agregada     nada de uma consulta por marcador
+```
+
+**Agrupamento não entra automaticamente.** Ele só se justifica depois de
+medição real; adicioná-lo por precaução é complexidade sem caso.
+
+---
+
+# 379. PRIVACIDADE E TENANCY DO MAPA DE CLIENTES
+
+Mapa de cliente é a superfície mais sensível do produto: ela existe para mostrar
+muitos registros de uma vez, e cada campo a mais é multiplicado por centenas.
+
+```text
+isolamento de tenant obrigatório, em SQL, com companyId da sessão
+coordenada de outro tenant É vazamento — mesmo isolada, mesmo sem nome
+DTO mínimo: só o que a tela precisa para localizar e agir
+dado pessoal apenas quando necessário para a ação
+nenhuma enumeração global
+busca sempre tenant-scoped
+```
+
+`ADMIN`, `DISPATCHER` e `TECHNICIAN` seguem os contratos de autorização reais do
+projeto — capability antes de perfil, ambas obrigatórias, inclusive em leitura.
+
+---
+
+# 380. DASHBOARD OPERACIONAL V1
+
+A Home evolui para responder, de relance:
+
+```text
+OS abertas · OS atrasadas · OS de hoje
+Técnicos em atendimento, quando a informação já existir
+Clientes offline, quando a autoridade da §370 conseguir responder
+CTOs com defeito · CTOs com OS abertas
+```
+
+> **Todo indicador é acionável.** Clicar em "OS atrasadas" abre a listagem
+> filtrada. Número que não leva a lugar nenhum é decoração, e decoração num
+> painel operacional treina a pessoa a ignorar o painel.
+
+**Estado real medido:** o dashboard atual já mostra cartões de contagem e **não
+tem nenhum link**. A lacuna da V1 é a navegabilidade, não a existência.
+
+---
+
+# 381. TIMELINE DO CLIENTE V1
+
+Cada cliente passa a ter histórico consolidado dos eventos que importam:
+
+```text
+instalação · OS · visitas · fotos · assinaturas · speedtests
+medição óptica · CTO e porta · mudanças de CTO e porta
+equipamentos · observações · eventos operacionais relevantes
+```
+
+**A timeline é visão DERIVADA dos registros reais.** Ela não é uma tabela nova
+que alguém alimenta em paralelo, e **nunca sobrescreve histórico** — a mesma
+regra que faz `CustomerNetworkConnection` fechar e abrir vínculo em vez de dar
+`UPDATE` na porta (§333).
+
+**Estado real medido:** existe timeline **por OS** (`ServiceOrderEvent`); não
+existe leitura consolidada **por cliente**. A matéria-prima está toda gravada;
+falta a visão.
+
+---
+
+# 382. CHECKLIST POR TIPO DE OS — JÁ IMPLEMENTADO
+
+Cada tipo de OS pode ter checklist configurável, com itens marcáveis como
+obrigatórios antes da conclusão.
+
+> **Isto NÃO é escopo novo.** `ChecklistTemplate` existe desde a v0.10, é único
+> por `(companyId, serviceOrderTypeId)`, tem superfície administrativa própria
+> (`/api/checklist-templates`) e é aplicado como **snapshot** na execução — o
+> template pode mudar depois sem reescrever o que o técnico respondeu.
+
+O que a V1 deve fazer é **verificar cobertura** dos tipos que o provedor usa de
+fato (instalação, reparo, retirada, troca de equipamento), não reimplementar o
+mecanismo.
+
+---
+
+# 383. PACOTE TÉCNICO DE EVIDÊNCIAS
+
+Ao concluir uma OS, o AlfaOS deve conseguir reunir num lugar só:
+
+```text
+horário · localização · fotos · assinatura · medição óptica
+speedtest · equipamentos · observações · checklist
+```
+
+**Estado real medido: todas as peças existem.** `ServiceOrderExecution`,
+`ServiceOrderEvidence` com treze categorias — incluindo `OPTICAL_READING`,
+`SPEED_TEST`, `WIFI_TEST` e `EQUIPMENT_LABEL` —, `ServiceOrderSignature`,
+`ServiceOrderEquipment`, check-in com coordenada e o snapshot do checklist.
+
+O que **não** existe é a reunião: uma visão que apresente o conjunto como um
+pacote conferível.
+
+**PDF não é obrigatório na V1.** A plataforma de contratos e assinatura (Parte X)
+já tem sequência própria para geração de documento, e antecipá-la aqui
+duplicaria o mecanismo.
+
+---
+
+# 384. BUSCA GLOBAL DO ALFAOS
+
+Registrada como V1: uma busca operacional única capaz de encontrar rapidamente
+**cliente · telefone · endereço · OS · CTO · técnico** e equipamento quando
+aplicável.
+
+**Estado real medido:** não existe. O que existe é a busca de cliente **no ERP**
+(`/api/integrations/customers/search`) e a busca do mapa (`CTO-3.2`) — as duas
+com escopo próprio e nenhuma delas global.
+
+> **Avaliar reuso antes de construir.** Não introduzir motor externo de busca na
+> V1 sem necessidade medida: Postgres responde bem a esse volume, e um serviço
+> de busca a mais é um serviço a mais para operar, sincronizar e ver divergir.
+
+---
+
+# 385. STATUS DA OS — A TAXONOMIA REAL, E OS GAPS
+
+A máquina de estados oficial do AlfaOS tem **cinco** valores:
+
+```text
+PENDING · ASSIGNED · IN_PROGRESS · COMPLETED · CANCELLED
+```
+
+Esta Parte **não** inventa um enum documental que contradiga o código. O que ela
+faz é registrar a distância entre a taxonomia real e a linguagem operacional que
+um provedor costuma usar:
+
+| linguagem operacional | no AlfaOS hoje |
+|---|---|
+| Aberta | `PENDING` |
+| Agendada | **não é estado** — é o campo `scheduledAt` numa OS `PENDING`/`ASSIGNED` |
+| Em deslocamento | **não existe** |
+| Em atendimento | `IN_PROGRESS` |
+| Pausada | **não existe** |
+| Concluída | `COMPLETED` |
+| Cancelada | `CANCELLED` — **declarado e inalcançável**: nenhum caminho de produção o escreve |
+
+Três gaps, e nenhum deles é bloqueador da V1: *em deslocamento* e *pausada* são
+estados novos com efeito em fila, jornada e SLA, e exigem decisão de produto
+própria; *cancelada* é uma operação ausente, já registrada.
+
+> Acrescentar estado à máquina de estados é a mudança mais cara do sistema —
+> ela toca fila, elegibilidade, posse, timeline e todos os testes de transição.
+> Nenhum deles entra por conveniência de vocabulário.
+
+---
+
+# 386. V1 — MUST HAVE
+
+O que precisa estar de pé para o primeiro lançamento.
+
+| item | estado |
+|---|---|
+| Operação de campo — OS, execução, fechamento | **implementado** (v0.10) |
+| Fila operacional de OS | **implementado** (v0.12) |
+| Jornada / Ponto | **implementado** (v0.11) |
+| Notificações push do Field | **implementado** (v0.13) |
+| CTO, portas e vínculo do cliente | **implementado** (v0.14 · `CTO-2`) |
+| Mapa Operacional — motor e camada de CTO | **implementado** (`CTO-3.1` · `3.2` · `3.2.1`) |
+| Modos Mapa / Satélite / Híbrido | **implementado** (`CTO-3.2.1`) |
+| Marcador de CTO com estado derivado | **implementado** (`CTO-3.2.1`) |
+| Navegação com origem e vista preservada | **implementado** (`CTO-3.2.1`) |
+| Camada de OS abertas | **falta** — `CTO-3.2.2` |
+| Camada de clientes ativos | **falta** — `CTO-3.2.2` |
+| Online/Offline reutilizado da OS, em lote | **falta** — extração, `CTO-3.2.2` |
+| Busca operacional do mapa (CTO · cliente · OS · endereço) | **parcial** — CTO pronto |
+| Checklist por tipo de OS | **implementado** (v0.10) — verificar cobertura |
+| Equipamentos e estoque | **implementado** no estado atual |
+| Dashboard operacional acionável | **parcial** — cartões existem, sem navegação |
+| Timeline do cliente | **falta** |
+| Pacote técnico de evidências | **falta a reunião** — as peças existem |
+| Busca global do AlfaOS | **falta** |
+
+---
+
+# 387. V1 — SHOULD HAVE
+
+Úteis, e **não** bloqueadores do primeiro lançamento:
+
+```text
+WhatsApp operacional        técnico a caminho · confirmação · reagendamento · concluído
+Alertas de inconsistência   conclusão sem evidência obrigatória, sem checklist,
+                            sem medição exigida, sem equipamento, sem CTO/porta
+PDF automático do pacote    a Parte X já tem sequência própria
+Refinos analíticos          filtros avançados e recortes do dashboard
+Distinção visual de
+localização confirmada      §377
+```
+
+---
+
+# 388. V2 — O QUE FICA FORA DO LANÇAMENTO
+
+```text
+Falha coletiva          vários clientes offline + mesma CTO/região + várias OS
+Central de incidentes   modo NOC, visão consolidada
+Manutenção preventiva   CTO, rack, bateria, fonte, aterramento → OS preventivas
+Técnicos ao vivo        camada de técnico no mapa (depende de TechnicianLocation, §135)
+Métricas de técnico     OS concluídas, tempo médio, reincidência, retornos
+```
+
+**A falha coletiva não nasce como efeito colateral do mapa.** O selo de OS por
+CTO (§371) prepara o dado; concluir *"isto é um incidente coletivo"* é inferência,
+e inferência errada manda equipe para o lugar errado. Ela tem fase própria.
+
+**Métricas de técnico não viram ranking punitivo** sem decisão de produto
+explícita. O AlfaOS documenta sem julgar (§219).
+
+---
+
+# 389. V3 — FIBERMAP E REDE FÍSICA
+
+A integração com o FiberMap continua **aprovada como visão futura**, e **não**
+entra na primeira versão do Mapa Operacional.
+
+A fronteira já está fixada pela §334 e não muda:
+
+```text
+FiberMap   verdade FÍSICA — cabo, fibra, poste, splitter, PON, OLT, topologia
+AlfaOS     verdade OPERACIONAL — qual cliente, em qual porta, desde quando
+```
+
+Uma camada futura *"Mostrar rede física"* é possível. Duas regras a
+acompanham: **não duplicar o FiberMap dentro do AlfaOS**, e não deixar a
+experiência do técnico confusa — ele precisa saber a caixa e a porta, não a
+topologia inteira.
+
+Divergência entre os dois continua sendo fato a **exibir**, nunca merge
+automático.
+
+---
+
+# 390. DECISÕES SUPERADAS E ATUALIZADAS
+
+Nada é apagado. O que muda fica marcado.
+
+## §136 — `DECISION UPDATED`
+
+A §136 classifica o Mapa Operacional como `[DIFERENCIAL]`. A classificação
+descrevia o mapa **inteiro**, com técnicos, clientes e OS.
+
+**Atualização:** o subconjunto **CTO + clientes ativos + OS abertas** passa a ser
+`V1 MUST HAVE` (§386). A camada de **técnico** continua `[DIFERENCIAL]` e
+`FUTURO`, e continua dependendo de `TechnicianLocation` (§135), que não existe em
+código. A §136 permanece válida como visão; o que esta Parte fixa é qual pedaço
+dela é autorizado agora.
+
+## §339 — `DECISION UPDATED`
+
+A §339 diz que *"a CTO é entidade do Mapa Operacional (§136), que não existe;
+CTO-3 depende dele"*.
+
+**Atualização, decidida pelo dono na `CTO-3.0`:** motor de mapa **compartilhado**,
+com a camada de CTO **primeiro**. A dependência não foi invertida — ela foi
+satisfeita construindo o motor agnóstico de camada, que é o que a §207 pede. O
+resto da §339 continua inteiro, inclusive a regra de que, no Field, a proximidade
+**ordena a lista e não escolhe**.
+
+## §201 — reafirmada e qualificada
+
+*"Reutilizar a busca que já existe, não criar um mecanismo paralelo."* Continua
+valendo. A qualificação: a busca do mapa (§374) é um contrato **separado do
+recorte** por decisão explícita, e isso não autoriza uma terceira busca — a busca
+global (§384) precisa avaliar reuso antes de existir.
+
+## §26 do enunciado de congelamento — corrigida por medição
+
+O checklist por tipo de OS foi apresentado como escopo novo da V1. **Ele já
+existe desde a v0.10** (§382). O escopo real é verificar cobertura.
+
+## §8 do enunciado — `STALE` não entra
+
+Registrado em §370: a fonte atual não tem conceito de freshness, e o AlfaOS não
+inventa um limiar para um provider cuja cadência ninguém mediu. O que viaja é a
+**idade** da leitura.
+
+## §202 — sem alteração
+
+Já superada pela §334 na Parte XIII. Nada nesta Parte a toca.
+
+---
+
+# 391. ROADMAP — A ORDEM ATÉ O LANÇAMENTO
+
+```text
+CTO-3.2.1        entregue · READY FOR OWNER VALIDATION
+   ↓
+validação do dono do Mapa V1 (bases, marcador, navegação)
+   ↓
+PRD V1 Launch Scope Freeze                          ← esta Parte
+   ↓
+CTO-3.2.2        camada de clientes + OS abertas + Online/Offline em lote
+   ↓
+validação do dono do Mapa Operacional V1
+   ↓
+demais fatias V1  dashboard acionável · timeline do cliente
+                  pacote de evidências · busca global
+   ↓
+LANÇAMENTO V1
+   ↓
+V2 (§388)  →  V3 (§389)
+```
+
+A sequência das fatias V1 depois da `CTO-3.2.2` **não está congelada entre si** —
+elas são independentes, e a ordem é decisão do dono no momento de cada uma.
+
+> **A §119 continua valendo.** Esta Parte autoriza o que está em §386; ela não
+> autoriza nada do que está em §388 ou §389, por mais detalhado que esteja
+> descrito neste documento.
+
+---
