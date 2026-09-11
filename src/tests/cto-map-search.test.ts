@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { GET as searchRoute } from "@/app/api/ctos/map/search/route";
+import { GET as searchRoute } from "@/app/api/map/search/route";
 import { createCto } from "@/lib/cto";
 import {
   CTO_MAP_SEARCH_MAX_RESULTS,
@@ -83,8 +83,8 @@ async function novaCto(
 function buscar(token: string, q?: string) {
   const url =
     q === undefined
-      ? "/api/ctos/map/search"
-      : `/api/ctos/map/search?q=${encodeURIComponent(q)}`;
+      ? "/api/map/search"
+      : `/api/map/search?q=${encodeURIComponent(q)}`;
   return searchRoute(apiRequest(url, {}, token));
 }
 
@@ -200,7 +200,7 @@ describe("SEARCH-03 — tenancy", () => {
 
     const resposta = await searchRoute(
       apiRequest(
-        `/api/ctos/map/search?q=Alvo&companyId=${fixture.companyB.id}&tenantId=${fixture.companyB.id}`,
+        `/api/map/search?q=Alvo&companyId=${fixture.companyB.id}&tenantId=${fixture.companyB.id}`,
         {},
         adminA,
       ),
@@ -341,7 +341,7 @@ describe("SEARCH-05 — teto de resultados", () => {
     // Nem `limit`, nem `take`, nem `perPage`: a rota não lê nenhum deles.
     const resposta = await searchRoute(
       apiRequest(
-        "/api/ctos/map/search?q=Poste&limit=500&take=500&perPage=500",
+        "/api/map/search?q=Poste&limit=500&take=500&perPage=500",
         {},
         adminA,
       ),
@@ -495,7 +495,7 @@ describe("SEARCH-07 — o DTO é mínimo", () => {
 describe("SEARCH — portão de acesso", () => {
   it("sem sessão é 401", async () => {
     const resposta = await searchRoute(
-      apiRequest("/api/ctos/map/search?q=Alvo"),
+      apiRequest("/api/map/search?q=Alvo"),
     );
     expect(resposta.status).toBe(401);
   });
@@ -547,7 +547,7 @@ describe("SEARCH — portão de acesso", () => {
   });
 
   it("a rota exporta somente GET — a busca não escreve", async () => {
-    const modulo = await import("@/app/api/ctos/map/search/route");
+    const modulo = await import("@/app/api/map/search/route");
     const verbos = Object.keys(modulo).filter((k) =>
       ["GET", "POST", "PUT", "PATCH", "DELETE"].includes(k),
     );

@@ -29,6 +29,52 @@ export const SERVICE_ORDER_STATUS_LABELS: Record<ServiceOrderStatus, string> = {
   CANCELLED: "Cancelada",
 };
 
+/**
+ * Os estados TERMINAIS da OS. Tudo o que não está aqui está em aberto.
+ *
+ * ## Por que a lista é a dos fechados, e não a dos abertos
+ *
+ * Escrita ao contrário — `["PENDING", "ASSIGNED", "IN_PROGRESS"]` — ela
+ * envelheceria mal: um estado novo na taxonomia nasceria **fora** da lista e
+ * seria tratado como fechado em silêncio, sumindo do mapa sem que nada
+ * falhasse. Listando os terminais, um estado novo nasce **aberto**, que é a
+ * direção segura: aparecer a mais é visível, sumir não é.
+ *
+ * ## Ela é a extração de um predicado que já existia espalhado
+ *
+ * `service-orders.ts` comparava `status === "COMPLETED" || status ===
+ * "CANCELLED"` diretamente, e a `CTO-3.2.2` precisaria da mesma pergunta em mais
+ * três lugares — mapa, resumo da CTO e busca. Quatro cópias da mesma regra é
+ * como uma delas passa a discordar das outras.
+ *
+ * **A taxonomia não muda aqui.** `CANCELLED` continua declarado e inalcançável
+ * em produção (PRD §385), e esta fase não o promove a nada.
+ */
+export const SERVICE_ORDER_TERMINAL_STATUSES = [
+  "COMPLETED",
+  "CANCELLED",
+] as const satisfies readonly ServiceOrderStatus[];
+
+/**
+ * Os estados em ABERTO, derivados dos terminais — e nunca digitados à mão.
+ *
+ * Derivar é o que garante que as duas listas não possam divergir. Escrever as
+ * duas separadamente seria manter duas verdades sobre a mesma taxonomia.
+ */
+export const OPEN_SERVICE_ORDER_STATUSES: ServiceOrderStatus[] = (
+  ["PENDING", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const
+).filter(
+  (status) =>
+    !(SERVICE_ORDER_TERMINAL_STATUSES as readonly string[]).includes(status),
+);
+
+/** A OS está em aberto? Uma pergunta, uma resposta, um lugar. */
+export function isOpenServiceOrder(status: ServiceOrderStatus): boolean {
+  return !(SERVICE_ORDER_TERMINAL_STATUSES as readonly string[]).includes(
+    status,
+  );
+}
+
 export const SERVICE_ORDER_PRIORITY_LABELS: Record<
   ServiceOrderPriority,
   string

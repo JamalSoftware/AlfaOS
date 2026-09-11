@@ -8,6 +8,10 @@ import {
 import { summarizePortCounts } from "./cto-read-model";
 import { badRequest } from "./errors";
 import { prisma } from "./prisma";
+import {
+  getCtoOperationalSummaries,
+  type CtoOperationalSummary,
+} from "./operational-map";
 
 /**
  * # A leitura geográfica da CTO — a primeira camada do Mapa Operacional
@@ -79,6 +83,14 @@ export interface CtoMapMarker {
   active: boolean;
   status: CtoMapStatus;
   summary: PublicCtoDetail["summary"];
+  /**
+   * Conectividade dos clientes e OS abertas desta caixa — CTO-3.2.2.
+   *
+   * DERIVADO na leitura, nunca persistido: não existe `cto.onlineCount` no
+   * schema e não deve existir. Seria um segundo lugar que precisa concordar com
+   * o vínculo e com o snapshot, e o que diverge é sempre o que ninguém revisou.
+   */
+  operational: CtoOperationalSummary;
 }
 
 export interface CtoMapView {
@@ -326,6 +338,16 @@ export async function getCtoMapView(
     }),
   ]);
 
+  /*
+    O resumo operacional vem em TRÊS consultas, para o conjunto inteiro.
+
+    Ele é da `CTO-3.2.2` e responde outra pergunta que o resumo de portas: este
+    fala de infraestrutura (capacidade, livres, danificadas), aquele fala de
+    gente (clientes ativos, online, offline, OS abertas). São eixos
+    independentes, e é por isso que convivem no mesmo marcador sem se misturar.
+  */
+  const operacional = await getCtoOperationalSummaries(companyId, ids);
+
   const ocupadosPorId = new Set(ocupadas.map((o) => o.ctoPortId));
   const porCto = new Map<string, PortRow[]>();
   for (const porta of portas) {
@@ -358,6 +380,13 @@ export async function getCtoMapView(
         active: cto.active,
         status: deriveCtoMapStatus(cto.active, summary),
         summary,
+        operational: operacional.get(cto.id) ?? {
+          activeCustomerCount: 0,
+          onlineCount: 0,
+          offlineCount: 0,
+          unknownCount: 0,
+          openServiceOrderCount: 0,
+        },
       };
     }),
     truncated,

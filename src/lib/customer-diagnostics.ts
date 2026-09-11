@@ -79,6 +79,80 @@ export async function getCustomerDiagnostic(
   };
 }
 
+/**
+ * O mesmo diagnóstico, para MUITOS clientes — `CTO-3.2.2`.
+ *
+ * ## Isto AMPLIA a autoridade; não cria uma segunda
+ *
+ * O Mapa Operacional precisa de conectividade para todos os clientes de um
+ * recorte, e `getCustomerDiagnostic` responde por um. Repetir a chamada num laço
+ * produziria `N+1` — e com duzentos marcadores visíveis isso é duzentas
+ * consultas para desenhar uma tela.
+ *
+ * A extração autorizada é esta: **a mesma tabela, o mesmo DTO, a mesma
+ * ordenação, e nenhuma regra nova.** Tudo o que muda é o número de linhas que
+ * voltam numa consulta só. Se um dia a semântica individual mudar, esta muda
+ * junto, porque não há segunda decisão escrita em lugar nenhum — e há teste
+ * comparando as duas saídas cliente a cliente.
+ *
+ * ## Nada aqui fala com provider
+ *
+ * Como a leitura individual, esta é uma consulta local. **Abrir, arrastar ou dar
+ * zoom no mapa não dispara atualização externa**, não consome a cota de refresh
+ * da OS (PRD §337) e não depende de o ERP estar no ar. O que o mapa mostra é o
+ * último estado observado — e quando não há nenhum, `UNKNOWN`, que a tela lê
+ * como *"sem leitura"*.
+ *
+ * ## Ausência é `UNKNOWN`, e nunca `OFFLINE`
+ *
+ * Um cliente sem snapshot simplesmente não aparece no mapa devolvido. Quem
+ * compõe o DTO trata a ausência como `UNKNOWN` — e é obrigação de quem chama
+ * não confundir "não sabemos" com "está fora do ar". Esse é o invariante central
+ * do módulo, e ele não é enfraquecido por existir uma leitura em lote.
+ */
+export async function getConnectivityForCustomers(
+  companyId: string,
+  customerIds: string[],
+): Promise<Map<string, CustomerDiagnostic>> {
+  const resultado = new Map<string, CustomerDiagnostic>();
+  if (customerIds.length === 0) return resultado;
+
+  /*
+    Tenant em SQL, como na leitura individual.
+
+    O `customerId IN (…)` sozinho alcançaria a linha por id; é o `companyId` ao
+    lado dele que impede um id de outra empresa, chegado por qualquer caminho,
+    de devolver conectividade alheia.
+  */
+  const linhas = await prisma.customerDiagnosticSnapshot.findMany({
+    where: { companyId, customerId: { in: customerIds } },
+    orderBy: { observedAt: "desc" },
+  });
+
+  /*
+    A MESMA regra de desempate da leitura individual.
+
+    `@@unique([companyId, customerId, externalProvider])` permite mais de uma
+    linha por cliente — uma por provider —, e uma empresa que trocou de ERP tem
+    as duas. `getCustomerDiagnostic` resolve isso com `findFirst` ordenado por
+    `observedAt desc`; aqui a ordenação é a mesma e o primeiro a chegar vence,
+    porque `Map.set` só grava quem ainda não está.
+  */
+  for (const linha of linhas) {
+    if (resultado.has(linha.customerId)) continue;
+    resultado.set(linha.customerId, {
+      connectivityStatus: linha.connectivityStatus,
+      observedAt: linha.observedAt,
+      sourceUpdatedAt: linha.sourceUpdatedAt,
+      provider: linha.externalProvider,
+      technology: linha.technology,
+      serverMaintenance: linha.serverMaintenance,
+    });
+  }
+
+  return resultado;
+}
+
 // ---------------------------------------------------------------------------
 // Refresh
 // ---------------------------------------------------------------------------
@@ -321,11 +395,15 @@ export async function refreshCustomerDiagnostic(
   };
 }
 
-export const CONNECTIVITY_LABELS: Record<ConnectivityStatus, string> = {
-  ONLINE: "Online",
-  OFFLINE: "Offline",
-  UNKNOWN: "Desconhecido",
-};
+/*
+  Os rótulos moram em `./connectivity-presentation`, e são reexportados aqui.
+
+  Eles existiam em duplicata — nesta tabela e dentro de `CustomerDiagnosticPanel`
+  —, e o mapa ia abrir a terceira cópia. O módulo novo importa só TIPO do Prisma,
+  então serve servidor e navegador; este caminho continua valendo para quem já o
+  usava.
+*/
+export { CONNECTIVITY_LABELS } from "./connectivity-presentation";
 
 export const PROVIDER_LABELS: Record<ERPProvider, string> = {
   MOCK: "Mock ERP",
