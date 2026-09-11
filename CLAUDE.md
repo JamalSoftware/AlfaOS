@@ -954,6 +954,30 @@ Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §38.
 
 Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §39.
 
+**`CTO-3.2.1d` ENTREGUE — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** A validação em uso real da `CTO-3.2.1c` passou em tudo e produziu uma necessidade: o dono viu uma coordenada errada e não tinha como corrigi-la de onde estava olhando. Agora o `ADMIN` seleciona a caixa, entra em modo de edição explícito, arrasta, confere e salva — ou cancela. **Zero migration, zero schema, zero Dart, zero dependência.**
+
+**Decisão de produto sincronizada ANTES do código — PRD §377 `DECISION UPDATED`, registrada também na §390.** Correção manual pelo ADMIN é V1; confirmação em campo, GPS do Field, `accuracyMeters`, `source`, `confirmedAt`/`confirmedBy` e o workflow de verificação continuam pós-V1. A regra que separa as duas é a mesma da `CustomerLocation`: **receber uma coordenada não é confirmá-la** — quem corrige pelo mapa não esteve no poste. `CTOLocation` continua proibida.
+
+**NENHUMA ROTA NOVA, e esse é o achado da fase.** `PATCH /api/ctos/[id]` **já era** a operação estreita: `requireCtoAccess` exige `ADMIN` com capability antes do perfil, `assertSameOrigin` cobre CSRF, o `zod` é `.strict()` (campo extra é 400), o tenant está no `updateMany`, e `updateCto` monta `data` campo a campo — mandando só o par, só o par é escrito, e nome/capacidade/estado nem são lidos. Uma rota `/location` seria a segunda autoridade sobre a mesma regra de coordenada, que é o defeito que a `CTO-1.6` já pagou.
+
+**"Arrastou" e "salvou" são coisas diferentes.** O marcador é arrastável **só** na caixa cuja edição foi declarada: num mapa a mão está sempre arrastando algo, e gravar no `dragend` transformaria uma coordenada certa em errada sem nada na tela para desfazer. **Cancelar é confiável depois de quantos arrastos forem** porque o par gravado nunca é tocado — não há o que desfazer, há uma origem intacta.
+
+**Duas medições mudaram a implementação.** O painel, renderizado no fluxo acima do mapa, **descia o mapa 206px** ao abrir — o mapa saltava debaixo da mão no instante da precisão; somado aos **138px** do `autoPan` do popup, a caixa mudava de lugar duas vezes antes do primeiro arrasto. Ele passou a ser ancorado **dentro** do mapa. E `dragend`, nunca `drag`: a posição é prop, e atualizá-la por quadro reabriria o laço `popup → autoPan → moveend → render` da `CTO-3.2.1`. A plaqueta não precisa disso — o Leaflet move o tooltip junto com o marcador nativamente.
+
+**Erro ao salvar mantém o modo de edição aberto**, com a mensagem ao lado: ninguém confunde isso com posição salva, e devolver o marcador ao ponto antigo apagaria o trabalho de quem acabou de posicionar por causa de uma falha que pode ser de rede. O sucesso **não** é afirmado por estado local: a camada relê o recorte.
+
+**Auditoria passou a registrar o "de → para" da coordenada.** A regra do módulo — nomes de campo, nunca conteúdo — continua valendo para texto livre; a coordenada é exceção porque são dois números, não é dado pessoal (é a caixa no poste) e, agora que ela pode ser arrastada, *"as coordenadas mudaram"* não responde **de onde para onde**. Mesmo `logAuditWithin`, nenhuma tabela nova.
+
+**Concorrência: `last-write-wins`, declarado.** `updateCto` não tem CAS e esta fase não introduziu nenhum. A operação são dois números, o efeito de perder a corrida é visível no mapa e corrigível com outro arrasto, e a trilha com o "de → para" torna a sequência reconstruível.
+
+**FOLLOW-UP pequeno, reportado e não silenciado: definir a posição INICIAL de uma CTO sem coordenada.** O backend já aceita (`updateCto` passa de `null` para um par, coberto por teste) e a tela de detalhe continua aceitando coordenada digitada. O que falta é a porta no mapa, e o custo é de contrato: caixa sem coordenada não é marcador, e o DTO da busca tem **cinco campos** por decisão da `CTO-3.2` — sem `status` nem `summary`. Um marcador sintético teria de inventá-los, buscar o detalhe por caminho novo, ou alargar o DTO.
+
+**Doze sabotagens, doze detectadas — e três cobraram testes meus antes de cair.** `S1` (marcador sempre arrastável) sobreviveu a uma asserção que só olhava o banco, quando o que muda é o **centro do mapa**; `S10` (edição repinta o corpo) sobreviveu porque a asserção estrutural via um bloco só e a de navegador comparava dois valores já sabotados; e `S2` (grava no `dragend`) caiu sozinha e **passou no conjunto** — 700ms é uma corrida que máquina carregada vence. Quem a prova sem relógio é o teste que **recarrega a página**. **`S5` e `S5b` passam isoladas de propósito:** `updateCto` tem dois guardas de tenant independentes, cada um redundante sozinho; removendo os **dois** (`S5c`), `POS-04` cai — defesa em profundidade medida, não suposta.
+
+**Armadilha de harness registrada:** rodar a suíte de navegador por mutação **sem limpar `.next`** faz o servidor de desenvolvimento servir chunk velho, e o laço reporta falso-positivo de detecção. Limpar `.next` entre sabotagens é obrigatório.
+
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §40.
+
 **Próxima fatia: `CTO-3.2.2` — clientes e OS abertas no mapa.** Não iniciada.
 
 ## Princípios

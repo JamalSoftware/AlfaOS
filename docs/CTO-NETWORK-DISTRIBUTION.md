@@ -4632,3 +4632,196 @@ de OS aberta ou de Online/Offline foi iniciada.
 > **`CTO-3.2.1c` — `READY FOR OWNER VALIDATION`.** `CTO-2` continua `DONE`,
 > `CTO-3.0` `DISCOVERY DONE`, `CTO-3.1` `APPROVED`, o PRD V1 `FROZEN`. A
 > `CTO-3.2.2` não começou.
+
+---
+
+## 40. `CTO-3.2.1d` — o ADMIN corrige a posição da CTO pelo mapa
+
+A validação em uso real da `CTO-3.2.1c` passou em tudo — bases, zoom, plaqueta,
+marcador, contorno de estado, popup, navegação. E produziu uma necessidade nova:
+**o dono viu uma coordenada errada e não tinha como corrigi-la de onde estava
+olhando.**
+
+Decisão de produto sincronizada antes de qualquer linha de produção — PRD §377,
+`DECISION UPDATED`, registrada também na §390. **Zero migration, zero alteração
+de schema, zero Dart, zero dependência.**
+
+### 1. O achado que define a fase: a rota já existia
+
+A regra do enunciado era não criar uma segunda implementação de escrita de
+coordenada. Ao inventariar o caminho que a tela de detalhe usa, a conclusão foi
+mais forte que "dá para reaproveitar":
+
+```text
+PATCH /api/ctos/[id]
+  assertSameOrigin ................ CSRF
+  requireCtoAccess ................ capability ANTES do perfil, e perfil = ADMIN
+  zod .strict() ................... campo extra é 400
+  updateCto
+    findFirst({ id, companyId }) .. tenant na leitura
+    assertCoordinates ............. finitude, faixa, par completo
+    compara com o gravado ......... só o que mudou entra em `data`
+    updateMany({ id, companyId }) . tenant na escrita
+    logAuditWithin ................ CTO.UPDATED
+```
+
+**Mandar só `{ latitude, longitude }` JÁ É a operação estreita.** `updateCto`
+monta `data` campo a campo a partir do que chegou, então nome, capacidade,
+estado e observações não são sequer lidos — não existe como sobrescrevê-los por
+acidente.
+
+Uma rota `/location` própria teria criado uma segunda autoridade sobre a mesma
+regra de coordenada. A `CTO-1.6` já pagou por isso: rota e domínio conheciam a
+faixa `-90..90` ao mesmo tempo, e quem falava era a que tinha menos a dizer.
+
+### 2. "Arrastou" e "salvou" são coisas diferentes
+
+```text
+visualização → Ajustar posição → modo de edição → arrastar → Salvar / Cancelar
+```
+
+Num mapa a mão está sempre arrastando alguma coisa. Se soltar o marcador
+gravasse, uma coordenada certa viraria errada sem que ninguém tivesse pedido e
+sem nada na tela para desfazer. Por isso **o marcador não é arrastável por
+padrão** — só a caixa cuja edição foi declarada, e só enquanto durar.
+
+**Cancelar é confiável depois de quantos arrastos forem**, e não por esforço: o
+par gravado nunca é tocado. O rascunho simplesmente deixa de existir, e a posição
+volta a ser lida da origem. Não há nada a desfazer.
+
+### 3. Duas medições que mudaram a implementação
+
+**O painel empurrava o mapa 206 pixels.** Renderizado no fluxo da página, acima
+do mapa, entrar em modo de edição descia o mapa — ou seja, o mapa saltava
+debaixo da mão exatamente no instante em que a pessoa vai arrastar com precisão.
+Somado aos **138px** que o `autoPan` do popup já desloca ao abrir, a caixa que se
+quer mover mudava de lugar duas vezes antes do primeiro arrasto. O painel passou
+a ser ancorado **dentro** do mapa, e `MAPEDIT-04b` mede a moldura para que não
+volte.
+
+Os 138px do `autoPan` também corrigiram um teste meu: uma referência de posição
+tirada antes do clique comparava dois enquadramentos diferentes, e o teste
+acusava o Cancelar de não restaurar quando quem se movera fora o mapa.
+
+### 4. `dragend`, e nunca `drag`
+
+`drag` dispara por quadro. Como a posição do marcador é uma prop, atualizá-la a
+cada quadro re-renderizaria todos os marcadores dezenas de vezes por segundo — e
+é exatamente uma prop mudando durante interação com o mapa que fechou a
+realimentação `popup → autoPan → moveend → render` na `CTO-3.2.1`, com o popup
+parando de abrir.
+
+**A plaqueta não precisa disso:** o Leaflet move o tooltip junto com o marcador
+nativamente, então o nome acompanha em tempo real de graça. Quem espera o fim do
+arrasto é o painel de coordenadas, que é lido justamente quando a mão para.
+
+### 5. Três camadas visuais que não disputam nada
+
+```text
+contorno do corpo ..... ESTADO       verde · âmbar · vermelho · cinza
+halo sólido ........... SELEÇÃO      cor de foco
+halo tracejado ........ EDIÇÃO       cor primária + cursor grab
+```
+
+Modo de edição **não é estado da rede**: uma CTO disponível continua verde
+enquanto está sendo movida. Reaproveitar as cores de estado para dizer "está
+sendo arrastada" faria o operador ler mudança de operação onde houve um gesto de
+interface.
+
+### 6. Erro ao salvar: o modo de edição CONTINUA
+
+Das duas condutas que o enunciado admitia, esta é a honesta. O marcador fica onde
+a mão o deixou, mas o painel segue na tela dizendo "Ajustando posição" com o erro
+ao lado — ninguém confunde isso com uma posição salva. Devolver o marcador ao
+ponto antigo apagaria o trabalho de quem acabou de posicionar a caixa por causa
+de uma falha que pode ser de rede.
+
+E o sucesso não é afirmado por estado local: depois de salvar, a camada **relê o
+recorte**. A posição que aparece é a que o servidor devolve.
+
+### 7. Auditoria — a coordenada entra com o VALOR
+
+A regra do módulo é registrar nomes de campo, nunca o conteúdo: uma observação
+pode ter parágrafos, possivelmente com dado de cliente. **Ela continua valendo
+para todo o resto.**
+
+A coordenada é a exceção, por três razões: são dois números, então não há volume
+a vazar; ela não é dado pessoal (é a coordenada da **caixa**, que fica no poste);
+e agora que o ADMIN pode arrastá-la, *"as coordenadas mudaram"* não responde a
+única pergunta que se faz depois de um arrasto errado, que é **de onde para
+onde**. Sem o par anterior, desfazer vira arqueologia.
+
+Nenhuma tabela nova, nenhuma migration: é o mesmo `logAuditWithin`, com o
+`details` mais informativo.
+
+### 8. Concorrência — `last-write-wins`, declarado
+
+`updateCto` não tem `version` nem CAS, e esta fase **não introduziu nenhum**. Dois
+ADMINs movendo a mesma caixa ao mesmo tempo: vence quem gravar por último, e o
+outro não é avisado.
+
+Isso é aceitável e está declarado. A operação é estreita — dois números — e o
+efeito de perder a corrida é uma caixa no lugar que o outro escolheu, visível no
+mapa e corrigível com outro arrasto. Introduzir CAS aqui criaria conflito onde
+não há dano, e transformaria uma microfase num sistema de edição colaborativa.
+A trilha de auditoria com o "de → para" é o que torna a sequência reconstruível.
+
+### 9. O subfluxo que NÃO entrou, e por quê
+
+**Definir a posição inicial de uma CTO sem coordenada** ficou como follow-up
+pequeno, e o motivo é de contrato, não de esforço.
+
+Uma caixa sem coordenada **não é marcador**: ela não aparece na leitura do
+recorte. O único lugar onde ela existe na tela é a busca, cujo DTO tem **cinco
+campos** por decisão da `CTO-3.2` — sem `status` e sem `summary`. Um marcador
+sintético para ela teria de inventar os dois, ou buscar o detalhe por um caminho
+novo, ou alargar o DTO da busca. As três opções são escopo real.
+
+**O backend já está pronto:** `updateCto` aceita passar de `null` para um par, e
+`POS` cobre isso. E o caminho existente não sumiu — a tela de detalhe continua
+aceitando as coordenadas digitadas. O que falta é só a porta no mapa.
+
+### O que as sabotagens mediram
+
+| | mutação | quem caiu |
+|---|---|---|
+| `S1` | marcador sempre arrastável | `MAPEDIT-03/04` (estrutural **e** navegador) |
+| `S2` | soltar o marcador grava | `MAPEDIT-05/06` |
+| `S3` | Cancelar não descarta o rascunho | `MAPEDIT-07` |
+| `S4` | perfil deixa de ser verificado | `POS-02`, `POS-03` |
+| `S5` | `companyId` fora da escrita | **passou** — ver abaixo |
+| `S5b` | `companyId` fora da leitura | **passou** — ver abaixo |
+| `S5c` | os DOIS guardas de tenant juntos | `POS-04` |
+| `S6` | faixa de latitude não verificada | `POS-05` |
+| `S7` | o mapa manda o objeto inteiro | `MAPEDIT-08`, `POS-08b` |
+| `S8` | Salvar só mexe na UI | `MAPEDIT-08/14` (navegador) |
+| `S9` | a plaqueta some na edição | `MAPEDIT-09`, `ML-DENS-04` |
+| `S10` | a edição repinta o corpo | `MAPEDIT-10` |
+| `S11` | o painel volta a empurrar o mapa | `MAPEDIT-04b` |
+| `S12` | a trilha perde o "de → para" | `POS-AUD-01` |
+
+**`S5` e `S5b` passaram sozinhas, e isso é defesa em profundidade funcionando —
+não um buraco.** `updateCto` tem dois guardas de tenant independentes: a leitura
+inicial filtra por `companyId`, e a escrita filtra de novo no `updateMany`.
+Removendo um, o outro fecha; removendo os **dois** (`S5c`), `POS-04` cai. Ou
+seja: cada um é redundante isoladamente, e o par é a garantia. Fica medido em vez
+de suposto.
+
+**Duas sabotagens cobraram testes meus antes de caírem.** A `S10` sobrevivia
+porque a asserção estrutural olhava só o bloco `.cto-box--editing { … }`, e o
+ataque acrescenta um seletor descendente novo; e a asserção de navegador comparava
+o contorno antes/depois do **arrasto**, quando os dois valores já vinham
+sabotados — comparar dois erros dá igualdade. A referência passou a ser capturada
+**antes de entrar em edição**, que é a pergunta certa.
+
+### O que NÃO mudou
+
+`bbox`, API de mapa, DTOs, política de zoom, altura, plaqueta, contorno de
+estado, popup, navegação, persistência, permissões de leitura, domínio da CTO,
+`CONNECT`/`MOVE`/`DISCONNECT`, schema, Prisma e Dart. Nenhuma camada de cliente,
+OS aberta ou Online/Offline foi iniciada. Nenhum ERP é consultado para mover uma
+caixa, e nenhuma sincronia com FiberMap foi criada.
+
+> **`CTO-3.2.1d` — `READY FOR OWNER VALIDATION`.** `CTO-2` continua `DONE`,
+> `CTO-3.1` `APPROVED`, o PRD V1 `FROZEN` com a §377 atualizada. A `CTO-3.2.2`
+> não começou.
