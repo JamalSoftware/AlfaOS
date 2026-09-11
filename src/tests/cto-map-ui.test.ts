@@ -2516,6 +2516,20 @@ describe("MAPEDIT-01..14 — ajustar a posição pelo mapa", () => {
       "stroke",
     );
 
+    /*
+      E nenhuma OUTRA regra alcança o corpo a partir do modo de edição.
+
+      A primeira versão desta asserção olhava só o bloco acima, e a sabotagem
+      `S10` passou por ela: o ataque não mexe em `.cto-box--editing { … }`, ele
+      acrescenta um seletor descendente novo — `.cto-box--editing .cto-box__body`
+      — que pinta o corpo com a cor de edição. Olhar um bloco só é olhar onde o
+      defeito não estava.
+    */
+    expect(
+      css,
+      "alguma regra pinta o corpo a partir do modo de edição",
+    ).not.toMatch(/\.cto-box--editing[^{]*\.cto-box__body\s*\{/);
+
     // E o halo de edição é distinguível do de seleção: tracejado contra sólido.
     expect(regra![1]).toContain("dashed");
     const selecao = /\.cto-box--selected \{([\s\S]*?)\}/.exec(css)!;

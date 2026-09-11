@@ -2250,10 +2250,27 @@ test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
 
       É a prova de que o marcador não é arrastável por padrão: o gesto é o
       mesmo, e o que acontece é diferente.
+
+      A asserção olha o CENTRO do mapa, e isso foi corrigido por uma sabotagem
+      que passou. A primeira versão afirmava só que o banco não mudara — e a
+      sabotagem `S1`, que deixa todo marcador arrastável, sobrevivia inteira a
+      ela: com `draggable` sempre ligado o marcador se move na tela, mas nada é
+      gravado, então "o banco não mudou" continua verdade. O teste media a
+      consequência errada.
+
+      Com o marcador inerte, o gesto é capturado pelo mapa e o centro anda. Com
+      ele arrastável, o mapa fica parado — e é essa diferença que o detector
+      precisa enxergar.
     */
     const antes = await coordenadaGravada();
+    const centroAntes = vistaDaUrl(page).get("lat");
     await arrastar(page, 60, 40);
     await page.waitForTimeout(600);
+
+    expect(
+      vistaDaUrl(page).get("lat"),
+      "o arrasto deveria ter movido o MAPA, e o mapa não saiu do lugar",
+    ).not.toBe(centroAntes);
     expect(await coordenadaGravada()).toEqual(antes);
     await expect(page.getByTestId("cto-map-position-panel")).toHaveCount(0);
 
@@ -2319,6 +2336,22 @@ test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
 
       É a afirmação inteira da fase. "Arrastou" e "salvou" são coisas
       diferentes, e a única prova disso é ler a linha.
+
+      Esta conferência é RÁPIDA e, por ser rápida, é uma corrida — declarada.
+
+      A sabotagem `S2`, que grava no `dragend`, caiu quando este teste rodou
+      sozinho e PASSOU no conjunto: num processo mais carregado a escrita
+      sabotada chegava depois da leitura. Um detector cujo veredito depende da
+      carga da máquina não é detector.
+
+      Tentei trocar o relógio por `waitForLoadState("networkidle")` e foi pior:
+      ele resolve de imediato quando a página já terminou de carregar, então não
+      esperava nada — e ainda derrubou o controle limpo.
+
+      A conclusão é que o instante depois do arrasto não é o lugar de provar
+      isso. Quem prova sem relógio nenhum é `MAPEDIT-06b`, que recarrega a
+      página: aí a caixa vem do servidor, e não há tempo a acertar. Esta linha
+      fica como sanidade barata, e a prova mora lá.
     */
     await page.waitForTimeout(700);
     expect(await coordenadaGravada()).toEqual(antes);
@@ -2343,6 +2376,41 @@ test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
     expect(Math.abs(restaurado.x - posicaoOriginal.x)).toBeLessThanOrEqual(2);
     expect(Math.abs(restaurado.y - posicaoOriginal.y)).toBeLessThanOrEqual(2);
     expect(await coordenadaGravada()).toEqual(antes);
+  });
+
+  test("MAPEDIT-06b · arrastar e RECARREGAR devolve a caixa ao ponto gravado", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaNaCaixaDePosicao(page);
+
+    const antes = await coordenadaGravada();
+
+    await marcadorDe(page, NOME_POS).click();
+    await page.getByTestId("cto-map-popup-edit-position").click();
+    await arrastar(page, 85, 65);
+    await expect(page.getByTestId("cto-map-position-after")).not.toHaveText("—");
+
+    /*
+      A prova que NÃO depende de tempo.
+
+      Conferir o banco logo depois do arrasto é uma corrida contra uma escrita
+      que não deveria existir — e a sabotagem `S2` mostrou que essa corrida se
+      perde num processo carregado. Recarregar remove o relógio da conta: a
+      página inteira volta do servidor, e a caixa aparece onde o servidor a tem.
+
+      Se o arrasto tivesse gravado, ela reapareceria no ponto arrastado. Ela
+      reaparece no ponto de origem porque nada foi gravado.
+    */
+    await page.reload();
+    await expect(marcadorDe(page, NOME_POS)).toBeVisible({ timeout: 15_000 });
+
+    expect(await coordenadaGravada()).toEqual(antes);
+    // E o modo de edição não sobrevive a um recarregamento: ele é de sessão.
+    await expect(page.getByTestId("cto-map-position-panel")).toHaveCount(0);
+    await expect(marcadorSvg(page, NOME_POS)).not.toHaveClass(
+      /cto-box--editing/,
+    );
   });
 
   test("MAPEDIT-08/14 · Salvar persiste, e a nova posição sobrevive ao reload", async ({
@@ -2395,11 +2463,29 @@ test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
     await login(page, ADMIN_EMAIL);
     await abrirMapaNaCaixaDePosicao(page);
 
-    await marcadorDe(page, NOME_POS).click();
-    await page.getByTestId("cto-map-popup-edit-position").click();
+    /*
+      A referência é capturada ANTES de entrar em edição, e isso foi corrigido
+      por uma sabotagem que passou.
 
+      A primeira versão media o contorno depois de já estar em modo de edição, e
+      comparava antes/depois do ARRASTO. A sabotagem `S10` — que pinta o corpo
+      com a cor de edição — sobrevivia inteira a essa comparação: os dois
+      valores já vinham sabotados, e iguais. Comparar dois erros dá igualdade.
+
+      A pergunta certa é se ENTRAR em modo de edição muda o estado, e para
+      respondê-la a referência tem de vir de fora dele.
+    */
     const svg = marcadorSvg(page, NOME_POS);
     const contornoAntes = await contornoDe(page, NOME_POS);
+
+    await marcadorDe(page, NOME_POS).click();
+    await page.getByTestId("cto-map-popup-edit-position").click();
+    await expect(svg).toHaveClass(/cto-box--editing/);
+
+    expect(
+      await contornoDe(page, NOME_POS),
+      "entrar em edição repintou o contorno de estado",
+    ).toBe(contornoAntes);
 
     await arrastar(page, 90, 70);
 
@@ -2561,29 +2647,53 @@ test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
       A moldura é a referência certa — o marcador não serve, porque o `autoPan`
       do popup o desloca legitimamente ao abrir.
     */
-    const molduraAntes = (await page.getByTestId("operational-map").boundingBox())!;
+    /*
+      A medida é relativa ao DOCUMENTO, e não à viewport.
+
+      `boundingBox()` devolve coordenada de viewport, e o `.click()` do Playwright
+      rola a página para trazer o alvo à vista. O popup abre perto do topo do
+      mapa, então clicar em "Ajustar posição" às vezes rola — e a moldura mudava
+      de `y` sem que nada no layout tivesse se mexido. O teste acusava um
+      deslocamento que era da barra de rolagem, e falhava de forma intermitente.
+
+      Somando `window.scrollY`, a rolagem sai da conta e sobra a única pergunta
+      que interessa: o painel empurrou o mapa no layout?
+    */
+    const topoNoDocumento = () =>
+      page
+        .getByTestId("operational-map")
+        .evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
+
+    const molduraAntes = await topoNoDocumento();
+    const alturaAntes = (await page.getByTestId("operational-map").boundingBox())!
+      .height;
 
     await marcadorDe(page, NOME_POS).click();
     await page.getByTestId("cto-map-popup-edit-position").click();
     await expect(page.getByTestId("cto-map-position-panel")).toBeVisible();
 
-    const molduraDepois = (await page
-      .getByTestId("operational-map")
-      .boundingBox())!;
+    const molduraDepois = await topoNoDocumento();
     expect(
-      Math.abs(molduraDepois.y - molduraAntes.y),
-      `o mapa desceu ${(molduraDepois.y - molduraAntes.y).toFixed(0)}px ao abrir o painel`,
+      Math.abs(molduraDepois - molduraAntes),
+      `o mapa desceu ${(molduraDepois - molduraAntes).toFixed(0)}px ao abrir o painel`,
     ).toBeLessThanOrEqual(1);
-    expect(molduraDepois.height).toBe(molduraAntes.height);
+    expect(
+      (await page.getByTestId("operational-map").boundingBox())!.height,
+    ).toBe(alturaAntes);
 
     // E o painel está DENTRO da moldura, onde ele não some da vista.
-    const painel = (await page
+    const dentro = await page
       .getByTestId("cto-map-position-panel")
-      .boundingBox())!;
-    expect(painel.y).toBeGreaterThanOrEqual(molduraAntes.y - 1);
-    expect(painel.y + painel.height).toBeLessThanOrEqual(
-      molduraAntes.y + molduraAntes.height + 1,
-    );
+      .evaluate((el) => {
+        const moldura = document
+          .querySelector('[data-testid="operational-map"]')!
+          .getBoundingClientRect();
+        const painel = el.getBoundingClientRect();
+        return (
+          painel.top >= moldura.top - 1 && painel.bottom <= moldura.bottom + 1
+        );
+      });
+    expect(dentro, "o painel escapou da moldura do mapa").toBe(true);
 
     await page.getByTestId("cto-map-position-cancel").click();
   });
