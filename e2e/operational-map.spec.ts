@@ -3364,6 +3364,204 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
   });
 
 
+  test("STAB-05 · o cartão de camadas não cobre os controles do mapa", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await abrirCamadas(page);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator(".leaflet-control-zoom")).toBeVisible();
+
+    const controle = (await page.getByTestId("map-layer-control").boundingBox())!;
+    const zoom = (await page.locator(".leaflet-control-zoom").boundingBox())!;
+
+    /*
+      Sem INTERSEÇÃO, e não "está em outro lugar".
+
+      O defeito que o dono relatou era o cartão por cima dos botões `+`/`−`, que
+      moram no canto superior esquerdo do mapa. Comparar só coordenadas de topo
+      deixaria passar uma sobreposição lateral.
+    */
+    const cruza =
+      controle.x < zoom.x + zoom.width &&
+      zoom.x < controle.x + controle.width &&
+      controle.y < zoom.y + zoom.height &&
+      zoom.y < controle.y + controle.height;
+    expect(
+      cruza,
+      `o cartão de camadas cobre o zoom: camadas=${JSON.stringify(controle)} zoom=${JSON.stringify(zoom)}`,
+    ).toBe(false);
+
+    // E os botões respondem ao ponteiro, que é o que a sobreposição roubava.
+    await expect(page.locator(".leaflet-control-zoom-in")).toBeVisible();
+    await page.locator(".leaflet-control-zoom-in").click();
+  });
+
+  test("VIS-01 · a legenda nomeia caixas, clientes e OS", async ({ page }) => {
+    await abrirCamadas(page);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const legenda = page.getByTestId("map-legend");
+    await expect(legenda).toBeVisible();
+    await expect(legenda.getByTestId("map-legend-ctos")).toBeVisible();
+    await expect(legenda.getByTestId("map-legend-customers")).toBeVisible();
+    await expect(legenda.getByTestId("map-legend-orders")).toBeVisible();
+
+    // Os quatro estados da caixa e os três do cliente, por extenso.
+    for (const termo of [
+      "Com vaga",
+      "Sem vaga",
+      "Com defeito",
+      "Inativa",
+      "Online",
+      "Offline",
+      "Sem leitura",
+      "OS aberta",
+    ]) {
+      await expect(legenda).toContainText(termo);
+    }
+
+    /*
+      Grupo de camada DESLIGADA não aparece.
+
+      Explicar símbolo que não está na tela é ruído, e a legenda cresceria
+      justamente onde o espaço vertical é disputado.
+    */
+    await page.getByTestId("map-layer-customers").uncheck();
+    await expect(legenda.getByTestId("map-legend-customers")).toHaveCount(0);
+  });
+
+  test("VIS-02 · o resumo operacional fica na primeira dobra", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await abrirCamadas(page);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const resumo = page.getByTestId("map-summary");
+    await expect(resumo).toBeVisible();
+    await expect(resumo.getByTestId("map-marker-count")).toBeVisible();
+    await expect(resumo.getByTestId("map-customer-count")).toBeVisible();
+    await expect(resumo.getByTestId("map-order-count")).toBeVisible();
+
+    // Numérica, e não `toBeInViewport()`: aquele matcher aceita qualquer
+    // interseção, e um resumo com um terço visível ainda passaria.
+    const caixa = (await resumo.boundingBox())!;
+    expect(
+      caixa.y + caixa.height,
+      "o resumo saiu da primeira dobra",
+    ).toBeLessThanOrEqual(900);
+  });
+
+  test("VIS-03 · cada estado do cliente tem a sua cor e a sua forma", async ({
+    page,
+  }) => {
+    await abrirCamadas(page);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(3, {
+      timeout: 15_000,
+    });
+
+    const lido = await page.evaluate(() => {
+      const saida: Record<string, { fill: string; tracejado: string }> = {};
+      for (const [titulo, chave] of [
+        ["CAMADA CLIENTE ONLINE", "online"],
+        ["CAMADA CLIENTE OFFLINE", "offline"],
+        ["CAMADA CLIENTE SEM LEITURA", "semLeitura"],
+      ] as const) {
+        const corpo = document.querySelector(
+          `.leaflet-marker-icon[title^="${titulo}"] .cto-dot__body`,
+        );
+        if (!corpo) continue;
+        const estilo = getComputedStyle(corpo);
+        saida[chave] = {
+          fill: estilo.fill,
+          tracejado: estilo.strokeDasharray,
+        };
+      }
+      return saida;
+    });
+
+    const canais = (cor: string) => (cor.match(/\d+(\.\d+)?/g) ?? []).map(Number);
+
+    // Verde: o canal verde domina.
+    const on = canais(lido.online.fill);
+    expect(on[1], `online não está verde: ${lido.online.fill}`).toBeGreaterThan(on[0]);
+
+    // Vermelho: o canal vermelho domina.
+    const off = canais(lido.offline.fill);
+    expect(off[0], `offline não está vermelho: ${lido.offline.fill}`).toBeGreaterThan(off[1]);
+
+    /*
+      E "sem leitura" não é só uma cor a menos: ele é OCO e TRACEJADO.
+
+      Cor sozinha não distingue para quem não a enxerga, e um glifo de 7px é
+      ilegível num ponto de 16px — quem carrega a diferença é a forma.
+    */
+    expect(lido.semLeitura.fill).toBe("none");
+    expect(
+      lido.semLeitura.tracejado,
+      "sem leitura precisa ser tracejado, e não só cinza",
+    ).not.toBe("none");
+
+    // O anel de OS convive com o estado, e não o substitui.
+    const comOs = page.locator(
+      ".leaflet-marker-pane svg.cto-dot.cto-dot--danger.cto-dot--with-order",
+    );
+    await expect(comOs).toHaveCount(1);
+    await expect(comOs.locator(".cto-dot__order")).toHaveCount(1);
+    await expect(comOs.locator(".cto-dot__body")).toHaveCount(1);
+  });
+
+  test("VIS-04 · a OS é visível e menor que a caixa", async ({ page }) => {
+    await abrirCamadas(page);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-order").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const os = (await page
+      .locator(".leaflet-marker-pane svg.cto-order")
+      .first()
+      .boundingBox())!;
+    const caixa = (await page
+      .locator(".leaflet-marker-pane svg.cto-box")
+      .first()
+      .boundingBox())!;
+
+    /*
+      Visível, e sem disputar protagonismo.
+
+      A caixa é a infraestrutura; a OS é o trabalho aberto em cima dela. Se a OS
+      ficasse maior, o mapa passaria a ser lido pelo que está quebrado em vez do
+      que existe.
+    */
+    expect(os.width, "a OS sumiu do mapa").toBeGreaterThan(8);
+    expect(
+      os.width * os.height,
+      "a OS está disputando protagonismo com a caixa",
+    ).toBeLessThan(caixa.width * caixa.height);
+
+    // Losango, e não círculo nem retângulo: três formas distinguíveis sem cor.
+    await expect(
+      page.locator(".leaflet-marker-pane svg.cto-order polygon.cto-order__body").first(),
+    ).toHaveCount(1);
+
+    const cor = await page
+      .locator(".leaflet-marker-pane svg.cto-order .cto-order__body")
+      .first()
+      .evaluate((el) => getComputedStyle(el).fill);
+    const [r, g, b] = (cor.match(/\d+(\.\d+)?/g) ?? []).map(Number);
+    expect(r, `a OS deveria ser laranja: ${cor}`).toBeGreaterThan(b);
+    expect(g, `a OS deveria ser laranja: ${cor}`).toBeGreaterThan(b);
+  });
+
+
   test("LAYER-01/02/03 · o estado inicial das camadas", async ({ page }) => {
     await abrirCamadas(page);
 

@@ -1336,9 +1336,19 @@ describe("UXP-01..03 — altura do mapa", () => {
     const lg = /lg:h-\[(\d+)px\]/.exec(classes);
     expect(lg, "falta a altura de desktop em pixels").not.toBeNull();
 
+    /*
+      A FAIXA mudou na `CTO-3.2.2b`, e o motivo é orçamento vertical.
+
+      O cartão de camadas saiu de dentro do canvas — dentro, ele cobria os
+      botões `+`/`−` do Leaflet —, e junto entraram o resumo em chips e a
+      legenda em três grupos. Com os 560 antigos, a legenda caía 75px abaixo da
+      primeira dobra, e "legenda visível sem rolar" é regra validada pelo dono.
+
+      Medido em 1440×900: com o mapa em 400, o documento fecha em 900 exatos.
+    */
     const altura = Number(lg![1]);
-    expect(altura).toBeGreaterThanOrEqual(500);
-    expect(altura).toBeLessThanOrEqual(600);
+    expect(altura).toBeGreaterThanOrEqual(360);
+    expect(altura).toBeLessThanOrEqual(440);
   });
 
   it("UXP-02 · NENHUMA altura do mapa é fração de viewport", () => {
@@ -1381,11 +1391,11 @@ describe("UXP-01..03 — altura do mapa", () => {
       expect(alturas[i]).toBeGreaterThanOrEqual(alturas[i - 1]);
     }
 
-    // E dentro das faixas que o dono pediu.
-    expect(alturas[0]).toBeGreaterThanOrEqual(360);
-    expect(alturas[0]).toBeLessThanOrEqual(440);
-    expect(alturas[2]).toBeGreaterThanOrEqual(420);
-    expect(alturas[2]).toBeLessThanOrEqual(560);
+    // E dentro das faixas, refeitas na `CTO-3.2.2b` — ver `UXP-01`.
+    expect(alturas[0]).toBeGreaterThanOrEqual(290);
+    expect(alturas[0]).toBeLessThanOrEqual(360);
+    expect(alturas[2]).toBeGreaterThanOrEqual(340);
+    expect(alturas[2]).toBeLessThanOrEqual(420);
   });
 });
 
@@ -1820,7 +1830,10 @@ describe("ML-01..ML-08 — a plaqueta e o marcador refinado", () => {
     const codigo = componente();
 
     // O popup continua existindo, com a ação dentro dele.
-    expect(codigo).toContain("<Popup>");
+    // `<Popup` sem o `>`: a tag ganhou props na `CTO-3.2.2b`
+    // (`autoPanPadding`), e exigir a forma fechada afirmaria a formatação em
+    // vez da existência do popup.
+    expect(codigo).toContain("<Popup");
     expect(codigo).toContain("cto-map-popup");
     expect(codigo).toContain("cto-map-popup-open");
 

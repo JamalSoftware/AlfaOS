@@ -259,7 +259,10 @@ function CustomerMarkersBase({ markers, canOpenCustomer }: CustomerMarkersProps)
                 data-testid="customer-map-popup"
                 data-customer-id={cliente.id}
               >
-                <p className="text-sm font-semibold text-fg">{cliente.name}</p>
+                <p className="text-sm font-semibold leading-snug text-fg">
+                  {cliente.name}
+                </p>
+
                 {/*
                   CADASTRO e CONECTIVIDADE lado a lado, e nomeados.
 
@@ -268,31 +271,54 @@ function CustomerMarkersBase({ markers, canOpenCustomer }: CustomerMarkersProps)
                   primeiro é constante aqui — e é escrito mesmo assim, porque é
                   a única forma de o operador não ler o vermelho como
                   "cancelado".
+
+                  Ele virou SELO em vez de linha cinza: como texto solto do
+                  mesmo tamanho do resto, ficava indistinguível do endereço e da
+                  contagem, e a distinção que ele existe para fazer se perdia.
                 */}
-                <p className="mt-0.5 text-xs text-fg-muted">Cadastro: Ativo</p>
+                <p className="mt-1.5 inline-flex items-center rounded-full border border-border-subtle bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-fg-secondary">
+                  Cadastro: Ativo
+                </p>
 
                 <LinhaDeEstado
                   status={cliente.connectivityStatus}
                   observedAt={cliente.connectivityObservedAt}
                 />
 
-                <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                  <dt className="text-fg-muted">CTO</dt>
-                  <dd className="text-right font-medium text-fg">
-                    {cliente.cto ? cliente.cto.ctoName : "—"}
-                  </dd>
-                  <dt className="text-fg-muted">Porta</dt>
-                  <dd className="text-right font-medium text-fg">
-                    {cliente.cto ? cliente.cto.portNumber : "—"}
-                  </dd>
-                  <dt className="text-fg-muted">OS abertas</dt>
-                  <dd
-                    className="text-right font-medium text-fg"
-                    data-testid="customer-map-open-os"
+                {/*
+                  ONDE ele está e QUANTO trabalho tem aberto, em uma linha.
+
+                  Três linhas de lista para três valores curtos empurravam as
+                  ações para baixo sem acrescentar leitura. CTO e porta andam
+                  juntas — são um endereço só —, e a contagem de OS ganha tom
+                  próprio quando há trabalho aberto, porque é ela que muda o que
+                  o despachante faz a seguir.
+                */}
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                  <span className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-surface-muted px-1.5 py-0.5">
+                    <span className="opacity-80">CTO</span>
+                    <span className="font-semibold text-fg">
+                      {cliente.cto
+                        ? `${cliente.cto.ctoName} · ${cliente.cto.portNumber}`
+                        : "—"}
+                    </span>
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 ${
+                      cliente.openServiceOrderCount > 0
+                        ? "border-warning-border bg-warning-bg text-warning-fg"
+                        : "border-border-subtle bg-surface-muted text-fg"
+                    }`}
                   >
-                    {cliente.openServiceOrderCount}
-                  </dd>
-                </dl>
+                    <span className="opacity-80">OS abertas</span>
+                    <span
+                      className="font-semibold tabular-nums"
+                      data-testid="customer-map-open-os"
+                    >
+                      {cliente.openServiceOrderCount}
+                    </span>
+                  </span>
+                </div>
 
                 {canOpenCustomer ? (
                   <Link

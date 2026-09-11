@@ -1002,6 +1002,22 @@ Quinze sabotagens, **catorze detectadas** e a décima quinta explicada acima. De
 
 Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §41.
 
+**`CTO-3.2.2b` ENTREGUE — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** Rodada de estabilização e polimento sobre a `CTO-3.2.2`, a partir da validação manual do dono. **Zero migration, zero schema, zero dependência, zero Dart, e o PRD não foi tocado** — por instrução da fase.
+
+**Os três "bugs" de estabilidade eram UM só, e a sonda mostrou qual.** O dono relatou separado — *a CTO abre e some*, *os pontos somem no zoom*, *o mapa se mexe sozinho* — e a medição juntou tudo numa cadeia: clique abre o popup → o `autoPan` empurra a vista **291px** (o popup tinha **520px** num mapa de 558, 93% da altura) → o `moveend` do empurrão dispara a releitura com o recorte NOVO → **a caixa clicada não está nela** → o marcador é desmontado e o popup morre junto, 750ms depois do clique. A causa de raiz é o recorte ser **exatamente** `map.getBounds()`: com isso o dado vira função do pixel, e qualquer deslocamento tira da tela o que o operador está olhando.
+
+**Duas correções de raiz.** `MAP_VIEWPORT_PADDING_RATIO = 0.25` — o cliente pede mais do que mostra, então movimento pequeno não muda a resposta (área 2,25×, não 4×). E o popup da CTO foi de **520px para 321px**: os onze números viraram chips que quebram sozinhos, os dois botões secundários dividem uma linha, e a frase que repetia o selo de status saiu. O empurrão caiu para **111px**. **Desligar o `autoPan` foi tentado e medido** — o mapa para de se mexer e o popup nasce **236px acima da borda**, cortado; um controle que esconde metade do próprio conteúdo é pior que um deslocamento pequeno.
+
+**Uma prova fraca que quase passou.** Zerar a folga **não derrubava** a `STAB-01`, porque com o popup já encolhido o empurrão de 111px não tira o marcador nem de um recorte colado. A proteção continuava certa e tinha deixado de ser testada — e proteção que nenhum teste derruba é proteção que alguém apaga na próxima limpeza. A `STAB-04` afirma o **contrato** (o recorte pedido é maior que o visível, por Web Mercator contra o centro e o zoom da URL); com a folga em zero ela devolve `1.0000046`.
+
+**O controle de camadas saiu do canvas, e o orçamento vertical foi refeito.** Ele esteve dentro do mapa por uma fase, porque fora custava 82px e empurrava a legenda para baixo da dobra (§41.14). A validação mostrou o preço do outro lado: **ele cobria os botões `+`/`−`**, que moram no canto superior esquerdo. A faixa de altura passou de `380/440/500/560` para `320/360/380/400`, e em 1440×900 o documento fecha em **900px exatos** — cartão em `276..325`, zoom em `352..416` sem interseção, mapa `342..740`, resumo `757..809`, legenda `825..859`. **A regra que NÃO mudou:** altura de mapa em **pixels**, nunca fração de tela.
+
+**Decisões visuais.** Cliente virou pontinho de 16px com a **forma** carregando o estado junto da cor — disco cheio, disco com furo, contorno tracejado —, porque cor sozinha não distingue para quem não a enxerga e glifo de 7px é ilegível nesse tamanho; o anel de OS segue por fora e virou contínuo, já que tracejado em 16px vira serrilha. OS virou losango de 15px sem a sigla dentro, menor que a caixa de propósito: a infraestrutura é que dá a leitura do mapa, a OS é o trabalho aberto em cima dela. Legenda em três grupos, só dos que estão desenhados, com os **mesmos SVGs** dos marcadores. Resumo em chips com número grande, e as contagens de "sem localização" com tom próprio, porque não mudam quando o mapa se move.
+
+**Reutilizar os SVGs na legenda cobrou um preço que só a suíte mostrou:** `svg.cto-dot` deixou de significar "ponto no mapa" e passou a casar com os símbolos da legenda — `toHaveCount(3)` recebeu **7**. Os seletores de marcador passaram a ser do `.leaflet-marker-pane`. E a `STATUSVIS-06` abre em `z15`: com o mapa em 400px, a caixa ao norte cai a 15px do topo e a plaqueta dela sai pela borda — **o zoom do teste é função da altura do mapa**.
+
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §42.
+
 **Próxima fatia: decisão do dono entre `DASH-1`, `TL-1`, `EV-1` e `GS-1`** (`docs/MASTER-PLAN.md`). Não iniciada.
 
 ## Princípios

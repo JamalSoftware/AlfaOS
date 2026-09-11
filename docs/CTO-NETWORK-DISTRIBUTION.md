@@ -5205,3 +5205,137 @@ reproduz no estado commitado, sem nenhuma alteração desta fase — 2 de 4 tamb
 A `CTO-3.2.2` a tornou mais provável ao aumentar o popup da caixa com as
 contagens operacionais, o que aumenta o empurrão do `autoPan` e faz a caixa
 começar a sequência mais perto da borda de baixo.
+
+---
+
+## 42. `CTO-3.2.2b` — estabilização e polimento do Mapa Operacional
+
+**Estado:** `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.
+**Migration:** nenhuma. **Schema:** nenhum. **Dart:** zero. **Dependência:** nenhuma.
+**PRD:** não tocado nesta rodada, por instrução.
+
+A validação manual da `CTO-3.2.2` aprovou o que a fase entregou de função —
+três bases, persistência de vista e camadas, popup, plaqueta, arrasto da CTO,
+filtros — e reprovou a experiência: oito pontos, três deles de estabilidade.
+
+### 42.1 Os três "bugs" eram UM, e a sonda mostrou qual
+
+O dono relatou como coisas separadas: *a CTO abre e some*, *os pontos de
+cliente somem no zoom*, *o mapa fica se mexendo sozinho*. A medição mostrou uma
+cadeia só:
+
+```text
+t=0ms     clique na caixa  → popup abre
+t≈250ms   autoPan empurra a vista 291px (o popup tem 520px num mapa de 558)
+t≈600ms   o moveend do empurrão dispara a releitura, com o recorte NOVO
+t=754ms   resposta chega — e a caixa clicada não está nela
+t=750ms   marcador `ausente`, popup morre junto
+```
+
+O recorte pedido ao servidor era **exatamente** `map.getBounds()`. Com isso o
+dado vira função do pixel: qualquer deslocamento tira do resultado o que o
+operador está olhando. O `autoPan` era o deslocamento mais comum, e o mais
+cruel, porque acontece **por causa do clique**.
+
+**A cura de raiz é `MAP_VIEWPORT_PADDING_RATIO = 0.25`:** o cliente pede mais do
+que mostra, então movimento pequeno não muda a resposta. Área consultada 2,25×,
+não 4×.
+
+**A segunda metade é o tamanho do popup.** 520px num mapa de 558 é 93% da
+altura — qualquer clique forçava um empurrão enorme. Os onze números viraram
+chips que quebram sozinhos, os dois botões secundários passaram a dividir uma
+linha, e a frase que repetia o selo de status saiu: **520px → 321px**, e o
+empurrão caiu para **111px**.
+
+**Desligar o `autoPan` foi tentado e medido**, porque o enunciado pedia eliminar
+o movimento: o mapa de fato para, e o popup passa a nascer **236px acima da
+borda**, cortado. Um controle que esconde metade do próprio conteúdo é pior que
+um deslocamento pequeno. Ele ficou ligado, com `autoPanPadding` de 24px.
+
+### 42.2 A prova fraca que eu quase deixei passar
+
+Zerar a folga do recorte **não derrubava** a `STAB-01`. A razão é boa e
+perigosa: com o popup já encolhido, o empurrão de 111px não tira o marcador nem
+de um recorte colado. A proteção continuava certa e tinha deixado de ser
+testada.
+
+Uma proteção que nenhum teste derruba é uma proteção que alguém apaga na
+próxima limpeza. A `STAB-04` afirma o **contrato**, não o sintoma: o recorte
+pedido tem de ser maior que o visível, comparado por Web Mercator contra o
+centro e o zoom da URL. Com a folga em zero ela devolve `1.0000046`.
+
+### 42.3 O controle de camadas saiu do canvas — e o orçamento vertical foi refeito
+
+Ele esteve **dentro** do mapa por uma fase, e a razão registrada na §41.14 era
+boa: fora, custava 82px e empurrava a legenda para baixo da dobra. A validação
+manual mostrou o preço do outro lado — **ele cobria os botões `+`/`−` do
+Leaflet**, que moram no canto superior esquerdo, exatamente onde o operador
+clica para aproximar.
+
+Um controle que tapa o controle do mapa é pior que um controle que ocupa
+altura. Ele voltou ao fluxo, como cartão abaixo da busca, e a conta foi paga na
+**altura do mapa**: a faixa passou de `380/440/500/560` para
+`320/360/380/400`.
+
+Medido em 1440×900 com as três camadas ligadas:
+
+```text
+cartão de camadas  y=276..325
+botões + / −       y=352..416      ← sem interseção
+mapa               y=342..740  (400px)
+resumo             y=757..809
+legenda            y=825..859
+documento          900px exatos    ← nada rola
+```
+
+**A regra que NÃO mudou:** altura de mapa continua em **pixels**, nunca fração
+de tela. Unidade de viewport traria de volta o mapa que cresce e empurra o resto
+para fora — que é o defeito que a `CTO-3.2.1b` consertou.
+
+### 42.4 Decisões visuais
+
+**Cliente virou pontinho de 16px**, como o dono pediu — e a **forma** carrega o
+estado junto da cor, porque cor sozinha não distingue para quem não a enxerga e
+um glifo de 7px é ilegível nesse tamanho:
+
+```text
+ONLINE        disco cheio         OFFLINE  disco com furo
+SEM LEITURA   contorno tracejado
+```
+
+O anel de OS continua **por fora** e nunca substitui o miolo — `OFFLINE` e `OS
+aberta` precisam ser lidos ao mesmo tempo. Ele virou **contínuo**: tracejado num
+anel de 16px vira serrilha e some.
+
+**OS virou losango de 15px, laranja, sem a sigla dentro.** "OS" com 7px não se
+lia em tamanho nenhum e obrigava o marcador a ser grande para caber. Três
+formas, distinguíveis sem cor: círculo é cliente, caixa é CTO, losango é OS. E o
+tamanho é hierarquia — a caixa (20×27) é a infraestrutura, a OS é o trabalho
+aberto em cima dela.
+
+**Legenda em três grupos** — Caixas, Clientes, OS —, e só dos que estão
+desenhados: explicar símbolo fora da tela é ruído. Os símbolos são os **mesmos
+SVGs** dos marcadores, não aproximações; um quadradinho "representando" o ponto
+faria a legenda divergir do mapa na primeira mudança de forma.
+
+**Resumo em chips com número grande.** Antes eram sentenças cinzas do mesmo peso
+do resto da página, e o dono leu como texto perdido. As contagens de **sem
+localização** têm tom próprio porque respondem outra pergunta: elas não mudam
+quando o mapa se move.
+
+**Popup do cliente:** `Cadastro: Ativo` virou selo (como texto solto do mesmo
+tamanho, era indistinguível do resto), CTO e porta viraram um endereço só, e a
+contagem de OS ganha tom de alerta quando há trabalho aberto.
+
+### 42.5 O que a legenda quebrou nos testes, e por quê
+
+Desenhar os mesmos SVGs teve um preço que só a suíte mostrou: **`svg.cto-dot`
+deixou de significar "ponto no mapa"** e passou a casar também com os símbolos
+da legenda — `toHaveCount(3)` recebeu **7**. Os seletores de marcador passaram a
+ser do `.leaflet-marker-pane`, que é onde o Leaflet põe marcador e nada mais.
+
+E a `STATUSVIS-06` passou a abrir em `z15`: com o mapa em 400px, a caixa ao
+norte (a ±0,004°, uns 444m) cai a 15px do topo e a **plaqueta dela**, que fica
+acima do marcador, sai pela borda. O Leaflet recorta, e o ponteiro nunca a
+alcança. É a `ML-01/02` ao contrário — **o zoom do teste é função da altura do
+mapa**, e mudou junto com ela.
