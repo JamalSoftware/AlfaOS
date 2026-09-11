@@ -3271,6 +3271,47 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     popup sorteado passa despercebido: a tela abre, alguma coisa aparece, e só
     quem procura nota que nem sempre é a mesma.
   */
+  /*
+    A legenda continua na primeira dobra com AS TRÊS camadas ligadas.
+
+    A `UXP-02` já afirma isso, mas só no estado padrão — e foi ligando camadas
+    que a página cresceu. Medido em 1440×900: cada camada trazia a sua própria
+    linha de contadores, empilhadas, e a terceira punha a legenda em `y=916`,
+    dezesseis pixels abaixo da janela. Os contadores passaram a dividir UMA
+    linha que quebra sozinha, e a legenda voltou para `y=852`.
+
+    Este teste existe para a quarta camada não repetir a conta em silêncio.
+  */
+  test("LAYER-21 · a legenda sobrevive às três camadas ligadas", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await abrirCamadas(page);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator("svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    // As três contagens estão na tela, e são elas que empurram a legenda.
+    await expect(page.getByTestId("map-marker-count")).toBeVisible();
+    await expect(page.getByTestId("map-customer-count")).toBeVisible();
+    await expect(page.getByTestId("map-order-count")).toBeVisible();
+
+    /*
+      A afirmação é NUMÉRICA, e `toBeInViewport()` não bastava.
+
+      Ele aceita qualquer interseção: uma legenda com 4 dos seus 20px dentro da
+      janela ainda passa. Foi assim que a primeira versão deste teste
+      SOBREVIVEU à reversão que empilha os contadores de novo — um detector que
+      não cai quando o defeito volta não é detector. O que interessa é a
+      legenda INTEIRA estar acima da dobra.
+    */
+    const legenda = (await page.getByTestId("map-legend").boundingBox())!;
+    expect(
+      legenda.y + legenda.height,
+      "a legenda saiu da primeira dobra com as três camadas ligadas",
+    ).toBeLessThanOrEqual(900);
+  });
+
   test("LAYER-20 · cliente e OS no mesmo ponto: quem abre é a OS", async ({
     page,
   }) => {

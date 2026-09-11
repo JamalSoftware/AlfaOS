@@ -5156,3 +5156,22 @@ que a `CTO-3.2.2` tornou maior ao acrescentar as contagens operacionais ao popup
 da caixa, levava o marcador para `y=761`, com `elementFromPoint` devolvendo
 **NADA** ali. O ponteiro não alcança o que está fora do viewport, então o
 arrasto não acontecia e o botão Salvar continuava — corretamente — desabilitado.
+
+### 41.16 A legenda caía de novo quando as camadas eram LIGADAS
+
+A correção do §41.14 devolveu a legenda à primeira dobra — no estado **padrão**.
+Ligando a camada de clientes ela saía outra vez, e a `UXP-02` não via: ela
+valida o mapa como ele abre, e a camada nasce desligada.
+
+A causa era a mesma conta, em outro lugar: **cada camada trazia a sua própria
+linha de contadores**, empilhadas. Medido em 1440×900 com as três ligadas, as
+linhas ficavam em `y=820`, `852` e `884`, e a legenda em **`y=916`** — dezesseis
+pixels abaixo da janela. Os contadores passaram a dividir **uma** linha que
+quebra sozinha, e a legenda voltou para `y=852`.
+
+A `LAYER-21` existe para a quarta camada não repetir a conta em silêncio. E ela
+**nasceu fraca**: com `toBeInViewport()` ela sobreviveu à reversão que empilha
+os contadores de novo, porque esse matcher aceita qualquer interseção — uma
+legenda com 4 dos seus 20px visíveis ainda passa. Com a afirmação numérica —
+`legenda.y + legenda.height <= 900` — a reversão devolve o número do defeito:
+`Expected: <= 900 · Received: 912`.

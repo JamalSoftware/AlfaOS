@@ -1105,66 +1105,66 @@ export function CtoMapLayer({
             ) : null}
           </span>
         ) : null}
+
+        {/*
+          Os contadores das camadas novas, ao lado dos da CTO.
+
+          Cada um responde "quantos não couberam" — e sem coordenada não é sem
+          importância: um cliente sem localização existe, tem OS, tem contrato, e
+          simplesmente não pode ser desenhado. O contador é a forma honesta de
+          dizer isso sem inventar um ponto.
+        */}
+        {layers.CUSTOMERS && canSeeCustomers && clientes.dados ? (
+          <div className="contents">
+            <span data-testid="map-customer-count">
+              {clientes.dados.markers.length === 1
+                ? "1 cliente nesta área"
+                : `${clientes.dados.markers.length} clientes nesta área`}
+            </span>
+            {clientes.dados.truncated ? (
+              <span
+                className="font-medium text-warning-fg"
+                data-testid="map-customers-truncated"
+              >
+                Aproxime o mapa para carregar todos os clientes desta área.
+              </span>
+            ) : null}
+            {clientes.dados.missingLocationCount > 0 ? (
+              <span data-testid="map-customers-missing">
+                {clientes.dados.missingLocationCount} cliente
+                {clientes.dados.missingLocationCount === 1 ? "" : "s"} ativo
+                {clientes.dados.missingLocationCount === 1 ? "" : "s"} sem
+                localização
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
+        {layers.ORDERS && ordens.dados ? (
+          <div className="contents">
+            <span data-testid="map-order-count">
+              {ordens.dados.markers.length === 1
+                ? "1 OS aberta nesta área"
+                : `${ordens.dados.markers.length} OS abertas nesta área`}
+            </span>
+            {ordens.dados.truncated ? (
+              <span
+                className="font-medium text-warning-fg"
+                data-testid="map-orders-truncated"
+              >
+                Aproxime o mapa para carregar todas as OS desta área.
+              </span>
+            ) : null}
+            {ordens.dados.missingLocationCount > 0 ? (
+              <span data-testid="map-orders-missing">
+                {ordens.dados.missingLocationCount} OS aberta
+                {ordens.dados.missingLocationCount === 1 ? "" : "s"} sem
+                localização
+              </span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
-
-      {/*
-        Os contadores das camadas novas, ao lado dos da CTO.
-
-        Cada um responde "quantos não couberam" — e sem coordenada não é sem
-        importância: um cliente sem localização existe, tem OS, tem contrato, e
-        simplesmente não pode ser desenhado. O contador é a forma honesta de
-        dizer isso sem inventar um ponto.
-      */}
-      {layers.CUSTOMERS && canSeeCustomers && clientes.dados ? (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-muted">
-          <span data-testid="map-customer-count">
-            {clientes.dados.markers.length === 1
-              ? "1 cliente nesta área"
-              : `${clientes.dados.markers.length} clientes nesta área`}
-          </span>
-          {clientes.dados.truncated ? (
-            <span
-              className="font-medium text-warning-fg"
-              data-testid="map-customers-truncated"
-            >
-              Aproxime o mapa para carregar todos os clientes desta área.
-            </span>
-          ) : null}
-          {clientes.dados.missingLocationCount > 0 ? (
-            <span data-testid="map-customers-missing">
-              {clientes.dados.missingLocationCount} cliente
-              {clientes.dados.missingLocationCount === 1 ? "" : "s"} ativo
-              {clientes.dados.missingLocationCount === 1 ? "" : "s"} sem
-              localização
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-
-      {layers.ORDERS && ordens.dados ? (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-muted">
-          <span data-testid="map-order-count">
-            {ordens.dados.markers.length === 1
-              ? "1 OS aberta nesta área"
-              : `${ordens.dados.markers.length} OS abertas nesta área`}
-          </span>
-          {ordens.dados.truncated ? (
-            <span
-              className="font-medium text-warning-fg"
-              data-testid="map-orders-truncated"
-            >
-              Aproxime o mapa para carregar todas as OS desta área.
-            </span>
-          ) : null}
-          {ordens.dados.missingLocationCount > 0 ? (
-            <span data-testid="map-orders-missing">
-              {ordens.dados.missingLocationCount} OS aberta
-              {ordens.dados.missingLocationCount === 1 ? "" : "s"} sem
-              localização
-            </span>
-          ) : null}
-        </div>
-      ) : null}
 
       {clientesDaCto ? (
         <ClientesDaCaixa
