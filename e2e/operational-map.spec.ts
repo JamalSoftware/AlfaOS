@@ -2319,43 +2319,61 @@ async function desvioDoGravado(page: Page) {
   return { x: atual.x - esperado.x, y: atual.y - esperado.y };
 }
 
+/**
+ * Traz o marcador para o meio do mapa, arrastando o MAPA.
+ *
+ * O rascunho de posição não pode ser tocado por um reenquadramento de teste,
+ * então quem se move é o mapa — a coordenada do marcador não muda, e as
+ * medições comparam contra a coordenada gravada projetada (`desvioDoGravado`),
+ * que é invariante a pan.
+ *
+ * O ponto de PEGADA é escolhido longe do marcador de propósito: em modo de
+ * edição o marcador é arrastável, e começar o gesto em cima dele arrastaria a
+ * caixa em vez do mapa.
+ */
+async function centralizarMarcador(page: Page) {
+  const mapa = (await page.locator(".leaflet-container").boundingBox())!;
+  const alvo = (await marcadorDe(page, NOME_POS).boundingBox())!;
+  const centroX = mapa.x + mapa.width / 2;
+  const centroY = mapa.y + mapa.height / 2;
+  const alvoX = alvo.x + alvo.width / 2;
+  const alvoY = alvo.y + alvo.height / 2;
+
+  const dx = centroX - alvoX;
+  const dy = centroY - alvoY;
+  if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+
+  // Um quarto da tela, do lado OPOSTO ao marcador: longe dele e dentro do mapa.
+  const pegaX = alvoX > centroX ? mapa.x + mapa.width * 0.2 : mapa.x + mapa.width * 0.8;
+  const pegaY = alvoY > centroY ? mapa.y + mapa.height * 0.25 : mapa.y + mapa.height * 0.75;
+
+  await page.mouse.move(pegaX, pegaY);
+  await page.mouse.down();
+  await page.mouse.move(pegaX + dx, pegaY + dy, { steps: 12 });
+  await page.mouse.up();
+  await esperarMapaParar(page);
+}
+
 /** Arrasta o marcador por alguns pixels, como uma mão faria. */
 async function arrastar(page: Page, dx: number, dy: number) {
   const alvo = marcadorDe(page, NOME_POS);
-  /*
-    Rolar até o marcador ANTES de medir, porque é o que a mão faz.
-
-    O mapa tem altura fixa por decisão da `CTO-3.2.1b` — faixa de leitura, nunca
-    fração de tela —, então num viewport de 720px ele já termina abaixo da
-    dobra. E abrir o popup dispara o `autoPan`, que empurra o mapa para baixo
-    para caber: medido, o marcador foi parar em `y=761`, com
-    `elementFromPoint` devolvendo NADA ali. O ponteiro não alcança o que está
-    fora do viewport, então o arrasto não acontecia e o botão Salvar
-    continuava, corretamente, desabilitado.
-
-    A `CTO-3.2.2` aumentou esse empurrão ao acrescentar as contagens
-    operacionais ao popup da caixa, que ficou mais alto.
-  */
   await esperarMapaParar(page);
+
+  /*
+    RECENTRAR antes de cada arrasto, e não só quando o ponteiro erra.
+
+    O marcador caminha: o `autoPan` do popup empurra a vista uns 111px ao abrir,
+    e cada arrasto soma mais. Com o mapa em 400px de altura — a faixa foi
+    refeita na `CTO-3.2.2b` — a caixa sai pela borda de baixo no segundo gesto,
+    e medido: ela foi parar em `y=719` num mapa que termina em `697`, com o
+    ponteiro caindo sobre um chip do resumo.
+
+    Recentrando sempre, o gesto começa de um lugar previsível e o teste deixa de
+    depender de quanto sobrou de mapa.
+  */
+  await centralizarMarcador(page);
   await alvo.scrollIntoViewIfNeeded();
 
-  /*
-    O ponteiro precisa cair NO MARCADOR, e isso é conferido.
-
-    Arrastando em sequência, a caixa desce para fora da área visível do mapa —
-    o contêiner tem `overflow-hidden`, então ela continua tendo posição de
-    layout e deixa de estar sob o cursor. Medido: no segundo arrasto,
-    `elementFromPoint` devolvia `DIV[space-y-4]`, que é o contêiner da PÁGINA
-    abaixo do mapa, e o arrasto movia zero em metade das execuções.
-
-    Um arrasto que não pega o marcador não falha: ele não faz nada. O teste
-    seguia adiante e acusava outra coisa — foi assim que a `MAPEDIT-05/06/07`
-    ficou intermitente em 2 de 4 execuções com `--repeat-each`.
-
-    A cura é trazer o marcador de volta ao meio do mapa antes de tentar, e só
-    então arrastar. Se ainda assim o ponteiro não o alcançar, o helper
-    INTERROMPE — melhor uma falha que diz a verdade do que um arrasto mudo.
-  */
   const sobreOMarcador = async (px: number, py: number) =>
     page.evaluate(
       ([a, b]) => {
@@ -2365,33 +2383,23 @@ async function arrastar(page: Page, dx: number, dy: number) {
       [px, py],
     );
 
-  let caixa = (await alvo.boundingBox())!;
-  let x = caixa.x + caixa.width / 2;
-  let y = caixa.y + caixa.height / 2;
+  const caixa = (await alvo.boundingBox())!;
+  const x = caixa.x + caixa.width / 2;
+  const y = caixa.y + caixa.height / 2;
 
+  /*
+    E ainda assim a pegada é CONFERIDA.
+
+    Um arrasto que erra o alvo não dá erro: ele simplesmente não acontece, o
+    teste segue adiante e quem reclama é alguma asserção lá na frente. Melhor
+    uma falha que diz a verdade.
+  */
   if (!(await sobreOMarcador(x, y))) {
-    // Traz o marcador ao centro arrastando o MAPA, não a caixa: o rascunho de
-    // posição não pode mudar por causa de um reenquadramento do teste.
-    const mapa = (await page.locator(".leaflet-container").boundingBox())!;
-    const centroX = mapa.x + mapa.width / 2;
-    const centroY = mapa.y + mapa.height / 2;
-    await page.mouse.move(centroX, centroY);
-    await page.mouse.down();
-    await page.mouse.move(centroX + (centroX - x), centroY + (centroY - y), {
-      steps: 10,
-    });
-    await page.mouse.up();
-    await esperarMapaParar(page);
-
-    caixa = (await alvo.boundingBox())!;
-    x = caixa.x + caixa.width / 2;
-    y = caixa.y + caixa.height / 2;
-    if (!(await sobreOMarcador(x, y))) {
-      throw new Error(
-        "o ponteiro não alcança o marcador: o arrasto não provaria nada",
-      );
-    }
+    throw new Error(
+      "o ponteiro não alcança o marcador: o arrasto não provaria nada",
+    );
   }
+
   await page.mouse.move(x, y);
   await page.mouse.down();
   // Em passos: um salto único não produz os `mousemove` que o Leaflet escuta.
@@ -2539,6 +2547,34 @@ test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
 
     // O popup saiu da frente da caixa que vai ser movida.
     await expect(page.getByTestId("cto-map-popup")).toHaveCount(0);
+  });
+
+  test("PROBE-H · o que esta no centro do marcador", async ({ page }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaNaCaixaDePosicao(page);
+    await marcadorDe(page, NOME_POS).click();
+    await page.getByTestId("cto-map-popup-edit-position").click();
+    await expect(page.getByTestId("cto-map-position-panel")).toBeVisible();
+    await page.waitForTimeout(600);
+    const info = await page.evaluate(() => {
+      const m = document.querySelector('.leaflet-marker-icon[title^="MAPA QA POSICAO"]') as HTMLElement;
+      if (!m) return "marcador ausente";
+      const r = m.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const el = document.elementFromPoint(cx, cy) as HTMLElement | null;
+      const hit = m.querySelector(".cto-marker-hit") as HTMLElement | null;
+      return JSON.stringify({
+        caixa: `${Math.round(r.width)}x${Math.round(r.height)} @${Math.round(r.left)},${Math.round(r.top)}`,
+        noPonto: el ? `${el.tagName}.${(el.getAttribute("class") ?? "").slice(0, 50)}` : "NADA",
+        dentroDoMarcador: el ? Boolean(el.closest(".leaflet-marker-icon")) : false,
+        temHit: Boolean(hit),
+        hitPE: hit ? getComputedStyle(hit).pointerEvents : "-",
+        hitCaixa: hit ? `${Math.round(hit.getBoundingClientRect().width)}x${Math.round(hit.getBoundingClientRect().height)}` : "-",
+        containerPE: getComputedStyle(m).pointerEvents,
+      });
+    });
+    console.log("PROBE-H " + info);
   });
 
   test("MAPEDIT-05/06/07 · arrastar não salva, e Cancelar devolve o ponto", async ({
@@ -3092,6 +3128,30 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     });
     ordensCriadas.push(ordem.id);
 
+    /*
+      Uma OS URGENTE, para o contrato visual de urgência.
+
+      Ela vai no cliente SEM LEITURA, que ainda não tinha OS: assim a contagem
+      de pontos continua 3, o `danger + with-order` continua sendo um só (o
+      cliente OFFLINE), e nasce um segundo losango — este vermelho — num ponto
+      diferente do primeiro.
+
+      `URGENT` é escrito no campo que o domínio usa para isso. Nada aqui deduz
+      urgência de tipo, título ou tempo em aberto.
+    */
+    const urgente = await prisma.serviceOrder.create({
+      data: {
+        companyId,
+        number: 8802,
+        customerId: semLeitura.id,
+        type: "REPARO",
+        description: "OS urgente da camada",
+        status: "ASSIGNED",
+        priority: "URGENT",
+      },
+    });
+    ordensCriadas.push(urgente.id);
+
     // Uma OS aberta de cliente SEM localização: contador, nunca marcador falso.
     const orfa = await prisma.serviceOrder.create({
       data: {
@@ -3177,11 +3237,18 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     return vistaDaUrl(page);
   }
 
-  async function abrirCamadas(page: Page, email = ADMIN_EMAIL) {
+  async function abrirCamadas(page: Page, email = ADMIN_EMAIL, zoom = 16) {
     await login(page, email);
     await interceptarTiles(page);
+    /*
+      O zoom vem pela URL, e não pela roda do mouse.
+
+      A roda avança por quantidades que dependem do navegador e centra no
+      cursor; medir escala com ela mistura duas variáveis. Pela URL o teste
+      declara o degrau que quer.
+    */
     await page.goto(
-      `/mapa?lat=${LAYER_BASE.latitude}&lng=${LAYER_BASE.longitude}&z=16`,
+      `/mapa?lat=${LAYER_BASE.latitude}&lng=${LAYER_BASE.longitude}&z=${zoom}`,
     );
     await expect(page.locator(".leaflet-container")).toBeVisible();
     await expect(page.getByTestId("map-layer-control")).toBeVisible();
@@ -3562,6 +3629,467 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
   });
 
 
+  /** O lado do desenho de um marcador, já com a escala de zoom aplicada. */
+  async function ladoDoDesenho(page: Page, seletor: string) {
+    const caixa = (await page
+      .locator(`.leaflet-marker-pane ${seletor}`)
+      .first()
+      .boundingBox())!;
+    return caixa.width;
+  }
+
+  test("ZOOMVIS-01/02/03/04/05 · a hierarquia e as faixas de tamanho", async ({
+    page,
+  }) => {
+    await abrirCamadas(page, ADMIN_EMAIL, 17);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const cto = await ladoDoDesenho(page, "svg.cto-box");
+    const cliente = await ladoDoDesenho(page, "svg.cto-dot");
+    const os = await ladoDoDesenho(page, "svg.cto-order");
+
+    /*
+      O dono pediu aproximação de proporções: a caixa estava grande demais e os
+      outros dois pequenos demais. As faixas são o alvo do enunciado, medidas no
+      zoom operacional.
+    */
+    expect(cto, `CTO fora da faixa: ${cto}`).toBeGreaterThanOrEqual(30);
+    expect(cto, `CTO fora da faixa: ${cto}`).toBeLessThanOrEqual(34);
+    expect(cliente, `cliente fora da faixa: ${cliente}`).toBeGreaterThanOrEqual(16);
+    expect(cliente, `cliente fora da faixa: ${cliente}`).toBeLessThanOrEqual(18);
+    expect(os, `OS fora da faixa: ${os}`).toBeGreaterThanOrEqual(18);
+    expect(os, `OS fora da faixa: ${os}`).toBeLessThanOrEqual(20);
+
+    // E a hierarquia: CTO > OS > cliente. A caixa é a infraestrutura.
+    expect(cto, "a CTO deixou de ser a maior").toBeGreaterThan(os);
+    expect(os, "a OS deixou de se destacar do cliente").toBeGreaterThan(cliente);
+  });
+
+  test("ZOOMVIS-06/07 · o desenho cresce com o zoom, e a caixa reduz menos", async ({
+    page,
+  }) => {
+    /*
+      Uma sessão só para os três zooms.
+
+      `login()` preenche o formulário, e com sessão viva a segunda chamada cai
+      no dashboard — não existe campo de e-mail para preencher. A autenticação
+      acontece uma vez; o resto é navegação.
+    */
+    await abrirCamadas(page, ADMIN_EMAIL, 17);
+    await page.getByTestId("map-layer-customers").check();
+
+    const medirEm = async (zoom: number) => {
+      await page.goto(
+        `/mapa?lat=${LAYER_BASE.latitude}&lng=${LAYER_BASE.longitude}&z=${zoom}&layers=CTOS,ORDERS,CUSTOMERS`,
+      );
+      await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
+        timeout: 15_000,
+      });
+      await page.waitForTimeout(400);
+      return {
+        cto: await ladoDoDesenho(page, "svg.cto-box"),
+        cliente: await ladoDoDesenho(page, "svg.cto-dot"),
+      };
+    };
+
+    const longe = await medirEm(13);
+    const meio = await medirEm(15);
+    const perto = await medirEm(18);
+
+    expect(perto.cliente, "z18 deveria ser maior que z15").toBeGreaterThan(meio.cliente);
+    expect(meio.cliente, "z15 deveria ser maior que z13").toBeGreaterThan(longe.cliente);
+
+    /*
+      A CAIXA reduz MENOS, e é isso que preserva a hierarquia de longe.
+
+      Cliente e OS podem virar pontinhos discretos quando o mapa se afasta; uma
+      caixa que encolhesse na mesma proporção deixaria o mapa sem referência de
+      infraestrutura.
+    */
+    const quedaDaCaixa = longe.cto / perto.cto;
+    const quedaDoCliente = longe.cliente / perto.cliente;
+    expect(
+      quedaDaCaixa,
+      "a caixa está encolhendo tanto quanto o cliente",
+    ).toBeGreaterThan(quedaDoCliente);
+  });
+
+  test("ZOOMVIS-08/09 · a escala não move a coordenada nem o transform do Leaflet", async ({
+    page,
+  }) => {
+    await abrirCamadas(page, ADMIN_EMAIL, 17);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const ler = async () =>
+      page.evaluate(() => {
+        const m = document.querySelector(
+          '.leaflet-marker-icon[title^="CAMADA CAIXA"]',
+        ) as HTMLElement;
+        const r = m.getBoundingClientRect();
+        const mapa = document.querySelector(".leaflet-container")!.getBoundingClientRect();
+        return {
+          // O transform do CONTÊINER é do Leaflet, e tem de continuar sendo.
+          transform: getComputedStyle(m).transform,
+          // Âncora na base, relativa ao mapa: é ela que aponta para o poste.
+          ancoraX: Math.round((r.left + r.width / 2 - mapa.left) * 10) / 10,
+          ancoraY: Math.round((r.bottom - 2 - mapa.top) * 10) / 10,
+          hit: Math.round(
+            (document.querySelector(".leaflet-marker-pane .cto-marker-hit") as HTMLElement)
+              .getBoundingClientRect().width,
+          ),
+        };
+      });
+
+    const antes = await ler();
+
+    /*
+      O `transform` do contêiner é `matrix(1, 0, 0, 1, x, y)` — translação pura.
+
+      Se a escala fosse aplicada ali, ela substituiria o posicionamento do
+      Leaflet e a caixa sairia do lugar geográfico. Ela mora numa camada de
+      dentro, e é por isso que este teste existe.
+    */
+    expect(antes.transform, "o Leaflet perdeu o transform de posição").toMatch(
+      /^matrix\(1,\s*0,\s*0,\s*1,/,
+    );
+
+    // Troca de zoom sem mexer no centro: só a escala muda.
+    await page.goto(
+      `/mapa?lat=${LAYER_BASE.latitude}&lng=${LAYER_BASE.longitude}&z=18`,
+    );
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.waitForTimeout(400);
+    const depois = await ler();
+
+    expect(depois.transform).toMatch(/^matrix\(1,\s*0,\s*0,\s*1,/);
+    // ZOOMVIS-10: o alvo de clique não encolhe com o desenho.
+    expect(depois.hit, "a área de clique encolheu junto com o desenho").toBe(antes.hit);
+    expect(depois.hit).toBeGreaterThanOrEqual(28);
+  });
+
+
+  test("LABELZOOM-01/02/04/05/07 · os rótulos aparecem no zoom operacional", async ({
+    page,
+  }) => {
+    await abrirCamadas(page, ADMIN_EMAIL, 17);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const iniciais = page.locator(".leaflet-marker-pane .cto-dot__initials").first();
+    const rotuloDeOs = page.getByTestId("order-map-label").first();
+    const plaquetaDaCto = page.locator(".cto-map-label__name").first();
+
+    // z17: iniciais e número visíveis.
+    await expect(iniciais).toBeVisible();
+    await expect(rotuloDeOs).toBeVisible();
+    await expect(rotuloDeOs).toContainText("OS-N°");
+    // LABELZOOM-07: a plaqueta da caixa não regrediu.
+    await expect(plaquetaDaCto).toBeVisible();
+
+    /*
+      z14: o mapa é leitura de DISTRIBUIÇÃO, não de identidade.
+
+      Texto em cima de cada ponto a essa distância vira sobreposição. O elemento
+      continua no DOM — some por CSS, sem recriar marcador, que é o que mantém
+      popup aberto e evita o remonte que a `CTO-3.2.2b` consertou.
+    */
+    await page.goto(
+      `/mapa?lat=${LAYER_BASE.latitude}&lng=${LAYER_BASE.longitude}&z=14&layers=CTOS,ORDERS,CUSTOMERS`,
+    );
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.waitForTimeout(400);
+
+    await expect(page.locator(".leaflet-marker-pane .cto-dot__initials").first()).toBeHidden();
+    await expect(page.getByTestId("order-map-label").first()).toBeHidden();
+  });
+
+  test("LABELZOOM-03 · as iniciais saem do nome, e só as iniciais", async ({
+    page,
+  }) => {
+    await abrirCamadas(page, ADMIN_EMAIL, 17);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const textos = await page
+      .locator(".leaflet-marker-pane .cto-dot__initials")
+      .allTextContents();
+    expect(textos.length).toBeGreaterThan(0);
+
+    /*
+      Duas letras, nunca o nome.
+
+      Nome completo como rótulo permanente espalharia identificação por uma tela
+      cujo trabalho é desenhar pontos. Ele vive no popup, aberto por ação
+      explícita.
+    */
+    for (const t of textos) {
+      expect(t, `rótulo inesperado no mapa: ${t}`).toMatch(/^[A-Z]{1,2}$/);
+    }
+
+    // E o nome completo da fixture NÃO aparece no painel de marcadores.
+    const painel = await page.locator(".leaflet-marker-pane").innerText();
+    expect(painel).not.toContain("CAMADA CLIENTE ONLINE");
+  });
+
+  test("OSURG-01/02/03/04/06 · a urgência vem do domínio, e não é só cor", async ({
+    page,
+  }) => {
+    await abrirCamadas(page, ADMIN_EMAIL, 17);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-order").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const normal = page.locator(
+      ".leaflet-marker-pane svg.cto-order:not(.cto-order--urgente)",
+    );
+    const urgente = page.locator(".leaflet-marker-pane svg.cto-order--urgente");
+
+    await expect(normal).toHaveCount(1);
+    await expect(urgente).toHaveCount(1);
+
+    const cor = async (alvo: typeof normal) =>
+      alvo.locator(".cto-order__body").first().evaluate((el) => getComputedStyle(el).fill);
+    const canais = (c: string) => (c.match(/\d+(\.\d+)?/g) ?? []).map(Number);
+
+    // OSURG-01: a normal é âmbar — vermelho e verde altos, azul baixo.
+    const [rn, gn, bn] = canais(await cor(normal));
+    expect(rn, `normal deveria ser âmbar: ${await cor(normal)}`).toBeGreaterThan(bn);
+    expect(gn).toBeGreaterThan(bn);
+
+    // OSURG-02: a urgente é vermelha — o verde CAI em relação à normal.
+    const [ru, gu] = canais(await cor(urgente));
+    expect(ru).toBeGreaterThan(gu);
+    expect(gu, "a urgente não se distingue da normal").toBeLessThan(gn);
+
+    /*
+      OSURG-03/04: o `!` é reforço, e só a urgente o tem.
+
+      A cor não pode ser a única portadora da urgência — mesma regra dos estados
+      do cliente. Quem não distingue vermelho de laranja continua vendo o sinal.
+    */
+    await expect(urgente.locator(".cto-order__bang")).toHaveCount(1);
+    await expect(normal.locator(".cto-order__bang")).toHaveCount(0);
+
+    // OSURG-06: o rótulo traz o NÚMERO do domínio, nunca o id do banco.
+    const rotulos = await page.getByTestId("order-map-label").allTextContents();
+    expect(rotulos.some((r) => r.includes("OS-N°8800"))).toBe(true);
+    expect(rotulos.some((r) => r.includes("! OS-N°8802"))).toBe(true);
+    for (const r of rotulos) {
+      expect(r, `rótulo com formato inesperado: ${r}`).toMatch(/^!?\s?OS-N°\d+$/);
+    }
+  });
+
+  test("OSURG-05 · a conectividade do cliente não mexe na prioridade da OS", async ({
+    page,
+  }) => {
+    await abrirCamadas(page, ADMIN_EMAIL, 17);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-order").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    /*
+      A fixture monta o caso adverso de propósito.
+
+      A OS NORMAL está no cliente OFFLINE; a URGENTE está no cliente SEM
+      LEITURA. Se alguma coisa deduzisse urgência do estado do link, a normal
+      seria a vermelha — vermelho em cliente é OFFLINE, e são semânticas
+      diferentes que dividem a mesma cor.
+    */
+    const urgenteId = await page
+      .locator(".leaflet-marker-pane svg.cto-order--urgente")
+      .first()
+      .evaluate((el) => el.closest(".leaflet-marker-icon")?.getAttribute("title") ?? "");
+    expect(urgenteId).toContain("8802");
+    expect(urgenteId).toContain("Urgente");
+  });
+
+
+  /** A geometria que o refresh NÃO pode mexer. */
+  async function geometriaDaPagina(page: Page) {
+    return page.evaluate(() => {
+      const box = (sel: string) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return [Math.round(r.top * 10) / 10, Math.round(r.height * 10) / 10];
+      };
+      return {
+        mapa: box(".leaflet-container"),
+        controle: box('[data-testid="map-layer-control"]'),
+        resumo: box('[data-testid="map-summary"]'),
+        legenda: box('[data-testid="map-legend"]'),
+      };
+    });
+  }
+
+  test("LOADUX-01..06 · o indicador de atualização não move nada", async ({
+    page,
+  }) => {
+    await abrirCamadas(page, ADMIN_EMAIL, 17);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.waitForTimeout(600);
+
+    const antes = await geometriaDaPagina(page);
+
+    /*
+      A resposta é RETARDADA de propósito.
+
+      O defeito que o dono relatou só existe ENQUANTO a leitura está em voo: a
+      mensagem entrava no fluxo acima do mapa, empurrava tudo para baixo e
+      sumia empurrando de volta. Medir só antes e depois não veria nada.
+    */
+    await page.route("**/api/map/customers**", async (route) => {
+      await new Promise((r) => setTimeout(r, 1500));
+      return route.fallback();
+    });
+
+    const area = (await page.locator(".leaflet-container").boundingBox())!;
+    const x = area.x + area.width * 0.3;
+    const y = area.y + area.height * 0.4;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 70, y + 50, { steps: 10 });
+    await page.mouse.up();
+
+    // LOADUX-06 (primeira metade): a pílula aparece.
+    await expect(page.getByTestId("map-updating")).toBeVisible({ timeout: 10_000 });
+
+    const durante = await geometriaDaPagina(page);
+
+    /*
+      Tolerância de UM pixel, e o alvo é zero.
+
+      Qualquer elemento que entre no fluxo durante o refresh aparece aqui como
+      deslocamento — foi assim que o defeito foi relatado: "a página desce e
+      depois volta".
+    */
+    for (const chave of ["mapa", "controle", "resumo", "legenda"] as const) {
+      const a = antes[chave]!;
+      const d = durante[chave]!;
+      expect(
+        Math.abs(d[0] - a[0]),
+        `${chave} mudou de posição durante o refresh: ${a[0]} → ${d[0]}`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(d[1] - a[1]),
+        `${chave} mudou de altura durante o refresh: ${a[1]} → ${d[1]}`,
+      ).toBeLessThanOrEqual(1);
+    }
+
+    // LOADUX-06 (segunda metade): some quando a leitura termina.
+    await expect(page.getByTestId("map-updating")).toBeHidden({ timeout: 15_000 });
+  });
+
+  test("LOADUX-07 · resposta instantânea não faz a pílula piscar", async ({
+    page,
+  }) => {
+    await abrirCamadas(page, ADMIN_EMAIL, 17);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.waitForTimeout(600);
+
+    /*
+      O atraso é SÓ da interface.
+
+      Uma resposta que volta em poucas dezenas de milissegundos faria a pílula
+      aparecer e sumir num piscar, que incomoda mais do que informa. O pedido
+      sai na hora; quem espera é o aviso. Aqui a resposta é imediata, e a
+      pílula não pode chegar a existir.
+      */
+    await page.route("**/api/map/customers**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          data: {
+            map: {
+              markers: [],
+              truncated: false,
+              limit: 300,
+              missingLocationCount: 0,
+            },
+          },
+        }),
+      }),
+    );
+
+    const aparicoes: number[] = [];
+    const relogio = setInterval(() => {
+      void page
+        .getByTestId("map-updating")
+        .count()
+        .then((n) => aparicoes.push(n))
+        .catch(() => undefined);
+    }, 40);
+
+    const area = (await page.locator(".leaflet-container").boundingBox())!;
+    const x = area.x + area.width * 0.3;
+    const y = area.y + area.height * 0.4;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 60, y + 40, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(1500);
+    clearInterval(relogio);
+
+    expect(
+      Math.max(0, ...aparicoes),
+      `a pílula piscou numa resposta instantânea: ${aparicoes.join(",")}`,
+    ).toBe(0);
+  });
+
+  test("POP-03 · o popup do cliente não repete a palavra CTO", async ({
+    page,
+  }) => {
+    await abrirCamadas(page, ADMIN_EMAIL, 17);
+    await page.getByTestId("map-layer-customers").check();
+    // Sem a camada de OS, o ponto do cliente fica alcançável — ver `LAYER-08/09`.
+    await page.getByTestId("map-layer-orders").uncheck();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-order")).toHaveCount(0);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await page
+      .locator('.leaflet-marker-icon[title^="CAMADA CLIENTE ONLINE"]')
+      .click();
+    const popup = page.getByTestId("customer-map-popup");
+    await expect(popup).toBeVisible();
+
+    const texto = (await popup.getByTestId("customer-map-cto").innerText()).trim();
+    /*
+      O nome da caixa JÁ COMEÇA com "CTO", e o rótulo repetia: saía
+      "CTO CTO QA FIELD 01 · 1". O valor persistido não foi tocado — quem saiu
+      foi o rótulo redundante.
+    */
+    expect(texto, `o rótulo voltou a duplicar: ${texto}`).not.toMatch(/CTO\s+CTO/);
+    expect(texto).toContain("CAMADA CAIXA");
+    expect(texto).toContain("Porta");
+
+    // E o nome completo do cliente continua no popup, que é onde ele pode estar.
+    await expect(popup).toContainText("CAMADA CLIENTE ONLINE");
+  });
+
+
   test("LAYER-01/02/03 · o estado inicial das camadas", async ({ page }) => {
     await abrirCamadas(page);
 
@@ -3805,7 +4333,7 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
         );
       return {
         cliente: Number(porTitulo("CAMADA CLIENTE OFFLINE")?.style.zIndex),
-        os: Number(porTitulo("OS Nº 8800")?.style.zIndex),
+        os: Number(porTitulo("OS número 8800")?.style.zIndex),
       };
     });
     // O mesmo ponto ⇒ a latitude não desempata. Quem desempata é a regra.
@@ -3851,7 +4379,7 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     const antes = await vistaEstavel(page);
 
     await page
-      .locator(`.leaflet-marker-icon[title^="OS Nº ${camadas.ordemNumero}"]`)
+      .locator(`.leaflet-marker-icon[title^="OS número ${camadas.ordemNumero}"]`)
       .click();
     const popup = page.getByTestId("order-map-popup");
     await expect(popup).toBeVisible();
