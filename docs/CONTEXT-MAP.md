@@ -43,6 +43,38 @@ não são da sessão; `Stop-Process -Force` do PowerShell funciona. Conferir a
 porta antes de subir evita o pior caso, que é **dois servidores escutando a
 mesma porta** — aí o tráfego alterna entre eles e o diagnóstico fica sem chão.
 
+## `localhost` não é `127.0.0.1` quando o Postgres está no Docker
+
+**Sintoma:** `P1001: Can't reach database server at localhost:5432`, com o
+contêiner de pé, `pg_isready` respondendo *accepting connections* e
+`Test-NetConnection` devolvendo `TcpTestSucceeded: True`. Tudo indica que o
+banco está no ar — e está.
+
+**Causa, medida:** no Windows, `localhost` resolve para **`::1` primeiro**, e a
+ponte IPv6 do Docker Desktop aceita a conexão TCP sem encaminhá-la. Um
+handshake cru mostra os dois caminhos lado a lado:
+
+```text
+127.0.0.1  ->  RESPONDEU "N"        (SSLRequest respondido: é o Postgres)
+::1        ->  TIMEOUT              (conecta e nunca responde)
+```
+
+Por isso o TCP "conecta": quem aceita é o proxy, não o banco. O cliente fica
+esperando bytes que nunca chegam e reporta *servidor inalcançável*.
+
+> **Regra:** ao ver `P1001` com o contêiner saudável, **não recrie contêiner e
+> não troque volume** — teste `::1` e `127.0.0.1` separadamente antes de
+> qualquer coisa. Para destravar sem tocar no `.env`, sobreponha as três URLs
+> por comando: `DATABASE_URL` (aplicação e Prisma), `TEST_DATABASE_URL`
+> (Vitest) e `E2E_DATABASE_URL` (Playwright), trocando `@localhost:` por
+> `@127.0.0.1:`.
+
+**Lição de diagnóstico, e ela custou caro:** a primeira conclusão foi que o
+contêiner tinha sido removido, porque ele não aparecia em `docker ps -a`. Ele
+aparecia — estava além do `head -10` do próprio comando. **Truncar a saída e
+concluir pela ausência** é como um contêiner de 43 horas de uptime vira
+"sumiu".
+
 ## Produto / roadmap
 
 **Carregar:** `docs/PRD.md` — preferencialmente só a(s) seção(ões) relevante(s) à tarefa, não o arquivo inteiro (é longo).
