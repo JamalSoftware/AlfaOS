@@ -2754,3 +2754,497 @@ test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// CTO-3.2.2 — camadas de cliente e de OS aberta
+// ---------------------------------------------------------------------------
+
+/**
+ * Fixtures PRÓPRIAS, longe de todas as outras — a lição da `CTO-3.2.1d`.
+ *
+ * Naquela fase uma caixa criada num `beforeAll` de arquivo alargou o
+ * `fitBounds` de toda a empresa e fez nove testes de outros blocos falharem com
+ * `locator.click: timeout`, porque os marcadores originais colapsaram e
+ * passaram a interceptar o clique uns dos outros.
+ *
+ * Aqui nada é criado fora deste `describe`, tudo é removido no `afterAll`, e as
+ * coordenadas ficam a `+0,2°` — cerca de 22 km — do resto do arquivo.
+ */
+const LAYER_BASE = { latitude: BASE.latitude + 0.2, longitude: BASE.longitude + 0.2 };
+
+interface FixtureDeCamadas {
+  ctoId: string;
+  online: string;
+  offline: string;
+  semLeitura: string;
+  semLocal: string;
+  ordemId: string;
+  ordemNumero: number;
+}
+
+let camadas: FixtureDeCamadas;
+const clientesCriados: string[] = [];
+const ordensCriadas: string[] = [];
+const ctosDeCamada: string[] = [];
+
+async function criarClienteE2E(
+  nome: string,
+  opcoes: { lat?: number | null; ativo?: boolean } = {},
+) {
+  const cliente = await prisma.customer.create({
+    data: { companyId, name: nome, active: opcoes.ativo ?? true },
+  });
+  clientesCriados.push(cliente.id);
+  if (opcoes.lat !== null) {
+    await prisma.customerLocation.create({
+      data: {
+        companyId,
+        customerId: cliente.id,
+        latitude: opcoes.lat ?? LAYER_BASE.latitude,
+        longitude: LAYER_BASE.longitude,
+        source: "MANUAL",
+      },
+    });
+  }
+  return cliente;
+}
+
+test.describe("Mapa Operacional — camadas de cliente e OS", () => {
+  test.beforeAll(async () => {
+    const online = await criarClienteE2E("CAMADA CLIENTE ONLINE");
+    const offline = await criarClienteE2E("CAMADA CLIENTE OFFLINE", {
+      lat: LAYER_BASE.latitude + 0.0008,
+    });
+    const semLeitura = await criarClienteE2E("CAMADA CLIENTE SEM LEITURA", {
+      lat: LAYER_BASE.latitude - 0.0008,
+    });
+    const semLocal = await criarClienteE2E("CAMADA CLIENTE SEM LOCAL", {
+      lat: null,
+    });
+
+    for (const [customerId, status] of [
+      [online.id, "ONLINE"],
+      [offline.id, "OFFLINE"],
+    ] as const) {
+      await prisma.customerDiagnosticSnapshot.create({
+        data: {
+          companyId,
+          customerId,
+          externalProvider: "MOCK",
+          connectivityStatus: status,
+          observedAt: new Date(),
+        },
+      });
+    }
+
+    // O OFFLINE também tem OS aberta: os dois sinais precisam conviver.
+    const ordem = await prisma.serviceOrder.create({
+      data: {
+        companyId,
+        number: 8800,
+        customerId: offline.id,
+        type: "REPARO",
+        description: "OS da camada",
+        status: "ASSIGNED",
+      },
+    });
+    ordensCriadas.push(ordem.id);
+
+    // Uma OS aberta de cliente SEM localização: contador, nunca marcador falso.
+    const orfa = await prisma.serviceOrder.create({
+      data: {
+        companyId,
+        number: 8801,
+        customerId: semLocal.id,
+        type: "REPARO",
+        description: "OS sem local",
+        status: "PENDING",
+      },
+    });
+    ordensCriadas.push(orfa.id);
+
+    const cto = await criarCto("CAMADA CAIXA", {
+      latitude: LAYER_BASE.latitude,
+      longitude: LAYER_BASE.longitude,
+    });
+    ctosDeCamada.push(cto.id);
+    for (const [customerId, porta] of [
+      [online.id, 1],
+      [offline.id, 2],
+    ] as const) {
+      const p = await prisma.cTOPort.findFirstOrThrow({
+        where: { ctoId: cto.id, number: porta },
+      });
+      await prisma.customerNetworkConnection.create({
+        data: {
+          companyId,
+          customerId,
+          ctoPortId: p.id,
+          source: "WEB",
+          connectedAt: new Date(),
+        },
+      });
+    }
+
+    camadas = {
+      ctoId: cto.id,
+      online: online.id,
+      offline: offline.id,
+      semLeitura: semLeitura.id,
+      semLocal: semLocal.id,
+      ordemId: ordem.id,
+      ordemNumero: ordem.number,
+    };
+  });
+
+  test.afterAll(async () => {
+    await prisma.serviceOrder.deleteMany({ where: { id: { in: ordensCriadas } } });
+    await prisma.customerNetworkConnection.deleteMany({
+      where: { customerId: { in: clientesCriados } },
+    });
+    await prisma.cTOPort.deleteMany({ where: { ctoId: { in: ctosDeCamada } } });
+    await prisma.cTO.deleteMany({ where: { id: { in: ctosDeCamada } } });
+    await prisma.customerDiagnosticSnapshot.deleteMany({
+      where: { customerId: { in: clientesCriados } },
+    });
+    await prisma.customerLocation.deleteMany({
+      where: { customerId: { in: clientesCriados } },
+    });
+    await prisma.customer.deleteMany({ where: { id: { in: clientesCriados } } });
+  });
+
+  /**
+   * A vista depois de o mapa PARAR de se mexer.
+   *
+   * Abrir um popup dispara o `autoPan` do Leaflet, e a URL só é reescrita no
+   * `moveend` seguinte. Ler a barra de endereço no instante do clique captura o
+   * enquadramento ANTERIOR ao deslocamento — e a comparação depois da volta
+   * acusa uma diferença que é do popup, não da navegação.
+   *
+   * A `CTO-3.2.1d` já tinha medido esse deslocamento em 138px. Aqui a saída é
+   * esperar duas leituras iguais em vez de cravar um tempo.
+   */
+  async function vistaEstavel(page: Page) {
+    let anterior = vistaDaUrl(page).toString();
+    for (let i = 0; i < 20; i += 1) {
+      await page.waitForTimeout(150);
+      const atual = vistaDaUrl(page).toString();
+      if (atual === anterior) return vistaDaUrl(page);
+      anterior = atual;
+    }
+    return vistaDaUrl(page);
+  }
+
+  async function abrirCamadas(page: Page, email = ADMIN_EMAIL) {
+    await login(page, email);
+    await interceptarTiles(page);
+    await page.goto(
+      `/mapa?lat=${LAYER_BASE.latitude}&lng=${LAYER_BASE.longitude}&z=16`,
+    );
+    await expect(page.locator(".leaflet-container")).toBeVisible();
+    await expect(page.getByTestId("map-layer-control")).toBeVisible();
+  }
+
+  test("LAYER-01/02/03 · o estado inicial das camadas", async ({ page }) => {
+    await abrirCamadas(page);
+
+    // CTOs e OS abertas ligadas; clientes DESLIGADA.
+    await expect(page.getByTestId("map-layer-ctos")).toBeChecked();
+    await expect(page.getByTestId("map-layer-orders")).toBeChecked();
+    await expect(page.getByTestId("map-layer-customers")).not.toBeChecked();
+
+    // As duas ligadas desenham; a desligada não.
+    await expect(page.locator("svg.cto-box").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.locator("svg.cto-order").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.locator("svg.cto-dot")).toHaveCount(0);
+
+    /*
+      Camada DESLIGADA não consulta.
+
+      Uma camada apagada que continuasse pedindo gastaria banco e banda para
+      desenhar nada — e é o tipo de custo que ninguém percebe, porque não
+      aparece na tela.
+    */
+    const pedidos: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("/api/map/customers")) pedidos.push(r.url());
+    });
+    await page.mouse.move(400, 300);
+    await page.mouse.down();
+    await page.mouse.move(460, 340, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(1200);
+    expect(pedidos, "a camada desligada consultou").toEqual([]);
+  });
+
+  test("LAYER-04/05/06/07 · ligar clientes mostra os três estados", async ({
+    page,
+  }) => {
+    await abrirCamadas(page);
+    await page.getByTestId("map-layer-customers").check();
+
+    await expect(page.locator("svg.cto-dot")).toHaveCount(3, {
+      timeout: 15_000,
+    });
+
+    const estados = await page
+      .locator("svg.cto-dot")
+      .evaluateAll((nos) => nos.map((n) => n.getAttribute("class")));
+    expect(estados.some((c) => c?.includes("cto-dot--success"))).toBe(true);
+    expect(estados.some((c) => c?.includes("cto-dot--danger"))).toBe(true);
+    expect(estados.some((c) => c?.includes("cto-dot--neutral"))).toBe(true);
+
+    /*
+      LAYER-07: OFFLINE **e** OS ABERTA ao mesmo tempo.
+
+      O miolo continua vermelho — o estado do link — e o anel tracejado diz que
+      há trabalho aberto. Um marcador que trocasse a cor por "tem OS"
+      esconderia justamente a informação que explica a OS existir.
+    */
+    const comOs = page.locator("svg.cto-dot.cto-dot--danger.cto-dot--with-order");
+    await expect(comOs).toHaveCount(1);
+    await expect(comOs.locator(".cto-dot__order")).toHaveCount(1);
+
+    // O cliente sem localização não virou marcador, e é contado.
+    await expect(page.getByTestId("map-customers-missing")).toContainText(
+      "sem localização",
+    );
+  });
+
+  test("LAYER-08/09 · popup do cliente, e voltar restaura o mapa", async ({
+    page,
+  }) => {
+    await abrirCamadas(page);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator("svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await page
+      .locator('.leaflet-marker-icon[title^="CAMADA CLIENTE OFFLINE"]')
+      .click();
+    const popup = page.getByTestId("customer-map-popup");
+    await expect(popup).toBeVisible();
+
+    // Cadastro e conectividade, nomeados e separados.
+    await expect(popup).toContainText("Cadastro: Ativo");
+    await expect(popup.getByTestId("map-connectivity")).toHaveAttribute(
+      "data-status",
+      "OFFLINE",
+    );
+    await expect(popup.getByTestId("customer-map-open-os")).toHaveText("1");
+    // A CTO e a porta vêm do VÍNCULO, e aparecem.
+    await expect(popup).toContainText("CAMADA CAIXA");
+
+    const antes = await vistaEstavel(page);
+    await popup.getByTestId("customer-map-open").click();
+
+    await expect(page.getByTestId("customer-back-link")).toHaveText(
+      "← Mapa Operacional",
+    );
+    await page.getByTestId("customer-back-link").click();
+
+    await expect(page.locator(".leaflet-container")).toBeVisible({
+      timeout: 15_000,
+    });
+    const depois = vistaDaUrl(page);
+    expect(depois.get("z")).toBe(antes.get("z"));
+    expect(Number(depois.get("lat"))).toBeCloseTo(Number(antes.get("lat")), 3);
+    // LAYER-09: a camada ligada volta ligada.
+    await expect(page.getByTestId("map-layer-customers")).toBeChecked();
+  });
+
+  test("LAYER-10/11 · popup da OS, e voltar restaura o mapa", async ({ page }) => {
+    await abrirCamadas(page);
+    await expect(page.locator("svg.cto-order").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await page
+      .locator(`.leaflet-marker-icon[title^="OS Nº ${camadas.ordemNumero}"]`)
+      .click();
+    const popup = page.getByTestId("order-map-popup");
+    await expect(popup).toBeVisible();
+    await expect(popup).toContainText("CAMADA CLIENTE OFFLINE");
+    // A conectividade do cliente aparece dentro do popup da OS.
+    await expect(popup.getByTestId("map-connectivity")).toHaveAttribute(
+      "data-status",
+      "OFFLINE",
+    );
+
+    const antes = await vistaEstavel(page);
+    await popup.getByTestId("order-map-open").click();
+
+    await expect(page.getByTestId("order-back-link")).toHaveText(
+      "← Mapa Operacional",
+    );
+    await page.getByTestId("order-back-link").click();
+
+    await expect(page.locator(".leaflet-container")).toBeVisible({
+      timeout: 15_000,
+    });
+    expect(vistaDaUrl(page).get("z")).toBe(antes.get("z"));
+  });
+
+  test("LAYER-12/13/14 · o selo de OS na caixa, os contadores e os clientes por porta", async ({
+    page,
+  }) => {
+    await abrirCamadas(page);
+    const caixa = page.locator('.leaflet-marker-icon[title^="CAMADA CAIXA"]');
+    await expect(caixa).toBeVisible({ timeout: 15_000 });
+
+    // LAYER-12: o selo de OS existe, e o selo de ESTADO continua lá.
+    const svg = caixa.locator("svg.cto-box");
+    await expect(svg.locator(".cto-box__orders")).toHaveCount(1);
+    await expect(svg.locator(".cto-box__badge")).toHaveCount(1);
+    await expect(svg.locator(".cto-box__glyph")).toHaveCount(1);
+
+    await caixa.click();
+    const popup = page.getByTestId("cto-map-popup");
+    await expect(popup).toBeVisible();
+
+    // LAYER-13: os contadores operacionais.
+    await expect(popup.getByTestId("cto-map-active-customers")).toHaveText("2");
+    await expect(popup.getByTestId("cto-map-open-orders")).toHaveText("1");
+    await expect(popup.getByTestId("cto-map-operational")).toContainText(
+      "Sem leitura",
+    );
+
+    // LAYER-14: a lista nominal, buscada só ao clicar.
+    await popup.getByTestId("cto-map-show-customers").click();
+    const painel = page.getByTestId("cto-customers-panel");
+    await expect(painel).toBeVisible();
+    await expect(painel.getByTestId("cto-customers-row")).toHaveCount(2, {
+      timeout: 15_000,
+    });
+    await expect(painel).toContainText("Porta 01");
+    await expect(painel).toContainText("CAMADA CLIENTE ONLINE");
+    await expect(painel).toContainText("CAMADA CLIENTE OFFLINE");
+    await expect(
+      painel.getByTestId("cto-customers-open-os").first(),
+    ).toContainText("1 OS aberta");
+  });
+
+  test("LAYER-15/16 · a busca acha cliente e OS, e centraliza", async ({
+    page,
+  }) => {
+    await abrirCamadas(page);
+
+    await page.getByTestId("cto-map-search-input").fill("CAMADA CLIENTE ONLINE");
+    const hits = page.getByTestId("cto-map-search-hit");
+    await expect(hits.first()).toBeVisible({ timeout: 15_000 });
+    await expect(
+      hits.first().getByTestId("cto-map-search-hit-kind"),
+    ).toHaveText("Cliente");
+    await hits.first().getByTestId("cto-map-search-hit-focus").click();
+    await expect
+      .poll(() => Number(vistaDaUrl(page).get("lat")))
+      .toBeCloseTo(LAYER_BASE.latitude, 2);
+
+    // E pelo NÚMERO da OS.
+    await page
+      .getByTestId("cto-map-search-input")
+      .fill(String(camadas.ordemNumero));
+    await expect(
+      page
+        .getByTestId("cto-map-search-hit")
+        .filter({ hasText: `OS Nº ${camadas.ordemNumero}` }),
+    ).toHaveCount(1, { timeout: 15_000 });
+  });
+
+  test("LAYER-17 · falha da camada de clientes NÃO derruba CTO nem OS", async ({
+    page,
+  }) => {
+    await abrirCamadas(page);
+
+    await page.route("**/api/map/customers**", (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: false, error: "Falha ao carregar clientes." }),
+      }),
+    );
+    await page.getByTestId("map-layer-customers").check();
+
+    /*
+      A mensagem é ESPECÍFICA, e não "0 clientes".
+
+      Zero seria uma afirmação falsa sobre a rede, e é a leitura perigosa: o
+      operador concluiria que o bairro não tem assinantes.
+    */
+    await expect(page.getByTestId("map-customers-error")).toBeVisible();
+    await expect(page.getByTestId("map-customer-count")).toHaveCount(0);
+
+    // E as outras camadas continuam inteiras.
+    await expect(page.locator("svg.cto-box").first()).toBeVisible();
+    await expect(page.locator("svg.cto-order").first()).toBeVisible();
+  });
+
+  test("LAYER-18 · o DISPATCHER não vê a camada de clientes", async ({ page }) => {
+    await abrirCamadas(page, DISPATCHER_EMAIL);
+
+    // O controle nem é oferecido...
+    await expect(page.getByTestId("map-layer-customers")).toHaveCount(0);
+    await expect(page.getByTestId("map-layer-ctos")).toBeChecked();
+    await expect(page.getByTestId("map-layer-orders")).toBeChecked();
+
+    // ...e o popup da caixa não traz contagem nominal de clientes.
+    await page.locator('.leaflet-marker-icon[title^="CAMADA CAIXA"]').click();
+    await expect(page.getByTestId("cto-map-popup")).toBeVisible();
+    await expect(page.getByTestId("cto-map-operational")).toHaveCount(0);
+    await expect(page.getByTestId("cto-map-show-customers")).toHaveCount(0);
+  });
+
+  test("LAYER-19 · resposta velha não substitui a nova", async ({ page }) => {
+    await abrirCamadas(page);
+
+    /*
+      O modo de falha: arrastar do bairro A para o B dispara duas leituras, e a
+      de A demora mais. Sem a guarda, ela chega depois e o mapa fica no lugar
+      certo com os clientes do outro lugar — sem erro nenhum na tela.
+    */
+    let primeira = true;
+    await page.route("**/api/map/customers**", async (route) => {
+      if (primeira) {
+        primeira = false;
+        await new Promise((r) => setTimeout(r, 1500));
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            ok: true,
+            data: {
+              map: {
+                markers: [],
+                truncated: false,
+                limit: 300,
+                missingLocationCount: 999,
+              },
+            },
+          }),
+        });
+      }
+      return route.fallback();
+    });
+
+    await page.getByTestId("map-layer-customers").check();
+    await page.waitForTimeout(200);
+    await page.mouse.move(400, 300);
+    await page.mouse.down();
+    await page.mouse.move(470, 350, { steps: 8 });
+    await page.mouse.up();
+
+    await expect(page.locator("svg.cto-dot").first()).toBeVisible({
+      timeout: 20_000,
+    });
+    // O `999` da resposta velha nunca aparece: ela foi descartada.
+    await page.waitForTimeout(1500);
+    await expect(page.getByTestId("map-customers-missing")).not.toContainText(
+      "999",
+    );
+  });
+});

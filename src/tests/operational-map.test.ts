@@ -19,7 +19,12 @@ import {
   isOpenServiceOrder,
 } from "@/lib/service-order-labels";
 import { createCto } from "@/lib/cto";
-import { seedTestData, type TestFixture } from "./helpers";
+import {
+  apiRequest,
+  createTokenFor,
+  seedTestData,
+  type TestFixture,
+} from "./helpers";
 
 /**
  * # `CTO-3.2.2` — clientes, conectividade e OS abertas no mapa
@@ -1122,5 +1127,226 @@ describe("MAPSEARCH-01..10 — busca de CTO, cliente e OS", () => {
     await searchOperationalMap(fixture.companyA.id, "Joao da Silva");
     expect(espiao).not.toHaveBeenCalled();
     espiao.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// As ROTAS — quem pode, e o que sai
+// ---------------------------------------------------------------------------
+
+describe("MAPAPI — permissões e tenancy pelas rotas", () => {
+  const ORIGIN = { Origin: "http://localhost" };
+
+  async function chamar(
+    rota: (r: Request) => Promise<Response>,
+    caminho: string,
+    token: string,
+  ) {
+    const res = await rota(
+      apiRequest(caminho, { headers: { ...ORIGIN } }, token),
+    );
+    return { status: res.status, body: await res.json() };
+  }
+
+  const RECORTE = `north=${BBOX.north}&south=${BBOX.south}&east=${BBOX.east}&west=${BBOX.west}`;
+
+  it("MAPAPI-01 · a camada de clientes é de ADMIN — e só", async () => {
+    const { GET } = await import("@/app/api/map/customers/route");
+    await criarCliente({ nome: "API CLIENTE", lat: BASE.lat });
+
+    const admin = await createTokenFor(fixture.adminA.id);
+    const dispatcher = await createTokenFor(fixture.dispatcherA.id);
+    const tecnico = await createTokenFor(fixture.techA.id);
+
+    expect((await chamar(GET, `/api/map/customers?${RECORTE}`, admin)).status).toBe(
+      200,
+    );
+
+    /*
+      403 para o DISPATCHER, e a decisão é de PRIVACIDADE, não de conveniência.
+
+      Ele lê o mapa de caixas e de OS abertas — o trabalho dele. Mostrar onde
+      cada assinante mora é superfície de dado pessoal que nenhuma decisão
+      aprovada estendeu ao despacho, e ampliar por efeito colateral de uma fase
+      de mapa seria decidir política dentro de uma implementação.
+    */
+    expect(
+      (await chamar(GET, `/api/map/customers?${RECORTE}`, dispatcher)).status,
+    ).toBe(403);
+    expect(
+      (await chamar(GET, `/api/map/customers?${RECORTE}`, tecnico)).status,
+    ).toBe(403);
+
+    // Esconder o controle na tela não é segurança: a chamada direta é barrada.
+    const semSessao = await GET(new Request(`http://localhost/api/map/customers?${RECORTE}`));
+    expect(semSessao.status).toBe(401);
+  });
+
+  it("MAPAPI-02 · a camada de OS acompanha o mapa de caixas", async () => {
+    const { GET } = await import("@/app/api/map/service-orders/route");
+    const cliente = await criarCliente({ nome: "API OS", lat: BASE.lat });
+    await criarOs(cliente.id, "PENDING");
+
+    const admin = await createTokenFor(fixture.adminA.id);
+    const dispatcher = await createTokenFor(fixture.dispatcherA.id);
+    const tecnico = await createTokenFor(fixture.techA.id);
+
+    // OS aberta é o objeto de trabalho do despacho: esconder dele onde estão os
+    // atendimentos seria esconder a própria função da tela.
+    expect(
+      (await chamar(GET, `/api/map/service-orders?${RECORTE}`, admin)).status,
+    ).toBe(200);
+    expect(
+      (await chamar(GET, `/api/map/service-orders?${RECORTE}`, dispatcher)).status,
+    ).toBe(200);
+    expect(
+      (await chamar(GET, `/api/map/service-orders?${RECORTE}`, tecnico)).status,
+    ).toBe(403);
+  });
+
+  it("MAPAPI-03 · a busca não devolve CLIENTE ao DISPATCHER", async () => {
+    const { GET } = await import("@/app/api/map/search/route");
+    await criarCliente({ nome: "SIGILO CLIENTE", lat: BASE.lat });
+    await criarCaixaComClientes("SIGILO CAIXA", []);
+
+    const admin = await createTokenFor(fixture.adminA.id);
+    const dispatcher = await createTokenFor(fixture.dispatcherA.id);
+
+    const doAdmin = await chamar(GET, "/api/map/search?q=SIGILO", admin);
+    expect(doAdmin.status).toBe(200);
+    expect(
+      doAdmin.body.data.search.hits.map((h: { type: string }) => h.type),
+    ).toContain("CUSTOMER");
+
+    /*
+      O corte é do SERVIDOR, e não da tela.
+
+      Filtrar no navegador não resolveria nada: o nome e a coordenada já teriam
+      saído pela porta. A busca é a porta dos fundos mais fácil de esquecer
+      quando a decisão de perfil mora só na camada que desenha.
+    */
+    const doDispatcher = await chamar(GET, "/api/map/search?q=SIGILO", dispatcher);
+    expect(doDispatcher.status).toBe(200);
+    const tipos = doDispatcher.body.data.search.hits.map(
+      (h: { type: string }) => h.type,
+    );
+    expect(tipos).not.toContain("CUSTOMER");
+    expect(tipos).toContain("CTO");
+    expect(JSON.stringify(doDispatcher.body)).not.toContain("SIGILO CLIENTE");
+  });
+
+  it("MAPAPI-04 · a lista por porta é de ADMIN, e o id de outra empresa é 404", async () => {
+    const { GET } = await import("@/app/api/ctos/[id]/customers/route");
+    const cliente = await criarCliente({ nome: "API PORTA", lat: BASE.lat });
+    const minha = await criarCaixaComClientes("CX API", [
+      { id: cliente.id, porta: 1 },
+    ]);
+    const alheia = await criarCaixaComClientes(
+      "CX ALHEIA",
+      [],
+      fixture.companyB.id,
+      fixture.adminB.id,
+    );
+
+    const admin = await createTokenFor(fixture.adminA.id);
+    const dispatcher = await createTokenFor(fixture.dispatcherA.id);
+
+    const ok = await GET(
+      apiRequest(`/api/ctos/${minha.id}/customers`, { headers: { ...ORIGIN } }, admin),
+      { params: { id: minha.id } },
+    );
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).data.customers).toHaveLength(1);
+
+    const negado = await GET(
+      apiRequest(
+        `/api/ctos/${minha.id}/customers`,
+        { headers: { ...ORIGIN } },
+        dispatcher,
+      ),
+      { params: { id: minha.id } },
+    );
+    expect(negado.status).toBe(403);
+
+    /*
+      404 para a caixa de outra empresa, e não uma lista vazia.
+
+      Lista vazia é indistinguível de "esta caixa não tem ninguém" — e essa
+      diferença confirma a existência da caixa alheia para quem varrer ids.
+    */
+    const cruzado = await GET(
+      apiRequest(
+        `/api/ctos/${alheia.id}/customers`,
+        { headers: { ...ORIGIN } },
+        admin,
+      ),
+      { params: { id: alheia.id } },
+    );
+    expect(cruzado.status).toBe(404);
+  });
+
+  it("MAPAPI-05 · o teto e o recorte não são negociáveis pelo cliente", async () => {
+    const { GET } = await import("@/app/api/map/customers/route");
+    const admin = await createTokenFor(fixture.adminA.id);
+
+    // Sem recorte não há leitura: um mapa sem bbox é a carteira inteira.
+    expect((await chamar(GET, "/api/map/customers", admin)).status).toBe(400);
+
+    // Recorte fora do planeta é recusado com mensagem própria.
+    const invalido = await chamar(
+      GET,
+      "/api/map/customers?north=999&south=0&east=0&west=0",
+      admin,
+    );
+    expect(invalido.status).toBe(400);
+    for (const proibido of ["prisma", "SELECT", "at Object", "customers"]) {
+      expect(invalido.body.error ?? "").not.toContain(proibido);
+    }
+
+    // O teto que sai na resposta é o do servidor, mesmo pedindo mais.
+    const comLimite = await chamar(
+      GET,
+      `/api/map/customers?${RECORTE}&limit=99999`,
+      admin,
+    );
+    expect(comLimite.body.data.map.limit).toBe(CUSTOMER_MAP_MAX_MARKERS);
+  });
+
+  it("MAPAPI-06 · filtro inválido é RECUSADO, e não ignorado", async () => {
+    const { GET } = await import("@/app/api/map/customers/route");
+    const admin = await createTokenFor(fixture.adminA.id);
+
+    /*
+      Ignorar em silêncio devolveria a lista inteira para quem pediu um
+      subconjunto — e a tela concluiria que o filtro não tem nada a esconder,
+      quando na verdade ele nunca foi aplicado.
+    */
+    expect(
+      (await chamar(GET, `/api/map/customers?${RECORTE}&connectivity=TALVEZ`, admin))
+        .status,
+    ).toBe(400);
+    expect(
+      (await chamar(GET, `/api/map/customers?${RECORTE}&openOs=quem+sabe`, admin))
+        .status,
+    ).toBe(400);
+  });
+
+  it("MAPAPI-07 · capability desligada some com as rotas, sem revelar o módulo", async () => {
+    const { GET } = await import("@/app/api/map/customers/route");
+    await prisma.company.update({
+      where: { id: fixture.companyA.id },
+      data: { ctoNetworkEnabled: false },
+    });
+    const admin = await createTokenFor(fixture.adminA.id);
+
+    /*
+      404, e não 403: 403 significa "isto existe, você é que não pode", e a
+      empresa descobriria pela mensagem de erro que há um módulo que ela não
+      contratou. A capability é verificada ANTES do perfil, como em todo o
+      módulo.
+    */
+    expect((await chamar(GET, `/api/map/customers?${RECORTE}`, admin)).status).toBe(
+      404,
+    );
   });
 });
