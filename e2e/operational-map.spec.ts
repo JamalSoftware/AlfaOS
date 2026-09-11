@@ -2150,14 +2150,6 @@ const POS = { latitude: BASE.latitude + 0.1, longitude: BASE.longitude + 0.1 };
 const NOME_POS = "MAPA QA POSICAO";
 let ctoPosicaoId = "";
 
-test.beforeAll(async () => {
-  const cto = await criarCto(NOME_POS, {
-    latitude: POS.latitude,
-    longitude: POS.longitude,
-  });
-  ctoPosicaoId = cto.id;
-});
-
 /** A coordenada gravada, lida direto do banco. */
 async function coordenadaGravada() {
   const linha = await prisma.cTO.findUniqueOrThrow({
@@ -2200,6 +2192,41 @@ async function arrastar(page: Page, dx: number, dy: number) {
 }
 
 test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
+  /*
+    A caixa nasce e morre DENTRO deste `describe`, e isso foi corrigido depois de
+    a suíte inteira quebrar.
+
+    Ela começou num `beforeAll` de arquivo, e nove testes de outros blocos
+    passaram a falhar com `locator.click: timeout`. A causa não é a distância em
+    si: `getCtoMapInitialView` agrega **todas** as CTOs da empresa, então uma
+    caixa 11 km ao lado força o `fitBounds` a afastar até tudo caber — e as
+    quatro caixas originais, a 440 m umas das outras, colapsavam em poucos
+    pixels e passavam a interceptar o clique umas das outras.
+
+    O sintoma é traiçoeiro: `svg.cto-box` continuava visível, habilitado e
+    estável, e o que o Playwright reclamava era que o marcador VIZINHO
+    interceptava o ponteiro.
+
+    E ele não apareceu em nenhuma das rodadas filtradas por `-g "MAPEDIT"`,
+    porque o filtro escondia justamente os testes afetados. **Efeito colateral
+    de fixture só aparece na suíte inteira.**
+  */
+  test.beforeAll(async () => {
+    const cto = await criarCto(NOME_POS, {
+      latitude: POS.latitude,
+      longitude: POS.longitude,
+    });
+    ctoPosicaoId = cto.id;
+  });
+
+  test.afterAll(async () => {
+    // Sai daqui mesmo, e não só na limpeza de arquivo: enquanto ela existir,
+    // ela participa do enquadramento inicial de qualquer teste que rode depois.
+    if (!ctoPosicaoId) return;
+    await prisma.cTOPort.deleteMany({ where: { ctoId: ctoPosicaoId } });
+    await prisma.cTO.deleteMany({ where: { id: ctoPosicaoId } });
+  });
+
   test.beforeEach(async () => {
     await restaurarCoordenada();
   });
