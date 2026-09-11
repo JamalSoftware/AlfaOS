@@ -2211,6 +2211,32 @@ async function posicaoNoMapa(page: Page) {
 }
 
 /**
+ * Espera o mapa PARAR de se mexer.
+ *
+ * A vista só é reescrita na URL no `moveend`, então a barra de endereço é o
+ * sinal mais barato de "acabou". Duas leituras iguais em vez de um tempo fixo.
+ *
+ * Isto é necessário nos DOIS lados:
+ *
+ * - ao MEDIR, porque um centro velho comparado a um marcador já na posição
+ *   nova dá erro puro de enquadramento — 25,9px, medidos;
+ * - ao ARRASTAR, porque o `autoPan` do popup ainda pode estar em voo quando a
+ *   caixa do marcador é lida. O ponteiro então desce onde o marcador ESTAVA,
+ *   erra o alvo, e o que se arrasta é o mapa. Nada é gravado, o botão Salvar
+ *   continua desabilitado, e o teste falha dizendo que a coordenada não mudou
+ *   — intermitentemente, só quando a máquina está carregada.
+ */
+async function esperarMapaParar(page: Page) {
+  let anterior = vistaDaUrl(page).toString();
+  for (let i = 0; i < 20; i += 1) {
+    await page.waitForTimeout(150);
+    const atual = vistaDaUrl(page).toString();
+    if (atual === anterior) return;
+    anterior = atual;
+  }
+}
+
+/**
  * Onde uma COORDENADA cai no mapa, segundo a vista corrente da URL.
  *
  * Web Mercator à mão, que é o que o Leaflet faz: `z` dá a escala, o centro
@@ -2251,23 +2277,7 @@ async function pontoDaCoordenada(page: Page, latitude: number, longitude: number
  * estiver.
  */
 async function desvioDoGravado(page: Page) {
-  /*
-    Esperar o mapa PARAR antes de medir.
-
-    A referência de centro vem da barra de endereço, e ela só é reescrita no
-    `moveend`. Medir no instante do clique usa um centro velho contra um
-    marcador já na posição nova — medido: 25,9px de erro puro, que é
-    deslocamento de enquadramento e não de caixa. Duas leituras iguais em vez
-    de um tempo fixo.
-  */
-  let anterior = vistaDaUrl(page).toString();
-  for (let i = 0; i < 20; i += 1) {
-    await page.waitForTimeout(150);
-    const atual = vistaDaUrl(page).toString();
-    if (atual === anterior) break;
-    anterior = atual;
-  }
-
+  await esperarMapaParar(page);
   const gravada = await coordenadaGravada();
   const esperado = await pontoDaCoordenada(
     page,
@@ -2295,10 +2305,62 @@ async function arrastar(page: Page, dx: number, dy: number) {
     A `CTO-3.2.2` aumentou esse empurrão ao acrescentar as contagens
     operacionais ao popup da caixa, que ficou mais alto.
   */
+  await esperarMapaParar(page);
   await alvo.scrollIntoViewIfNeeded();
-  const caixa = (await alvo.boundingBox())!;
-  const x = caixa.x + caixa.width / 2;
-  const y = caixa.y + caixa.height / 2;
+
+  /*
+    O ponteiro precisa cair NO MARCADOR, e isso é conferido.
+
+    Arrastando em sequência, a caixa desce para fora da área visível do mapa —
+    o contêiner tem `overflow-hidden`, então ela continua tendo posição de
+    layout e deixa de estar sob o cursor. Medido: no segundo arrasto,
+    `elementFromPoint` devolvia `DIV[space-y-4]`, que é o contêiner da PÁGINA
+    abaixo do mapa, e o arrasto movia zero em metade das execuções.
+
+    Um arrasto que não pega o marcador não falha: ele não faz nada. O teste
+    seguia adiante e acusava outra coisa — foi assim que a `MAPEDIT-05/06/07`
+    ficou intermitente em 2 de 4 execuções com `--repeat-each`.
+
+    A cura é trazer o marcador de volta ao meio do mapa antes de tentar, e só
+    então arrastar. Se ainda assim o ponteiro não o alcançar, o helper
+    INTERROMPE — melhor uma falha que diz a verdade do que um arrasto mudo.
+  */
+  const sobreOMarcador = async (px: number, py: number) =>
+    page.evaluate(
+      ([a, b]) => {
+        const el = document.elementFromPoint(a, b);
+        return Boolean(el && el.closest(".leaflet-marker-icon"));
+      },
+      [px, py],
+    );
+
+  let caixa = (await alvo.boundingBox())!;
+  let x = caixa.x + caixa.width / 2;
+  let y = caixa.y + caixa.height / 2;
+
+  if (!(await sobreOMarcador(x, y))) {
+    // Traz o marcador ao centro arrastando o MAPA, não a caixa: o rascunho de
+    // posição não pode mudar por causa de um reenquadramento do teste.
+    const mapa = (await page.locator(".leaflet-container").boundingBox())!;
+    const centroX = mapa.x + mapa.width / 2;
+    const centroY = mapa.y + mapa.height / 2;
+    await page.mouse.move(centroX, centroY);
+    await page.mouse.down();
+    await page.mouse.move(centroX + (centroX - x), centroY + (centroY - y), {
+      steps: 10,
+    });
+    await page.mouse.up();
+    await esperarMapaParar(page);
+
+    caixa = (await alvo.boundingBox())!;
+    x = caixa.x + caixa.width / 2;
+    y = caixa.y + caixa.height / 2;
+    if (!(await sobreOMarcador(x, y))) {
+      throw new Error(
+        "o ponteiro não alcança o marcador: o arrasto não provaria nada",
+      );
+    }
+  }
   await page.mouse.move(x, y);
   await page.mouse.down();
   // Em passos: um salto único não produz os `mousemove` que o Leaflet escuta.

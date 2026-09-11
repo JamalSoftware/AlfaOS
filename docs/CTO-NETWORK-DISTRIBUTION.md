@@ -5175,3 +5175,33 @@ os contadores de novo, porque esse matcher aceita qualquer interseção — uma
 legenda com 4 dos seus 20px visíveis ainda passa. Com a afirmação numérica —
 `legenda.y + legenda.height <= 900` — a reversão devolve o número do defeito:
 `Expected: <= 900 · Received: 912`.
+
+### 41.17 Um arrasto que não pega o marcador não falha — ele não faz nada
+
+Com `--repeat-each=4`, a `MAPEDIT-05/06/07` caía em **2 de 4** execuções. O
+sintoma apontava para o lugar errado: a asserção que falhava era a da classe
+`cto-box--editing` depois do Cancelar.
+
+A causa é anterior. Arrastando em sequência, a caixa desce para fora da **área
+visível** do mapa — o contêiner tem `overflow-hidden`, então ela continua tendo
+posição de layout e deixa de estar sob o cursor. Medido: no segundo arrasto,
+`elementFromPoint` no centro calculado do marcador devolvia
+`DIV[space-y-4]`, que é o contêiner da **página**, abaixo do mapa. O arrasto
+movia `0,0`.
+
+E é isso que torna a falha traiçoeira: **um arrasto que erra o alvo não dá
+erro**. Ele simplesmente não acontece, o teste segue adiante, e quem reclama é
+alguma asserção lá na frente.
+
+O helper passou a **conferir a pegada** antes de arrastar: se o ponteiro não cai
+sobre o marcador, ele traz a caixa ao centro arrastando o **mapa** — nunca o
+marcador, para não mexer no rascunho de posição — e tenta de novo. Se ainda
+assim não alcançar, **interrompe com mensagem**, em vez de arrastar o vazio.
+
+Com a conferência, `--repeat-each=3` sobre a `MAPEDIT` inteira dá **30/30**.
+
+**Isto é PRÉ-EXISTENTE, e foi medido como tal:** a mesma intermitência
+reproduz no estado commitado, sem nenhuma alteração desta fase — 2 de 4 também.
+A `CTO-3.2.2` a tornou mais provável ao aumentar o popup da caixa com as
+contagens operacionais, o que aumenta o empurrão do `autoPan` e faz a caixa
+começar a sequência mais perto da borda de baixo.
