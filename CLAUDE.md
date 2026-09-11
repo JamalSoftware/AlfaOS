@@ -954,7 +954,7 @@ Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §38.
 
 Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §39.
 
-**`CTO-3.2.1d` ENTREGUE — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** A validação em uso real da `CTO-3.2.1c` passou em tudo e produziu uma necessidade: o dono viu uma coordenada errada e não tinha como corrigi-la de onde estava olhando. Agora o `ADMIN` seleciona a caixa, entra em modo de edição explícito, arrasta, confere e salva — ou cancela. **Zero migration, zero schema, zero Dart, zero dependência.**
+**`CTO-3.2.1d` — `OWNER VALIDATED / APPROVED`. Commits locais, sem tag e sem push.** O dono executou o roteiro na interface real: entrar em Ajustar posição, arrastar, Cancelar sem persistir, Salvar persistindo, reload mantendo a posição, Satélite/Híbrido durante o ajuste, e nome, contorno, popup, zoom e modo preservados. A validação em uso real da `CTO-3.2.1c` passou em tudo e produziu uma necessidade: o dono viu uma coordenada errada e não tinha como corrigi-la de onde estava olhando. Agora o `ADMIN` seleciona a caixa, entra em modo de edição explícito, arrasta, confere e salva — ou cancela. **Zero migration, zero schema, zero Dart, zero dependência.**
 
 **Decisão de produto sincronizada ANTES do código — PRD §377 `DECISION UPDATED`, registrada também na §390.** Correção manual pelo ADMIN é V1; confirmação em campo, GPS do Field, `accuracyMeters`, `source`, `confirmedAt`/`confirmedBy` e o workflow de verificação continuam pós-V1. A regra que separa as duas é a mesma da `CustomerLocation`: **receber uma coordenada não é confirmá-la** — quem corrige pelo mapa não esteve no poste. `CTOLocation` continua proibida.
 

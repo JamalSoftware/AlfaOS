@@ -48,7 +48,7 @@ PRD V1 Launch Scope Freeze                                    ← concluído
    ↓
 CTO-3.2.1b · 3.2.1c   polimento de UX e o estado na silhueta   ← concluído
    ↓  validação do dono em uso real
-CTO-3.2.1d   ADMIN corrige a posição da CTO no mapa            ← concluído
+CTO-3.2.1d   ADMIN corrige a posição da CTO no mapa            ← APROVADO
    ↓
 CTO-3.2.2   camada de clientes + OS abertas + Online/Offline em lote
    ↓  validação do dono — Mapa Operacional V1 completo

@@ -4822,6 +4822,22 @@ estado, popup, navegação, persistência, permissões de leitura, domínio da C
 OS aberta ou Online/Offline foi iniciada. Nenhum ERP é consultado para mover uma
 caixa, e nenhuma sincronia com FiberMap foi criada.
 
-> **`CTO-3.2.1d` — `READY FOR OWNER VALIDATION`.** `CTO-2` continua `DONE`,
-> `CTO-3.1` `APPROVED`, o PRD V1 `FROZEN` com a §377 atualizada. A `CTO-3.2.2`
-> não começou.
+### `OWNER VALIDATED / APPROVED`
+
+O dono executou o roteiro na interface real e aprovou. Validado ao vivo:
+
+```text
+ADMIN entra em "Ajustar posição"          a CTO pode ser arrastada
+Cancelar NÃO persiste                     Salvar persiste
+reload mantém a posição nova              Satélite/Híbrido durante o ajuste
+nome preservado                           contorno/status preservado
+popup preservado                          zoom preservado
+modo do mapa preservado
+```
+
+O par que mais importa nessa lista é **Cancelar não persiste / Salvar
+persiste**: é a separação entre "arrastou" e "salvou" observada fora do teste,
+que é onde ela precisava valer.
+
+> **`CTO-3.2.1d` — `OWNER VALIDATED / APPROVED`.** `CTO-2` continua `DONE`,
+> `CTO-3.1` `APPROVED`, o PRD V1 `FROZEN` com a §377 atualizada.
