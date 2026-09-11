@@ -20,6 +20,11 @@ import {
 } from "@/lib/service-order-labels";
 import { createCto } from "@/lib/cto";
 import {
+  DEFAULT_MAP_LAYERS,
+  buildMapViewQuery,
+  parseMapViewParams,
+} from "@/lib/map-view-params";
+import {
   apiRequest,
   createTokenFor,
   seedTestData,
@@ -1348,5 +1353,75 @@ describe("MAPAPI — permissões e tenancy pelas rotas", () => {
     expect((await chamar(GET, `/api/map/customers?${RECORTE}`, admin)).status).toBe(
       404,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O padrão das camadas — CTO-3.2.2
+// ---------------------------------------------------------------------------
+
+describe("LAYERDEF — o estado padrão das camadas", () => {
+  it("LAYERDEF-01 · clientes nasce DESLIGADA; caixas e OS, ligadas", () => {
+    /*
+      Não é preferência de tela: é a diferença entre um mapa que abre
+      informativo e um que abre poluído.
+
+      Clientes é a camada de milhares de pontos. Ligada por padrão, ela cobriria
+      a rede de bolinhas antes de alguém pedir, e a infraestrutura — que é o que
+      o despacho precisa ver primeiro — sumiria embaixo dela. Caixas e OS
+      abertas são poucas o bastante para caber na tela, e são o trabalho.
+    */
+    expect(DEFAULT_MAP_LAYERS.CTOS).toBe(true);
+    expect(DEFAULT_MAP_LAYERS.ORDERS).toBe(true);
+    expect(
+      DEFAULT_MAP_LAYERS.CUSTOMERS,
+      "a camada de clientes não pode nascer ligada",
+    ).toBe(false);
+  });
+
+  it("LAYERDEF-02 · a URL carrega só ESTADO, nunca conteúdo", () => {
+    /*
+      Camadas e filtro viajam na barra de endereço para que
+      `Mapa → cliente → voltar` devolva o mapa **como estava**. O que NÃO viaja é
+      payload: nenhum array de marcadores, nenhum nome, nenhuma coordenada de
+      cliente. A URL descreve a vista; ela não guarda o conteúdo dela.
+    */
+    const query = buildMapViewQuery({
+      latitude: -20.5,
+      longitude: -41.5,
+      zoom: 16,
+      mode: "HYBRID",
+      layers: { CTOS: true, ORDERS: false, CUSTOMERS: true },
+      customerFilter: "OFFLINE",
+    });
+    const params = new URLSearchParams(query);
+    expect(params.get("layers")).toBe("CTOS,CUSTOMERS");
+    expect(params.get("cf")).toBe("OFFLINE");
+
+    // Ida e volta: o que é escrito é exatamente o que consegue ser lido.
+    const devolta = parseMapViewParams(Object.fromEntries(params.entries()));
+    expect(devolta.layers).toEqual({
+      CTOS: true,
+      ORDERS: false,
+      CUSTOMERS: true,
+    });
+    expect(devolta.customerFilter).toBe("OFFLINE");
+
+    // O PADRÃO é omitido: quem não mexeu em nada tem a URL limpa.
+    const padrao = buildMapViewQuery({
+      zoom: 16,
+      layers: { ...DEFAULT_MAP_LAYERS },
+      customerFilter: "ALL",
+    });
+    expect(new URLSearchParams(padrao).has("layers")).toBe(false);
+    expect(new URLSearchParams(padrao).has("cf")).toBe(false);
+
+    // Camada inventada na URL não liga nada.
+    const hostil = parseMapViewParams({ layers: "CTOS,INVENTADA" });
+    expect(hostil.layers).toEqual({
+      CTOS: true,
+      ORDERS: false,
+      CUSTOMERS: false,
+    });
   });
 });
