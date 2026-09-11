@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { BoundingBox, CtoMapView } from "@/lib/cto-map";
 import {
   CTO_MAP_SEARCH_MAX_QUERY,
@@ -914,6 +915,79 @@ export function CtoMapLayer({
         </div>
       ) : null}
 
+      {/*
+        O controle de CAMADAS vive FORA do canvas, e isso é decisão do dono.
+
+        Ele esteve dentro do mapa por uma fase: fora, custava 82px de altura de
+        página e empurrava a legenda para baixo da primeira dobra. Na validação
+        manual o preço apareceu do outro lado — ele cobria os botões `+`/`−` do
+        Leaflet, que moram no canto superior esquerdo, e disputava a área útil
+        justamente onde o operador clica para aproximar.
+
+        Um controle que tapa o controle do mapa é pior que um controle que
+        ocupa altura. Ele volta para o fluxo, como um cartão logo abaixo da
+        busca, e o orçamento vertical foi refeito na altura do mapa
+        (`MapCanvas`), não espremendo legenda ou resumo.
+
+        `Mapa`/`Satélite`/`Híbrido` continua sendo a BASE e continua no canto do
+        mapa. São dois controles diferentes: um é o fundo, o outro é o que se
+        desenha em cima.
+      */}
+      <div
+        className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-sm"
+        data-testid="map-layer-control"
+      >
+        <fieldset className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <legend className="float-left mr-3 text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+            Camadas
+          </legend>
+          {MAP_LAYERS.map((camada) => {
+            // A camada de clientes nem aparece para quem não pode vê-la.
+            if (camada === "CUSTOMERS" && !canSeeCustomers) return null;
+            return (
+              <label
+                key={camada}
+                className="flex items-center gap-2 text-sm text-fg"
+              >
+                <input
+                  type="checkbox"
+                  checked={layers[camada]}
+                  onChange={(e) => alternarCamada(camada, e.target.checked)}
+                  className="h-4 w-4 rounded border-input-border text-primary focus:ring-2 focus:ring-focus-soft"
+                  data-testid={`map-layer-${camada.toLowerCase()}`}
+                />
+                {ROTULO_DA_CAMADA[camada]}
+              </label>
+            );
+          })}
+        </fieldset>
+
+        {/* O filtro só existe enquanto a camada que ele filtra está ligada. */}
+        {canSeeCustomers && layers.CUSTOMERS ? (
+          <div className="flex items-center gap-2">
+            <label
+              className="text-[11px] font-semibold uppercase tracking-wide text-fg-muted"
+              htmlFor="map-customer-filter"
+            >
+              Filtrar clientes
+            </label>
+            <select
+              id="map-customer-filter"
+              value={customerFilter}
+              onChange={(e) => trocarFiltro(e.target.value as CustomerFilter)}
+              className="rounded-lg border border-input-border bg-input-bg px-2 py-1 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
+              data-testid="map-customer-filter"
+            >
+              {(Object.keys(ROTULO_DO_FILTRO) as CustomerFilter[]).map((valor) => (
+                <option key={valor} value={valor}>
+                  {ROTULO_DO_FILTRO[valor]}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+      </div>
+
       <OperationalMap
         tiles={tiles}
         modes={modes}
@@ -944,65 +1018,6 @@ export function CtoMapLayer({
               onSalvar={salvarPosicao}
             />
           ) : null
-        }
-        layersControl={
-          <div
-            className="rounded-xl border border-border bg-surface/95 p-2.5 shadow-md"
-            data-testid="map-layer-control"
-          >
-            <fieldset>
-              <legend className="text-sm font-medium text-fg-secondary">
-                Camadas
-              </legend>
-              <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
-                {MAP_LAYERS.map((camada) => {
-                  // A camada de clientes nem aparece para quem não pode vê-la.
-                  if (camada === "CUSTOMERS" && !canSeeCustomers) return null;
-                  return (
-                    <label
-                      key={camada}
-                      className="flex items-center gap-2 text-sm text-fg"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={layers[camada]}
-                        onChange={(e) => alternarCamada(camada, e.target.checked)}
-                        className="h-4 w-4 rounded border-input-border text-primary focus:ring-2 focus:ring-focus-soft"
-                        data-testid={`map-layer-${camada.toLowerCase()}`}
-                      />
-                      {ROTULO_DA_CAMADA[camada]}
-                    </label>
-                  );
-                })}
-              </div>
-            </fieldset>
-            {/* O filtro só existe enquanto a camada que ele filtra está ligada. */}
-            {canSeeCustomers && layers.CUSTOMERS ? (
-              <div className="mt-3 border-t border-border-subtle pt-3">
-                <label
-                  className="block text-xs font-medium text-fg-secondary"
-                  htmlFor="map-customer-filter"
-                >
-                  Filtrar clientes
-                </label>
-                <select
-                  id="map-customer-filter"
-                  value={customerFilter}
-                  onChange={(e) => trocarFiltro(e.target.value as CustomerFilter)}
-                  className="mt-1 rounded-lg border border-input-border bg-input-bg px-2 py-1.5 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
-                  data-testid="map-customer-filter"
-                >
-                  {(
-                    Object.keys(ROTULO_DO_FILTRO) as CustomerFilter[]
-                  ).map((valor) => (
-                    <option key={valor} value={valor}>
-                      {ROTULO_DO_FILTRO[valor]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
-          </div>
         }
         overlay={
           view?.truncated ? (
@@ -1055,114 +1070,132 @@ export function CtoMapLayer({
         ) : null}
       </OperationalMap>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-muted">
-        {/*
-          Com a leitura falhando, a contagem NÃO afirma um número.
+      {/*
+        O RESUMO OPERACIONAL em chips, e não em frases soltas.
 
-          Isto foi encontrado pelo teste de navegador, não por inspeção: o aviso
-          de erro cobre o mapa, mas a linha de baixo continuava dizendo "0 CTOs
-          nesta área" — a frase exata que a fase inteira existe para não dizer.
-          O despachante leria a contagem, que parece um fato, e concluiria que o
-          bairro não tem infraestrutura.
+        Antes eram sentenças cinzas numa linha só — "1 CTO nesta área · 2 OS
+        abertas nesta área" —, do mesmo tamanho e peso do resto da página. O
+        dono leu isso como texto perdido, e estava certo: são as cinco
+        contagens que dizem o que há na tela, e elas competiam com legenda e
+        rodapé pelo mesmo cinza.
 
-          São dois elementos e não um texto condicional de propósito: assim um
-          teste consegue afirmar a AUSÊNCIA da contagem, e não apenas que o texto
-          dela mudou.
-        */}
+        Agora o NÚMERO tem peso próprio e o rótulo fica embaixo. A regra que
+        sobrevive da `CTO-3.2`: com a leitura falhando, nenhuma contagem é
+        afirmada — dizer "0 nesta área" faria o mapa mentir sobre a rede.
+      */}
+      <div
+        className="flex flex-wrap gap-2"
+        data-testid="map-summary"
+        aria-label="Resumo desta área"
+      >
         {error ? (
-          <span data-testid="map-count-unavailable">
+          <p
+            className="rounded-lg border border-border-subtle bg-surface-muted px-3 py-2 text-xs text-fg-muted"
+            data-testid="map-count-unavailable"
+          >
             Contagem indisponível enquanto a leitura desta área falha.
-          </span>
+          </p>
         ) : (
-          <span data-testid="map-marker-count">
-            {markers.length === 1
-              ? "1 CTO nesta área"
-              : `${markers.length} CTOs nesta área`}
-          </span>
+          <ResumoChip
+            valor={markers.length}
+            rotulo={markers.length === 1 ? "CTO nesta área" : "CTOs nesta área"}
+            testId="map-marker-count"
+          />
         )}
 
+        {layers.CUSTOMERS && canSeeCustomers && clientes.dados && !clientes.erro ? (
+          <ResumoChip
+            valor={clientes.dados.markers.length}
+            rotulo={
+              clientes.dados.markers.length === 1
+                ? "cliente nesta área"
+                : "clientes nesta área"
+            }
+            testId="map-customer-count"
+          />
+        ) : null}
+
+        {layers.ORDERS && ordens.dados && !ordens.erro ? (
+          <ResumoChip
+            valor={ordens.dados.markers.length}
+            rotulo={
+              ordens.dados.markers.length === 1
+                ? "OS aberta nesta área"
+                : "OS abertas nesta área"
+            }
+            tom="warning"
+            testId="map-order-count"
+          />
+        ) : null}
+
         {/*
-          O contador de caixas sem localização é da EMPRESA, não do recorte
-          (`CTO-3.1`): uma caixa sem coordenada não está em região nenhuma. Por
-          isso ele não muda quando o mapa se move, e o texto diz "no cadastro"
-          para que ninguém o leia como "aqui perto".
+          SEM LOCALIZAÇÃO é outra pergunta, e por isso outro tom.
+
+          O contador de caixas sem coordenada é da EMPRESA, não do recorte
+          (`CTO-3.1`): uma caixa sem coordenada não está em região nenhuma. Ele
+          não muda quando o mapa se move, e o rótulo diz "no cadastro" para
+          ninguém o ler como "aqui perto".
         */}
         {view && view.missingLocationCount > 0 ? (
-          <span data-testid="map-missing-location">
-            {view.missingLocationCount === 1
-              ? "1 CTO sem localização no cadastro"
-              : `${view.missingLocationCount} CTOs sem localização no cadastro`}
-            {canOpenDetail ? (
-              <>
-                {" · "}
-                <Link
-                  href="/ctos"
-                  className="font-medium text-primary-text underline underline-offset-2 hover:text-primary-text-hover"
-                >
-                  ver no cadastro
-                </Link>
-              </>
-            ) : null}
-          </span>
+          <ResumoChip
+            valor={view.missingLocationCount}
+            rotulo={
+              view.missingLocationCount === 1
+                ? "CTO sem localização no cadastro"
+                : "CTOs sem localização no cadastro"
+            }
+            tom="ausente"
+            testId="map-missing-location"
+            href={canOpenDetail ? "/ctos" : undefined}
+            hrefRotulo="ver cadastro"
+          />
         ) : null}
 
-        {/*
-          Os contadores das camadas novas, ao lado dos da CTO.
-
-          Cada um responde "quantos não couberam" — e sem coordenada não é sem
-          importância: um cliente sem localização existe, tem OS, tem contrato, e
-          simplesmente não pode ser desenhado. O contador é a forma honesta de
-          dizer isso sem inventar um ponto.
-        */}
-        {layers.CUSTOMERS && canSeeCustomers && clientes.dados ? (
-          <div className="contents">
-            <span data-testid="map-customer-count">
-              {clientes.dados.markers.length === 1
-                ? "1 cliente nesta área"
-                : `${clientes.dados.markers.length} clientes nesta área`}
-            </span>
-            {clientes.dados.truncated ? (
-              <span
-                className="font-medium text-warning-fg"
-                data-testid="map-customers-truncated"
-              >
-                Aproxime o mapa para carregar todos os clientes desta área.
-              </span>
-            ) : null}
-            {clientes.dados.missingLocationCount > 0 ? (
-              <span data-testid="map-customers-missing">
-                {clientes.dados.missingLocationCount} cliente
-                {clientes.dados.missingLocationCount === 1 ? "" : "s"} ativo
-                {clientes.dados.missingLocationCount === 1 ? "" : "s"} sem
-                localização
-              </span>
-            ) : null}
-          </div>
+        {layers.CUSTOMERS &&
+        canSeeCustomers &&
+        clientes.dados &&
+        clientes.dados.missingLocationCount > 0 ? (
+          <ResumoChip
+            valor={clientes.dados.missingLocationCount}
+            rotulo={
+              clientes.dados.missingLocationCount === 1
+                ? "cliente ativo sem localização"
+                : "clientes ativos sem localização"
+            }
+            tom="ausente"
+            testId="map-customers-missing"
+          />
         ) : null}
 
-        {layers.ORDERS && ordens.dados ? (
-          <div className="contents">
-            <span data-testid="map-order-count">
-              {ordens.dados.markers.length === 1
-                ? "1 OS aberta nesta área"
-                : `${ordens.dados.markers.length} OS abertas nesta área`}
-            </span>
-            {ordens.dados.truncated ? (
-              <span
-                className="font-medium text-warning-fg"
-                data-testid="map-orders-truncated"
-              >
-                Aproxime o mapa para carregar todas as OS desta área.
-              </span>
-            ) : null}
-            {ordens.dados.missingLocationCount > 0 ? (
-              <span data-testid="map-orders-missing">
-                {ordens.dados.missingLocationCount} OS aberta
-                {ordens.dados.missingLocationCount === 1 ? "" : "s"} sem
-                localização
-              </span>
-            ) : null}
-          </div>
+        {layers.ORDERS && ordens.dados && ordens.dados.missingLocationCount > 0 ? (
+          <ResumoChip
+            valor={ordens.dados.missingLocationCount}
+            rotulo={
+              ordens.dados.missingLocationCount === 1
+                ? "OS aberta sem localização"
+                : "OS abertas sem localização"
+            }
+            tom="ausente"
+            testId="map-orders-missing"
+          />
+        ) : null}
+
+        {clientes.dados?.truncated ? (
+          <ResumoChip
+            valor={clientes.dados.markers.length}
+            rotulo="Aproxime para carregar todos os clientes"
+            tom="warning"
+            testId="map-customers-truncated"
+          />
+        ) : null}
+
+        {ordens.dados?.truncated ? (
+          <ResumoChip
+            valor={ordens.dados.markers.length}
+            rotulo="Aproxime para carregar todas as OS"
+            tom="warning"
+            testId="map-orders-truncated"
+          />
         ) : null}
       </div>
 
@@ -1173,7 +1206,7 @@ export function CtoMapLayer({
         />
       ) : null}
 
-      <MapLegend />
+      <MapLegend layers={layers} canSeeCustomers={canSeeCustomers} />
     </div>
   );
 }
@@ -1714,38 +1747,212 @@ function CtoMapSearch({
 // ---------------------------------------------------------------------------
 
 /**
- * A legenda existe porque o marcador é pequeno.
+ * Uma contagem do resumo: número grande, rótulo pequeno.
  *
- * Forma e glifo carregam o estado, mas nada explica o que uma forma significa
- * na primeira vez que se olha. A legenda é o texto que fecha isso — e é ela que
- * garante que o estado esteja escrito na página mesmo com todos os popups
- * fechados.
- *
- * Ela mostra o **selo**, e não a caixa inteira: a silhueta é a mesma nos quatro
- * estados, então redesenhá-la quatro vezes não explicaria nada. O que muda — e
- * portanto o que precisa de legenda — é o selo.
+ * O tom `ausente` é o das contagens de "sem localização", que respondem uma
+ * pergunta diferente das de "nesta área" — elas não mudam quando o mapa se
+ * move. Dar a elas o mesmo peso faria o operador somar as duas.
  */
-function MapLegend() {
+function ResumoChip({
+  valor,
+  rotulo,
+  tom,
+  testId,
+  href,
+  hrefRotulo,
+}: {
+  valor: number;
+  rotulo: string;
+  tom?: "warning" | "ausente";
+  testId: string;
+  href?: string;
+  hrefRotulo?: string;
+}) {
+  const cores =
+    tom === "warning"
+      ? "border-warning-border bg-warning-bg"
+      : tom === "ausente"
+        ? "border-dashed border-border bg-surface"
+        : "border-border bg-surface";
+  const corDoNumero =
+    tom === "warning"
+      ? "text-warning-fg"
+      : tom === "ausente"
+        ? "text-fg-muted"
+        : "text-fg";
+
   return (
-    <ul
-      className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-fg-secondary"
+    <p
+      className={`flex min-w-[7.5rem] flex-col rounded-lg border px-3 py-1.5 shadow-sm ${cores}`}
+      data-testid={testId}
+    >
+      <span className={`text-lg font-semibold leading-tight tabular-nums ${corDoNumero}`}>
+        {valor}
+      </span>
+      {/*
+        O espaço antes do rótulo é PROPOSITAL.
+
+        Número e rótulo ficam em linhas diferentes, então ele não aparece na
+        tela — e faz o texto do elemento ler "0 CTOs nesta área" em vez de
+        "0CTOs nesta área", que é o que uma leitura de tela (e um teste)
+        recebe.
+      */}
+      <span className="text-[11px] leading-snug text-fg-secondary">
+        {" "}
+        {rotulo}
+        {href && hrefRotulo ? (
+          <>
+            {" · "}
+            <Link
+              href={href}
+              className="font-medium text-primary-text underline underline-offset-2 hover:text-primary-text-hover"
+            >
+              {hrefRotulo}
+            </Link>
+          </>
+        ) : null}
+      </span>
+    </p>
+  );
+}
+
+/** Um símbolo da legenda, desenhado igual ao marcador que ele explica. */
+function SimboloDeLegenda({ children }: { children: ReactNode }) {
+  return (
+    <span
+      className="inline-flex h-5 w-5 shrink-0 items-center justify-center"
+      aria-hidden="true"
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
+ * A legenda, em TRÊS grupos — e só dos que estão desenhados.
+ *
+ * Antes ela explicava apenas as caixas, numa fila de quatro itens sem título.
+ * Com clientes e OS no mapa, o operador via três famílias de símbolo e uma
+ * legenda que respondia por uma. Agora cada grupo é nomeado.
+ *
+ * Grupo de camada DESLIGADA não aparece: explicar símbolo que não está na tela
+ * é ruído, e a legenda cresceria justamente onde há menos espaço.
+ *
+ * Os símbolos são os MESMOS desenhos dos marcadores, não aproximações — um
+ * quadradinho colorido "representando" o ponto faria a legenda divergir do
+ * mapa na primeira mudança de forma.
+ */
+function MapLegend({
+  layers,
+  canSeeCustomers,
+}: {
+  layers: Record<MapLayer, boolean>;
+  canSeeCustomers: boolean;
+}) {
+  const mostrarClientes = layers.CUSTOMERS && canSeeCustomers;
+
+  return (
+    <div
+      className="flex flex-wrap gap-x-5 gap-y-2 rounded-lg border border-border-subtle bg-surface-muted px-3 py-1.5 text-xs text-fg-secondary"
       data-testid="map-legend"
     >
-      {(["AVAILABLE", "FULL", "DAMAGED", "INACTIVE"] as const).map((status) => {
-        const apresentacao = CTO_MAP_LEGEND[status];
-        return (
-          <li key={status} className="flex items-center gap-2">
-            <span
-              className={`cto-marker cto-marker--${apresentacao.shape} cto-marker--${apresentacao.tone}`}
-              aria-hidden="true"
-              style={{ width: 20, height: 20, fontSize: 11 }}
-            >
-              <span>{apresentacao.glyph}</span>
+      {layers.CTOS ? (
+        <section className="flex flex-wrap items-center gap-x-3 gap-y-1" data-testid="map-legend-ctos">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+            Caixas
+          </h3>
+          {(["AVAILABLE", "FULL", "DAMAGED", "INACTIVE"] as const).map((status) => {
+            const apresentacao = CTO_MAP_LEGEND[status];
+            return (
+              <span key={status} className="flex items-center gap-1.5">
+                <SimboloDeLegenda>
+                  <span
+                    className={`cto-marker cto-marker--${apresentacao.shape} cto-marker--${apresentacao.tone}`}
+                    style={{ width: 18, height: 18, fontSize: 10 }}
+                  >
+                    <span>{apresentacao.glyph}</span>
+                  </span>
+                </SimboloDeLegenda>
+                {apresentacao.label}
+              </span>
+            );
+          })}
+        </section>
+      ) : null}
+
+      {mostrarClientes ? (
+        <section
+          className="flex flex-wrap items-center gap-x-4 gap-y-1"
+          data-testid="map-legend-customers"
+        >
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+            Clientes
+          </h3>
+          {(
+            [
+              ["ONLINE", "success", "Online"],
+              ["OFFLINE", "danger", "Offline"],
+              ["UNKNOWN", "neutral", "Sem leitura"],
+            ] as const
+          ).map(([status, tom, rotulo]) => (
+            <span key={status} className="flex items-center gap-1.5">
+              <SimboloDeLegenda>
+                <svg
+                  className={`cto-dot cto-dot--${tom}`}
+                  viewBox="0 0 18 18"
+                  width="16"
+                  height="16"
+                >
+                  {status === "ONLINE" ? (
+                    <circle className="cto-dot__body" cx="9" cy="9" r="4.5" />
+                  ) : status === "OFFLINE" ? (
+                    <>
+                      <circle className="cto-dot__body" cx="9" cy="9" r="4.5" />
+                      <circle className="cto-dot__hollow" cx="9" cy="9" r="1.7" />
+                    </>
+                  ) : (
+                    <circle
+                      className="cto-dot__body cto-dot__body--sem-leitura"
+                      cx="9"
+                      cy="9"
+                      r="4.2"
+                    />
+                  )}
+                </svg>
+              </SimboloDeLegenda>
+              {rotulo}
             </span>
-            {apresentacao.label}
-          </li>
-        );
-      })}
-    </ul>
+          ))}
+          <span className="flex items-center gap-1.5">
+            <SimboloDeLegenda>
+              <svg className="cto-dot cto-dot--neutral" viewBox="0 0 18 18" width="16" height="16">
+                <circle className="cto-dot__order" cx="9" cy="9" r="7" />
+                <circle className="cto-dot__body" cx="9" cy="9" r="4.5" />
+              </svg>
+            </SimboloDeLegenda>
+            Com OS aberta
+          </span>
+        </section>
+      ) : null}
+
+      {layers.ORDERS ? (
+        <section
+          className="flex flex-wrap items-center gap-x-4 gap-y-1"
+          data-testid="map-legend-orders"
+        >
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
+            OS
+          </h3>
+          <span className="flex items-center gap-1.5">
+            <SimboloDeLegenda>
+              <svg className="cto-order" viewBox="0 0 16 16" width="15" height="15">
+                <polygon className="cto-order__body" points="8,1.5 14.5,8 8,14.5 1.5,8" />
+              </svg>
+            </SimboloDeLegenda>
+            OS aberta
+          </span>
+        </section>
+      ) : null}
+    </div>
   );
 }

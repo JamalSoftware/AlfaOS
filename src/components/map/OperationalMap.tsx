@@ -130,20 +130,6 @@ export interface OperationalMapProps {
   /** Faixa da camada — contagem, truncamento, o que a camada precisar dizer. */
   overlay?: ReactNode;
   /**
-   * O controle de CAMADAS, no canto oposto ao da base.
-   *
-   * Ele mora dentro do mapa porque fora dele custava 82px de altura de página
-   * — medido —, e a legenda caía exatamente esses 82px abaixo da primeira
-   * dobra. A altura do mapa é faixa de leitura (`CTO-3.2.1b`) e não pode
-   * pagar por chrome novo; o canto de um mapa é onde controle de camada mora
-   * em qualquer mapa.
-   *
-   * À ESQUERDA de propósito: a base do mapa fica à direita, e os dois em
-   * cantos opostos é o que impede "Satélite" e "Clientes" de parecerem
-   * alternativas entre si.
-   */
-  layersControl?: ReactNode;
-  /**
    * Painel de edição, ancorado DENTRO do mapa — `CTO-3.2.1d`.
    *
    * ## Ele não pode empurrar o mapa, e isso foi medido
@@ -177,7 +163,6 @@ export function OperationalMap({
   error = null,
   onRetry,
   overlay,
-  layersControl,
   editor,
   children,
 }: OperationalMapProps) {
@@ -204,7 +189,7 @@ export function OperationalMap({
         `100vh` continua fora de propósito, e não só como padrão: num notebook
         com barra de tarefas ele produz um mapa que nunca cabe inteiro.
       */
-      className="cto-map-shell relative h-[380px] w-full overflow-hidden rounded-2xl border border-border bg-surface-muted sm:h-[440px] md:h-[500px] lg:h-[560px]"
+      className="cto-map-shell relative h-[320px] w-full overflow-hidden rounded-2xl border border-border bg-surface-muted sm:h-[360px] md:h-[380px] lg:h-[400px]"
       data-testid="operational-map"
     >
       <MapCanvas
@@ -218,12 +203,6 @@ export function OperationalMap({
       </MapCanvas>
 
       <MapModeControl modes={modes} mode={mode} onChange={onModeChange} />
-
-      {layersControl ? (
-        <div className="pointer-events-auto absolute left-3 top-3 z-[600] max-w-[min(16rem,calc(100%-6rem))]">
-          {layersControl}
-        </div>
-      ) : null}
 
       {overlay ? (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] flex flex-col items-center gap-2 p-3">

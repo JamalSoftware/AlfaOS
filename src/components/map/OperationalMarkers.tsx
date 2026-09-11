@@ -72,21 +72,40 @@ function iconeDeCliente(
   const icone = divIcon({
     className: "",
     html: [
-      `<svg class="${classes}" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" focusable="false">`,
+      `<svg class="${classes}" viewBox="0 0 18 18" width="16" height="16" aria-hidden="true" focusable="false">`,
       /*
-        O anel de OS é DESENHADO POR FORA, e só quando há OS.
+        O anel de OS fica POR FORA, fino e contínuo.
 
-        Por fora porque o miolo é o estado de conectividade, e ele não pode
-        ceder espaço: os dois sinais precisam ser lidos ao mesmo tempo.
+        Por fora porque o miolo é o estado do link e ele não cede espaço: os
+        dois sinais precisam ser lidos ao mesmo tempo. Contínuo e não tracejado
+        porque, num ponto de 16px, o tracejado vira serrilha e some.
       */
-      comOs ? '<circle class="cto-dot__order" cx="10" cy="10" r="8.5" />' : "",
-      '<circle class="cto-dot__body" cx="10" cy="10" r="5.5" />',
-      `<text class="cto-dot__glyph" x="10" y="10" text-anchor="middle" dominant-baseline="central">${apresentacao.glyph}</text>`,
+      comOs ? '<circle class="cto-dot__order" cx="9" cy="9" r="7" />' : "",
+      /*
+        FORMA, e não só cor.
+
+        O dono pediu pontinhos verdes, vermelhos e cinzas — e cor sozinha não
+        distingue para quem não a enxerga, que é regra do projeto desde a
+        `CTO-3.2.1c`. Um glifo de 7px seria ilegível neste tamanho, então quem
+        carrega a diferença é o DESENHO do miolo:
+
+          ONLINE       disco cheio          — ligado
+          OFFLINE      disco com furo       — apagado por dentro
+          SEM LEITURA  contorno tracejado   — não sabemos
+
+        As três se distinguem em escala de cinza, e o popup e a legenda dizem
+        em palavras.
+      */
+      status === "ONLINE"
+        ? '<circle class="cto-dot__body" cx="9" cy="9" r="4.5" />'
+        : status === "OFFLINE"
+          ? '<circle class="cto-dot__body" cx="9" cy="9" r="4.5" /><circle class="cto-dot__hollow" cx="9" cy="9" r="1.7" />'
+          : '<circle class="cto-dot__body cto-dot__body--sem-leitura" cx="9" cy="9" r="4.2" />',
       "</svg>",
     ].join(""),
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
-    popupAnchor: [0, -10],
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+    popupAnchor: [0, -9],
   });
 
   cacheDeIcones.set(chave, icone);
@@ -130,16 +149,24 @@ function iconeDeOs(): DivIcon {
   const icone = divIcon({
     className: "",
     html: [
-      '<svg class="cto-order" viewBox="0 0 22 22" width="20" height="20" aria-hidden="true" focusable="false">',
-      // Losango: forma distinta do círculo do cliente e da caixa da CTO, então
-      // os três se distinguem sem depender de cor.
-      '<polygon class="cto-order__body" points="11,1.5 20.5,11 11,20.5 1.5,11" />',
-      '<text class="cto-order__glyph" x="11" y="11" text-anchor="middle" dominant-baseline="central">OS</text>',
+      '<svg class="cto-order" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false">',
+      /*
+        Losango pequeno e limpo, SEM texto dentro.
+
+        A sigla "OS" ficava com 7px e não se lia em tamanho nenhum — ocupava o
+        miolo e obrigava o marcador a ser grande para caber. A forma já
+        distingue: círculo é cliente, caixa é CTO, losango é OS.
+
+        E o tamanho é decisão de hierarquia: a OS é visível, mas não disputa
+        protagonismo com a caixa (20×27). Quem manda no mapa é a
+        infraestrutura; a OS é o trabalho aberto em cima dela.
+      */
+      '<polygon class="cto-order__body" points="8,1.5 14.5,8 8,14.5 1.5,8" />',
       "</svg>",
     ].join(""),
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
-    popupAnchor: [0, -11],
+    iconSize: [15, 15],
+    iconAnchor: [7.5, 7.5],
+    popupAnchor: [0, -8],
   });
 
   cacheDeIcones.set("os", icone);

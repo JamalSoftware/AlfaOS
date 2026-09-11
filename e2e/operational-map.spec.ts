@@ -468,14 +468,14 @@ test.describe("Mapa Operacional — CTO-3.2", () => {
       A silhueta é idêntica nos quatro — é a identidade da CTO —, então o que se
       conta aqui é um marcador de cada tom, mais o desenho da caixa em todos.
     */
-    await expect(page.locator("svg.cto-box")).toHaveCount(4);
-    await expect(page.locator("svg.cto-box .cto-box__body")).toHaveCount(4);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box")).toHaveCount(4);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box .cto-box__body")).toHaveCount(4);
     for (const tom of ["success", "warning", "danger", "neutral"]) {
       await expect(page.locator(`svg.cto-box--${tom}`)).toHaveCount(1);
     }
 
     // O selo carrega GLIFO, e não só cor: quatro glifos distintos na tela.
-    const glifos = await page.locator("svg.cto-box .cto-box__glyph").allTextContents();
+    const glifos = await page.locator(".leaflet-marker-pane svg.cto-box .cto-box__glyph").allTextContents();
     expect(new Set(glifos).size).toBe(4);
 
     // A legenda continua explicando cada selo por forma, glifo e rótulo.
@@ -895,7 +895,7 @@ test.describe("Mapa Operacional — bases NORMAL/SATELLITE/HYBRID", () => {
     */
     await expect(page.locator(".leaflet-container")).toHaveCount(1);
     // Os marcadores sobrevivem à troca de base: eles não são da camada de tile.
-    await expect(page.locator("svg.cto-box")).toHaveCount(4);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box")).toHaveCount(4);
 
     expect(erros).toEqual([]);
   });
@@ -1019,7 +1019,7 @@ test.describe("Mapa Operacional — voltar de uma CTO", () => {
     expect(antes.get("mode")).toBe("HYBRID");
     expect(antes.get("q")).toBe("MAPA QA");
 
-    await page.locator("svg.cto-box").first().click();
+    await page.locator(".leaflet-marker-pane svg.cto-box").first().click();
     await page.getByTestId("cto-map-popup-open").click();
 
     // NAVMAP-01: o botão diz de onde a pessoa veio.
@@ -1048,7 +1048,7 @@ test.describe("Mapa Operacional — voltar de uma CTO", () => {
     );
     // NAVMAP-07: a caixa que foi aberta volta selecionada.
     expect(depois.get("sel")).not.toBeNull();
-    await expect(page.locator("svg.cto-box--selected")).toHaveCount(1);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box--selected")).toHaveCount(1);
   });
 
   test("NAVMAP-02 · vindo da listagem, o retorno continua sendo CTOs", async ({
@@ -1109,7 +1109,7 @@ test.describe("Mapa Operacional — voltar de uma CTO", () => {
     await page.goto("/mapa?lat=1e400&lng=NaN&z=-5&mode=%3Cscript%3E&sel=../x");
 
     await expect(page.locator(".leaflet-container")).toBeVisible();
-    await expect(page.locator("svg.cto-box").first()).toBeVisible({
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box").first()).toBeVisible({
       timeout: 15000,
     });
     await expect(page.getByTestId("map-mode-normal")).toHaveAttribute(
@@ -1143,11 +1143,29 @@ function contraste(frente: string, fundo: string): number {
 }
 
 test.describe("Mapa Operacional — altura", () => {
+  /*
+    A FAIXA foi refeita, e o motivo fica registrado.
+
+    A `CTO-3.2.1b` fixou 380/440/500/560 quando a página tinha busca, mapa,
+    uma linha de contagens e uma legenda de quatro itens. Esta fase acrescentou
+    três coisas que ocupam altura: o cartão de camadas, que o dono pediu FORA
+    do canvas porque lá dentro ele cobria os botões `+`/`−`; o resumo em chips,
+    com número grande; e a legenda em três grupos.
+
+    Medido em 1440×900 com tudo ligado: o documento fecha em exatamente 900px
+    com o mapa em 400. Com os 560 antigos, a legenda caía 75px abaixo da
+    dobra — e "a legenda fica visível sem rolar" é regra validada pelo dono
+    (`UXP-02`), não detalhe.
+
+    O que NÃO mudou é a regra: altura de mapa continua sendo faixa de leitura
+    em PIXELS, nunca fração de tela. Unidade de viewport traria de volta o mapa
+    que cresce e empurra o resto para fora.
+  */
   for (const caso of [
-    { nome: "desktop", width: 1440, height: 900, min: 500, max: 600 },
-    { nome: "notebook", width: 1280, height: 800, min: 500, max: 600 },
-    { nome: "tablet", width: 768, height: 1024, min: 420, max: 560 },
-    { nome: "celular", width: 390, height: 844, min: 360, max: 440 },
+    { nome: "desktop", width: 1440, height: 900, min: 360, max: 440 },
+    { nome: "notebook", width: 1280, height: 800, min: 360, max: 440 },
+    { nome: "tablet", width: 768, height: 1024, min: 340, max: 420 },
+    { nome: "celular", width: 390, height: 844, min: 290, max: 360 },
   ]) {
     test(`UXP-01/03 · a altura fica na faixa em ${caso.nome}`, async ({
       page,
@@ -1312,7 +1330,7 @@ test.describe("Mapa Operacional — marcador e ação", () => {
     await login(page, ADMIN_EMAIL);
     await abrirMapa(page);
 
-    const caixa = page.locator("svg.cto-box").first();
+    const caixa = page.locator(".leaflet-marker-pane svg.cto-box").first();
     await expect(caixa).toBeVisible();
 
     // A silhueta.
@@ -1361,7 +1379,7 @@ test.describe("Mapa Operacional — marcador e ação", () => {
       // Sobre imagem aérea não há fundo previsível: a sombra é o que separa o
       // desenho de um telhado escuro ou de uma laje clara.
       const filtro = await page
-        .locator("svg.cto-box")
+        .locator(".leaflet-marker-pane svg.cto-box")
         .first()
         .evaluate((el) => getComputedStyle(el).filter);
       expect(filtro, `sem sombra no modo ${modo}`).toContain("drop-shadow");
@@ -1379,7 +1397,7 @@ test.describe("Mapa Operacional — marcador e ação", () => {
       }, tema);
       await abrirMapa(page);
 
-      await page.locator("svg.cto-box").first().click();
+      await page.locator(".leaflet-marker-pane svg.cto-box").first().click();
       const botao = page.getByTestId("cto-map-popup-open");
       await expect(botao).toBeVisible();
 
@@ -1461,7 +1479,7 @@ test.describe("Mapa Operacional — marcador e ação", () => {
 
     const antes = new URL(page.url()).searchParams;
 
-    await page.locator("svg.cto-box").first().click();
+    await page.locator(".leaflet-marker-pane svg.cto-box").first().click();
     await page.getByTestId("cto-map-popup-open").click();
 
     await expect(page.getByTestId("cto-back-link")).toHaveText(
@@ -1744,7 +1762,7 @@ test.describe("Mapa Operacional — plaqueta com o nome da CTO", () => {
     await login(page, ADMIN_EMAIL);
     await abrirMapaEm(page, 17);
 
-    const caixa = page.locator("svg.cto-box").first();
+    const caixa = page.locator(".leaflet-marker-pane svg.cto-box").first();
     await expect(caixa).toBeVisible();
 
     // ML-06: corpo, tampa com fecho, UMA placa de prensa-cabos e DOIS cabos.
@@ -1927,7 +1945,7 @@ test.describe("Mapa Operacional — o corpo comunica o estado", () => {
   }) => {
     await login(page, ADMIN_EMAIL);
     await abrirMapaEm(page, 16);
-    await expect(page.locator("svg.cto-box")).toHaveCount(4, { timeout: 15_000 });
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box")).toHaveCount(4, { timeout: 15_000 });
 
     const disponivel = await contornoDe(page, "MAPA QA DISPONIVEL");
     const lotada = await contornoDe(page, "MAPA QA LOTADA");
@@ -1982,7 +2000,7 @@ test.describe("Mapa Operacional — o corpo comunica o estado", () => {
   }) => {
     await login(page, ADMIN_EMAIL);
     await abrirMapaEm(page, 16);
-    await expect(page.locator("svg.cto-box")).toHaveCount(4, { timeout: 15_000 });
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box")).toHaveCount(4, { timeout: 15_000 });
 
     const svg = marcadorSvg(page, "MAPA QA INATIVA");
     const figura = await svg.locator(".cto-box__figure").evaluate((el) => {
@@ -2072,8 +2090,21 @@ test.describe("Mapa Operacional — o corpo comunica o estado", () => {
 
   test("STATUSVIS-06 · selecionar NÃO apaga o estado", async ({ page }) => {
     await login(page, ADMIN_EMAIL);
-    await abrirMapaEm(page, 16);
-    await expect(page.locator("svg.cto-box")).toHaveCount(4, { timeout: 15_000 });
+    /*
+      `z15` e não `z16`, e a razão é geométrica.
+
+      As fixtures ficam a ±0,004° do centro, uns 444m. Com o mapa em 400px de
+      altura (a faixa foi refeita nesta fase), z16 mostra ~960m: a caixa ao
+      norte cai a uns 15px do topo, e a plaqueta permanente dela — que fica
+      ACIMA do marcador — sai pela borda. O Leaflet recorta, e o marcador
+      nunca chega a "visível" para o ponteiro.
+
+      É a mesma lição que a `ML-01/02` já tinha aprendido ao contrário, quando
+      z17 era apertado demais para um mapa maior: o zoom do teste é função da
+      altura do mapa, e mudou junto com ela.
+    */
+    await abrirMapaEm(page, 15);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box")).toHaveCount(4, { timeout: 15_000 });
 
     const antes = await contornoDe(page, "MAPA QA DEFEITO");
 
@@ -2114,7 +2145,7 @@ test.describe("Mapa Operacional — o corpo comunica o estado", () => {
   }) => {
     await login(page, ADMIN_EMAIL);
     await abrirMapaEm(page, 16);
-    await expect(page.locator("svg.cto-box")).toHaveCount(4, { timeout: 15_000 });
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box")).toHaveCount(4, { timeout: 15_000 });
 
     for (const modo of ["normal", "satellite", "hybrid"]) {
       await page.getByTestId(`map-mode-${modo}`).click();
@@ -3179,7 +3210,7 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     page,
   }) => {
     await abrirCamadas(page);
-    await expect(page.locator("svg.cto-box").first()).toBeVisible({
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box").first()).toBeVisible({
       timeout: 15_000,
     });
 
@@ -3212,7 +3243,7 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
   test("STAB-02 · o zoom não apaga os pontos de cliente", async ({ page }) => {
     await abrirCamadas(page);
     await page.getByTestId("map-layer-customers").check();
-    await expect(page.locator("svg.cto-dot")).toHaveCount(3, { timeout: 15_000 });
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(3, { timeout: 15_000 });
 
     /*
       O zoom da roda centra no CURSOR, e por isso ele vai no MEIO do mapa.
@@ -3236,7 +3267,7 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     await page.mouse.wheel(0, -120);
     const amostras: number[] = [];
     for (let i = 0; i < 10; i += 1) {
-      amostras.push(await page.locator("svg.cto-dot").count());
+      amostras.push(await page.locator(".leaflet-marker-pane svg.cto-dot").count());
       await page.waitForTimeout(200);
     }
     expect(
@@ -3250,7 +3281,7 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
   }) => {
     await abrirCamadas(page);
     await page.getByTestId("map-layer-customers").check();
-    await expect(page.locator("svg.cto-dot").first()).toBeVisible({
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
       timeout: 15_000,
     });
 
@@ -3302,7 +3333,7 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     });
 
     await abrirCamadas(page);
-    await expect(page.locator("svg.cto-box").first()).toBeVisible({
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box").first()).toBeVisible({
       timeout: 15_000,
     });
     await expect.poll(() => pedidos.length).toBeGreaterThan(0);
@@ -3342,13 +3373,13 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     await expect(page.getByTestId("map-layer-customers")).not.toBeChecked();
 
     // As duas ligadas desenham; a desligada não.
-    await expect(page.locator("svg.cto-box").first()).toBeVisible({
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box").first()).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.locator("svg.cto-order").first()).toBeVisible({
+    await expect(page.locator(".leaflet-marker-pane svg.cto-order").first()).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.locator("svg.cto-dot")).toHaveCount(0);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(0);
 
     /*
       Camada DESLIGADA não consulta.
@@ -3404,12 +3435,12 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     await abrirCamadas(page);
     await page.getByTestId("map-layer-customers").check();
 
-    await expect(page.locator("svg.cto-dot")).toHaveCount(3, {
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(3, {
       timeout: 15_000,
     });
 
     const estados = await page
-      .locator("svg.cto-dot")
+      .locator(".leaflet-marker-pane svg.cto-dot")
       .evaluateAll((nos) => nos.map((n) => n.getAttribute("class")));
     expect(estados.some((c) => c?.includes("cto-dot--success"))).toBe(true);
     expect(estados.some((c) => c?.includes("cto-dot--danger"))).toBe(true);
@@ -3422,7 +3453,7 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
       há trabalho aberto. Um marcador que trocasse a cor por "tem OS"
       esconderia justamente a informação que explica a OS existir.
     */
-    const comOs = page.locator("svg.cto-dot.cto-dot--danger.cto-dot--with-order");
+    const comOs = page.locator(".leaflet-marker-pane svg.cto-dot.cto-dot--danger.cto-dot--with-order");
     await expect(comOs).toHaveCount(1);
     await expect(comOs.locator(".cto-dot__order")).toHaveCount(1);
 
@@ -3449,8 +3480,8 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
       que a contagem "OS abertas: 1" tem quem a leia.
     */
     await page.getByTestId("map-layer-orders").uncheck();
-    await expect(page.locator("svg.cto-order")).toHaveCount(0);
-    await expect(page.locator("svg.cto-dot").first()).toBeVisible({
+    await expect(page.locator(".leaflet-marker-pane svg.cto-order")).toHaveCount(0);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
       timeout: 15_000,
     });
 
@@ -3527,7 +3558,7 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await abrirCamadas(page);
     await page.getByTestId("map-layer-customers").check();
-    await expect(page.locator("svg.cto-dot").first()).toBeVisible({
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
       timeout: 15_000,
     });
     // As três contagens estão na tela, e são elas que empurram a legenda.
@@ -3556,10 +3587,10 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
   }) => {
     await abrirCamadas(page);
     await page.getByTestId("map-layer-customers").check();
-    await expect(page.locator("svg.cto-dot").first()).toBeVisible({
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.locator("svg.cto-order").first()).toBeVisible({
+    await expect(page.locator(".leaflet-marker-pane svg.cto-order").first()).toBeVisible({
       timeout: 15_000,
     });
 
@@ -3613,7 +3644,7 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
 
   test("LAYER-10/11 · popup da OS, e voltar restaura o mapa", async ({ page }) => {
     await abrirCamadas(page);
-    await expect(page.locator("svg.cto-order").first()).toBeVisible({
+    await expect(page.locator(".leaflet-marker-pane svg.cto-order").first()).toBeVisible({
       timeout: 15_000,
     });
 
@@ -3664,6 +3695,7 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     await expect(caixa).toBeVisible({ timeout: 15_000 });
 
     // LAYER-12: o selo de OS existe, e o selo de ESTADO continua lá.
+    // Encadeado a partir do marcador: o escopo do painel já veio de `caixa`.
     const svg = caixa.locator("svg.cto-box");
     await expect(svg.locator(".cto-box__orders")).toHaveCount(1);
     await expect(svg.locator(".cto-box__badge")).toHaveCount(1);
@@ -3746,8 +3778,8 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     await expect(page.getByTestId("map-customer-count")).toHaveCount(0);
 
     // E as outras camadas continuam inteiras.
-    await expect(page.locator("svg.cto-box").first()).toBeVisible();
-    await expect(page.locator("svg.cto-order").first()).toBeVisible();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box").first()).toBeVisible();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-order").first()).toBeVisible();
   });
 
   test("LAYER-18 · o DISPATCHER não vê a camada de clientes", async ({ page }) => {
@@ -3818,7 +3850,7 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     await page.mouse.move(x + 70, y + 60, { steps: 10 });
     await page.mouse.up();
 
-    await expect(page.locator("svg.cto-dot").first()).toBeVisible({
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
       timeout: 20_000,
     });
     await page.waitForTimeout(1500);

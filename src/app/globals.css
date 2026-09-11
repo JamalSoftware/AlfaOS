@@ -840,16 +840,29 @@
   filter: drop-shadow(0 1px 2px rgb(var(--overlay) / 0.5));
 }
 
+/*
+  O miolo do ponto: cor pelo estado, FORMA pelo estado.
+
+  Ver o comentário do ícone: `ONLINE` é disco cheio, `OFFLINE` é disco com
+  furo, `SEM LEITURA` é contorno tracejado. Cor sozinha não distingue para
+  quem não a enxerga.
+*/
 .cto-dot__body {
   stroke: rgb(var(--surface));
-  stroke-width: 1.5;
+  stroke-width: 1.25;
 }
 
-.cto-dot__glyph {
-  font-family: inherit;
-  font-size: 7px;
-  font-weight: 700;
+/* O furo do `OFFLINE`, na cor da superfície: lê como "apagado por dentro". */
+.cto-dot__hollow {
   fill: rgb(var(--surface));
+}
+
+/* `SEM LEITURA`: oco e tracejado — não é um estado, é a ausência de um. */
+.cto-dot__body--sem-leitura {
+  fill: none !important;
+  stroke: rgb(var(--neutral-fg));
+  stroke-width: 1.75;
+  stroke-dasharray: 2.2 1.8;
 }
 
 .cto-dot--success .cto-dot__body {
@@ -863,39 +876,31 @@
 }
 
 /*
-  O anel de OS fica POR FORA do miolo, e nunca o substitui.
+  O anel de OS: contínuo, fino, POR FORA.
 
-  Precisamos enxergar `OFFLINE` **e** `OS ABERTA` ao mesmo tempo: o miolo diz o
-  estado do link, o anel diz que há trabalho aberto. Um marcador que trocasse a
-  cor por "tem OS" esconderia justamente a informação que explica a OS existir.
+  Ele nunca substitui o miolo — `OFFLINE` **e** `OS aberta` precisam ser lidos
+  ao mesmo tempo, e um marcador que trocasse a cor por "tem OS" esconderia
+  justamente a informação que explica a OS existir.
 */
 .cto-dot__order {
   fill: none;
   stroke: rgb(var(--warning-fg));
-  stroke-width: 2;
-  stroke-dasharray: 3 2;
+  stroke-width: 1.6;
 }
 
-/* A OS: LOSANGO, para não se confundir com o círculo do cliente nem com a
-   caixa da CTO. Três formas, distinguíveis sem cor. */
+/* A OS: LOSANGO pequeno, sem texto. Três formas, distinguíveis sem cor. */
 .cto-order {
   display: block;
   filter: drop-shadow(0 1px 2px rgb(var(--overlay) / 0.5));
 }
 
 .cto-order__body {
-  fill: rgb(var(--warning-bg));
-  stroke: rgb(var(--warning-fg));
-  stroke-width: 2;
+  fill: rgb(var(--warning-fg));
+  stroke: rgb(var(--surface));
+  stroke-width: 1.5;
   stroke-linejoin: round;
 }
 
-.cto-order__glyph {
-  font-family: inherit;
-  font-size: 7px;
-  font-weight: 700;
-  fill: rgb(var(--warning-fg));
-}
 
 /*
   O selo de OS no marcador da CTO.
