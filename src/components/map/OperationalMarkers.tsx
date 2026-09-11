@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { memo } from "react";
 import { divIcon, type DivIcon } from "leaflet";
-import { Marker, Popup } from "react-leaflet";
+import { Marker, Popup, Tooltip } from "react-leaflet";
 import type {
   CustomerMapMarker,
   ServiceOrderMapMarker,
@@ -12,7 +12,11 @@ import {
   connectivityAge,
   connectivityPresentation,
 } from "@/lib/connectivity-presentation";
-import { SERVICE_ORDER_STATUS_LABELS } from "@/lib/service-order-labels";
+import {
+  SERVICE_ORDER_PRIORITY_LABELS,
+  SERVICE_ORDER_STATUS_LABELS,
+} from "@/lib/service-order-labels";
+import { customerInitials } from "@/lib/customer-initials";
 import { OPERATIONAL_MAP_PATH } from "@/lib/return-to";
 
 /**
@@ -43,20 +47,23 @@ import { OPERATIONAL_MAP_PATH } from "@/lib/return-to";
 const cacheDeIcones = new Map<string, DivIcon>();
 
 /**
- * O ponto do cliente.
+ * O tamanho do CONTÊINER é a área de clique; o do desenho é o visual.
  *
- * SVG próprio, sem dependência nova — o projeto já desenha o marcador da CTO
- * assim, e trazer uma biblioteca de ícones para um círculo com um glifo seria
- * superfície de terceiro em troca de nada.
- *
- * O nome do cliente **não** entra aqui: `divIcon` recebe HTML cru, e nome é
- * digitado por gente. Ele vive no popup, que o React escapa.
+ * São coisas separadas de propósito. O visual encolhe com o zoom (ver
+ * `mapAssetScale`), e se a área de clique encolhesse junto, de longe o operador
+ * teria de acertar um alvo de doze pixels. O contêiner não é escalado — só o
+ * wrapper de dentro —, então o alvo continua com 30px em qualquer zoom.
  */
+const HIT_BOX = 30;
+const VISUAL_CLIENTE = 18;
+const VISUAL_OS = 20;
+
 function iconeDeCliente(
   status: CustomerMapMarker["connectivityStatus"],
   comOs: boolean,
+  iniciais: string,
 ): DivIcon {
-  const chave = `cli:${status}:${comOs ? "1" : "0"}`;
+  const chave = `cli:${status}:${comOs ? "1" : "0"}:${iniciais}`;
   const guardado = cacheDeIcones.get(chave);
   if (guardado) return guardado;
 
@@ -72,40 +79,60 @@ function iconeDeCliente(
   const icone = divIcon({
     className: "",
     html: [
-      `<svg class="${classes}" viewBox="0 0 18 18" width="16" height="16" aria-hidden="true" focusable="false">`,
+      /*
+        O wrapper de ESCALA, entre o contêiner do Leaflet e o desenho.
+
+        O Leaflet escreve `translate3d(...)` no contêiner para posicionar o
+        marcador. Aplicar `transform: scale(...)` ali sobrescreveria esse
+        posicionamento e o ponto sairia do lugar no mapa. A escala mora numa
+        camada de dentro, que o Leaflet não toca.
+      */
+      '<span class="cto-marker-hit"><span class="cto-marker-scale">',
+      `<svg class="${classes}" viewBox="0 0 18 18" width="${VISUAL_CLIENTE}" height="${VISUAL_CLIENTE}" aria-hidden="true" focusable="false">`,
       /*
         O anel de OS fica POR FORA, fino e contínuo.
 
         Por fora porque o miolo é o estado do link e ele não cede espaço: os
         dois sinais precisam ser lidos ao mesmo tempo. Contínuo e não tracejado
-        porque, num ponto de 16px, o tracejado vira serrilha e some.
+        porque, num ponto deste tamanho, o tracejado vira serrilha e some.
       */
-      comOs ? '<circle class="cto-dot__order" cx="9" cy="9" r="7" />' : "",
+      comOs ? '<circle class="cto-dot__order" cx="9" cy="9" r="8" />' : "",
       /*
         FORMA, e não só cor.
 
         O dono pediu pontinhos verdes, vermelhos e cinzas — e cor sozinha não
         distingue para quem não a enxerga, que é regra do projeto desde a
-        `CTO-3.2.1c`. Um glifo de 7px seria ilegível neste tamanho, então quem
-        carrega a diferença é o DESENHO do miolo:
+        `CTO-3.2.1c`:
 
-          ONLINE       disco cheio          — ligado
-          OFFLINE      disco com furo       — apagado por dentro
-          SEM LEITURA  contorno tracejado   — não sabemos
-
-        As três se distinguem em escala de cinza, e o popup e a legenda dizem
-        em palavras.
+          ONLINE       disco cheio
+          OFFLINE      disco com furo
+          SEM LEITURA  contorno tracejado
       */
       status === "ONLINE"
-        ? '<circle class="cto-dot__body" cx="9" cy="9" r="4.5" />'
+        ? '<circle class="cto-dot__body" cx="9" cy="9" r="6" />'
         : status === "OFFLINE"
-          ? '<circle class="cto-dot__body" cx="9" cy="9" r="4.5" /><circle class="cto-dot__hollow" cx="9" cy="9" r="1.7" />'
-          : '<circle class="cto-dot__body cto-dot__body--sem-leitura" cx="9" cy="9" r="4.2" />',
+          ? '<circle class="cto-dot__body" cx="9" cy="9" r="6" /><circle class="cto-dot__hollow" cx="9" cy="9" r="2.2" />'
+          : '<circle class="cto-dot__body cto-dot__body--sem-leitura" cx="9" cy="9" r="5.6" />',
+      /*
+        As INICIAIS, e é a garantia de saída do helper que as autoriza aqui.
+
+        `divIcon` recebe HTML CRU, e a regra do projeto é que nome digitado por
+        gente não entra nele. `customerInitials` devolve `[A-Z]{0,2}` — nenhum
+        caractere com significado em HTML sobrevive à peneira dela, e há teste
+        com entrada hostil provando isso. O nome completo continua só no popup.
+
+        Elas somem no zoom distante por CSS (`map--rotulos`), sem recriar
+        marcador.
+      */
+      iniciais
+        ? `<text class="cto-dot__initials" x="9" y="9" text-anchor="middle" dominant-baseline="central">${iniciais}</text>`
+        : "",
       "</svg>",
+      "</span></span>",
     ].join(""),
-    iconSize: [16, 16],
-    iconAnchor: [8, 8],
-    popupAnchor: [0, -9],
+    iconSize: [HIT_BOX, HIT_BOX],
+    iconAnchor: [HIT_BOX / 2, HIT_BOX / 2],
+    popupAnchor: [0, -VISUAL_CLIENTE / 2],
   });
 
   cacheDeIcones.set(chave, icone);
@@ -141,35 +168,54 @@ function iconeDeCliente(
  */
 const OS_ACIMA_DO_CLIENTE = 1000;
 
-/** O marcador da OS: losango, para não se confundir com o ponto do cliente. */
-function iconeDeOs(): DivIcon {
-  const guardado = cacheDeIcones.get("os");
+/** O rótulo acessível da OS: número, prioridade e situação, por extenso. */
+function rotuloDaOs(os: ServiceOrderMapMarker): string {
+  const prioridade = SERVICE_ORDER_PRIORITY_LABELS[os.priority];
+  return `OS número ${os.number}, ${prioridade}, ${SERVICE_ORDER_STATUS_LABELS[os.status]}`;
+}
+
+/**
+ * O marcador da OS: losango, com o NÚMERO ao lado e a urgência na cor.
+ *
+ * Losango porque as três famílias precisam se distinguir sem depender de cor —
+ * círculo é cliente, caixa é CTO, losango é OS.
+ *
+ * ## Vermelho na OS não conflita com vermelho no cliente
+ *
+ * No cliente, vermelho é OFFLINE; na OS, é URGENTE. São formas diferentes, com
+ * rótulos diferentes e entradas próprias na legenda, então a semântica não se
+ * mistura. E a cor não está sozinha: a OS urgente ganha `!` antes do número.
+ */
+function iconeDeOs(urgente: boolean): DivIcon {
+  const chave = `os:${urgente ? "urgente" : "normal"}`;
+  const guardado = cacheDeIcones.get(chave);
   if (guardado) return guardado;
 
   const icone = divIcon({
     className: "",
     html: [
-      '<svg class="cto-order" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false">',
+      // O wrapper de escala — ver `iconeDeCliente`.
+      '<span class="cto-marker-hit"><span class="cto-marker-scale">',
+      `<svg class="cto-order${urgente ? " cto-order--urgente" : ""}" viewBox="0 0 20 20" width="${VISUAL_OS}" height="${VISUAL_OS}" aria-hidden="true" focusable="false">`,
+      '<polygon class="cto-order__body" points="10,1.5 18.5,10 10,18.5 1.5,10" />',
       /*
-        Losango pequeno e limpo, SEM texto dentro.
+        O `!` é REFORÇO, e não decoração.
 
-        A sigla "OS" ficava com 7px e não se lia em tamanho nenhum — ocupava o
-        miolo e obrigava o marcador a ser grande para caber. A forma já
-        distingue: círculo é cliente, caixa é CTO, losango é OS.
-
-        E o tamanho é decisão de hierarquia: a OS é visível, mas não disputa
-        protagonismo com a caixa (20×27). Quem manda no mapa é a
-        infraestrutura; a OS é o trabalho aberto em cima dela.
+        A cor sozinha não pode carregar a urgência — mesma regra dos estados do
+        cliente. Quem não distingue vermelho de laranja continua vendo o sinal.
       */
-      '<polygon class="cto-order__body" points="8,1.5 14.5,8 8,14.5 1.5,8" />',
+      urgente
+        ? '<text class="cto-order__bang" x="10" y="10" text-anchor="middle" dominant-baseline="central">!</text>'
+        : "",
       "</svg>",
+      "</span></span>",
     ].join(""),
-    iconSize: [15, 15],
-    iconAnchor: [7.5, 7.5],
-    popupAnchor: [0, -8],
+    iconSize: [HIT_BOX, HIT_BOX],
+    iconAnchor: [HIT_BOX / 2, HIT_BOX / 2],
+    popupAnchor: [0, -VISUAL_OS / 2],
   });
 
-  cacheDeIcones.set("os", icone);
+  cacheDeIcones.set(chave, icone);
   return icone;
 }
 
@@ -248,7 +294,11 @@ function CustomerMarkersBase({ markers, canOpenCustomer }: CustomerMarkersProps)
           <Marker
             key={cliente.id}
             position={[cliente.latitude, cliente.longitude]}
-            icon={iconeDeCliente(cliente.connectivityStatus, comOs)}
+            icon={iconeDeCliente(
+              cliente.connectivityStatus,
+              comOs,
+              customerInitials(cliente.name),
+            )}
             // Nome acessível sem depender de cor nem de abrir o popup.
             title={`${cliente.name} — ${apresentacao.mapLabel}`}
             alt={`${cliente.name} — ${apresentacao.mapLabel}`}
@@ -295,12 +345,22 @@ function CustomerMarkersBase({ markers, canOpenCustomer }: CustomerMarkersProps)
                   o despachante faz a seguir.
                 */}
                 <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[11px]">
-                  <span className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-surface-muted px-1.5 py-0.5">
-                    <span className="opacity-80">CTO</span>
+                  {/*
+                    O nome da caixa JÁ COMEÇA com "CTO", e o rótulo repetia.
+
+                    Saía "CTO CTO QA FIELD 01 · 1" — o dono apontou. O valor
+                    persistido não é mexido para consertar apresentação: quem
+                    sai é o rótulo redundante, e "Porta" entra por extenso
+                    porque o número sozinho não dizia o que era.
+                  */}
+                  <span
+                    className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-surface-muted px-1.5 py-0.5"
+                    data-testid="customer-map-cto"
+                  >
                     <span className="font-semibold text-fg">
                       {cliente.cto
-                        ? `${cliente.cto.ctoName} · ${cliente.cto.portNumber}`
-                        : "—"}
+                        ? `${cliente.cto.ctoName} · Porta ${cliente.cto.portNumber}`
+                        : "Sem caixa vinculada"}
                     </span>
                   </span>
                   <span
@@ -363,11 +423,42 @@ function ServiceOrderMarkersBase({
         <Marker
           key={os.id}
           position={[os.latitude, os.longitude]}
-          icon={iconeDeOs()}
+          icon={iconeDeOs(os.priority === "URGENT")}
           zIndexOffset={OS_ACIMA_DO_CLIENTE}
-          title={`OS Nº ${os.number} — ${SERVICE_ORDER_STATUS_LABELS[os.status]}`}
-          alt={`OS Nº ${os.number} — ${SERVICE_ORDER_STATUS_LABELS[os.status]}`}
+          /*
+            O rótulo acessível carrega a URGÊNCIA por extenso.
+
+            No desenho ela é cor mais `!`; para quem navega por leitor de tela,
+            nenhum dos dois existe. A palavra entra aqui, e sai da autoridade do
+            domínio — `SERVICE_ORDER_PRIORITY_LABELS`, a mesma tabela do
+            despacho.
+          */
+          title={rotuloDaOs(os)}
+          alt={rotuloDaOs(os)}
         >
+          {/*
+            A plaqueta traz o NÚMERO, e só ele.
+
+            "OS-N°48-URGENTE-INSTALAÇÃO" em cima do mapa vira parede de texto na
+            primeira dezena de ordens. Tipo, status e prioridade por extenso
+            ficam no popup, que é aberto por ação explícita. O `!` na frente é o
+            reforço da urgência que a cor sozinha não pode carregar.
+
+            Ela some no zoom distante por CSS (`map--rotulos`), sem recriar
+            marcador — e é `Tooltip`, não `divIcon`, porque o React escapa o
+            conteúdo dela.
+          */}
+          <Tooltip
+            permanent
+            direction="right"
+            offset={[10, 0]}
+            className="cto-map-label cto-map-label--os"
+          >
+            <span data-testid="order-map-label">
+              {os.priority === "URGENT" ? "! " : ""}
+              {`OS-N°${os.number}`}
+            </span>
+          </Tooltip>
           <Popup>
             <div
               className="min-w-[220px] max-w-[280px] p-3"
@@ -378,6 +469,27 @@ function ServiceOrderMarkersBase({
               <p className="mt-0.5 text-xs text-fg-muted">
                 {SERVICE_ORDER_STATUS_LABELS[os.status]}
                 {os.typeName ? ` · ${os.typeName}` : ""}
+              </p>
+
+              {/*
+                A PRIORIDADE por extenso, e ela vem do domínio.
+
+                No mapa a urgência é cor mais `!`, que é o suficiente para bater
+                o olho; aqui ela é escrita, porque o popup é onde se decide o
+                que fazer. O rótulo sai de `SERVICE_ORDER_PRIORITY_LABELS`, a
+                mesma tabela que o despacho usa — nada aqui deduz urgência de
+                tipo, status ou tempo em aberto.
+              */}
+              <p
+                className={`mt-1.5 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                  os.priority === "URGENT"
+                    ? "border-danger-border bg-danger-bg text-danger-fg"
+                    : "border-border-subtle bg-surface-muted text-fg-secondary"
+                }`}
+                data-testid="order-map-priority"
+              >
+                {os.priority === "URGENT" ? "! " : ""}
+                Prioridade: {SERVICE_ORDER_PRIORITY_LABELS[os.priority]}
               </p>
 
               <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">

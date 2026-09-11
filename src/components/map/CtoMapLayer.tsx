@@ -193,6 +193,13 @@ export function CtoMapLayer({
 }: CtoMapLayerProps) {
   const [view, setView] = useState<CtoMapView | null>(null);
   const [loading, setLoading] = useState(false);
+  /*
+    O indicador de atualização, com ATRASO — e o atraso é só da UI.
+
+    Uma resposta que volta em 80ms faria a pílula piscar, o que incomoda mais
+    do que informa. O pedido sai na hora; quem espera é o aviso.
+  */
+  const [mostrarAtualizando, setMostrarAtualizando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [mode, setMode] = useState<MapMode>(() =>
@@ -449,6 +456,24 @@ export function CtoMapLayer({
   const guardaClientesRef = useRef(createLatestRequestGuard());
   const abortOrdensRef = useRef<AbortController | null>(null);
   const guardaOrdensRef = useRef(createLatestRequestGuard());
+
+  /*
+    Um indicador SÓ, e não três.
+
+    Três camadas atualizando produziriam três avisos empilhados numa faixa de
+    dezesseis pixels. Erro continua sendo por camada, porque ali a pergunta
+    "qual falhou?" muda o que a pessoa faz.
+  */
+  const atualizando = loading || clientes.carregando || ordens.carregando;
+
+  useEffect(() => {
+    if (!atualizando) {
+      setMostrarAtualizando(false);
+      return;
+    }
+    const t = setTimeout(() => setMostrarAtualizando(true), 160);
+    return () => clearTimeout(t);
+  }, [atualizando]);
 
   const carregarClientes = useCallback(
     async (bbox: BoundingBox, filtro: CustomerFilter) => {
@@ -880,7 +905,7 @@ export function CtoMapLayer({
         que a pessoa está tentando ver, e some junto com o resto quando o mapa
         rola. Ela fica aqui, e só existe quando há o que dizer.
       */}
-      {clientes.erro || ordens.erro || clientes.carregando ? (
+      {clientes.erro || ordens.erro ? (
         <div data-testid="map-layer-notices">
         {/*
           Erro POR CAMADA, e nunca "0 clientes".
@@ -905,11 +930,6 @@ export function CtoMapLayer({
             data-testid="map-orders-error"
           >
             {ordens.erro}
-          </p>
-        ) : null}
-        {clientes.carregando ? (
-          <p className="mt-2 text-xs text-fg-muted" data-testid="map-customers-loading">
-            Carregando clientes…
           </p>
         ) : null}
         </div>
@@ -1020,16 +1040,37 @@ export function CtoMapLayer({
           ) : null
         }
         overlay={
-          view?.truncated ? (
-            <p
-              className="pointer-events-auto rounded-lg border border-warning-border bg-warning-bg px-3 py-1.5 text-xs font-medium text-warning-fg shadow-sm"
-              role="status"
-              data-testid="map-truncated"
-            >
-              Esta área tem mais de {view.limit} CTOs. Aproxime o mapa para
-              carregar todas.
-            </p>
-          ) : null
+          <>
+            {/*
+              A pílula de atualização vive DENTRO do mapa, e isso é o conserto.
+
+              Ela estava no fluxo, acima do mapa: aparecia no refresh, empurrava
+              o mapa para baixo e sumia empurrando de volta. O dono relatou
+              exatamente isso — a página descia e subia a cada zoom ou arrasto.
+
+              Em overlay absoluto ela não ocupa altura nenhuma: nem o mapa, nem
+              os chips, nem a legenda se movem.
+            */}
+            {mostrarAtualizando ? (
+              <p
+                className="pointer-events-auto rounded-full border border-border bg-surface/95 px-3 py-1 text-xs font-medium text-fg-secondary shadow-sm"
+                data-testid="map-updating"
+                role="status"
+              >
+                Atualizando mapa…
+              </p>
+            ) : null}
+            {view?.truncated ? (
+              <p
+                className="pointer-events-auto rounded-lg border border-warning-border bg-warning-bg px-3 py-1.5 text-xs font-medium text-warning-fg shadow-sm"
+                role="status"
+                data-testid="map-truncated"
+              >
+                Esta área tem mais de {view.limit} CTOs. Aproxime o mapa
+                para carregar todas.
+              </p>
+            ) : null}
+          </>
         }
       >
         {/*
@@ -1904,18 +1945,18 @@ function MapLegend({
                   height="16"
                 >
                   {status === "ONLINE" ? (
-                    <circle className="cto-dot__body" cx="9" cy="9" r="4.5" />
+                    <circle className="cto-dot__body" cx="9" cy="9" r="6" />
                   ) : status === "OFFLINE" ? (
                     <>
-                      <circle className="cto-dot__body" cx="9" cy="9" r="4.5" />
-                      <circle className="cto-dot__hollow" cx="9" cy="9" r="1.7" />
+                      <circle className="cto-dot__body" cx="9" cy="9" r="6" />
+                      <circle className="cto-dot__hollow" cx="9" cy="9" r="2.2" />
                     </>
                   ) : (
                     <circle
                       className="cto-dot__body cto-dot__body--sem-leitura"
                       cx="9"
                       cy="9"
-                      r="4.2"
+                      r="5.6"
                     />
                   )}
                 </svg>
@@ -1926,8 +1967,8 @@ function MapLegend({
           <span className="flex items-center gap-1.5">
             <SimboloDeLegenda>
               <svg className="cto-dot cto-dot--neutral" viewBox="0 0 18 18" width="16" height="16">
-                <circle className="cto-dot__order" cx="9" cy="9" r="7" />
-                <circle className="cto-dot__body" cx="9" cy="9" r="4.5" />
+                <circle className="cto-dot__order" cx="9" cy="9" r="8" />
+                <circle className="cto-dot__body" cx="9" cy="9" r="6" />
               </svg>
             </SimboloDeLegenda>
             Com OS aberta
@@ -1943,13 +1984,51 @@ function MapLegend({
           <h3 className="text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
             OS
           </h3>
+          {/*
+            DUAS entradas, porque são duas leituras diferentes.
+
+            O laranja diz "há trabalho aberto aqui"; o vermelho com `!` diz
+            "isto é urgente", e a urgência vem da prioridade do domínio — nunca
+            do tipo, do status ou do tempo em aberto.
+
+            Vermelho aqui e vermelho no cliente não se confundem: lá é OFFLINE,
+            e as formas, os rótulos e estes dois grupos separam a semântica.
+          */}
           <span className="flex items-center gap-1.5">
             <SimboloDeLegenda>
-              <svg className="cto-order" viewBox="0 0 16 16" width="15" height="15">
-                <polygon className="cto-order__body" points="8,1.5 14.5,8 8,14.5 1.5,8" />
+              <svg className="cto-order" viewBox="0 0 20 20" width="16" height="16">
+                <polygon
+                  className="cto-order__body"
+                  points="10,1.5 18.5,10 10,18.5 1.5,10"
+                />
               </svg>
             </SimboloDeLegenda>
-            OS aberta
+            Aberta
+          </span>
+          <span className="flex items-center gap-1.5" data-testid="map-legend-urgent">
+            <SimboloDeLegenda>
+              <svg
+                className="cto-order cto-order--urgente"
+                viewBox="0 0 20 20"
+                width="16"
+                height="16"
+              >
+                <polygon
+                  className="cto-order__body"
+                  points="10,1.5 18.5,10 10,18.5 1.5,10"
+                />
+                <text
+                  className="cto-order__bang"
+                  x="10"
+                  y="10"
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                >
+                  !
+                </text>
+              </svg>
+            </SimboloDeLegenda>
+            Urgente
           </span>
         </section>
       ) : null}

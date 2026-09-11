@@ -1,4 +1,5 @@
-import type { ConnectivityStatus, ServiceOrderStatus } from "@prisma/client";
+import type { ConnectivityStatus, ServiceOrderPriority,
+  ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "./prisma";
 import { getConnectivityForCustomers } from "./customer-diagnostics";
 import { OPEN_SERVICE_ORDER_STATUSES } from "./service-order-labels";
@@ -117,6 +118,15 @@ export interface ServiceOrderMapMarker {
   id: string;
   number: number;
   status: ServiceOrderStatus;
+  /**
+   * A PRIORIDADE, e ela é a única autoridade de urgência.
+   *
+   * O enum tem quatro valores e só `URGENT` é urgente: `HIGH` é "Alta", que é
+   * outra coisa. Nada no mapa pode deduzir urgência de tipo, status, título ou
+   * tempo em aberto — a pergunta "esta OS é urgente?" tem uma resposta no
+   * domínio, e é esta.
+   */
+  priority: ServiceOrderPriority;
   typeName: string | null;
   latitude: number;
   longitude: number;
@@ -428,6 +438,7 @@ export async function getServiceOrderMapView(
       id: true,
       number: true,
       status: true,
+      priority: true,
       createdAt: true,
       customerId: true,
       customer: {
@@ -473,6 +484,7 @@ export async function getServiceOrderMapView(
       id: ordem.id,
       number: ordem.number,
       status: ordem.status,
+      priority: ordem.priority,
       typeName: ordem.serviceOrderType?.name ?? ordem.type ?? null,
       latitude: ordem.customer.location!.latitude.toNumber(),
       longitude: ordem.customer.location!.longitude.toNumber(),

@@ -922,3 +922,138 @@
   font-weight: 700;
   fill: rgb(var(--surface));
 }
+
+/*
+  # A camada de ESCALA dos marcadores
+
+  O Leaflet posiciona cada marcador escrevendo `transform: translate3d(...)` no
+  contêiner `.leaflet-marker-icon`. Escalar esse mesmo elemento substituiria o
+  posicionamento e o marcador sairia do lugar geográfico.
+
+  Por isso existe este wrapper INTERNO: o Leaflet manda no contêiner, o CSS
+  manda no wrapper, e o ponto no mapa não muda quando o tamanho muda.
+
+  As variáveis são escritas no contêiner do mapa a cada `zoomend`
+  (`ZoomScaleWatcher`), então trocar de zoom não re-renderiza componente nenhum
+  — a cascata faz o trabalho e o popup aberto sobrevive.
+*/
+/*
+  A camada de CLIQUE, que não escala.
+
+  `transform: scale()` encolhe a caixa de hit junto com o desenho — então a
+  área clicável não pode estar no mesmo elemento do `transform`. Esta camada
+  preenche o contêiner inteiro e fica de fora da transformação: de longe, com o
+  desenho em 68%, o alvo continua com os 30px do contêiner.
+
+  E ela precisa EXISTIR: medido, com o conteúdo todo em `pointer-events: none`
+  o marcador fica inclicável — o contêiner do Leaflet não responde sozinho, ele
+  depende do conteúdo para o teste de acerto. Foi assim que o arrasto da CTO
+  parou de funcionar na primeira tentativa desta fase.
+*/
+.cto-marker-hit {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+}
+
+.cto-marker-hit--cto {
+  align-items: flex-end;
+}
+
+.cto-marker-scale {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: scale(var(--map-scale, 1));
+  transform-origin: center;
+  /* O desenho não captura clique: quem responde é a camada de hit, acima. */
+  pointer-events: none;
+}
+
+/*
+  A caixa escala pela BASE, porque é lá que está a âncora — ela aponta para o
+  poste, não flutua sobre ele. Escalar pelo centro faria o desenho subir
+  conforme encolhesse.
+*/
+.cto-marker-scale--cto {
+  transform: scale(var(--map-scale-cto, 1));
+  transform-origin: 50% calc(100% - 2px);
+}
+
+/*
+  As INICIAIS do cliente, dentro do ponto.
+
+  Duas letras identificam sem transformar o mapa numa lista de pessoas. O nome
+  completo vive no popup — ver `customerInitials`, cuja garantia de saída
+  (`[A-Z]{0,2}`) é o que autoriza texto derivado de nome num `divIcon`.
+*/
+.cto-dot__initials {
+  font-family: inherit;
+  font-size: 7.5px;
+  font-weight: 700;
+  fill: rgb(var(--surface));
+  letter-spacing: -0.2px;
+}
+
+/* Sem leitura é oco: a letra precisa da cor do traço para ser lida. */
+.cto-dot--neutral .cto-dot__body--sem-leitura ~ .cto-dot__initials {
+  fill: rgb(var(--neutral-fg));
+}
+
+/*
+  A OS URGENTE é vermelha, e o `!` é o reforço que a cor não pode dispensar.
+
+  Vermelho aqui significa URGÊNCIA; vermelho num cliente significa OFFLINE. Não
+  se confundem porque as formas são diferentes — losango e círculo —, os
+  rótulos são diferentes e a legenda nomeia os dois.
+*/
+.cto-order--urgente .cto-order__body {
+  fill: rgb(var(--danger-fg));
+}
+
+.cto-order__bang {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  fill: rgb(var(--surface));
+}
+
+/*
+  A plaqueta da OS: mesma família da plaqueta da CTO, um degrau mais discreta.
+
+  Ela traz só o número. Tipo, status e prioridade por extenso ficam no popup —
+  rótulo permanente com o texto inteiro vira parede na primeira dezena de
+  ordens.
+*/
+.cto-map-label--os {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/*
+  # Densidade de rótulo por ZOOM
+
+  Iniciais e número de OS aparecem a partir do zoom operacional. Abaixo dele o
+  mapa é leitura de distribuição, não de identidade, e o texto vira ruído
+  sobreposto.
+
+  Some por CSS e não por prop: cruzar o limiar não pode recriar marcador.
+*/
+.leaflet-container:not(.map--rotulos) .cto-dot__initials,
+.leaflet-container:not(.map--rotulos) .cto-map-label--os {
+  display: none;
+}
+
+/*
+  NÃO existe seleção de cliente nem de OS no aplicativo.
+
+  A regra "o selecionado mostra o rótulo em qualquer zoom" vale para a CAIXA, e
+  ela já a tem desde a `CTO-3.2.1c`. O parâmetro `sel` da URL é de CTO — não
+  há caminho que selecione um ponto de cliente ou um losango de OS.
+
+  Uma regra escrita aqui para uma classe que ninguém aplica seria CSS morto se
+  passando por funcionalidade. Fica declarado como limite, e a decisão de criar
+  seleção para as outras duas famílias é de produto, não desta microfase.
+*/

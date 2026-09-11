@@ -215,6 +215,67 @@ export const MAP_INITIAL_FIT_MAX_ZOOM = 17;
  * de marcadores é o mesmo, e um recorte grande demais passa a truncar em
  * região densa.
  */
+/**
+ * # A escala dos ativos por ZOOM
+ *
+ * O dono pediu comportamento de FiberMap: aproximar deixa os ativos evidentes,
+ * afastar reduz proporcionalmente. A implementação é uma variável CSS por
+ * família de ativo, escrita no contêiner do mapa a cada `zoomend` — e é isso
+ * que a torna barata e estável.
+ *
+ * **Nada disso passa por React.** Se a escala fosse prop de marcador, cada
+ * degrau de zoom re-renderizaria a camada inteira, o React-Leaflet recriaria os
+ * ícones e o popup aberto morreria junto — que é exatamente o defeito que a
+ * `CTO-3.2.2b` acabou de consertar por outro caminho. Variável CSS cascateia
+ * para marcador nenhum saber que existe.
+ *
+ * ## Por que a CTO tem curva própria
+ *
+ * Ela é a infraestrutura, e a hierarquia `CTO > OS > Cliente` precisa
+ * sobreviver ao afastamento. Cliente e OS podem virar pontinhos discretos de
+ * longe; uma caixa que encolhe junto deixaria o mapa sem referência.
+ *
+ * Os degraus abaixo são valores MEDIDOS no navegador, não copiados: a
+ * transição precisa ser perceptível sem ser agressiva.
+ */
+const ESCALA_DE_ATIVO = {
+  13: 0.68,
+  14: 0.76,
+  15: 0.84,
+  16: 0.92,
+  17: 1,
+  18: 1.08,
+  19: 1.14,
+};
+
+/** A caixa reduz MENOS: de longe ela ainda precisa ser reconhecível. */
+const ESCALA_DE_CTO = {
+  13: 0.82,
+  14: 0.86,
+  15: 0.9,
+  16: 0.95,
+  17: 1,
+  18: 1.05,
+  19: 1.1,
+};
+
+function degrau(tabela, zoom) {
+  const z = Math.round(zoom);
+  if (z <= 13) return tabela[13];
+  if (z >= 19) return tabela[19];
+  return tabela[z];
+}
+
+/** A escala de cliente e OS no zoom dado. */
+export function mapAssetScale(zoom) {
+  return degrau(ESCALA_DE_ATIVO, zoom);
+}
+
+/** A escala da CTO no zoom dado. Sempre ≥ `mapAssetScale` fora do zoom neutro. */
+export function mapCtoScale(zoom) {
+  return degrau(ESCALA_DE_CTO, zoom);
+}
+
 export const MAP_VIEWPORT_PADDING_RATIO = 0.25;
 
 export const MAP_LABEL_MIN_ZOOM = 16;

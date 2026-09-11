@@ -18,7 +18,10 @@ import type { MapInitialView, MapTilesConfig } from "@/lib/map-config";
 import {
   MAP_INITIAL_FIT_MAX_ZOOM,
   MAP_MAX_ZOOM,
+  MAP_LABEL_MIN_ZOOM,
   MAP_VIEWPORT_PADDING_RATIO,
+  mapAssetScale,
+  mapCtoScale,
 } from "@/lib/map-tiles.config.mjs";
 import type { MapMode } from "@/lib/map-view-params";
 
@@ -132,6 +135,48 @@ function ViewportReporter({
   useEffect(() => {
     emitir(map);
   }, [map, emitir]);
+
+  return null;
+}
+
+/**
+ * Escreve a escala dos ativos e a densidade de rótulo no contêiner do mapa.
+ *
+ * Duas variáveis CSS e uma classe, atualizadas no `zoomend`. Nenhum marcador é
+ * re-renderizado: a cascata faz o trabalho, e por isso trocar de zoom não
+ * recria ícone, não fecha popup aberto e não dispara requisição nenhuma.
+ *
+ * `zoomend` e não `zoom`: o segundo emite a cada quadro da animação, e escrever
+ * estilo por quadro é a mesma "requisição por pixel" que o contrato do
+ * `ViewportReporter` proíbe, só que em CSS.
+ */
+function ZoomScaleWatcher() {
+  const map = useMap();
+
+  const aplicar = useCallback(
+    (alvo: LeafletMap) => {
+      const container = alvo.getContainer();
+      const zoom = alvo.getZoom();
+      container.style.setProperty("--map-scale", String(mapAssetScale(zoom)));
+      container.style.setProperty("--map-scale-cto", String(mapCtoScale(zoom)));
+      /*
+        A classe de rótulo, e não uma prop.
+
+        Os rótulos de cliente e de OS aparecem a partir do zoom operacional. Um
+        booleano em prop atravessaria o React e recriaria marcador ao cruzar o
+        limiar; a classe some com CSS e o DOM fica como está.
+      */
+      container.classList.toggle("map--rotulos", zoom >= MAP_LABEL_MIN_ZOOM);
+    },
+    [],
+  );
+
+  useMapEvents({ zoomend: () => aplicar(map) });
+
+  // Sem isto o mapa nasceria na escala neutra, qualquer que fosse o zoom inicial.
+  useEffect(() => {
+    aplicar(map);
+  }, [map, aplicar]);
 
   return null;
 }
@@ -323,6 +368,7 @@ export default function MapCanvas({
       <ViewportReporter onViewportChange={onViewportChange} />
       <CanvasHandle onReady={onReady} />
       <SizeWatcher />
+        <ZoomScaleWatcher />
       {children}
     </MapContainer>
   );

@@ -91,8 +91,14 @@ import type { CtoMapStatusPresentation } from "@/lib/cto-map-presentation";
  * A régua de adaptadores precisa de espaço para que os traços não se fundam num
  * borrão. Acima disso o marcador começa a competir com o mapa em vez de apontar
  * para ele.
+ *
+ * **38 → 32 na `CTO-3.2.2c`**, por decisão do dono: a caixa estava grande
+ * demais em relação a cliente e OS, e a hierarquia `CTO > OS > Cliente` não
+ * precisa de tanta diferença para ser lida. Ela continua sendo a maior das
+ * três, e continua sendo o alvo de clique inteiro — o contêiner não é escalado
+ * pelo zoom, só o desenho de dentro.
  */
-export const CTO_MARKER_SIZE = 38;
+export const CTO_MARKER_SIZE = 32;
 
 interface Caixa {
   x: number;
@@ -320,6 +326,19 @@ export function ctoMarkerHtml(
   const dropX = CENTRO_X - 2.6;
 
   return [
+    /*
+      O wrapper de ESCALA, entre o contêiner do Leaflet e o desenho.
+
+      O Leaflet escreve `translate3d(...)` no contêiner para posicionar o
+      marcador; escalar ali sobrescreveria o posicionamento e a caixa sairia do
+      poste. A escala mora nesta camada de dentro.
+
+      `--cto` porque a caixa tem curva própria: ela é a infraestrutura, e reduz
+      menos que cliente e OS quando o mapa se afasta. A origem da transformação
+      é a BASE, que é onde fica a âncora — escalar pelo centro faria a caixa
+      flutuar acima do ponto conforme encolhesse.
+    */
+    '<span class="cto-marker-hit cto-marker-hit--cto"><span class="cto-marker-scale cto-marker-scale--cto">',
     `<svg class="${classes}" viewBox="0 0 ${G.viewBox} ${G.viewBox}" ` +
       `width="${CTO_MARKER_SIZE}" height="${CTO_MARKER_SIZE}" ` +
       `aria-hidden="true" focusable="false">`,
@@ -393,5 +412,6 @@ export function ctoMarkerHtml(
       `text-anchor="middle" dominant-baseline="central">` +
       `${apresentacao.glyph}</text>`,
     "</svg>",
+    "</span></span>",
   ].join("");
 }
