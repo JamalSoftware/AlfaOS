@@ -866,70 +866,21 @@ export function CtoMapLayer({
       />
 
       {/*
-        CAMADAS não é BASE DO MAPA — e a tela precisa deixar isso claro.
+        Os AVISOS das camadas ficam no fluxo, o CONTROLE vai para dentro do
+        mapa.
 
-        `Mapa`/`Satélite`/`Híbrido` é o fundo, e mora no canto do mapa. Isto é o
-        que se desenha em cima, e mora aqui fora, rotulado. Misturar os dois
-        controles faria "Satélite" e "Clientes" parecerem alternativas entre si.
+        O controle custava 82px de altura de página — medido —, e a legenda
+        caía exatamente esses 82px abaixo da primeira dobra, quebrando a regra
+        que a `CTO-3.2.1b` validou. A altura do mapa é faixa de leitura e não
+        paga por chrome novo, então o controle foi para o canto do mapa, que é
+        onde controle de camada mora.
+
+        Aviso de erro, não: mensagem de falha em cima do mapa tapa justamente o
+        que a pessoa está tentando ver, e some junto com o resto quando o mapa
+        rola. Ela fica aqui, e só existe quando há o que dizer.
       */}
-      <div
-        className="rounded-2xl border border-border bg-surface p-4 shadow-sm"
-        data-testid="map-layer-control"
-      >
-        <fieldset>
-          <legend className="text-sm font-medium text-fg-secondary">
-            Camadas
-          </legend>
-          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
-            {MAP_LAYERS.map((camada) => {
-              // A camada de clientes nem aparece para quem não pode vê-la.
-              if (camada === "CUSTOMERS" && !canSeeCustomers) return null;
-              return (
-                <label
-                  key={camada}
-                  className="flex items-center gap-2 text-sm text-fg"
-                >
-                  <input
-                    type="checkbox"
-                    checked={layers[camada]}
-                    onChange={(e) => alternarCamada(camada, e.target.checked)}
-                    className="h-4 w-4 rounded border-input-border text-primary focus:ring-2 focus:ring-focus-soft"
-                    data-testid={`map-layer-${camada.toLowerCase()}`}
-                  />
-                  {ROTULO_DA_CAMADA[camada]}
-                </label>
-              );
-            })}
-          </div>
-        </fieldset>
-
-        {/* O filtro só existe enquanto a camada que ele filtra está ligada. */}
-        {canSeeCustomers && layers.CUSTOMERS ? (
-          <div className="mt-3 border-t border-border-subtle pt-3">
-            <label
-              className="block text-xs font-medium text-fg-secondary"
-              htmlFor="map-customer-filter"
-            >
-              Filtrar clientes
-            </label>
-            <select
-              id="map-customer-filter"
-              value={customerFilter}
-              onChange={(e) => trocarFiltro(e.target.value as CustomerFilter)}
-              className="mt-1 rounded-lg border border-input-border bg-input-bg px-2 py-1.5 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
-              data-testid="map-customer-filter"
-            >
-              {(
-                Object.keys(ROTULO_DO_FILTRO) as CustomerFilter[]
-              ).map((valor) => (
-                <option key={valor} value={valor}>
-                  {ROTULO_DO_FILTRO[valor]}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-
+      {clientes.erro || ordens.erro || clientes.carregando ? (
+        <div data-testid="map-layer-notices">
         {/*
           Erro POR CAMADA, e nunca "0 clientes".
 
@@ -960,7 +911,8 @@ export function CtoMapLayer({
             Carregando clientes…
           </p>
         ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <OperationalMap
         tiles={tiles}
@@ -992,6 +944,65 @@ export function CtoMapLayer({
               onSalvar={salvarPosicao}
             />
           ) : null
+        }
+        layersControl={
+          <div
+            className="rounded-xl border border-border bg-surface/95 p-2.5 shadow-md"
+            data-testid="map-layer-control"
+          >
+            <fieldset>
+              <legend className="text-sm font-medium text-fg-secondary">
+                Camadas
+              </legend>
+              <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+                {MAP_LAYERS.map((camada) => {
+                  // A camada de clientes nem aparece para quem não pode vê-la.
+                  if (camada === "CUSTOMERS" && !canSeeCustomers) return null;
+                  return (
+                    <label
+                      key={camada}
+                      className="flex items-center gap-2 text-sm text-fg"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={layers[camada]}
+                        onChange={(e) => alternarCamada(camada, e.target.checked)}
+                        className="h-4 w-4 rounded border-input-border text-primary focus:ring-2 focus:ring-focus-soft"
+                        data-testid={`map-layer-${camada.toLowerCase()}`}
+                      />
+                      {ROTULO_DA_CAMADA[camada]}
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+            {/* O filtro só existe enquanto a camada que ele filtra está ligada. */}
+            {canSeeCustomers && layers.CUSTOMERS ? (
+              <div className="mt-3 border-t border-border-subtle pt-3">
+                <label
+                  className="block text-xs font-medium text-fg-secondary"
+                  htmlFor="map-customer-filter"
+                >
+                  Filtrar clientes
+                </label>
+                <select
+                  id="map-customer-filter"
+                  value={customerFilter}
+                  onChange={(e) => trocarFiltro(e.target.value as CustomerFilter)}
+                  className="mt-1 rounded-lg border border-input-border bg-input-bg px-2 py-1.5 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
+                  data-testid="map-customer-filter"
+                >
+                  {(
+                    Object.keys(ROTULO_DO_FILTRO) as CustomerFilter[]
+                  ).map((valor) => (
+                    <option key={valor} value={valor}>
+                      {ROTULO_DO_FILTRO[valor]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+          </div>
         }
         overlay={
           view?.truncated ? (

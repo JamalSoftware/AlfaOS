@@ -130,6 +130,20 @@ export interface OperationalMapProps {
   /** Faixa da camada — contagem, truncamento, o que a camada precisar dizer. */
   overlay?: ReactNode;
   /**
+   * O controle de CAMADAS, no canto oposto ao da base.
+   *
+   * Ele mora dentro do mapa porque fora dele custava 82px de altura de página
+   * — medido —, e a legenda caía exatamente esses 82px abaixo da primeira
+   * dobra. A altura do mapa é faixa de leitura (`CTO-3.2.1b`) e não pode
+   * pagar por chrome novo; o canto de um mapa é onde controle de camada mora
+   * em qualquer mapa.
+   *
+   * À ESQUERDA de propósito: a base do mapa fica à direita, e os dois em
+   * cantos opostos é o que impede "Satélite" e "Clientes" de parecerem
+   * alternativas entre si.
+   */
+  layersControl?: ReactNode;
+  /**
    * Painel de edição, ancorado DENTRO do mapa — `CTO-3.2.1d`.
    *
    * ## Ele não pode empurrar o mapa, e isso foi medido
@@ -163,6 +177,7 @@ export function OperationalMap({
   error = null,
   onRetry,
   overlay,
+  layersControl,
   editor,
   children,
 }: OperationalMapProps) {
@@ -203,6 +218,12 @@ export function OperationalMap({
       </MapCanvas>
 
       <MapModeControl modes={modes} mode={mode} onChange={onModeChange} />
+
+      {layersControl ? (
+        <div className="pointer-events-auto absolute left-3 top-3 z-[600] max-w-[min(16rem,calc(100%-6rem))]">
+          {layersControl}
+        </div>
+      ) : null}
 
       {overlay ? (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] flex flex-col items-center gap-2 p-3">

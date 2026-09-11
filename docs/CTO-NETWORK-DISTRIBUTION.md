@@ -5084,3 +5084,75 @@ conserto dos três testes fracos, **cada sabotagem de navegador derruba
 exatamente o teste que existe para pegá-la** — antes, o placar era ruidoso
 porque um teste instável falhava junto e mascarava a ausência de detector do
 `S11`.
+
+### 41.14 Quatro defeitos que SÓ a suíte inteira mostrou
+
+Durante a fase inteira eu rodei a suíte **filtrada** — `-g "camadas de cliente e
+OS"`, `-g "LAYER-..."` —, e ela ficou verde o tempo todo. A primeira execução
+completa do Playwright derrubou **quatro** testes, nenhum deles da camada nova.
+É a mesma armadilha que a `CTO-3.2.1d` já tinha documentado com nove testes, e
+eu caí nela de novo: **filtro não é suíte.**
+
+**O controle de camadas empurrou a legenda para fora da primeira dobra.** Medido
+em 1440×900: o controle ocupava **82px** de altura de página, e a legenda ficava
+com o topo em `y=982` — exatamente 82px abaixo dos 900 da janela. A `UXP-02`
+existe desde a `CTO-3.2.1b` para afirmar que a legenda é visível sem rolar, e a
+regra que ela protege é que **altura de mapa é faixa de leitura, nunca fração de
+tela**. Eu acrescentei chrome a uma página que não tinha folga nenhuma.
+
+A cura não foi encurtar o mapa — isso seria pagar a conta com a régua que a
+`CTO-3.2.1b` fixou. O **controle foi para dentro do mapa**, no canto oposto ao
+da base (`Mapa`/`Satélite`/`Híbrido` à direita, `Camadas` à esquerda), que é
+onde controle de camada mora em qualquer mapa e onde este componente já
+colocava o seletor de base. Cantos opostos preservam a distinção que a fase
+exige: os dois controles não podem parecer alternativas entre si.
+
+**Os AVISOS não foram junto**, e a razão é diferente da do controle: mensagem de
+erro em cima do mapa tapa exatamente o que a pessoa está tentando ver. Erro de
+camada e "carregando clientes" ficaram no fluxo, e agora só existem quando há o
+que dizer, em vez de um cartão sempre presente.
+
+**Um payload de teste ficou velho.** A `UI-MAP-06` monta a resposta de
+`/api/ctos/map` à mão, e a fase acrescentou `operational` ao DTO. O marcador lê
+`marker.operational.openServiceOrderCount` **sem guarda** — e está certo, porque
+isso é contrato de servidor e não entrada de usuário —, então o payload
+incompleto derrubava a camada inteira e nenhum marcador era desenhado. O teste
+falhava com "nenhum `.leaflet-marker-icon`", que não parece um problema de
+contrato.
+
+**Um texto de tela mudou e o teste não soube.** A busca deixou de ser só de CTO,
+e o vazio passou de *"Nenhuma CTO encontrada"* para *"Nada encontrado com esse
+nome, código ou número de OS."*. A copy nova está certa; a `SEARCH-04` é que
+ficou para trás.
+
+### 41.15 Medir posição de marcador em pixels de tela estava errado
+
+A `MAPEDIT-05/06/07` compara onde a caixa está antes e depois de Cancelar. Ela
+media **pixels de viewport**, e três coisas diferentes quebraram essa conta:
+
+* a página **rola** — 41px de diferença que eram rolagem, não movimento;
+* o mapa **se desloca sozinho** no meio da sequência: uma sonda registrou a
+  vista passando de `-20.397441` para `-20.397129` durante o terceiro arrasto, e
+  mudando de novo depois do Cancelar;
+* a leitura do centro vem da barra de endereço, que só é reescrita no
+  `moveend` — medir no instante do clique compara um centro velho com um
+  marcador já na posição nova: **25,9px de erro puro**.
+
+A grandeza certa não é pixel de tela: é **o marcador estar sobre a coordenada
+gravada**. O teste passou a projetar essa coordenada em Web Mercator — o mesmo
+cálculo que o Leaflet faz — e a comparar o *desvio* entre onde o marcador está e
+onde ela cai. O desvio é constante enquanto a caixa estiver no lugar certo,
+porque ele é só o ancoramento do ícone, e **não importa onde o mapa esteja**.
+
+E a `MAPEDIT-08/14` deixou de usar `reload()`: ele herda a vista da barra de
+endereço, que depois do `autoPan` e do arrasto punha a caixa **na borda** do
+recorte consultado — às vezes dentro, às vezes fora. Uma entrada nova, enquadrada
+na coordenada original, prova a mesma coisa (o que aparece vem do servidor) sem
+depender de qual lado da borda a caixa calhou de cair.
+
+**Janela alta para os testes de arrasto.** O mapa termina abaixo da dobra num
+viewport de 720px — consequência aceita da altura fixa —, e o `autoPan` do popup,
+que a `CTO-3.2.2` tornou maior ao acrescentar as contagens operacionais ao popup
+da caixa, levava o marcador para `y=761`, com `elementFromPoint` devolvendo
+**NADA** ali. O ponteiro não alcança o que está fora do viewport, então o
+arrasto não acontecia e o botão Salvar continuava — corretamente — desabilitado.

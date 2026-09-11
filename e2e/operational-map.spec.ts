@@ -391,6 +391,17 @@ test.describe("Mapa Operacional — CTO-3.2", () => {
                     damaged: 0,
                     historical: 0,
                   },
+                  // A `CTO-3.2.2` acrescentou o resumo operacional ao DTO, e o
+                  // marcador o lê sem guarda — é contrato de servidor, não
+                  // entrada de usuário. Um payload de teste sem ele derruba a
+                  // camada inteira, e foi assim que este teste quebrou.
+                  operational: {
+                    activeCustomerCount: 0,
+                    onlineCount: 0,
+                    offlineCount: 0,
+                    unknownCount: 0,
+                    openServiceOrderCount: 0,
+                  },
                 },
               ],
               truncated: false,
@@ -751,7 +762,7 @@ test.describe("Mapa Operacional — busca", () => {
     await campo.fill("ZZZ-NAO-EXISTE-NENHUMA");
     await expect(
       page.getByTestId("cto-map-search-results"),
-    ).toContainText("Nenhuma CTO encontrada", { timeout: 15_000 });
+    ).toContainText("Nada encontrado com esse nome, código ou número de OS", { timeout: 15_000 });
   });
 
   test("SEARCH-03 · o DISPATCHER lê o mapa, sem ganhar o detalhe da CTO", async ({
@@ -2181,9 +2192,110 @@ async function abrirMapaNaCaixaDePosicao(page: Page) {
   await expect(marcadorDe(page, NOME_POS)).toBeVisible({ timeout: 15_000 });
 }
 
+/**
+ * Onde o marcador está DENTRO do mapa.
+ *
+ * Medir contra o viewport misturava referenciais: assim que qualquer coisa
+ * rola a página — e a `arrastar` rola, porque o ponteiro não alcança o que
+ * está fora da dobra —, a mesma posição no mapa passa a ter outro `y` na
+ * tela. A diferença medida foi de 41px, que é rolagem, não movimento de
+ * caixa.
+ *
+ * Descontando a caixa do contêiner, a rolagem cancela e sobra o que o teste
+ * quer saber: o marcador voltou para onde estava no mapa?
+ */
+async function posicaoNoMapa(page: Page) {
+  const marcador = (await marcadorDe(page, NOME_POS).boundingBox())!;
+  const mapa = (await page.locator(".leaflet-container").boundingBox())!;
+  return { x: marcador.x - mapa.x, y: marcador.y - mapa.y };
+}
+
+/**
+ * Onde uma COORDENADA cai no mapa, segundo a vista corrente da URL.
+ *
+ * Web Mercator à mão, que é o que o Leaflet faz: `z` dá a escala, o centro
+ * vem da barra de endereço, e a diferença projetada é o deslocamento em
+ * pixels a partir do meio do contêiner.
+ */
+async function pontoDaCoordenada(page: Page, latitude: number, longitude: number) {
+  const mapa = (await page.locator(".leaflet-container").boundingBox())!;
+  const vista = vistaDaUrl(page);
+  const escala = 256 * 2 ** Number(vista.get("z"));
+  const projetar = (lat: number, lng: number) => {
+    const seno = Math.sin((lat * Math.PI) / 180);
+    return {
+      x: ((lng + 180) / 360) * escala,
+      y: (0.5 - Math.log((1 + seno) / (1 - seno)) / (4 * Math.PI)) * escala,
+    };
+  };
+  const centro = projetar(Number(vista.get("lat")), Number(vista.get("lng")));
+  const alvo = projetar(latitude, longitude);
+  return {
+    x: mapa.width / 2 + (alvo.x - centro.x),
+    y: mapa.height / 2 + (alvo.y - centro.y),
+  };
+}
+
+/**
+ * O desvio entre onde o marcador ESTÁ e onde a coordenada GRAVADA cai.
+ *
+ * Esta é a grandeza que o teste de Cancelar precisa, e comparar pixels de tela
+ * não era. Medido numa sonda: o mapa se desloca sozinho no meio da sequência —
+ * o `autoPan` do popup, e a própria vista muda de `-20.397441` para
+ * `-20.397129` durante o terceiro arrasto. Com o mapa se mexendo, a mesma
+ * posição geográfica tem outro pixel, e o teste acusava o Cancelar de não
+ * restaurar quando quem tinha se movido era o enquadramento.
+ *
+ * O desvio cancela tudo isso: ele é constante — é só o ancoramento do ícone —
+ * enquanto o marcador estiver sobre a coordenada gravada, esteja o mapa onde
+ * estiver.
+ */
+async function desvioDoGravado(page: Page) {
+  /*
+    Esperar o mapa PARAR antes de medir.
+
+    A referência de centro vem da barra de endereço, e ela só é reescrita no
+    `moveend`. Medir no instante do clique usa um centro velho contra um
+    marcador já na posição nova — medido: 25,9px de erro puro, que é
+    deslocamento de enquadramento e não de caixa. Duas leituras iguais em vez
+    de um tempo fixo.
+  */
+  let anterior = vistaDaUrl(page).toString();
+  for (let i = 0; i < 20; i += 1) {
+    await page.waitForTimeout(150);
+    const atual = vistaDaUrl(page).toString();
+    if (atual === anterior) break;
+    anterior = atual;
+  }
+
+  const gravada = await coordenadaGravada();
+  const esperado = await pontoDaCoordenada(
+    page,
+    gravada.latitude!,
+    gravada.longitude!,
+  );
+  const atual = await posicaoNoMapa(page);
+  return { x: atual.x - esperado.x, y: atual.y - esperado.y };
+}
+
 /** Arrasta o marcador por alguns pixels, como uma mão faria. */
 async function arrastar(page: Page, dx: number, dy: number) {
   const alvo = marcadorDe(page, NOME_POS);
+  /*
+    Rolar até o marcador ANTES de medir, porque é o que a mão faz.
+
+    O mapa tem altura fixa por decisão da `CTO-3.2.1b` — faixa de leitura, nunca
+    fração de tela —, então num viewport de 720px ele já termina abaixo da
+    dobra. E abrir o popup dispara o `autoPan`, que empurra o mapa para baixo
+    para caber: medido, o marcador foi parar em `y=761`, com
+    `elementFromPoint` devolvendo NADA ali. O ponteiro não alcança o que está
+    fora do viewport, então o arrasto não acontecia e o botão Salvar
+    continuava, corretamente, desabilitado.
+
+    A `CTO-3.2.2` aumentou esse empurrão ao acrescentar as contagens
+    operacionais ao popup da caixa, que ficou mais alto.
+  */
+  await alvo.scrollIntoViewIfNeeded();
   const caixa = (await alvo.boundingBox())!;
   const x = caixa.x + caixa.width / 2;
   const y = caixa.y + caixa.height / 2;
@@ -2196,6 +2308,23 @@ async function arrastar(page: Page, dx: number, dy: number) {
 }
 
 test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
+  /*
+    Janela alta, porque estes testes são sobre ARRASTAR — e o ponteiro não
+    alcança o que está fora da dobra.
+
+    O mapa tem altura fixa por decisão da `CTO-3.2.1b` (faixa de leitura, nunca
+    fração de tela), então num viewport de 720px ele já termina abaixo dela. Abrir
+    o popup ainda dispara o `autoPan`, que empurra o mapa para baixo para o popup
+    caber — medido: o marcador foi parar em `y=761`, com `elementFromPoint`
+    devolvendo NADA ali, e o arrasto simplesmente não acontecia.
+
+    Rolar a página antes de cada arrasto resolvia o alcance e trocava o problema
+    de lugar: as medições passavam a misturar rolagem com movimento de caixa.
+    Uma janela de desktop alta é a condição real em que esta tela é usada, e
+    deixa a geometria estável. A regra de altura tem teste próprio na `UXP-02`.
+  */
+  test.use({ viewport: { width: 1280, height: 1000 } });
+
   /*
     A caixa nasce e morre DENTRO deste `describe`, e isso foi corrigido depois de
     a suíte inteira quebrar.
@@ -2343,7 +2472,7 @@ test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
       do mapa e não desloca nada, e os arrastos abaixo são do marcador.
     */
     await page.waitForTimeout(400);
-    const posicaoOriginal = (await marcadorDe(page, NOME_POS).boundingBox())!;
+    const desvioOriginal = await desvioDoGravado(page);
 
     // Antes de qualquer arrasto não existe "nova posição" a mostrar.
     await expect(page.getByTestId("cto-map-position-after")).toHaveText("—");
@@ -2359,8 +2488,8 @@ test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
     await expect(page.getByTestId("cto-map-position-save")).toBeEnabled();
 
     // ...e o marcador saiu do lugar na tela.
-    const arrastado = (await marcadorDe(page, NOME_POS).boundingBox())!;
-    expect(Math.abs(arrastado.x - posicaoOriginal.x)).toBeGreaterThan(20);
+    const arrastado = await desvioDoGravado(page);
+    expect(Math.abs(arrastado.x - desvioOriginal.x)).toBeGreaterThan(20);
 
     /*
       MAPEDIT-06: o BANCO não mudou.
@@ -2403,9 +2532,9 @@ test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
       /cto-box--editing/,
     );
 
-    const restaurado = (await marcadorDe(page, NOME_POS).boundingBox())!;
-    expect(Math.abs(restaurado.x - posicaoOriginal.x)).toBeLessThanOrEqual(2);
-    expect(Math.abs(restaurado.y - posicaoOriginal.y)).toBeLessThanOrEqual(2);
+    const restaurado = await desvioDoGravado(page);
+    expect(Math.abs(restaurado.x - desvioOriginal.x)).toBeLessThanOrEqual(2);
+    expect(Math.abs(restaurado.y - desvioOriginal.y)).toBeLessThanOrEqual(2);
     expect(await coordenadaGravada()).toEqual(antes);
   });
 
@@ -2476,7 +2605,23 @@ test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
       Estado local otimista mostraria a caixa no lugar novo mesmo se nada tivesse
       sido gravado. Recarregando, o que aparece vem do servidor.
     */
-    await page.reload();
+    /*
+      Entrada NOVA, e não `reload()`.
+
+      O `reload` herda a vista que estava na barra de endereço, e ela não é a
+      de quando o teste começou: o `autoPan` do popup empurrou o mapa uns 219px
+      para o norte. Somando o arrasto de 60px para o sul, a caixa reaparecia
+      exatamente na borda inferior do recorte consultado — às vezes dentro,
+      às vezes fora. Um teste de persistência não pode depender de qual lado da
+      borda a caixa calhou de cair.
+
+      Entrar de novo enquadrado na coordenada ORIGINAL mantém o que importa —
+      o que aparece vem do servidor, não de estado local otimista — e tira a
+      vista herdada da equação. Se nada tivesse sido gravado, a caixa estaria
+      no centro, e não deslocada para sudeste.
+    */
+    await page.goto(`/mapa?lat=${POS.latitude}&lng=${POS.longitude}&z=17`);
+    await expect(page.locator(".leaflet-container")).toBeVisible();
     await expect(marcadorDe(page, NOME_POS)).toBeVisible({ timeout: 15_000 });
 
     await marcadorDe(page, NOME_POS).click();
