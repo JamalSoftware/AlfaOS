@@ -4090,6 +4090,90 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
   });
 
 
+  test("ZOOMSEQ-01 · zoom repetido não some, não duplica e não fecha o popup", async ({
+    page,
+  }) => {
+    /*
+      A camada de clientes fica DESLIGADA aqui, e o motivo é uma decisão aberta.
+
+      A fixture `CAMADA CLIENTE ONLINE` está na coordenada EXATA da caixa. Com
+      a área de clique dos pontos em 30px — ela cresceu nesta fase, junto com o
+      alvo mínimo —, o ponto passa a cobrir o centro da caixa e intercepta o
+      clique nela.
+
+      Qual dos dois deve receber o clique quando ocupam o mesmo ponto é decisão
+      de produto que segue EM ABERTO desde a `CTO-3.2.2`, e o enunciado desta
+      fase manda não resolvê-la em silêncio. Este teste é sobre estabilidade de
+      zoom, então ele não depende dela — o sumiço de pontos de cliente tem
+      detector próprio na `STAB-02`.
+    */
+    await abrirCamadas(page, ADMIN_EMAIL, 17);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box")).toHaveCount(1, {
+      timeout: 15_000,
+    });
+
+    const pedidos: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("/api/map/") || r.url().includes("/api/ctos/map?")) {
+        pedidos.push(r.url());
+      }
+    });
+
+    // O popup fica ABERTO durante toda a sequência: remonte de marcador o
+    // mataria, e é justamente isso que a escala por CSS existe para evitar.
+    await page.locator('.leaflet-marker-icon[title^="CAMADA CAIXA"]').click();
+    await expect(page.getByTestId("cto-map-popup")).toBeVisible();
+
+    const area = (await page.locator(".leaflet-container").boundingBox())!;
+    const cx = area.x + area.width / 2;
+    const cy = area.y + area.height / 2;
+    await page.mouse.move(cx, cy);
+
+    /*
+      A sequência do enunciado: 17 → 15 → 18 → 14 → 17, duas vezes.
+
+      A pergunta é se a entidade continua existindo quando continua no recorte
+      carregado. "Saiu do bbox" e "sumiu por defeito de render" são coisas
+      diferentes, e a caixa fica no CENTRO — ela nunca sai.
+    */
+    const caixasVistas: number[] = [];
+    for (let volta = 0; volta < 2; volta += 1) {
+      for (const passo of [-120, 120, -180, 180]) {
+        await page.mouse.wheel(0, passo);
+        await page.waitForTimeout(500);
+        caixasVistas.push(
+          await page.locator(".leaflet-marker-pane svg.cto-box").count(),
+        );
+      }
+    }
+
+    expect(
+      Math.min(...caixasVistas),
+      `a caixa sumiu durante o zoom: ${caixasVistas.join(",")}`,
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      Math.max(...caixasVistas),
+      `a caixa duplicou durante o zoom: ${caixasVistas.join(",")}`,
+    ).toBe(1);
+
+    // O popup atravessou a sequência inteira.
+    await expect(
+      page.getByTestId("cto-map-popup"),
+      "o popup fechou durante o zoom",
+    ).toBeVisible();
+
+    /*
+      E a escala NÃO custou requisição.
+
+      Ela é decisão de cliente. As leituras que aconteceram são as do recorte,
+      que é outro mecanismo — se a escala dependesse de dado, cada degrau de
+      zoom teria pedido o mapa de novo.
+    */
+    const porZoom = pedidos.length / 8;
+    expect(porZoom, `requisições demais por degrau de zoom: ${pedidos.length}`).toBeLessThan(4);
+  });
+
+
   test("LAYER-01/02/03 · o estado inicial das camadas", async ({ page }) => {
     await abrirCamadas(page);
 
