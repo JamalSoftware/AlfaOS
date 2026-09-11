@@ -18,6 +18,7 @@ import type { MapInitialView, MapTilesConfig } from "@/lib/map-config";
 import {
   MAP_INITIAL_FIT_MAX_ZOOM,
   MAP_MAX_ZOOM,
+  MAP_VIEWPORT_PADDING_RATIO,
 } from "@/lib/map-tiles.config.mjs";
 import type { MapMode } from "@/lib/map-view-params";
 
@@ -88,7 +89,15 @@ function ViewportReporter({
 }) {
   const emitir = useCallback(
     (map: LeafletMap) => {
-      const limites = map.getBounds();
+      /*
+        Recorte com FOLGA, nunca o viewport cru.
+
+        Ver `MAP_VIEWPORT_PADDING_RATIO`: sem isto, o empurrão do `autoPan` ao
+        abrir um popup tira do resultado a própria caixa que foi clicada, e o
+        marcador some levando o popup. A câmera abaixo continua sendo a real —
+        a folga é do DADO, não da vista.
+      */
+      const limites = map.getBounds().pad(MAP_VIEWPORT_PADDING_RATIO);
       const centro = map.getCenter();
       onViewportChange(
         boundingBoxFromLatLngBounds({

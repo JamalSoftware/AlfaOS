@@ -179,6 +179,49 @@ interface CtoMarkersProps {
   onShowCustomers: (ctoId: string) => void;
 }
 
+/**
+ * Uma contagem do popup: rótulo pequeno, número em destaque.
+ *
+ * Chip e não linha de lista — ver o comentário no popup: onze linhas
+ * empilhadas faziam o popup ter 93% da altura do mapa, e era isso que
+ * empurrava a vista a cada clique.
+ *
+ * O tom é OPCIONAL e só aparece onde a cor acrescenta leitura (online,
+ * offline, OS aberta). O resto fica neutro: pintar tudo faria a cor perder o
+ * significado que ela tem nos marcadores.
+ */
+function Contagem({
+  rotulo,
+  valor,
+  tom,
+  testId,
+}: {
+  rotulo: string;
+  valor: number;
+  tom?: "success" | "danger" | "warning";
+  testId?: string;
+}) {
+  const cores = tom
+    ? {
+        success: "border-success-border bg-success-bg text-success-fg",
+        danger: "border-danger-border bg-danger-bg text-danger-fg",
+        warning: "border-warning-border bg-warning-bg text-warning-fg",
+      }[tom]
+    : "border-border-subtle bg-surface-muted text-fg";
+
+  return (
+    <span
+      className={`inline-flex items-baseline gap-1 rounded-md border px-1.5 py-0.5 text-[11px] ${cores}`}
+    >
+      <span className="opacity-80">{rotulo}</span>
+      <span className="font-semibold tabular-nums" data-testid={testId}>
+        {valor}
+      </span>
+    </span>
+  );
+}
+
+
 function CtoMarkers({
   markers,
   selectedId,
@@ -340,9 +383,31 @@ function CtoMarkers({
               </Tooltip>
             ) : null}
 
-            <Popup>
+            <Popup
+              /*
+                O `autoPan` VOLTOU, e o que mudou foi o tamanho do popup.
+
+                O defeito que o dono relatou como "o mapa se mexe sozinho" era
+                um empurrão de 291px a cada clique, e ele tinha uma causa
+                medida: o popup tinha 520px num mapa de 558 — 93% da altura.
+                Com o popup em 319px o ajuste fica proporcional, e é o ajuste
+                que torna o popup visível.
+
+                Desligar o `autoPan` foi TENTADO e medido: o mapa de fato para
+                de se mexer, e o popup passa a nascer 236px acima da borda
+                superior, cortado. Um controle que esconde metade do próprio
+                conteúdo é defeito pior que um deslocamento pequeno.
+
+                O que matava o popup NÃO era o empurrão em si: era o recorte
+                sem folga (`MAP_VIEWPORT_PADDING_RATIO`). Com a folga, o
+                marcador clicado continua no resultado da releitura e o popup
+                sobrevive — provado por sonda, 3,75s aberto atravessando a
+                resposta.
+              */
+              autoPanPadding={[24, 24]}
+            >
               <div
-                className="min-w-[220px] max-w-[280px] p-3"
+                className="w-[300px] max-w-[calc(100vw-3rem)] p-3"
                 data-testid="cto-map-popup"
                 data-cto-id={marker.id}
               >
@@ -372,90 +437,80 @@ function CtoMarkers({
                 </p>
 
                 {/*
-                  Uma LISTA, e nunca uma barra ou uma rosca.
+                  CONTAGENS EM CHIPS, e nunca duas listas empilhadas.
 
+                  Medido: com dois `<dl>` de 5 e 6 linhas, o popup tinha 520px
+                  num mapa de 558 — 93% da altura. Um popup quase do tamanho do
+                  mapa força o `autoPan` do Leaflet a empurrar a vista 291px a
+                  cada clique, e era isso que o dono via como "o mapa se mexe
+                  sozinho". Os mesmos onze números cabem em quatro linhas que
+                  quebram sozinhas.
+
+                  Continua sendo LISTA, e nunca barra ou rosca:
                   `livres + reservadas + danificadas + ocupadas` pode passar da
-                  capacidade: uma porta danificada com cliente dentro conta nas
-                  duas (`CTO-2.2`). Um gráfico de fatias afirmaria uma soma que
-                  o domínio não garante, e a primeira caixa quebrada com cliente
-                  faria o desenho mentir.
+                  capacidade, porque uma porta danificada com cliente dentro
+                  conta nas duas (`CTO-2.2`). Um gráfico de fatias afirmaria uma
+                  soma que o domínio não garante.
                 */}
-                <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                  <dt className="text-fg-muted">Capacidade</dt>
-                  <dd className="text-right font-medium text-fg">
-                    {marker.summary.capacity}
-                  </dd>
-                  <dt className="text-fg-muted">Livres</dt>
-                  <dd
-                    className="text-right font-medium text-fg"
-                    data-testid="cto-map-popup-free"
-                  >
-                    {marker.summary.free}
-                  </dd>
-                  <dt className="text-fg-muted">Ocupadas</dt>
-                  <dd className="text-right font-medium text-fg">
-                    {marker.summary.occupied}
-                  </dd>
-                  <dt className="text-fg-muted">Reservadas</dt>
-                  <dd className="text-right font-medium text-fg">
-                    {marker.summary.reserved}
-                  </dd>
-                  <dt className="text-fg-muted">Danificadas</dt>
-                  <dd className="text-right font-medium text-fg">
-                    {marker.summary.damaged}
-                  </dd>
-                </dl>
+                <div className="mt-2.5 flex flex-wrap items-center gap-1">
+                  <span className="mr-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+                    Portas
+                  </span>
+                  <Contagem rotulo="Capacidade" valor={marker.summary.capacity} />
+                  <Contagem
+                    rotulo="Livres"
+                    valor={marker.summary.free}
+                    testId="cto-map-popup-free"
+                  />
+                  <Contagem rotulo="Ocupadas" valor={marker.summary.occupied} />
+                  <Contagem rotulo="Reservadas" valor={marker.summary.reserved} />
+                  <Contagem rotulo="Danificadas" valor={marker.summary.damaged} />
+                </div>
 
                 {/*
-                  O resumo OPERACIONAL, separado do resumo de PORTAS.
+                  O resumo OPERACIONAL, separado do de PORTAS.
 
-                  Acima fala-se de infraestrutura — capacidade, livres,
-                  danificadas. Aqui fala-se de gente: quantos clientes ativos,
-                  em que estado, com quanto trabalho aberto. São eixos
-                  independentes, e a separação visual é o que impede alguém de
-                  somar "livres" com "online" como se fossem a mesma contagem.
-
-                  `activeCustomerCount` pode ser MENOR que `ocupadas`: uma porta
-                  ocupada por cliente desativado continua ocupada.
+                  Acima é infraestrutura; aqui é gente. São eixos independentes,
+                  e a separação é o que impede alguém de somar "livres" com
+                  "online". `activeCustomerCount` pode ser MENOR que ocupadas:
+                  porta ocupada por cliente desativado continua ocupada.
                 */}
                 {canSeeCustomers ? (
-                  <dl
-                    className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border-subtle pt-2 text-xs"
-                    data-testid="cto-map-operational"
-                  >
-                    <dt className="text-fg-muted">Clientes ativos</dt>
-                    <dd
-                      className="text-right font-medium text-fg"
-                      data-testid="cto-map-active-customers"
-                    >
-                      {marker.operational.activeCustomerCount}
-                    </dd>
-                    <dt className="text-fg-muted">Online</dt>
-                    <dd className="text-right font-medium text-fg">
-                      {marker.operational.onlineCount}
-                    </dd>
-                    <dt className="text-fg-muted">Offline</dt>
-                    <dd className="text-right font-medium text-fg">
-                      {marker.operational.offlineCount}
-                    </dd>
-                    {/* "Sem leitura", nunca "Offline" — são coisas diferentes. */}
-                    <dt className="text-fg-muted">Sem leitura</dt>
-                    <dd className="text-right font-medium text-fg">
-                      {marker.operational.unknownCount}
-                    </dd>
-                    <dt className="text-fg-muted">OS abertas</dt>
-                    <dd
-                      className="text-right font-medium text-fg"
-                      data-testid="cto-map-open-orders"
-                    >
-                      {marker.operational.openServiceOrderCount}
-                    </dd>
-                  </dl>
+                  <div data-testid="cto-map-operational">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                      <span className="mr-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
+                        Clientes
+                      </span>
+                      <Contagem
+                        rotulo="Ativos"
+                        valor={marker.operational.activeCustomerCount}
+                        testId="cto-map-active-customers"
+                      />
+                      <Contagem
+                        rotulo="Online"
+                        valor={marker.operational.onlineCount}
+                        tom="success"
+                      />
+                      <Contagem
+                        rotulo="Offline"
+                        valor={marker.operational.offlineCount}
+                        tom="danger"
+                      />
+                      {/* "Sem leitura", nunca "Offline" — são coisas diferentes. */}
+                      <Contagem
+                        rotulo="Sem leitura"
+                        valor={marker.operational.unknownCount}
+                      />
+                      <Contagem
+                        rotulo="OS abertas"
+                        valor={marker.operational.openServiceOrderCount}
+                        tom="warning"
+                        testId="cto-map-open-orders"
+                      />
+                    </div>
+                  </div>
                 ) : null}
 
-                <p className="mt-2 text-[11px] leading-snug text-fg-muted">
-                  {apresentacao.description}
-                </p>
 
                 {canOpenDetail ? (
                   <Link
@@ -495,28 +550,30 @@ function CtoMarkers({
                   por uma resposta cujo trabalho é desenhar pontos. O nome só
                   viaja quando alguém pede aquela caixa.
                 */}
-                {canSeeCustomers &&
-                marker.operational.activeCustomerCount > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => onShowCustomers(marker.id)}
-                    className="cto-map-secondary mt-1.5 inline-flex w-full items-center justify-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
-                    data-testid="cto-map-show-customers"
-                  >
-                    Ver clientes da caixa
-                  </button>
-                ) : null}
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {canSeeCustomers &&
+                  marker.operational.activeCustomerCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => onShowCustomers(marker.id)}
+                      className="cto-map-secondary inline-flex flex-1 basis-24 items-center justify-center rounded-lg px-2 py-1.5 text-xs font-medium transition-colors"
+                      data-testid="cto-map-show-customers"
+                    >
+                      Ver clientes
+                    </button>
+                  ) : null}
 
-                {canEditPosition ? (
-                  <button
-                    type="button"
-                    onClick={() => onStartEdit(marker.id)}
-                    className="cto-map-secondary mt-1.5 inline-flex w-full items-center justify-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
-                    data-testid="cto-map-popup-edit-position"
-                  >
-                    Ajustar posição
-                  </button>
-                ) : null}
+                  {canEditPosition ? (
+                    <button
+                      type="button"
+                      onClick={() => onStartEdit(marker.id)}
+                      className="cto-map-secondary inline-flex flex-1 basis-24 items-center justify-center rounded-lg px-2 py-1.5 text-xs font-medium transition-colors"
+                      data-testid="cto-map-popup-edit-position"
+                    >
+                      Ajustar posição
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </Popup>
           </Marker>
@@ -527,9 +584,9 @@ function CtoMarkers({
 }
 
 /**
- *  NÃO é otimização aqui — é o que fecha o laço.
+ * `memo` NÃO é otimização aqui — é o que fecha o laço.
  *
- * A camada re-renderiza a cada , porque ela guarda a câmera para
+ * A camada re-renderiza a cada `moveend`, porque ela guarda a câmera para
  * espelhar na URL. Sem , cada um desses renders recriava o conteúdo do
  * popup, o react-leaflet o atualizava, o  movia o mapa, e o 
  * seguinte recomeçava tudo. Com props idênticas o React para aqui, e o ciclo

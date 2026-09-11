@@ -3156,6 +3156,183 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     await expect(page.getByTestId("map-layer-control")).toBeVisible();
   }
 
+  /*
+    # Estabilidade do mapa — o defeito era UM só, com três sintomas
+
+    O dono relatou três coisas separadas: a CTO abre e some, os pontos de
+    cliente somem no zoom, e o mapa se mexe sozinho. Sondas mostraram que era
+    a mesma cadeia:
+
+    1. clicar numa caixa abre o popup;
+    2. o `autoPan` do Leaflet empurra a vista — medido em **291px**, porque o
+       popup tinha 520px num mapa de 558;
+    3. o `moveend` do empurrão dispara a releitura com o recorte NOVO;
+    4. a caixa clicada fica FORA desse recorte, o servidor não a devolve, o
+       marcador é desmontado e **o popup morre junto** — 750ms depois do
+       clique, medido.
+
+    A cura de raiz é o recorte com folga (`MAP_VIEWPORT_PADDING_RATIO`): o
+    cliente guarda mais do que mostra, então um deslocamento pequeno não muda
+    a resposta. O popup encolhido (321px) reduziu o empurrão a 111px.
+  */
+  test("STAB-01 · o popup da CTO continua aberto depois do clique", async ({
+    page,
+  }) => {
+    await abrirCamadas(page);
+    await expect(page.locator("svg.cto-box").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const releituras: number[] = [];
+    page.on("response", (r) => {
+      if (r.url().includes("/api/ctos/map?")) releituras.push(1);
+    });
+
+    await page.locator('.leaflet-marker-icon[title^="CAMADA CAIXA"]').click();
+    await expect(page.getByTestId("cto-map-popup")).toBeVisible();
+
+    /*
+      Esperar a RELEITURA acontecer, e não um tempo qualquer.
+
+      É ela que derrubava o popup. Um teste que só olhasse o instante do
+      clique passaria com o defeito vivo, porque a morte chega depois.
+    */
+    await expect
+      .poll(() => releituras.length, { timeout: 15_000 })
+      .toBeGreaterThanOrEqual(1);
+    await page.waitForTimeout(1200);
+
+    await expect(
+      page.getByTestId("cto-map-popup"),
+      "o popup fechou sozinho depois da releitura",
+    ).toBeVisible();
+    await expect(page.getByTestId("cto-map-popup")).toContainText("CAMADA CAIXA");
+  });
+
+  test("STAB-02 · o zoom não apaga os pontos de cliente", async ({ page }) => {
+    await abrirCamadas(page);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator("svg.cto-dot")).toHaveCount(3, { timeout: 15_000 });
+
+    /*
+      O zoom da roda centra no CURSOR, e por isso ele vai no MEIO do mapa.
+
+      Com o ponteiro acima do centro, a vista sobe e o cliente ao sul sai de
+      cena por direito — o teste acusaria o código de um sumiço que é do
+      gesto. Medido: `3,3,3,3,2,2,2,2,2,2` com o cursor a 150px do topo.
+    */
+    const area = (await page.locator(".leaflet-container").boundingBox())!;
+    await page.mouse.move(area.x + area.width / 2, area.y + Math.min(area.height, 500) / 2);
+
+    /*
+      Amostragem DURANTE e depois do zoom.
+
+      O que o dono via era o ponto sumir; medir só o estado final esconderia
+      um apagão intermediário. Aqui a contagem é lida dez vezes, e o mínimo
+      observado é que precisa se sustentar.
+      Com o recorte colado no viewport, um zoom de um passo derrubava de 3
+      para 1 — os clientes das bordas saíam do recorte pedido ao servidor.
+    */
+    await page.mouse.wheel(0, -120);
+    const amostras: number[] = [];
+    for (let i = 0; i < 10; i += 1) {
+      amostras.push(await page.locator("svg.cto-dot").count());
+      await page.waitForTimeout(200);
+    }
+    expect(
+      Math.min(...amostras),
+      `os pontos sumiram durante o zoom: ${amostras.join(",")}`,
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  test("STAB-03 · o mapa não se recentraliza sozinho depois do pan", async ({
+    page,
+  }) => {
+    await abrirCamadas(page);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator("svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const area = (await page.locator(".leaflet-container").boundingBox())!;
+    const x = area.x + area.width * 0.3;
+    const y = area.y + 140;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 90, y + 70, { steps: 12 });
+    await page.mouse.up();
+
+    // Deixa a vista assentar e a releitura chegar.
+    await page.waitForTimeout(1500);
+    const assentado = vistaDaUrl(page).toString();
+
+    /*
+      Depois de assentar, NADA pode mexer a vista.
+
+      Três segundos cobrem a releitura das três camadas com folga. Qualquer
+      deriva aqui é o mapa se movendo sem ninguém pedir — que é exatamente o
+      que o dono relatou.
+    */
+    await page.waitForTimeout(3000);
+    expect(
+      vistaDaUrl(page).toString(),
+      "a vista mudou sozinha depois do pan",
+    ).toBe(assentado);
+  });
+
+
+  /*
+    A FOLGA do recorte, afirmada no contrato e não num sintoma.
+
+    Este teste existe porque a prova por sintoma ficou fraca de propósito: ao
+    encolher o popup de 520px para 321px, o empurrão do `autoPan` caiu de
+    291px para 111px, e com um empurrão pequeno o marcador não sai nem de um
+    recorte colado no viewport. Zerar a folga deixou de derrubar a `STAB-01`.
+
+    Uma proteção que nenhum teste derruba é uma proteção que alguém apaga na
+    próxima limpeza. Aqui a afirmação é sobre o que vai no fio: o recorte
+    PEDIDO tem de ser maior que o visível.
+  */
+  test("STAB-04 · o recorte pedido ao servidor é maior que a tela", async ({
+    page,
+  }) => {
+    const pedidos: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("/api/ctos/map?")) pedidos.push(r.url());
+    });
+
+    await abrirCamadas(page);
+    await expect(page.locator("svg.cto-box").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect.poll(() => pedidos.length).toBeGreaterThan(0);
+
+    const ultimo = new URL(pedidos[pedidos.length - 1]);
+    const north = Number(ultimo.searchParams.get("north"));
+    const south = Number(ultimo.searchParams.get("south"));
+
+    const vista = vistaDaUrl(page);
+    const latitude = Number(vista.get("lat"));
+    const zoom = Number(vista.get("z"));
+    const altura = (await page.locator(".leaflet-container").boundingBox())!.height;
+
+    /*
+      Quanto o mapa MOSTRA, em graus de latitude — Web Mercator, o mesmo
+      cálculo que o Leaflet faz.
+    */
+    const metrosPorPixel =
+      (156543.03392 * Math.cos((latitude * Math.PI) / 180)) / 2 ** zoom;
+    const visivelEmGraus = (altura * metrosPorPixel) / 111_320;
+    const pedidoEmGraus = north - south;
+
+    expect(
+      pedidoEmGraus / visivelEmGraus,
+      "o recorte pedido está colado no viewport: um deslocamento pequeno vai " +
+        "apagar o que está na tela",
+    ).toBeGreaterThan(1.3);
+  });
+
+
   test("LAYER-01/02/03 · o estado inicial das camadas", async ({ page }) => {
     await abrirCamadas(page);
 

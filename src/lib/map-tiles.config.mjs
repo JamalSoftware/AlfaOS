@@ -193,6 +193,30 @@ export const MAP_INITIAL_FIT_MAX_ZOOM = 17;
  * A caixa **selecionada** é a exceção, e é ela que torna a regra usável: quem
  * achou uma CTO na busca vê o nome dela em qualquer zoom.
  */
+/**
+ * # O recorte pedido ao servidor é MAIOR que a tela, e isso é estabilidade
+ *
+ * Enviar exatamente `map.getBounds()` faz o dado ser função do pixel: qualquer
+ * deslocamento tira do resultado o que o operador está olhando.
+ *
+ * Medido: clicar numa caixa abre um popup, o `autoPan` do Leaflet empurra o
+ * mapa **291px** para o popup caber, o `moveend` dispara a releitura com o
+ * recorte NOVO — e a caixa clicada fica de fora. O servidor responde
+ * corretamente, o marcador é desmontado e **o popup morre junto**, 750ms
+ * depois do clique. Era o mesmo defeito por trás de "a CTO abre e some", "os
+ * pontos somem no zoom" e "o mapa se mexe sozinho".
+ *
+ * Com folga, o cliente guarda mais do que mostra: pequenos movimentos não
+ * mudam a resposta, e nada desaparece debaixo da mão.
+ *
+ * `0.25` é fração de cada dimensão POR LADO — a área consultada fica 2,25×
+ * maior, não 4×. Cobre com margem o `autoPan` do popup já encurtado
+ * (§ altura do popup) e o arrasto curto. Aumentar isso não é de graça: o teto
+ * de marcadores é o mesmo, e um recorte grande demais passa a truncar em
+ * região densa.
+ */
+export const MAP_VIEWPORT_PADDING_RATIO = 0.25;
+
 export const MAP_LABEL_MIN_ZOOM = 16;
 
 /**
