@@ -4841,3 +4841,246 @@ que é onde ela precisava valer.
 
 > **`CTO-3.2.1d` — `OWNER VALIDATED / APPROVED`.** `CTO-2` continua `DONE`,
 > `CTO-3.1` `APPROVED`, o PRD V1 `FROZEN` com a §377 atualizada.
+
+---
+
+## 41. `CTO-3.2.2` — clientes ativos, conectividade e OS abertas
+
+**Estado:** `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.
+**Migration:** nenhuma. **Prisma:** nenhuma alteração de schema. **Dart:** zero.
+**Dependência nova:** nenhuma.
+
+As três camadas que faltavam entram sobre o **mesmo motor** da `CTO-3.2`: não
+nasceu uma segunda tela, não nasceu um registro de camadas e não nasceu uma
+interface `MapLayer`. O controle de camadas é um bloco de três caixas de
+seleção, e cada camada tem a sua própria leitura, o seu próprio
+`AbortController` e o seu próprio estado de erro.
+
+### 41.1 Uma autoridade de Online/Offline, amplificada — nunca duplicada
+
+O invariante da §370 do PRD continua sendo o mesmo de antes, e o mapa **lê**:
+`CustomerDiagnosticSnapshot` é a fonte, e `getCustomerDiagnostic` continua
+sendo a leitura individual. O que a fase acrescentou é
+`getConnectivityForCustomers`, uma leitura em **lote** sobre a mesma tabela,
+devolvendo o mesmo DTO.
+
+O que tornou isso possível sem criar uma segunda semântica é um fato do código
+que precisa ficar registrado: **`getCustomerDiagnostic` é leitura pura de
+banco.** Ela não fala com provider nenhum. Se falasse, um lote seria um lote de
+chamadas externas, e o teto de 10 por minuto por empresa iria embora no
+primeiro arrasto.
+
+Três regras seguem valendo palavra por palavra, e cada uma tem detector:
+
+* **ausência de snapshot é `UNKNOWN`, jamais `OFFLINE`** — falha de integração
+  é afirmação sobre a integração, nunca sobre o cliente;
+* **o mapa não dispara refresh** — abrir, arrastar ou dar zoom não fala com
+  ERP nenhum;
+* **a empresa que trocou de ERP tem duas linhas por cliente**
+  (`@@unique([companyId, customerId, externalProvider])`), e as duas leituras
+  — individual e em lote — resolvem por `observedAt desc`.
+
+### 41.2 A OS ABERTA é derivada dos estados TERMINAIS
+
+`OPEN_SERVICE_ORDER_STATUSES` não é uma lista de estados abertos: é a lista dos
+**terminais** (`COMPLETED`, `CANCELLED`) subtraída do enum inteiro.
+
+A diferença aparece no dia em que alguém acrescentar um estado à máquina. Com
+uma lista de abertos, o estado novo nasceria **fechado** — invisível no mapa,
+sem ninguém perceber. Derivando dos terminais, ele nasce **aberto**: aparece
+demais, e aparecer demais é um defeito que alguém relata no mesmo dia.
+
+### 41.3 `N+1` medido, não afirmado
+
+O enunciado proibia `for customer: getConnectivity(customer.id)`. A proibição
+tem teste que **conta consultas**, e não comentário:
+
+* 40 clientes no recorte → **1** consulta de conectividade;
+* 6 CTOs no recorte → **1** consulta de cada tipo;
+* lista vazia → **zero** consulta.
+
+O resumo operacional da CTO chegou a custar duas consultas de vínculo, porque
+ocupação de porta e contagem por caixa foram escritas separadas. Foram unidas
+numa só, devolvendo `{ summaries, occupiedPortIds }` — medido pelo mesmo teste
+que reprovou a versão anterior.
+
+### 41.4 O que o mapa NÃO carrega
+
+O DTO do cliente é afirmado por **igualdade de chaves**, não por ausência de
+alguns campos: `id`, `name`, `latitude`, `longitude`, `connectivityStatus`,
+`connectivityObservedAt`, `openServiceOrderCount`, `cto`. Sem CPF, sem e-mail,
+sem financeiro, sem payload de ERP, sem senha de Wi-Fi, sem nota interna, sem
+MAC. Um teste que listasse proibidos só pegaria o que alguém já imaginou; a
+igualdade pega o campo que ninguém previu.
+
+### 41.5 O `DISPATCHER` não recebe a camada de clientes
+
+Isso é decisão de produto, e ela foi **recusada em silêncio**: ampliar
+localização de clientes ao despacho não estava no enunciado, e esconder o botão
+não é segurança. A camada é de `ADMIN`, e a rota recusa no **servidor**.
+
+A busca é o caso delicado, porque ela é compartilhada: o `DISPATCHER` busca
+CTO e número de OS. Os resultados do tipo `CUSTOMER` são removidos **no
+servidor**, antes de a resposta sair — não filtrados na tela.
+
+### 41.6 Dois empates que o navegador decidia por sorteio
+
+Os dois foram achados pela suíte, e nenhum dos dois aparecia como erro: a tela
+abria, alguma coisa acontecia, e só quem procurava notava que nem sempre era a
+mesma coisa.
+
+**O marcador da OS nasce na coordenada do CLIENTE** — é a única que existe.
+Então todo cliente com OS aberta tem o losango exatamente sobre o ponto: mesma
+latitude, mesma longitude, mesmo pixel. O Leaflet deriva o `z-index` da
+latitude, que ali é a mesma: **medido no navegador, `239` nos dois**. O
+desempate caía para a ordem no DOM, que é a ordem em que as duas respostas HTTP
+chegaram.
+
+Um mapa em que o popup aberto depende de uma corrida de rede não é um mapa, é
+um sorteio. A correção é uma linha — `zIndexOffset` na camada de OS — e a
+decisão que ela grava é que **a OS vence o empate**: o popup dela já carrega
+nome do cliente, conectividade com idade, CTO, porta e **Abrir cliente**,
+enquanto o popup do cliente, no mesmo ponto, não teria como levar à OS. Para
+ver o cliente sozinho, o operador desliga a camada de OS — e aí o ponto fica
+clicável, com a contagem de OS abertas no popup.
+
+A prova por reversão devolve o número exato do defeito:
+`Expected: > 239 · Received: 239`.
+
+**O segundo empate era do meu teste, não do produto.** Ele lia a vista de
+referência **depois** de abrir o popup, capturando o empurrão do `autoPan` do
+Leaflet — 0,0027°, uns 124px. O link de volta carrega, de propósito, a vista de
+**antes** desse empurrão, porque o operador não arrastou nada: quem moveu o
+mapa foi o popup. Lendo a referência antes do clique, a comparação passou de
+`toBeCloseTo(…, 3)` — que tolera 55 metros de deriva — para **igualdade de
+string**, nas duas pontas, porque as duas escrevem o mesmo `toFixed(6)`.
+
+A mesma correção foi aplicada à volta pelo popup da OS, que afirmava **só o
+zoom**: uma volta que devolvesse o zoom certo sobre outro bairro passava.
+
+### 41.7 Um empate que NÃO foi decidido, e por quê
+
+A CTO e um cliente **exatamente** na mesma coordenada empatam pela mesma razão,
+e esse não foi resolvido. A diferença é que o par cliente↔OS é **estrutural** —
+a OS herda a coordenada do cliente, então a colisão é garantida —, enquanto
+CTO↔cliente exige igualdade exata de latitude e longitude, que é construção de
+fixture e não condição de dado real.
+
+Decidir qual dos dois vence é escolha de produto que o enunciado não fez, e
+inventá-la aqui seria decidir por omissão. Fica registrado como pergunta ao
+dono: **quando uma caixa e um cliente ocupam o mesmo ponto, qual popup abre?**
+
+### 41.8 Estado das camadas na URL, e o padrão que é omitido
+
+As camadas ligadas viajam como **lista** (`?layers=CTOS,ORDERS`), e o parser é
+uma allowlist: valor inventado na URL não liga camada nenhuma. Ausência do
+parâmetro significa **padrão**, e não "tudo desligado" — quem chega por um link
+sem `layers` recebe o mapa como ele abre.
+
+E o padrão **não é escrito**: a vista de quem não mexeu em nada não polui a
+barra de endereço. Lista vazia, porém, **é** escrita, porque "desliguei tudo" é
+uma escolha e precisa sobreviver à navegação.
+
+O padrão em si tem teste próprio (`LAYERDEF-01/02`), e ele nasceu de uma
+sabotagem que **passou**: trocar `CUSTOMERS: false` por `true` não derrubava
+nada no Vitest, porque o padrão era afirmado só pelo navegador.
+
+### 41.9 Duas fronteiras técnicas que o código impôs
+
+**Leaflet continua entrando por uma porta só.** `OperationalMarkers` importado
+estaticamente puxa `leaflet` para o render do servidor e derruba o build; ele
+entra por `dynamic(..., { ssr: false })`, como o resto do mapa.
+
+**A busca mora em módulo próprio.** `cto-map` já dependia de `operational-map`,
+e uma busca que alcança os dois dentro de qualquer um deles fecharia um ciclo.
+`map-search.ts` depende dos dois e ninguém depende dela.
+
+### 41.10 O que NÃO foi criado
+
+Nenhuma coluna de contagem (`cto.onlineCount`, `cto.offlineCount`,
+`cto.openOsCount`): as contagens são derivadas a cada leitura. Nenhuma segunda
+coordenada de cliente (`Customer.latitudeMap` e parentes): `CustomerLocation`
+continua sendo a autoridade e `Customer.latitude/longitude` continua sendo a
+projeção mantida que o schema declara. Nenhum índice novo, nenhuma migration,
+nenhum clustering, nenhum plugin instalado por antecipação. E nenhum `0,0` como
+fallback: cliente sem localização é **contado**, nunca posicionado.
+
+### 41.11 Três testes meus que passavam sem provar nada
+
+Os três foram descobertos porque uma sabotagem **sobreviveu** a eles, e os três
+tinham a mesma causa: o gesto que deveria provocar o efeito não provocava nada.
+
+**O arrasto caía fora do mapa.** `LAYER-01/02/03` afirmava que a camada
+desligada não consulta, arrastando de `(400, 300)` a `(460, 340)`. Medido: o
+contêiner do mapa começa em `y=343`, e o viewport do teste tem 720px de altura
+contra 558px de mapa — ou seja, o ponto inicial estava **acima** do mapa e a
+metade de baixo dele está fora do alcance do ponteiro. O arrasto não movia
+nada: zero mudança de URL, zero requisições. A afirmação "não consultou"
+passava porque **nada** havia acontecido.
+
+A cura tem duas partes, e a segunda é a que importa: o arrasto passou a ser
+calculado a partir da caixa medida do contêiner, e entrou um **controle
+positivo** — o mesmo gesto tem de ter recarregado a camada LIGADA. Sem ele, a
+próxima vez que o arrasto ficar inerte o teste volta a passar calado.
+
+**`LAYER-19` observava uma requisição só.** Pelo mesmo arrasto morto, a segunda
+leitura nunca era disparada — e sem segunda leitura não existe "resposta
+velha". O teste da guarda de sequência nunca exercia a guarda. Junto, a
+asserção era só negativa: `not.toContainText("999")` também passa quando o
+elemento **não existe**, e contador ausente é indistinguível de contador certo
+para essa asserção. Agora exige-se que ele esteja na tela antes de afirmar o
+que ele não diz.
+
+**`LAYER-08/09` dependia de um sorteio.** Ele clicava no ponto do cliente com a
+camada de OS ligada — o ponto coberto pelo losango. Passava ou falhava conforme
+a ordem de chegada das respostas. Era ele que vinha "detectando" `S11`, `S14` e
+`S15`: uma detecção que não era mérito do teste, e que escondia que `S11` não
+tinha detector nenhum.
+
+### 41.12 A sabotagem que NÃO deveria ser detectada, e a medição que prova
+
+`S14` remove a guarda de bilhete da camada de clientes, e **nenhum teste de
+navegador a derruba** — nem depois de o arrasto ser consertado. Isso foi
+medido, não deduzido: uma sonda temporária contou as avaliações da guarda no
+cenário da `LAYER-19` e registrou **uma**, aceita. Zero rejeições.
+
+A razão é que o `AbortController` fecha a janela primeiro: a leitura anterior é
+abortada antes de `res.json()` resolver, então ela nunca chega à linha da
+guarda. O bilhete ali é **defesa em profundidade atrás do aborto**, e não o
+mecanismo principal — a mesma conclusão que a `CTO-3.2` registrou para a sua
+`S2`, agora com número.
+
+O contrato do `createLatestRequestGuard` continua tendo teste próprio em
+`cto-map-ui.test.ts`. O que não tem detector é a remoção do **ponto de uso**, e
+não tem porque, naquele ponto, ela não muda comportamento observável.
+
+### 41.13 Sabotagens
+
+Quinze mutações (`S1`–`S15`), aplicadas uma por vez e restauradas com conferência
+de `git status` ao final de cada rodada. As de navegador rodaram com **`.next`
+limpo entre cada mutação** — sem isso o servidor serve `chunk` velho e relata
+aprovação falsa, que é a armadilha metodológica já documentada no projeto.
+
+| # | O que a mutação faz | Detector |
+|---|---|---|
+| `S1` | o módulo do mapa alcança um provider concreto de ERP | `CONN-MAP-07` |
+| `S2` | o lote vira leitura por cliente (`N+1`) | `CONN-MAP-09`, `CTOSUM-09` |
+| `S3` | ausência de snapshot passa a significar `OFFLINE` | `CONN-MAP-06`, `CUSTMAP-09..12` |
+| `S4` | a leitura de clientes perde o `companyId` | `CUSTMAP-04/05/08` |
+| `S5` | a leitura de OS perde o `companyId` | `OSMAP-03` |
+| `S6` | cliente inativo passa a aparecer | `CUSTMAP-01/02/03` |
+| `S7` | o resumo conta vínculo histórico como atual | `CTOSUM-06/07/08` |
+| `S8` | o selo de OS substitui o estado de conectividade | `LAYER-04/05/06/07` |
+| `S9` | OS fechada volta a aparecer | `CUSTMAP-09b`, `MAPSEARCH-08/09` |
+| `S10` | a camada de clientes nasce ligada | `LAYERDEF-01`, `LAYER-01/02/03` |
+| `S11` | a camada consulta mesmo desligada | `LAYER-01/02/03` |
+| `S12` | o DTO do cliente passa a carregar o documento | `CUSTMAP-08` |
+| `S13` | a busca de clientes perde o tenant | `MAPSEARCH-04` |
+| `S14` | sai a guarda de bilhete da camada de clientes | **nenhum — ver §41.12** |
+| `S15` | o retorno deixa de reconhecer o mapa | `LAYER-10/11` |
+
+Catorze detectadas; a décima quinta está explicada acima e medida. Depois do
+conserto dos três testes fracos, **cada sabotagem de navegador derruba
+exatamente o teste que existe para pegá-la** — antes, o placar era ruidoso
+porque um teste instável falhava junto e mascarava a ausência de detector do
+`S11`.

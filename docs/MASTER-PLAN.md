@@ -50,7 +50,7 @@ CTO-3.2.1b · 3.2.1c   polimento de UX e o estado na silhueta   ← concluído
    ↓  validação do dono em uso real
 CTO-3.2.1d   ADMIN corrige a posição da CTO no mapa            ← APROVADO
    ↓
-CTO-3.2.2   camada de clientes + OS abertas + Online/Offline em lote
+CTO-3.2.2   camada de clientes + OS abertas + Online/Offline em lote  ← ENTREGUE
    ↓  validação do dono — Mapa Operacional V1 completo
 DASH-1 · TL-1 · EV-1 · GS-1    (ordem entre si: decisão do dono)
    ↓
@@ -87,6 +87,17 @@ Zero migration, zero Prisma, zero Dart, zero dependência.
 ---
 
 ## 3. `CTO-3.2.2` — Mapa Operacional V1: clientes e OS abertas
+
+> **Estado: ENTREGUE — `READY FOR OWNER VALIDATION`.** Commits locais, sem tag
+> e sem push. Zero migration, zero schema, zero dependência, zero Dart. O
+> registro completo — decisões, medições e sabotagens — está em
+> `docs/CTO-NETWORK-DISTRIBUTION.md` §41. O que segue é o plano como ele foi
+> escrito, mantido para comparação.
+>
+> Duas coisas que o plano não previa e que a implementação trouxe: o empate de
+> `z-index` entre o ponto do cliente e o losango da OS, que fazia o popup
+> aberto depender de qual resposta HTTP chegava primeiro; e três testes que
+> passavam sem provar nada, porque o arrasto do ponteiro caía fora do mapa.
 
 **Objetivo.** Ligar as duas camadas que faltam ao motor que já existe: clientes
 ativos localizáveis e OS abertas, com conectividade vinda da autoridade que a

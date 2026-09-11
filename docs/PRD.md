@@ -12406,6 +12406,13 @@ snapshot, o mapa não pode dizer `OFFLINE`. Sem leitura é `SEM LEITURA`.
 
 ## O que a implementação seguinte precisa EXTRAIR
 
+> **`IMPLEMENTADO` na `CTO-3.2.2`.** A extração foi feita como descrita:
+> `getConnectivityForCustomers` lê em lote a mesma tabela e devolve o mesmo
+> DTO, ao lado de `getCustomerDiagnostic`, que continua sendo a leitura
+> individual. Nenhuma segunda autoridade nasceu, nenhum cache próprio do mapa
+> existe, e o `N+1` é vedado por teste que **conta consultas**. O texto abaixo
+> fica como registro do que foi autorizado.
+
 A leitura de hoje é **de um cliente por chamada** (`findFirst`). Uma camada de
 mapa com centenas de assinantes faria `N+1` — a rajada a cada arrasto que a
 §200 existe para impedir.
@@ -12439,6 +12446,28 @@ estado de conectividade em vez de substituí-lo:
 ```text
 ONLINE + OS aberta        OFFLINE + OS aberta        SEM LEITURA + OS aberta
 ```
+
+## Os dois marcadores ocupam o MESMO ponto, e a OS abre na frente
+
+Como a OS herda a geografia do cliente, um cliente com OS aberta tem **dois**
+marcadores exatamente sobre o mesmo par de coordenadas — não "quase", o mesmo
+pixel. Com as duas camadas ligadas, um dos dois recebe o clique, e isso **não
+pode ser decidido por ordem de chegada das respostas**: o mapa abriria ora um
+popup, ora outro, sem que nada na tela explicasse a diferença.
+
+**A OS vence.** O popup dela nomeia o cliente, mostra a conectividade com a
+idade da leitura, mostra a CTO e a porta, e oferece o caminho para o cadastro —
+enquanto o popup do cliente, no mesmo ponto, não teria como levar à OS. Nada se
+perde, e o objeto mais acionável fica na frente.
+
+**Para ver o cliente sozinho, desliga-se a camada de OS.** É aí que a contagem
+de OS abertas do cliente tem quem a leia, e é o único estado em que esse ponto
+pertence a um marcador só.
+
+**Decisão em aberto, e ela é do dono:** quando uma **CTO** e um cliente
+ocuparem exatamente a mesma coordenada, qual dos dois abre? O caso é diferente
+do anterior — a colisão cliente↔OS é estrutural, enquanto esta exige igualdade
+exata entre coordenadas de origens independentes.
 
 ## O selo numérico da CTO
 
