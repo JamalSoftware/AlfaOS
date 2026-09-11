@@ -1812,8 +1812,12 @@ test.describe("Mapa Operacional — plaqueta com o nome da CTO", () => {
       { timeout: 10_000 },
     );
     const depois = vistaDaUrl(page);
+    // Igualdade, e não aproximação: as duas pontas escrevem o mesmo
+    // `toFixed(6)`, e uma tolerância de três casas aceitaria 55 metros de
+    // deriva sem reclamar.
     expect(depois.get("z")).toBe(antes.get("z"));
-    expect(Number(depois.get("lat"))).toBeCloseTo(Number(antes.get("lat")), 3);
+    expect(depois.get("lat")).toBe(antes.get("lat"));
+    expect(depois.get("lng")).toBe(antes.get("lng"));
 
     // E a plaqueta volta junto.
     await expect(page.getByTestId("cto-map-label").first()).toBeVisible({
@@ -2969,16 +2973,45 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
       desenhar nada — e é o tipo de custo que ninguém percebe, porque não
       aparece na tela.
     */
-    const pedidos: string[] = [];
+    const deClientes: string[] = [];
+    const deOrdens: string[] = [];
     page.on("request", (r) => {
-      if (r.url().includes("/api/map/customers")) pedidos.push(r.url());
+      const u = r.url();
+      if (u.includes("/api/map/customers")) deClientes.push(u);
+      if (u.includes("/api/map/service-orders")) deOrdens.push(u);
     });
-    await page.mouse.move(400, 300);
+
+    /*
+      O arrasto precisa cair DENTRO da parte visível do mapa.
+
+      Medido: o contêiner começa em `y=343` e tem 558px de altura, num viewport
+      de 720 — ou seja, a metade de baixo dele está fora do alcance do ponteiro.
+      Um ponto escolhido "no meio do mapa" por fração da altura cai lá fora, o
+      mapa não se mexe, e a afirmação "não consultou" passa sem ter provado
+      nada. Foi exatamente assim que a sabotagem S11 sobreviveu a este teste.
+    */
+    const area = await page.locator(".leaflet-container").boundingBox();
+    if (!area) throw new Error("o mapa não foi renderizado");
+    const x = area.x + area.width * 0.25;
+    const y = area.y + 120;
+    await page.mouse.move(x, y);
     await page.mouse.down();
-    await page.mouse.move(460, 340, { steps: 8 });
+    await page.mouse.move(x + 70, y + 60, { steps: 10 });
     await page.mouse.up();
-    await page.waitForTimeout(1200);
-    expect(pedidos, "a camada desligada consultou").toEqual([]);
+    await page.waitForTimeout(1500);
+
+    /*
+      CONTROLE POSITIVO, e ele é o que dá sentido ao resto.
+
+      A camada LIGADA recarregou depois do mesmo gesto. Sem esta linha, a
+      afirmação de baixo é satisfeita por um arrasto inerte — que é a forma
+      mais silenciosa de um teste passar sem testar.
+    */
+    expect(
+      deOrdens.length,
+      "o arrasto não moveu o mapa: o resto deste teste não prova nada",
+    ).toBeGreaterThan(0);
+    expect(deClientes, "a camada desligada consultou").toEqual([]);
   });
 
   test("LAYER-04/05/06/07 · ligar clientes mostra os três estados", async ({
@@ -3020,9 +3053,33 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
   }) => {
     await abrirCamadas(page);
     await page.getByTestId("map-layer-customers").check();
+    /*
+      A camada de OS sai do caminho — e isto é o cenário REAL, não um jeito de
+      fazer o teste passar.
+
+      O marcador da OS nasce na coordenada do CLIENTE, então o losango cobre o
+      ponto de todo cliente com OS aberta, e por decisão ele fica por cima
+      (`OS_ACIMA_DO_CLIENTE`). Com as duas camadas ligadas, clicar nesse ponto
+      abre o popup da OS — o que a `LAYER-20` afirma. O popup do CLIENTE desse
+      cliente só é alcançável com a camada de OS desligada, e é exatamente aí
+      que a contagem "OS abertas: 1" tem quem a leia.
+    */
+    await page.getByTestId("map-layer-orders").uncheck();
+    await expect(page.locator("svg.cto-order")).toHaveCount(0);
     await expect(page.locator("svg.cto-dot").first()).toBeVisible({
       timeout: 15_000,
     });
+
+    /*
+      A vista de referência é a que o operador tinha AO CLICAR.
+
+      Lê-la depois de o popup abrir capturaria o deslocamento do `autoPan` do
+      Leaflet — medido aqui em 0,0027°, uns 124px — que é efeito de abrir o
+      popup, e não uma vista que alguém escolheu. O link de volta carrega
+      justamente a vista de antes desse empurrão, e é essa que a volta deve
+      devolver.
+    */
+    const antes = await vistaEstavel(page);
 
     await page
       .locator('.leaflet-marker-icon[title^="CAMADA CLIENTE OFFLINE"]')
@@ -3040,7 +3097,6 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     // A CTO e a porta vêm do VÍNCULO, e aparecem.
     await expect(popup).toContainText("CAMADA CAIXA");
 
-    const antes = await vistaEstavel(page);
     await popup.getByTestId("customer-map-open").click();
 
     await expect(page.getByTestId("customer-back-link")).toHaveText(
@@ -3054,8 +3110,80 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     const depois = vistaDaUrl(page);
     expect(depois.get("z")).toBe(antes.get("z"));
     expect(Number(depois.get("lat"))).toBeCloseTo(Number(antes.get("lat")), 3);
-    // LAYER-09: a camada ligada volta ligada.
+    // LAYER-09: as camadas voltam como estavam — a ligada ligada E a desligada
+    // desligada. Só a primeira metade deixaria passar um retorno que
+    // reacendesse tudo no padrão.
     await expect(page.getByTestId("map-layer-customers")).toBeChecked();
+    await expect(page.getByTestId("map-layer-orders")).not.toBeChecked();
+  });
+
+  /*
+    O empate de z é REAL, e o desfecho precisa ser ÚNICO.
+
+    Cliente e OS ocupam o mesmo pixel por construção. Medido antes da correção:
+    z 239 nos dois, com o desempate caindo para a ordem no DOM — isto é, para
+    qual das duas respostas HTTP chegou primeiro. Este teste existe porque um
+    popup sorteado passa despercebido: a tela abre, alguma coisa aparece, e só
+    quem procura nota que nem sempre é a mesma.
+  */
+  test("LAYER-20 · cliente e OS no mesmo ponto: quem abre é a OS", async ({
+    page,
+  }) => {
+    await abrirCamadas(page);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator("svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.locator("svg.cto-order").first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const alvo = page.locator(
+      '.leaflet-marker-icon[title^="CAMADA CLIENTE OFFLINE"]',
+    );
+    const caixa = await alvo.boundingBox();
+    if (!caixa) throw new Error("o ponto do cliente não foi renderizado");
+
+    const z = await page.evaluate(() => {
+      const porTitulo = (t: string) =>
+        document.querySelector<HTMLElement>(
+          `.leaflet-marker-icon[title^="${t}"]`,
+        );
+      return {
+        cliente: Number(porTitulo("CAMADA CLIENTE OFFLINE")?.style.zIndex),
+        os: Number(porTitulo("OS Nº 8800")?.style.zIndex),
+      };
+    });
+    // O mesmo ponto ⇒ a latitude não desempata. Quem desempata é a regra.
+    expect(z.os, "a OS precisa ficar acima do ponto do cliente").toBeGreaterThan(
+      z.cliente,
+    );
+
+    /*
+      E o clique é feito no PONTO, não no elemento: mandar o evento direto ao
+      marcador do cliente pularia o teste de acerto do navegador, que é
+      justamente o que está sendo medido.
+    */
+    await page.mouse.click(
+      caixa.x + caixa.width / 2,
+      caixa.y + caixa.height / 2,
+    );
+
+    const daOs = page.getByTestId("order-map-popup");
+    await expect(daOs).toBeVisible();
+    await expect(page.getByTestId("customer-map-popup")).toHaveCount(0);
+
+    /*
+      Nada se perde no ponto compartilhado: o popup da OS nomeia o cliente,
+      mostra a conectividade dele e oferece o caminho para o cadastro. É o que
+      sustenta a decisão de a OS vencer o empate.
+    */
+    await expect(daOs).toContainText("CAMADA CLIENTE OFFLINE");
+    await expect(daOs.getByTestId("map-connectivity")).toHaveAttribute(
+      "data-status",
+      "OFFLINE",
+    );
+    await expect(daOs.getByTestId("order-map-open-customer")).toBeVisible();
   });
 
   test("LAYER-10/11 · popup da OS, e voltar restaura o mapa", async ({ page }) => {
@@ -3063,6 +3191,10 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     await expect(page.locator("svg.cto-order").first()).toBeVisible({
       timeout: 15_000,
     });
+
+    // A vista de referência, pela mesma razão da `LAYER-08/09`: lida ANTES do
+    // clique, para não capturar o empurrão do `autoPan`.
+    const antes = await vistaEstavel(page);
 
     await page
       .locator(`.leaflet-marker-icon[title^="OS Nº ${camadas.ordemNumero}"]`)
@@ -3076,7 +3208,6 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
       "OFFLINE",
     );
 
-    const antes = await vistaEstavel(page);
     await popup.getByTestId("order-map-open").click();
 
     await expect(page.getByTestId("order-back-link")).toHaveText(
@@ -3087,7 +3218,17 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     await expect(page.locator(".leaflet-container")).toBeVisible({
       timeout: 15_000,
     });
-    expect(vistaDaUrl(page).get("z")).toBe(antes.get("z"));
+    /*
+      Centro E zoom, não só o zoom.
+
+      Afirmar apenas `z` deixaria passar uma volta que devolve o zoom certo em
+      cima de outro bairro — que é exatamente o defeito que a `CTO-3.2.1`
+      consertou.
+    */
+    const depois = vistaDaUrl(page);
+    expect(depois.get("z")).toBe(antes.get("z"));
+    expect(depois.get("lat")).toBe(antes.get("lat"));
+    expect(depois.get("lng")).toBe(antes.get("lng"));
   });
 
   test("LAYER-12/13/14 · o selo de OS na caixa, os contadores e os clientes por porta", async ({
@@ -3233,18 +3374,41 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
 
     await page.getByTestId("map-layer-customers").check();
     await page.waitForTimeout(200);
-    await page.mouse.move(400, 300);
+
+    /*
+      O arrasto tem de mover o mapa DE VERDADE — é ele que dispara a segunda
+      leitura, e sem segunda leitura não existe "resposta velha".
+
+      Medido: o contêiner do mapa começa em `y=343` e é mais alto que o
+      viewport de 720, então coordenadas fixas escolhidas a olho caem fora
+      dele. Com o arrasto inerte, este teste observava uma requisição só e
+      deixava de exercer a guarda inteira.
+    */
+    const area = await page.locator(".leaflet-container").boundingBox();
+    if (!area) throw new Error("o mapa não foi renderizado");
+    const x = area.x + area.width * 0.25;
+    const y = area.y + 120;
+    await page.mouse.move(x, y);
     await page.mouse.down();
-    await page.mouse.move(470, 350, { steps: 8 });
+    await page.mouse.move(x + 70, y + 60, { steps: 10 });
     await page.mouse.up();
 
     await expect(page.locator("svg.cto-dot").first()).toBeVisible({
       timeout: 20_000,
     });
-    // O `999` da resposta velha nunca aparece: ela foi descartada.
     await page.waitForTimeout(1500);
-    await expect(page.getByTestId("map-customers-missing")).not.toContainText(
-      "999",
-    );
+
+    /*
+      A afirmação precisa das DUAS metades.
+
+      `not.toContainText` sozinho também passa quando o elemento não existe —
+      e um contador ausente é indistinguível de um contador correto para essa
+      asserção. Exigir que ele esteja na tela é o que impede o teste de se
+      satisfazer com o vazio.
+    */
+    const contador = page.getByTestId("map-customers-missing");
+    await expect(contador).toBeVisible();
+    // O `999` da resposta velha nunca aparece: ela foi descartada.
+    await expect(contador).not.toContainText("999");
   });
 });

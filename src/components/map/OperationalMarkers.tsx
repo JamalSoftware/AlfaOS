@@ -93,6 +93,35 @@ function iconeDeCliente(
   return icone;
 }
 
+/**
+ * # A OS fica ACIMA do ponto do cliente, e isso precisa ser DECIDIDO
+ *
+ * O marcador da OS usa a coordenada do CLIENTE — é a única que existe. Então
+ * todo cliente com OS aberta tem o losango exatamente sobre o ponto, e não
+ * "quase": mesma latitude, mesma longitude, mesmo pixel.
+ *
+ * Sem `zIndexOffset` os dois recebem o **mesmo** z, porque o Leaflet o deriva
+ * da latitude. Medido no navegador: `239` nos dois. O desempate cai para a
+ * ordem no DOM, que é a ordem em que as duas respostas HTTP chegaram — e um
+ * mapa em que o popup aberto depende de uma corrida de rede não é um mapa, é
+ * um sorteio.
+ *
+ * ## Por que a OS vence
+ *
+ * O popup dela já carrega nome do cliente, conectividade com idade, CTO e
+ * porta, e ainda oferece **Abrir cliente**. O popup do cliente, no mesmo
+ * ponto, não teria como levar à OS. Deixar o cliente por cima esconderia o
+ * objeto mais rico atrás do mais pobre.
+ *
+ * Para ver o cliente sozinho, o operador **desliga a camada de OS** — e aí o
+ * ponto fica clicável, com a contagem de OS abertas no popup.
+ *
+ * `1000` é maior que qualquer diferença de latitude em pixels dentro de um
+ * recorte, então a regra vale para a CAMADA inteira, e não só para o
+ * desempate do mesmo ponto.
+ */
+const OS_ACIMA_DO_CLIENTE = 1000;
+
 /** O marcador da OS: losango, para não se confundir com o ponto do cliente. */
 function iconeDeOs(): DivIcon {
   const guardado = cacheDeIcones.get("os");
@@ -282,6 +311,7 @@ function ServiceOrderMarkersBase({
           key={os.id}
           position={[os.latitude, os.longitude]}
           icon={iconeDeOs()}
+          zIndexOffset={OS_ACIMA_DO_CLIENTE}
           title={`OS Nº ${os.number} — ${SERVICE_ORDER_STATUS_LABELS[os.status]}`}
           alt={`OS Nº ${os.number} — ${SERVICE_ORDER_STATUS_LABELS[os.status]}`}
         >
