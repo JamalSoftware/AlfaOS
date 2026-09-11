@@ -504,12 +504,31 @@ export async function getServiceOrderMapView(
  * Nada disso é persistido: são valores derivados do vínculo ativo, do snapshot e
  * do predicado de OS aberta, calculados na leitura.
  */
+export interface CtoOperationalReadout {
+  summaries: Map<string, CtoOperationalSummary>;
+  /**
+   * As portas com vínculo ativo, para o resumo de OCUPAÇÃO.
+   *
+   * Sai daqui porque a consulta é a MESMA: "quais vínculos estão abertos nestas
+   * caixas?" responde às duas perguntas. `getCtoMapView` fazia essa consulta por
+   * conta própria, e manter as duas seria pedir ao banco duas vezes a mesma
+   * coisa para derivar respostas diferentes dela.
+   *
+   * Note que este conjunto inclui vínculo de cliente INATIVO, e o
+   * `activeCustomerCount` não — a porta ocupada por cliente desativado continua
+   * ocupada. É a mesma linha respondendo duas perguntas diferentes, e é por isso
+   * que os dois números podem divergir.
+   */
+  occupiedPortIds: Set<string>;
+}
+
 export async function getCtoOperationalSummaries(
   companyId: string,
   ctoIds: string[],
-): Promise<Map<string, CtoOperationalSummary>> {
+): Promise<CtoOperationalReadout> {
   const resumo = new Map<string, CtoOperationalSummary>();
-  if (ctoIds.length === 0) return resumo;
+  const occupiedPortIds = new Set<string>();
+  if (ctoIds.length === 0) return { summaries: resumo, occupiedPortIds };
 
   for (const id of ctoIds) {
     resumo.set(id, {
@@ -522,35 +541,43 @@ export async function getCtoOperationalSummaries(
   }
 
   /*
-    Só vínculo ATIVO, e só cliente cadastralmente ativo.
+    UMA consulta responde OCUPAÇÃO e RESUMO.
 
     `disconnectedAt: null` separa "está" de "esteve" — o histórico existe e não
-    pode contar como presença. E `customer.active` é a segunda dimensão: uma
-    porta ocupada por cliente desativado continua ocupada, mas o cliente não
-    entra na contagem de ativos.
+    pode contar como presença. O filtro de cliente ativo **não** entra no
+    `where`: a ocupação da porta independe da situação cadastral, e filtrar aqui
+    faria a porta de um cliente desativado parecer livre. A distinção acontece na
+    contagem, abaixo.
   */
   const vinculos = await prisma.customerNetworkConnection.findMany({
     where: {
       companyId,
       disconnectedAt: null,
       ctoPort: { ctoId: { in: ctoIds } },
-      customer: { active: true },
     },
     select: {
       customerId: true,
+      ctoPortId: true,
       ctoPort: { select: { ctoId: true } },
+      customer: { select: { active: true } },
     },
   });
 
-  if (vinculos.length === 0) return resumo;
+  for (const vinculo of vinculos) {
+    occupiedPortIds.add(vinculo.ctoPortId);
+  }
 
-  const customerIds = Array.from(new Set(vinculos.map((v) => v.customerId)));
+  // Só clientes cadastralmente ativos entram no resumo operacional.
+  const ativos = vinculos.filter((v) => v.customer.active);
+  if (ativos.length === 0) return { summaries: resumo, occupiedPortIds };
+
+  const customerIds = Array.from(new Set(ativos.map((v) => v.customerId)));
   const [conectividade, osAbertas] = await Promise.all([
     getConnectivityForCustomers(companyId, customerIds),
     contarOsAbertasPorCliente(companyId, customerIds),
   ]);
 
-  for (const vinculo of vinculos) {
+  for (const vinculo of ativos) {
     const alvo = resumo.get(vinculo.ctoPort.ctoId);
     if (!alvo) continue;
     alvo.activeCustomerCount += 1;
@@ -564,7 +591,7 @@ export async function getCtoOperationalSummaries(
     alvo.openServiceOrderCount += osAbertas.get(vinculo.customerId) ?? 0;
   }
 
-  return resumo;
+  return { summaries: resumo, occupiedPortIds };
 }
 
 // ---------------------------------------------------------------------------

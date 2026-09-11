@@ -56,6 +56,45 @@ export const DEFAULT_MAP_MODE: MapMode = "NORMAL";
  */
 export const MAP_MODE_STORAGE_KEY = "alfaos.map.mode";
 
+/**
+ * As camadas operacionais — `CTO-3.2.2`.
+ *
+ * **Não confundir com a base do mapa.** `NORMAL`/`SATELLITE`/`HYBRID` é o fundo
+ * sobre o qual se desenha; isto é o que se desenha em cima. São dois controles
+ * diferentes, e a tela precisa deixar isso claro — misturá-los faria "Satélite"
+ * e "Clientes" parecerem alternativas entre si.
+ */
+export const MAP_LAYERS = ["CTOS", "ORDERS", "CUSTOMERS"] as const;
+export type MapLayer = (typeof MAP_LAYERS)[number];
+
+/**
+ * O estado PADRÃO das camadas, e a razão de clientes nascer desligada.
+ *
+ * Caixas e OS abertas são o trabalho do despacho, e são poucas o bastante para
+ * caber na tela. Clientes é a camada de milhares de pontos: ligada por padrão,
+ * ela cobriria a rede de bolinhas antes de alguém pedir, e o mapa abriria
+ * poluído em vez de informativo.
+ *
+ * Ela continua a um clique de distância — e quem a liga sabe o que está pedindo.
+ */
+export const DEFAULT_MAP_LAYERS: Record<MapLayer, boolean> = {
+  CTOS: true,
+  ORDERS: true,
+  CUSTOMERS: false,
+};
+
+/** Os filtros da camada de clientes. Simples de propósito. */
+export const CUSTOMER_FILTERS = [
+  "ALL",
+  "ONLINE",
+  "OFFLINE",
+  "UNKNOWN",
+  "WITH_OPEN_OS",
+  "WITHOUT_OPEN_OS",
+] as const;
+export type CustomerFilter = (typeof CUSTOMER_FILTERS)[number];
+export const DEFAULT_CUSTOMER_FILTER: CustomerFilter = "ALL";
+
 export interface MapViewState {
   latitude: number;
   longitude: number;
@@ -63,6 +102,8 @@ export interface MapViewState {
   mode: MapMode;
   search: string;
   selectedId: string | null;
+  layers: Record<MapLayer, boolean>;
+  customerFilter: CustomerFilter;
 }
 
 /**
@@ -150,6 +191,43 @@ export function parseMapViewParams(
     parcial.selectedId = selecionado;
   }
 
+  /*
+    As camadas viajam como uma lista de LIGADAS, e não como três booleanos.
+
+    `?layers=CTOS,ORDERS` é curto e diz tudo; `?ctos=1&orders=1&customers=0`
+    ocuparia três parâmetros para a mesma informação. E o parser é uma
+    allowlist: o que não está em `MAP_LAYERS` é descartado, então um valor
+    inventado na URL não liga camada nenhuma.
+
+    Ausência do parâmetro significa PADRÃO, e não "tudo desligado" — quem chega
+    por um link sem `layers` recebe o mapa como ele abre normalmente.
+  */
+  const camadas = primeiro(raw.layers);
+  if (typeof camadas === "string") {
+    const pedidas = new Set(
+      camadas
+        .split(",")
+        .map((c) => c.trim().toUpperCase())
+        .filter((c): c is MapLayer =>
+          (MAP_LAYERS as readonly string[]).includes(c),
+        ),
+    );
+    // Uma lista vazia é uma escolha válida: o operador desligou tudo.
+    parcial.layers = {
+      CTOS: pedidas.has("CTOS"),
+      ORDERS: pedidas.has("ORDERS"),
+      CUSTOMERS: pedidas.has("CUSTOMERS"),
+    };
+  }
+
+  const filtro = primeiro(raw.cf);
+  if (
+    typeof filtro === "string" &&
+    (CUSTOMER_FILTERS as readonly string[]).includes(filtro.toUpperCase())
+  ) {
+    parcial.customerFilter = filtro.toUpperCase() as CustomerFilter;
+  }
+
   return parcial;
 }
 
@@ -189,6 +267,28 @@ export function buildMapViewQuery(estado: Partial<MapViewState>): string {
 
   if (estado.selectedId && ID_INTERNO.test(estado.selectedId)) {
     params.set("sel", estado.selectedId);
+  }
+
+  /*
+    A camada só é escrita quando DIFERE do padrão.
+
+    Escrever sempre encheria a barra de endereço de `?layers=CTOS,ORDERS` para
+    quem não mexeu em nada — e faria a vista padrão ter uma URL diferente da
+    vista padrão de ontem, se o padrão mudasse. Omitir significa "como abre".
+
+    Note que "nenhuma camada ligada" TAMBÉM difere do padrão, e por isso é
+    escrito: `?layers=` é uma escolha, e ela precisa sobreviver à navegação.
+  */
+  if (estado.layers) {
+    const ligadas = MAP_LAYERS.filter((camada) => estado.layers![camada]);
+    const ehPadrao = MAP_LAYERS.every(
+      (camada) => estado.layers![camada] === DEFAULT_MAP_LAYERS[camada],
+    );
+    if (!ehPadrao) params.set("layers", ligadas.join(","));
+  }
+
+  if (estado.customerFilter && estado.customerFilter !== DEFAULT_CUSTOMER_FILTER) {
+    params.set("cf", estado.customerFilter);
   }
 
   return params.toString();

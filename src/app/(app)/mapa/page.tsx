@@ -132,6 +132,16 @@ export default async function MapaOperacionalPage({
           que exige `ADMIN` e a capability antes de qualquer escrita.
         */
         canEditPosition={session.profile === "ADMIN"}
+        /*
+          A carteira NOMINAL é de ADMIN nesta fase.
+
+          O DISPATCHER lê caixas e OS abertas — o trabalho dele. Mostrar onde
+          cada assinante mora, e quem ele é, é superfície de dado pessoal que
+          nenhuma decisão aprovada estendeu ao despacho; ampliar por efeito
+          colateral de uma fase de mapa seria decidir privacidade dentro de uma
+          implementação. Quem barra é o servidor, em cada rota.
+        */
+        canSeeCustomers={session.profile === "ADMIN"}
       />
     </div>
   );

@@ -24,7 +24,12 @@ import { CustomerDiagnosticPanel } from "@/components/CustomerDiagnosticPanel";
 import { CustomerContactCard } from "@/components/CustomerContactCard";
 import { Disclosure, FieldList } from "@/components/Disclosure";
 import { providerLabel } from "@/lib/provider-labels";
-import { buildReturnTo } from "@/lib/return-to";
+import {
+  OPERATIONAL_MAP_PATH,
+  buildReturnTo,
+  parseReturnTo,
+} from "@/lib/return-to";
+import { buildMapViewQuery, parseMapViewParams } from "@/lib/map-view-params";
 import { ReceitanetContextPanel } from "@/components/ReceitanetContextPanel";
 import { AssignTechnicianForm } from "@/components/AssignTechnicianForm";
 import { ServiceOrderExecutionForm } from "@/components/ServiceOrderExecutionForm";
@@ -127,10 +132,42 @@ function ExecutionReadOnly({
   );
 }
 
+/**
+ * Para onde o "← Voltar" desta tela aponta — `CTO-3.2.2`.
+ *
+ * O fluxo antigo é o PADRÃO e não muda: quem chega pela listagem volta para a
+ * listagem, e o técnico dono volta para as próprias OS. O mapa acrescenta uma
+ * origem explícita, e apenas ela.
+ *
+ * A vista do mapa não viaja dentro de `returnTo`: ela vem nos parâmetros
+ * próprios, validados um a um, e o destino é remontado a partir do que já foi
+ * conferido. Um `returnTo` inválido cai no padrão — nunca vira um link para
+ * fora do AlfaOS.
+ */
+function resolverVoltaDaOs(
+  padrao: string,
+  todos: Record<string, string | string[] | undefined> | undefined,
+): { href: string; label: string } {
+  const bruto = todos?.returnTo;
+  const destino = parseReturnTo(Array.isArray(bruto) ? bruto[0] : bruto);
+
+  if (destino?.kind === "operational-map") {
+    const query = buildMapViewQuery(parseMapViewParams(todos));
+    return {
+      href: query ? `${OPERATIONAL_MAP_PATH}?${query}` : OPERATIONAL_MAP_PATH,
+      label: "← Mapa Operacional",
+    };
+  }
+
+  return { href: padrao, label: "← Voltar" };
+}
+
 export default async function OrderDetailPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams?: { [key: string]: string | string[] | undefined };
 }) {
   const session = await requirePageProfile([
     "ADMIN",
@@ -387,14 +424,20 @@ export default async function OrderDetailPage({
     },
   ];
 
+  const voltaDaOs = resolverVoltaDaOs(
+    isOwnerTechnician ? "/minhas-os" : "/ordens",
+    searchParams,
+  );
+
   return (
     <div>
       <div className="mb-6">
         <Link
-          href={isOwnerTechnician ? "/minhas-os" : "/ordens"}
+          data-testid="order-back-link"
+          href={voltaDaOs.href}
           className="text-sm font-medium text-primary-text hover:text-primary-text-hover"
         >
-          ← Voltar
+          {voltaDaOs.label}
         </Link>
         {/*
           Identificação OPERACIONAL no topo. O `id` técnico não aparece aqui:

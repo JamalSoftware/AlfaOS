@@ -275,6 +275,18 @@ export function ctoMarkerHtml(
   apresentacao: CtoMapStatusPresentation,
   selecionado: boolean,
   editando = false,
+  /**
+   * Quantas OS abertas esta caixa tem — `CTO-3.2.2`.
+   *
+   * O selo só aparece com valor positivo, e ele **não substitui** o selo de
+   * estado: a caixa precisa comunicar as duas coisas ao mesmo tempo. Estado é
+   * `+ 0 ! ×` no canto superior direito; OS aberta é um número no canto
+   * inferior esquerdo, longe dele.
+   *
+   * É um NÚMERO, e não um ponto: "tem OS" e "tem três OS" mudam a decisão de
+   * quem olha, e um ponto colapsaria as duas.
+   */
+  openServiceOrderCount = 0,
 ): string {
   /*
     TRÊS dimensões independentes, e nenhuma apaga a outra — `CTO-3.2.1d`.
@@ -359,6 +371,22 @@ export function ctoMarkerHtml(
     reguaDePortas(),
 
     "</g>",
+
+    /*
+      O selo de OS ABERTA, no canto oposto ao selo de estado.
+
+      Canto oposto de propósito: os dois precisam ser lidos ao mesmo tempo, e
+      empilhá-los faria um cobrir o outro num ícone de 38 pixels. Acima de nove
+      vira "9+" — o número exato deixa de importar e o espaço não comporta dois
+      dígitos legíveis.
+    */
+    openServiceOrderCount > 0
+      ? `<circle class="cto-box__orders" cx="8" cy="30" r="6.5" />` +
+        `<text class="cto-box__orders-count" x="8" y="30" text-anchor="middle" ` +
+        `dominant-baseline="central">${
+          openServiceOrderCount > 9 ? "9+" : openServiceOrderCount
+        }</text>`
+      : "",
 
     `<g class="cto-box__badge">${seloDaForma(apresentacao.shape)}</g>`,
     `<text class="cto-box__glyph" x="${G.badge.cx}" y="${G.badge.cy}" ` +

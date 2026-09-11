@@ -1247,22 +1247,43 @@ describe("UI-MAP-13 — o que o popup NÃO mostra", () => {
     Aqui a asserção é estrutural e cobre o que a tela nem conseguiria mostrar:
     o componente não menciona campo nenhum que o DTO não traz.
   */
-  it("UI-MAP-13 · o componente não cita cliente, histórico nem companyId", () => {
+  it("UI-MAP-13 · o componente não cita IDENTIDADE de cliente, histórico nem companyId", () => {
     const codigo = semComentarios(leia("src/components/map/CtoMarkers.tsx"));
 
+    /*
+      A lista encolheu na `CTO-3.2.2`, e a afirmação NÃO enfraqueceu — ela ficou
+      mais precisa.
+
+      Até aqui o popup da caixa não falava de cliente nenhum, então bastava
+      proibir a palavra. Agora ele mostra **contagens**: quantos clientes
+      ativos, quantos online, quantos offline. Isso é agregado, não identidade —
+      e as props que o trazem se chamam `canSeeCustomers` e `onShowCustomers`,
+      então a palavra "customer" passou a aparecer legitimamente.
+
+      O que continua proibido é o que revela QUEM: nome, documento, id de
+      cliente, vínculo, histórico. A lista nominal vive em outra rota, pedida ao
+      clicar, e renderizada noutro componente.
+    */
     for (const proibido of [
       "companyId",
-      "customer",
-      "Customer",
+      "customerId",
+      "customerName",
+      "customer.name",
       "connection",
       "history",
       "histórico",
-      "serviceOrder",
+      "serviceOrderId",
       "notes",
       "photo",
     ]) {
       expect(codigo, `CtoMarkers cita ${proibido}`).not.toContain(proibido);
     }
+
+    // E o que o popup mostra de cliente é SÓ número, vindo do resumo derivado.
+    expect(codigo).toContain("marker.operational.activeCustomerCount");
+    expect(codigo, "nome de cliente no popup da caixa").not.toMatch(
+      /\{\s*cliente\.(name|nome)/,
+    );
   });
 
   /*

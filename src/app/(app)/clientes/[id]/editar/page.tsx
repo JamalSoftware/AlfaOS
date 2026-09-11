@@ -10,7 +10,8 @@ import { listCustomerConnections } from "@/lib/customer-connections";
 import { CustomerForm } from "@/components/CustomerForm";
 import { CustomerConnectionsPanel } from "@/components/CustomerConnectionsPanel";
 import { ReceitanetOrderSyncPanel } from "@/components/ReceitanetOrderSyncPanel";
-import { parseReturnTo } from "@/lib/return-to";
+import { OPERATIONAL_MAP_PATH, parseReturnTo } from "@/lib/return-to";
+import { buildMapViewQuery, parseMapViewParams } from "@/lib/map-view-params";
 import { notFound } from "next/navigation";
 
 export const metadata: Metadata = {
@@ -46,18 +47,31 @@ const VOLTA_PADRAO: Volta = {
  */
 async function resolverVolta(
   companyId: string,
-  bruto: string | string[] | undefined,
+  todos: Record<string, string | string[] | undefined> | undefined,
 ): Promise<Volta> {
+  const bruto = todos?.returnTo;
   const destino = parseReturnTo(Array.isArray(bruto) ? bruto[0] : bruto);
   /*
-    Só a OS produz um destino próprio AQUI.
+    O MAPA passou a alcançar esta tela — `CTO-3.2.2`.
 
-    `customers` já é o padrão, e `operational-map` — que a `CTO-3.2.1`
-    acrescentou — não alcança esta tela: não existe caminho do mapa para o
-    cadastro de cliente. Cair no padrão é o comportamento certo, e foi o
-    compilador que cobrou a decisão quando a variante nasceu, em vez de deixar
-    um `else` silencioso tratar o caso novo como se fosse uma OS.
+    Até aqui o comentário anterior estava certo: não existia caminho do mapa
+    para o cadastro de cliente, e `operational-map` caía no padrão. Com a camada
+    de clientes, existe — e o operador que clicou num ponto precisa voltar para
+    o bairro onde estava, e não para a listagem inteira.
+
+    A vista NÃO viaja dentro desta string. Ela vai nos parâmetros próprios do
+    mapa, cada um validado por `parseMapViewParams`, e o destino é REMONTADO a
+    partir dos valores já conferidos — nada do que o cliente escreveu é ecoado
+    na `href`. É o mesmo desenho que a `CTO-3.2.1` usou para a CTO.
   */
+  if (destino?.kind === "operational-map") {
+    const query = buildMapViewQuery(parseMapViewParams(todos));
+    return {
+      href: query ? `${OPERATIONAL_MAP_PATH}?${query}` : OPERATIONAL_MAP_PATH,
+      label: "← Mapa Operacional",
+    };
+  }
+
   if (!destino || destino.kind !== "order") {
     return VOLTA_PADRAO;
   }
@@ -89,7 +103,7 @@ export default async function EditCustomerPage({
     notFound();
   }
 
-  const volta = await resolverVolta(session.companyId, searchParams?.returnTo);
+  const volta = await resolverVolta(session.companyId, searchParams);
 
   // Somente ADMIN gerencia credencial de acesso. O painel inteiro fica fora da
   // árvore para o DISPATCHER — nada de renderizar controles que a API recusa.

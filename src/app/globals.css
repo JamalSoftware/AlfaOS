@@ -820,3 +820,100 @@
 .cto-map-shell .leaflet-tooltip-top.cto-map-label--selected::before {
   border-top-color: rgb(var(--focus));
 }
+
+/*
+  ---------------------------------------------------------------------------
+  Camadas operacionais — CTO-3.2.2
+  ---------------------------------------------------------------------------
+
+  Cliente e OS são PONTOS; a CTO é um ativo de rede. A hierarquia visual é
+  deliberada: num bairro com uma caixa e oitenta assinantes, dar a cada
+  assinante o mesmo peso da caixa transformaria o mapa numa nuvem uniforme onde
+  a infraestrutura desaparece.
+
+  Por isso o ponto do cliente tem 18px contra os 38px do marcador de CTO, não
+  tem plaqueta com nome e não tem silhueta própria.
+*/
+.cto-dot {
+  display: block;
+  /* Sobre imagem de satélite não há fundo previsível — a mesma razão da caixa. */
+  filter: drop-shadow(0 1px 2px rgb(var(--overlay) / 0.5));
+}
+
+.cto-dot__body {
+  stroke: rgb(var(--surface));
+  stroke-width: 1.5;
+}
+
+.cto-dot__glyph {
+  font-family: inherit;
+  font-size: 7px;
+  font-weight: 700;
+  fill: rgb(var(--surface));
+}
+
+.cto-dot--success .cto-dot__body {
+  fill: rgb(var(--success-fg));
+}
+.cto-dot--danger .cto-dot__body {
+  fill: rgb(var(--danger-fg));
+}
+.cto-dot--neutral .cto-dot__body {
+  fill: rgb(var(--neutral-fg));
+}
+
+/*
+  O anel de OS fica POR FORA do miolo, e nunca o substitui.
+
+  Precisamos enxergar `OFFLINE` **e** `OS ABERTA` ao mesmo tempo: o miolo diz o
+  estado do link, o anel diz que há trabalho aberto. Um marcador que trocasse a
+  cor por "tem OS" esconderia justamente a informação que explica a OS existir.
+*/
+.cto-dot__order {
+  fill: none;
+  stroke: rgb(var(--warning-fg));
+  stroke-width: 2;
+  stroke-dasharray: 3 2;
+}
+
+/* A OS: LOSANGO, para não se confundir com o círculo do cliente nem com a
+   caixa da CTO. Três formas, distinguíveis sem cor. */
+.cto-order {
+  display: block;
+  filter: drop-shadow(0 1px 2px rgb(var(--overlay) / 0.5));
+}
+
+.cto-order__body {
+  fill: rgb(var(--warning-bg));
+  stroke: rgb(var(--warning-fg));
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.cto-order__glyph {
+  font-family: inherit;
+  font-size: 7px;
+  font-weight: 700;
+  fill: rgb(var(--warning-fg));
+}
+
+/*
+  O selo de OS no marcador da CTO.
+
+  Discreto de propósito: ele acrescenta uma informação ao marcador, e não pode
+  transformá-lo numa árvore de Natal. O estado da caixa continua sendo dito
+  pelo contorno e pelo selo de forma/glifo — este número é uma quarta coisa,
+  e por isso fica pequeno, no canto oposto ao selo de estado.
+*/
+.cto-box__orders {
+  fill: rgb(var(--warning-fg));
+  stroke: rgb(var(--surface));
+  stroke-width: 1.5;
+}
+
+.cto-box__orders-count {
+  font-family: inherit;
+  font-size: 7px;
+  font-weight: 700;
+  fill: rgb(var(--surface));
+}

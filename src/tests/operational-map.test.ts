@@ -745,7 +745,7 @@ describe("CTOSUM-01..10 — resumo operacional por CTO", () => {
 
     const resumo = (
       await getCtoOperationalSummaries(fixture.companyA.id, [cto.id])
-    ).get(cto.id)!;
+    ).summaries.get(cto.id)!;
 
     expect(resumo.activeCustomerCount).toBe(3);
     expect(resumo.onlineCount).toBe(1);
@@ -763,10 +763,11 @@ describe("CTOSUM-01..10 — resumo operacional por CTO", () => {
     ]);
     const destino = await criarCaixaComClientes("CX DESTINO", []);
 
-    const antes = await getCtoOperationalSummaries(fixture.companyA.id, [
+    const antesReadout = await getCtoOperationalSummaries(fixture.companyA.id, [
       origem.id,
       destino.id,
     ]);
+    const antes = antesReadout.summaries;
     expect(antes.get(origem.id)!.activeCustomerCount).toBe(1);
     expect(antes.get(destino.id)!.activeCustomerCount).toBe(0);
 
@@ -792,10 +793,11 @@ describe("CTOSUM-01..10 — resumo operacional por CTO", () => {
       },
     });
 
-    const depois = await getCtoOperationalSummaries(fixture.companyA.id, [
+    const depoisReadout = await getCtoOperationalSummaries(fixture.companyA.id, [
       origem.id,
       destino.id,
     ]);
+    const depois = depoisReadout.summaries;
     expect(depois.get(origem.id)!.activeCustomerCount).toBe(0);
     expect(depois.get(destino.id)!.activeCustomerCount).toBe(1);
 
@@ -804,10 +806,11 @@ describe("CTOSUM-01..10 — resumo operacional por CTO", () => {
       where: { customerId: cliente.id, disconnectedAt: null },
       data: { disconnectedAt: new Date() },
     });
-    const final = await getCtoOperationalSummaries(fixture.companyA.id, [
+    const finalReadout = await getCtoOperationalSummaries(fixture.companyA.id, [
       origem.id,
       destino.id,
     ]);
+    const final = finalReadout.summaries;
     expect(final.get(destino.id)!.activeCustomerCount).toBe(0);
   });
 
@@ -823,7 +826,7 @@ describe("CTOSUM-01..10 — resumo operacional por CTO", () => {
 
     const resumo = (
       await getCtoOperationalSummaries(fixture.companyA.id, [cto.id])
-    ).get(cto.id)!;
+    ).summaries.get(cto.id)!;
 
     /*
       A porta continua OCUPADA — o cabo está lá — e o cliente não conta como

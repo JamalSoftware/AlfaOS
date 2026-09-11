@@ -37,9 +37,10 @@ function iconePara(
   selecionado: boolean,
   editando: boolean,
 ): DivIcon {
+  const osAbertas = Math.min(marker.operational.openServiceOrderCount, 10);
   const chave = `${marker.status}:${selecionado ? "1" : "0"}:${
     editando ? "1" : "0"
-  }`;
+  }:${osAbertas}`;
   const guardado = cacheDeIcones.get(chave);
   if (guardado) return guardado;
 
@@ -51,6 +52,7 @@ function iconePara(
       ctoMapStatusPresentation(marker.status),
       selecionado,
       editando,
+      osAbertas,
     ),
     iconSize: [CTO_MARKER_SIZE, CTO_MARKER_SIZE],
     // A âncora fica na BASE da caixa, e não no centro: um marcador que
@@ -165,6 +167,16 @@ interface CtoMarkersProps {
   draftPosition: { latitude: number; longitude: number } | null;
   onStartEdit: (id: string) => void;
   onDragEnd: (latitude: number, longitude: number) => void;
+  /**
+   * Quem vê a carteira nominal — `CTO-3.2.2`.
+   *
+   * O resumo operacional e a lista de clientes por porta são `ADMIN`. O
+   * `DISPATCHER` continua lendo o mapa de caixas e de OS abertas, e é a mesma
+   * decisão que a camada de clientes tomou: mostrar onde cada assinante mora e
+   * quem ele é não foi estendido ao despacho por nenhuma decisão aprovada.
+   */
+  canSeeCustomers: boolean;
+  onShowCustomers: (ctoId: string) => void;
 }
 
 function CtoMarkers({
@@ -178,6 +190,8 @@ function CtoMarkers({
   draftPosition,
   onStartEdit,
   onDragEnd,
+  canSeeCustomers,
+  onShowCustomers,
 }: CtoMarkersProps) {
   return (
     <>
@@ -392,6 +406,53 @@ function CtoMarkers({
                   </dd>
                 </dl>
 
+                {/*
+                  O resumo OPERACIONAL, separado do resumo de PORTAS.
+
+                  Acima fala-se de infraestrutura — capacidade, livres,
+                  danificadas. Aqui fala-se de gente: quantos clientes ativos,
+                  em que estado, com quanto trabalho aberto. São eixos
+                  independentes, e a separação visual é o que impede alguém de
+                  somar "livres" com "online" como se fossem a mesma contagem.
+
+                  `activeCustomerCount` pode ser MENOR que `ocupadas`: uma porta
+                  ocupada por cliente desativado continua ocupada.
+                */}
+                {canSeeCustomers ? (
+                  <dl
+                    className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border-subtle pt-2 text-xs"
+                    data-testid="cto-map-operational"
+                  >
+                    <dt className="text-fg-muted">Clientes ativos</dt>
+                    <dd
+                      className="text-right font-medium text-fg"
+                      data-testid="cto-map-active-customers"
+                    >
+                      {marker.operational.activeCustomerCount}
+                    </dd>
+                    <dt className="text-fg-muted">Online</dt>
+                    <dd className="text-right font-medium text-fg">
+                      {marker.operational.onlineCount}
+                    </dd>
+                    <dt className="text-fg-muted">Offline</dt>
+                    <dd className="text-right font-medium text-fg">
+                      {marker.operational.offlineCount}
+                    </dd>
+                    {/* "Sem leitura", nunca "Offline" — são coisas diferentes. */}
+                    <dt className="text-fg-muted">Sem leitura</dt>
+                    <dd className="text-right font-medium text-fg">
+                      {marker.operational.unknownCount}
+                    </dd>
+                    <dt className="text-fg-muted">OS abertas</dt>
+                    <dd
+                      className="text-right font-medium text-fg"
+                      data-testid="cto-map-open-orders"
+                    >
+                      {marker.operational.openServiceOrderCount}
+                    </dd>
+                  </dl>
+                ) : null}
+
                 <p className="mt-2 text-[11px] leading-snug text-fg-muted">
                   {apresentacao.description}
                 </p>
@@ -426,6 +487,26 @@ function CtoMarkers({
                   exige `ADMIN` e a capability antes de qualquer escrita. Esconder
                   o botão é apresentação, e nada mais.
                 */}
+                {/*
+                  A lista nominal NÃO vem no recorte — ela é buscada ao clicar.
+
+                  Mandar os nomes dos clientes de cada caixa visível seria
+                  payload enorme e, o que pesa mais, espalhar nome de assinante
+                  por uma resposta cujo trabalho é desenhar pontos. O nome só
+                  viaja quando alguém pede aquela caixa.
+                */}
+                {canSeeCustomers &&
+                marker.operational.activeCustomerCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => onShowCustomers(marker.id)}
+                    className="cto-map-secondary mt-1.5 inline-flex w-full items-center justify-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+                    data-testid="cto-map-show-customers"
+                  >
+                    Ver clientes da caixa
+                  </button>
+                ) : null}
+
                 {canEditPosition ? (
                   <button
                     type="button"

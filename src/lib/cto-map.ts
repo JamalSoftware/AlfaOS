@@ -318,7 +318,16 @@ export async function getCtoMapView(
 
   const ids = visiveis.map((c) => c.id);
 
-  const [portas, ocupadas] = await Promise.all([
+  /*
+    UMA consulta de vínculos, e ela responde as DUAS perguntas.
+
+    A ocupação das portas e o resumo operacional saem da mesma linha de
+    `CustomerNetworkConnection`. Pedir ao banco duas vezes *"quais vínculos estão
+    abertos nestas caixas?"* para derivar respostas diferentes dela seria
+    trabalho repetido sem ganho nenhum — e foi o que a primeira versão desta
+    fase fez, até a contagem de consultas acusar.
+  */
+  const [portas, operacional] = await Promise.all([
     prisma.cTOPort.findMany({
       where: { companyId, ctoId: { in: ids } },
       select: {
@@ -328,27 +337,17 @@ export async function getCtoMapView(
         administrativeState: true,
       },
     }),
-    prisma.customerNetworkConnection.findMany({
-      where: {
-        companyId,
-        disconnectedAt: null,
-        ctoPort: { ctoId: { in: ids } },
-      },
-      select: { ctoPortId: true },
-    }),
+    getCtoOperationalSummaries(companyId, ids),
   ]);
 
   /*
-    O resumo operacional vem em TRÊS consultas, para o conjunto inteiro.
+    O resumo operacional responde OUTRA pergunta que o resumo de portas.
 
-    Ele é da `CTO-3.2.2` e responde outra pergunta que o resumo de portas: este
-    fala de infraestrutura (capacidade, livres, danificadas), aquele fala de
-    gente (clientes ativos, online, offline, OS abertas). São eixos
+    Este fala de infraestrutura — capacidade, livres, danificadas. Aquele fala
+    de gente — clientes ativos, online, offline, OS abertas. São eixos
     independentes, e é por isso que convivem no mesmo marcador sem se misturar.
   */
-  const operacional = await getCtoOperationalSummaries(companyId, ids);
-
-  const ocupadosPorId = new Set(ocupadas.map((o) => o.ctoPortId));
+  const ocupadosPorId = operacional.occupiedPortIds;
   const porCto = new Map<string, PortRow[]>();
   for (const porta of portas) {
     const lista = porCto.get(porta.ctoId);
@@ -380,7 +379,7 @@ export async function getCtoMapView(
         active: cto.active,
         status: deriveCtoMapStatus(cto.active, summary),
         summary,
-        operational: operacional.get(cto.id) ?? {
+        operational: operacional.summaries.get(cto.id) ?? {
           activeCustomerCount: 0,
           onlineCount: 0,
           offlineCount: 0,

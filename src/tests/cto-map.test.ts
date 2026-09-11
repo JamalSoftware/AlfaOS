@@ -694,7 +694,24 @@ describe("CTO-3.1 · rota", () => {
       expect(texto).not.toContain(proibido);
     }
 
+    /*
+      O DTO ganhou `operational` na `CTO-3.2.2` — e ele é só CONTAGEM.
+
+      A afirmação deste teste não mudou: nome de cliente, observação
+      administrativa, chave de foto e id de vínculo continuam fora, e a lista de
+      proibidos acima é quem garante isso. O que entrou foram cinco números
+      derivados — quantos clientes ativos, em que estado, com quanta OS aberta —
+      sem nenhuma identidade junto. A lista nominal vive noutra rota, que é
+      pedida ao clicar numa caixa.
+    */
     const marker = JSON.parse(texto).data.map.markers[0];
+    expect(Object.keys(marker.operational).sort()).toEqual([
+      "activeCustomerCount",
+      "offlineCount",
+      "onlineCount",
+      "openServiceOrderCount",
+      "unknownCount",
+    ]);
     expect(Object.keys(marker).sort()).toEqual([
       "active",
       "code",
@@ -702,6 +719,7 @@ describe("CTO-3.1 · rota", () => {
       "latitude",
       "longitude",
       "name",
+      "operational",
       "status",
       "summary",
     ]);
