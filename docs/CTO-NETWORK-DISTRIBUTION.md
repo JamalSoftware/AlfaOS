@@ -5339,3 +5339,186 @@ norte (a ±0,004°, uns 444m) cai a 15px do topo e a **plaqueta dela**, que fica
 acima do marcador, sai pela borda. O Leaflet recorta, e o ponteiro nunca a
 alcança. É a `ML-01/02` ao contrário — **o zoom do teste é função da altura do
 mapa**, e mudou junto com ela.
+
+---
+
+## 43. `CTO-3.2.2c` — hierarquia visual, ativos responsivos ao zoom e zero layout shift
+
+**Estado:** `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.
+**Migration:** nenhuma. **Schema:** nenhum. **Dependência:** nenhuma. **Dart:** zero.
+
+Microfase de refinamento sobre a `CTO-3.2.2b`, a partir da validação parcial do
+dono: a base funcional foi aprovada, e sobraram proporções, identificação e um
+defeito de layout.
+
+### 43.1 Discovery de urgência — a autoridade EXISTE
+
+Antes de pintar qualquer OS de vermelho, a pergunta foi respondida no código:
+
+* `ServiceOrderPriority` — enum com `LOW · NORMAL · HIGH · URGENT`;
+* `ServiceOrder.priority`, padrão `NORMAL`, com índice `(companyId, priority)`;
+* `SERVICE_ORDER_PRIORITY_LABELS` em `service-order-labels.ts`, o mesmo helper
+  que o despacho usa;
+* rota própria de alteração — `POST /api/service-orders/[id]/priority` (`DQ-3`);
+* testes existentes na trilha da fila.
+
+**`URGENT` e somente `URGENT` é urgente.** `HIGH` é "Alta", que é outra coisa, e
+tratá-la como urgência seria exatamente a inferência que o enunciado proíbe.
+Nada no mapa deduz urgência de tipo, status, título ou tempo em aberto.
+
+O que faltava era **transporte**: o DTO do mapa não carregava o campo.
+`ServiceOrderMapMarker` ganhou `priority`, e o `select` da consulta ganhou a
+coluna. Zero migration.
+
+### 43.2 A arquitetura de três camadas por marcador
+
+O enunciado avisou do risco, e ele é real: o Leaflet posiciona cada marcador
+escrevendo `transform: translate3d(...)` no contêiner. Escalar **esse** elemento
+substitui o posicionamento, e o marcador sai do lugar geográfico.
+
+```text
+.leaflet-marker-icon      ← o Leaflet manda: translate3d, âncora
+  └── .cto-marker-hit     ← área de CLIQUE, não escalada
+        └── .cto-marker-scale   ← transform: scale(var(--map-scale))
+              └── svg           ← o desenho
+```
+
+**A camada do meio não é enfeite, e o alcance disso foi medido — depois de uma
+leitura minha errada.** Pondo `pointer-events: none` na camada de clique, o
+**ponto do cliente fica inclicável** e a `POP-03` cai; o **arrasto da CTO
+continua funcionando**, e a `MAPEDIT` inteira passa. São dois comportamentos
+diferentes.
+
+Eu havia concluído antes que a ausência da camada quebrava o arrasto da caixa, a
+partir de uma falha da `MAPEDIT-05/06/07` que tinha outra causa — o marcador
+saía pela borda de baixo com o mapa em 400px. **A conclusão certa é a de cima**,
+e a sabotagem `S13` tem como detector a `POP-03`, não a `MAPEDIT`.
+
+Com a camada de hit de fora da transformação, o alvo fica com **30px em
+qualquer zoom** — medido em z15, z17 e z18 — enquanto o desenho encolhe.
+
+### 43.3 A escala é CSS, e não passa por React
+
+Duas variáveis (`--map-scale`, `--map-scale-cto`) escritas no contêiner do mapa
+a cada `zoomend`. **Nenhum marcador é re-renderizado.** Se a escala fosse prop,
+cada degrau de zoom recriaria os ícones, e o popup aberto morreria junto — que é
+o defeito que a `CTO-3.2.2b` acabou de consertar por outro caminho.
+
+A caixa tem curva própria e reduz menos: de longe, cliente e OS podem virar
+pontinhos discretos, mas o mapa continua precisando de referência de
+infraestrutura.
+
+### 43.4 Tamanhos, medidos
+
+| | antes | agora (z17) | alvo do dono |
+|---|---|---|---|
+| CTO | 38px | **32px** | 30–34 |
+| OS | 15px | **20px** | 18–20 |
+| Cliente | 16px | **18px** | 16–18 |
+
+Hierarquia preservada: `32 > 20 > 18`. A diferença encolheu, que era o pedido.
+
+### 43.5 Identificação
+
+**Cliente por INICIAIS**, e a garantia de saída do helper é o que as autoriza
+num `divIcon`. `customerInitials` devolve `[A-Z]{0,2}` — nenhum caractere com
+significado em HTML sobrevive à peneira final, e há teste com entrada hostil
+(`<img src=x onerror=...>`, `</svg><script>`) provando isso. A regra do projeto
+— nome digitado por gente não entra em `divIcon` — continua valendo; o que entra
+é o resultado garantido de uma função pura.
+
+**OS pelo NÚMERO do domínio**, em `Tooltip` (que o React escapa), nunca pelo id
+de banco. A urgente ganha `!` antes: a cor não pode ser a única portadora do
+sinal.
+
+**Vermelho tem dois significados, e está tudo bem.** Na OS é urgência; no
+cliente é `OFFLINE`. Formas diferentes, rótulos diferentes e dois grupos na
+legenda separam a semântica — a cor sozinha nunca decide.
+
+### 43.6 O layout shift do refresh
+
+O indicador de carregamento vivia no fluxo, **acima** do mapa: aparecia,
+empurrava a página para baixo, e sumia empurrando de volta. Era o que o dono
+descreveu como "a página desce e depois volta" a cada zoom ou arrasto.
+
+Agora é uma pílula em overlay **dentro** do mapa, com 160ms de atraso — e o
+atraso é só da interface: o pedido sai na hora, quem espera é o aviso, para não
+piscar em resposta instantânea.
+
+A `LOADUX` mede topo e altura de mapa, controle, chips e legenda **durante** uma
+leitura retardada de propósito, com tolerância de 1px. Medir só antes e depois
+não veria nada — o defeito só existe enquanto a leitura está em voo.
+
+### 43.7 Uma sabotagem que passou, e o teste que faltava
+
+`S6` remove a lista de conectores das iniciais, e **nenhum teste caía**. A razão
+é boa: em "João da Silva Neto" e "Ana de Souza" a partícula está no MEIO, e
+"primeira e última palavra" já acerta sem filtrar nada.
+
+A lista só decide quando o conector é a **ponta**: sem ela, "Ana de" vira `AD`.
+Nasceu daí a `INIT-11`, e só então a sabotagem cai.
+
+### 43.8 INFO — o empate CTO↔cliente ficou mais provável
+
+A decisão sobre qual popup abre quando **caixa e cliente ocupam exatamente a
+mesma coordenada** segue **em aberto** desde a `CTO-3.2.2`, e o enunciado desta
+fase manda não resolvê-la em silêncio. Ela não foi resolvida.
+
+Mas o custo prático dela **aumentou**: a área de clique do ponto de cliente
+passou de 18px para 30px, então o ponto agora cobre o centro da caixa quando os
+dois coincidem. Medido: na fixture, a caixa ficou inalcançável ao ponteiro com a
+camada de clientes ligada.
+
+Em dado real a coincidência exata é improvável — a coordenada da caixa e a do
+cliente vêm de origens independentes. Mas a decisão continua pendente, e agora
+com um raio maior.
+
+### 43.9 INFO — não existe seleção de cliente nem de OS
+
+A regra "o selecionado mostra o rótulo em qualquer zoom" vale para a **caixa**, e
+ela já a tem desde a `CTO-3.2.1c`. O parâmetro `sel` da URL é de CTO: não há
+caminho que selecione um ponto de cliente ou um losango de OS.
+
+Uma regra de CSS chegou a ser escrita para isso e **foi removida** — classe que
+ninguém aplica é CSS morto se passando por funcionalidade. Criar seleção para as
+outras duas famílias é decisão de produto, não desta microfase.
+
+### 43.10 Sabotagens
+
+Catorze mutações. **Treze detectadas**, e as três que passaram na primeira
+rodada renderam mais que o placar.
+
+| # | O que a mutação faz | Detector |
+|---|---|---|
+| `S1` | escala aplicada no contêiner externo do Leaflet | `ZOOMVIS-08/09` |
+| `S2` | cliente volta ao tamanho antigo (16px) | `ZOOMVIS-01` *(ver abaixo)* |
+| `S3` | a caixa continua com 38px | `ZOOMVIS-01` |
+| `S4` | a OS continua com 15px | `ZOOMVIS-01` |
+| `S5` | iniciais usam primeiro + **segundo** nome | `INIT-01/02/05` |
+| `S6` | conectores deixam de ser ignorados | `INIT-11` *(ver abaixo)* |
+| `S7` | o indicador volta ao fluxo do documento | `LOADUX-01..06` |
+| `S8` | a OS urgente perde o `!` | `OSURG-03` |
+| `S9` | a OS normal fica vermelha | `OSURG-01/02` |
+| `S10` | o rótulo da OS usa o id do banco | `OSURG-06` |
+| `S11` | o nome completo vira rótulo permanente | `LABELZOOM-03` |
+| `S12` | o zoom manda fechar o popup | **nenhum — ver abaixo** |
+| `S13` | a camada de clique fica inerte | `POP-03` |
+| `S14` | o rótulo duplicado "CTO CTO" volta | `POP-03` |
+
+**`S2` passou, e a asserção era frouxa.** A faixa dizia `>= 16`, e 16 é
+exatamente o tamanho antigo — a sabotagem que desfaz o aumento cabia dentro do
+limite. Passou a ser `> 16`: o limite inferior tem de **excluir** o que se quer
+tirar do caminho. Agora ela cai dizendo `cliente não cresceu: 16`.
+
+**`S6` passou, e faltava um caso.** Em "João da Silva Neto" e "Ana de Souza" a
+partícula está no MEIO, e "primeira e última palavra" acerta sem filtrar nada. A
+lista de conectores só decide quando o conector é a **ponta** — sem ela, "Ana
+de" vira `AD`. Nasceu a `INIT-11`.
+
+**`S12` não é detectável, e não deveria ser.** Ela faz o `zoomend` chamar
+`map.closePopup()`, e o popup **continua aberto**: o `<Popup>` do react-leaflet
+é declarativo e o reabre. Mais fundo que isso: nesta arquitetura **o zoom não
+toca React em lugar nenhum** — a escala é variável CSS, e nenhum marcador é
+re-renderizado. Uma sabotagem que fizesse o zoom desmontar marcador teria de
+reintroduzir o acoplamento zoom→render, que é uma reescrita e não uma troca de
+sinal. A `ZOOMSEQ-01` continua valendo como guarda contra essa regressão futura.

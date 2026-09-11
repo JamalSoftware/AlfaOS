@@ -75,6 +75,20 @@ describe("customerInitials — as duas letras do marcador de cliente", () => {
     }
   });
 
+  it("INIT-11 · o conector na PONTA não vira inicial", () => {
+    /*
+      Este é o caso que de fato exercita a lista de conectores, e ele faltava.
+
+      Em "João da Silva Neto" ou "Ana de Souza" a partícula está no MEIO, e
+      "primeira e última palavra" já acerta sem filtrar nada — os testes
+      passavam com a lista removida. Só quando o conector é a última palavra
+      significativa é que a regra decide: sem ela, "Ana de" viraria `AD`.
+    */
+    expect(customerInitials("Ana de")).toBe("A");
+    expect(customerInitials("de Souza")).toBe("S");
+    expect(customerInitials("Silva e")).toBe("S");
+  });
+
   it("INIT-10 · um nome feito só de conectores ainda devolve letra", () => {
     // Improvável, e não é motivo para devolver vazio havendo letra a mostrar.
     expect(customerInitials("de")).toBe("D");

@@ -3658,7 +3658,14 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     */
     expect(cto, `CTO fora da faixa: ${cto}`).toBeGreaterThanOrEqual(30);
     expect(cto, `CTO fora da faixa: ${cto}`).toBeLessThanOrEqual(34);
-    expect(cliente, `cliente fora da faixa: ${cliente}`).toBeGreaterThanOrEqual(16);
+    /*
+      MAIOR que 16, e não "16 ou mais".
+
+      16px era o tamanho ANTIGO, e o pedido do dono foi aumentar o cliente. Com
+      `>= 16` a sabotagem que devolve o valor antigo passa — medido: ela passou
+      na primeira rodada. O limite inferior tem de excluir o que se quer sair.
+    */
+    expect(cliente, `cliente não cresceu: ${cliente}`).toBeGreaterThan(16);
     expect(cliente, `cliente fora da faixa: ${cliente}`).toBeLessThanOrEqual(18);
     expect(os, `OS fora da faixa: ${os}`).toBeGreaterThanOrEqual(18);
     expect(os, `OS fora da faixa: ${os}`).toBeLessThanOrEqual(20);

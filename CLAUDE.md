@@ -1018,6 +1018,26 @@ Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §41.
 
 Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §42.
 
+**`CTO-3.2.2c` ENTREGUE — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** Microfase de refinamento sobre a `CTO-3.2.2b`: hierarquia visual, ativos responsivos ao zoom, identificação de cliente e OS, e o fim do layout shift no refresh. **Zero migration, zero schema, zero dependência, zero Dart.**
+
+**A urgência tem autoridade real, e ela foi conferida antes de qualquer vermelho.** `ServiceOrderPriority` (`LOW · NORMAL · HIGH · URGENT`), coluna `ServiceOrder.priority` com índice `(companyId, priority)`, rótulos em `service-order-labels.ts` e rota própria desde a `DQ-3`. **`URGENT` e somente `URGENT` é urgente** — `HIGH` é "Alta", e tratá-la como urgência seria a inferência que o enunciado proíbe. O que faltava era transporte: o DTO do mapa ganhou `priority`, sem migration.
+
+**Três camadas por marcador, e a do meio foi provada por defeito.** O Leaflet posiciona escrevendo `translate3d(...)` no contêiner, então a escala mora numa camada de dentro — escalar o contêiner tiraria o marcador do lugar geográfico. Na primeira tentativa o wrapper levou `pointer-events: none` e o contêiner ficou sozinho: **o marcador virou inclicável**, porque o contêiner do Leaflet não responde por si, depende do conteúdo para o teste de acerto. O arrasto da CTO parou, e quem pegou foi a `MAPEDIT-05/06/07`. Com a camada de clique fora da transformação, o alvo fica com **30px em qualquer zoom** enquanto o desenho encolhe.
+
+**A escala é CSS puro e não passa por React:** duas variáveis escritas no contêiner a cada `zoomend`, nenhum marcador re-renderizado. Se fosse prop, cada degrau recriaria os ícones e mataria o popup aberto — o defeito que a `CTO-3.2.2b` tinha acabado de consertar por outro caminho. A caixa tem curva própria e reduz menos, para o mapa não perder a referência de infraestrutura de longe.
+
+**Tamanhos medidos em z17:** CTO **38 → 32**, OS **15 → 20**, cliente **16 → 18**. Hierarquia preservada (`32 > 20 > 18`) com a diferença menor, que era o pedido.
+
+**Cliente por INICIAIS, e é a garantia de saída que as autoriza.** `customerInitials` devolve `[A-Z]{0,2}`, com teste de entrada hostil — e é isso que permite texto derivado de nome num `divIcon`, que recebe HTML cru. Nome completo continua só no popup. **OS pelo NÚMERO do domínio**, em `Tooltip` que o React escapa, nunca pelo id de banco; a urgente ganha `!` porque a cor não pode carregar o sinal sozinha. **Vermelho tem dois significados e está tudo bem:** na OS é urgência, no cliente é `OFFLINE` — formas, rótulos e dois grupos na legenda separam a semântica.
+
+**O layout shift era o indicador de carregamento no fluxo**, acima do mapa: aparecia empurrando a página para baixo e sumia empurrando de volta, a cada zoom ou arrasto. Virou pílula em overlay dentro do mapa, com 160ms de atraso **só na interface** — o pedido sai na hora. A `LOADUX` mede topo e altura de mapa, controle, chips e legenda **durante** uma leitura retardada, com tolerância de 1px: medir antes e depois não veria nada.
+
+**Uma sabotagem passou e cobrou o teste que faltava.** Remover a lista de conectores das iniciais não derrubava nada, porque em "João da Silva Neto" a partícula está no MEIO e "primeira e última palavra" já acerta. A lista só decide quando o conector é a **ponta** — sem ela, "Ana de" vira `AD`. Nasceu a `INIT-11`.
+
+**Dois INFO registrados, nenhum resolvido em silêncio.** O empate **CTO↔cliente na mesma coordenada** segue em aberto desde a `CTO-3.2.2`, e ficou mais provável: a área de clique do ponto passou de 18px para 30px, então ele agora cobre o centro da caixa quando coincidem — medido na fixture. E **não existe seleção de cliente nem de OS**: o `sel` da URL é de CTO, então "o selecionado mostra o rótulo em qualquer zoom" vale só para a caixa. Uma regra de CSS escrita para isso foi **removida** — classe que ninguém aplica é CSS morto se passando por funcionalidade.
+
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §43 e PRD (Parte XVI, semântica aprovada).
+
 **Próxima fatia: decisão do dono entre `DASH-1`, `TL-1`, `EV-1` e `GS-1`** (`docs/MASTER-PLAN.md`). Não iniciada.
 
 ## Princípios

@@ -650,7 +650,19 @@ describe("MAPUX-07..11 — o marcador é uma CTO, não um alfinete", () => {
   it("MAPUX-07 · o marcador é SVG próprio do projeto", () => {
     const html = ctoMarkerHtml(ctoMapStatusPresentation("AVAILABLE"), false);
 
-    expect(html.startsWith("<svg")).toBe(true);
+    /*
+      O SVG deixou de ser o primeiro elemento, e isso é arquitetura.
+
+      A `CTO-3.2.2c` envolveu o desenho em duas camadas — uma de CLIQUE, que não
+      escala, e uma de ESCALA com o `transform`. Escalar o contêiner do Leaflet
+      sobrescreveria o `translate3d` dele e tiraria o marcador do lugar
+      geográfico.
+
+      O que este teste afirma continua sendo o mesmo: o desenho é SVG próprio do
+      projeto, e não um alfinete de biblioteca. Exigir que ele seja o primeiro
+      caractere afirmava a EMBALAGEM, não isso.
+    */
+    expect(html).toContain("<svg class=");
     expect(html).toContain("viewBox");
     // A silhueta da caixa: corpo, tampa e portas. É isto que distingue a CTO de
     // um ponto genérico quando técnico, cliente e OS estiverem no mesmo mapa.
@@ -1527,7 +1539,8 @@ describe("UXP-08..10 — a caixa óptica", () => {
     expect(html).toContain("cto-box__lid");
     expect(html).toContain("cto-box__gland");
     expect(html).toContain("cto-box__cable");
-    expect(html.startsWith("<svg")).toBe(true);
+    // Ver `MAPUX-07`: o desenho é embrulhado pelas camadas de clique e escala.
+    expect(html).toContain("<svg class=");
   });
 
   it("UXP-09 · as portas ópticas são uma RÉGUA, e não uma grade de pontos", () => {

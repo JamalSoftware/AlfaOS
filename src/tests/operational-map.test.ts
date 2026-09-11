@@ -690,6 +690,9 @@ describe("OSMAP-01..07 — camada de OS abertas", () => {
       "longitude",
       "number",
       "openedAt",
+      // A `CTO-3.2.2c` passou a carregar a prioridade: ela é a ÚNICA autoridade
+      // de urgência, e sem ela o mapa teria de deduzir — que é o que se proíbe.
+      "priority",
       "status",
       "technicianName",
       "typeName",

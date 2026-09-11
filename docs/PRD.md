@@ -12469,6 +12469,67 @@ ocuparem exatamente a mesma coordenada, qual dos dois abre? O caso é diferente
 do anterior — a colisão cliente↔OS é estrutural, enquanto esta exige igualdade
 exata entre coordenadas de origens independentes.
 
+## A HIERARQUIA visual do mapa, e o que ela significa
+
+Três famílias, e o operador precisa distingui-las de relance:
+
+```text
+CTO       infraestrutura        — a caixa no poste
+OS        trabalho pendente     — o que precisa ser feito
+CLIENTE   assinante atendido    — quem está do outro lado
+```
+
+**A caixa é a maior, a OS vem depois e o cliente é o menor** — nessa ordem, e
+com diferença suficiente para ser lida sem contar pixels. Os tamanhos exatos
+são decisão de implementação e não entram aqui: o que é contrato é a ordem.
+
+Os ativos **respondem ao zoom**. Aproximar deixa o desenho mais evidente e
+libera os rótulos; afastar reduz proporcionalmente. Duas regras acompanham:
+
+* a **caixa reduz menos** que cliente e OS, porque de longe o mapa ainda precisa
+  de referência de infraestrutura;
+* **a área de clique não encolhe junto com o desenho** — alvo pequeno demais é
+  defeito de acessibilidade, não de estética.
+
+Escala é decisão de **cliente**: ela não pode custar requisição nem recarregar
+dado. O recorte continua sendo o mecanismo separado que já existe (§200).
+
+## Como cada família se IDENTIFICA no mapa
+
+**O cliente é identificado por INICIAIS** — duas letras derivadas do nome. Nome
+completo como rótulo permanente espalharia identificação por uma tela cujo
+trabalho é desenhar pontos; ele continua no popup, aberto por ação explícita.
+Conectores (*da*, *de*, *dos*, *e*) não viram inicial.
+
+**A OS é identificada pelo NÚMERO** dela — o número do domínio, nunca o
+identificador de banco. Tipo, status e prioridade por extenso ficam no popup:
+um rótulo permanente com o texto inteiro vira parede na primeira dezena de
+ordens.
+
+**A OS urgente é visualmente distinta**, e a urgência vem **exclusivamente** da
+prioridade do domínio (`ServiceOrder.priority`). Nada no mapa pode deduzir
+urgência de tipo, status, título, tempo em aberto ou SLA. A distinção não é só
+cor: quem não distingue vermelho de âmbar continua vendo o sinal.
+
+**Vermelho não tem um significado só, e isso é aceito:** numa OS ele é
+urgência, num cliente é `OFFLINE`. As duas famílias têm formas diferentes,
+rótulos diferentes e entradas próprias na legenda — é a combinação que carrega
+a semântica, nunca a cor sozinha.
+
+Rótulo é **denso por zoom**: no zoom operacional as identificações aparecem; de
+longe o mapa é leitura de distribuição, e texto em cada ponto vira sobreposição.
+
+## O refresh não pode mexer na página
+
+Atualizar o recorte é a operação mais frequente do mapa — acontece a cada
+arrasto e a cada zoom. **O indicador de atualização não pode ocupar espaço no
+fluxo**: um aviso que entra empurrando o mapa para baixo e sai empurrando de
+volta faz a página pular a cada gesto.
+
+Ele é sobreposição dentro do mapa. Nem o mapa, nem o controle de camadas, nem o
+resumo, nem a legenda mudam de posição ou de altura enquanto uma leitura está
+em voo.
+
 ## O selo numérico da CTO
 
 Quando clientes vinculados a uma CTO têm OS abertas, o marcador da caixa pode
