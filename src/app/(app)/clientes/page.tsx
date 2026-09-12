@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { AccessProfile } from "@prisma/client";
 import { requirePageProfile } from "@/lib/guards";
 import { listCompanyCustomers } from "@/lib/customers";
 import { EmptyState } from "@/components/EmptyState";
+import { ListSliceBanner } from "@/components/ListSliceBanner";
 import { Pagination } from "@/components/Pagination";
 
 export const metadata: Metadata = {
@@ -19,18 +21,31 @@ export default async function CustomersPage({ searchParams }: PageProps) {
   const search = typeof searchParams.search === "string" ? searchParams.search : "";
   const activeRaw = typeof searchParams.active === "string" ? searchParams.active : "";
   const active = activeRaw === "true" ? true : activeRaw === "false" ? false : undefined;
+  /*
+    Recorte do painel (DASH-1): clientes cuja última leitura é OFFLINE.
+
+    Só para `ADMIN`, e quem decide é o servidor. A conectividade da carteira
+    inteira é `ADMIN` no Mapa Operacional (camada de clientes, resumo por
+    caixa — PRD §376); um parâmetro de URL não pode ser a porta que a estende
+    ao `DISPATCHER`. Para ele o parâmetro é ignorado e a lista abre sem recorte.
+  */
+  const offlineOnly =
+    session.profile === AccessProfile.ADMIN &&
+    searchParams.conectividade === "OFFLINE";
   const page = Math.max(1, Number(searchParams.page ?? 1) || 1);
   const pageSize = 20;
 
   const result = await listCompanyCustomers(session.companyId, {
     search: search || undefined,
     active,
+    connectivity: offlineOnly ? "OFFLINE" : undefined,
     page,
     pageSize,
   });
 
-  function buildHref(p: number): string {
+  function buildHref(p: number, semRecorte = false): string {
     const params = new URLSearchParams();
+    if (offlineOnly && !semRecorte) params.set("conectividade", "OFFLINE");
     if (search) params.set("search", search);
     if (activeRaw) params.set("active", activeRaw);
     if (p > 1) params.set("page", String(p));
@@ -55,10 +70,21 @@ export default async function CustomersPage({ searchParams }: PageProps) {
         </Link>
       </div>
 
+      {offlineOnly && (
+        <ListSliceBanner
+          label="Clientes offline (última leitura)"
+          total={result.total}
+          singular="cliente"
+          plural="clientes"
+          clearHref={buildHref(1, true)}
+        />
+      )}
+
       <form
         method="get"
         className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-surface p-4 shadow-sm"
       >
+        {offlineOnly && <input type="hidden" name="conectividade" value="OFFLINE" />}
         <input
           type="search"
           name="search"

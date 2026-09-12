@@ -24,8 +24,49 @@ export interface TechnicianListResult {
 export interface ListTechniciansParams {
   search?: string;
   active?: boolean;
+  /**
+   * Só técnicos EM ATENDIMENTO agora — com ao menos uma OS `IN_PROGRESS`.
+   * O recorte do cartão "Técnicos em atendimento" do painel (DASH-1).
+   */
+  inService?: boolean;
   page?: number;
   pageSize?: number;
+}
+
+/**
+ * "Em atendimento" é FATO DE OS, não estado de presença.
+ *
+ * Um técnico está em atendimento quando tem OS `IN_PROGRESS` — o estado que só
+ * o próprio técnico alcança ao dar início. Não é Jornada ("está trabalhando"),
+ * não é GPS ("está na rua"): o domínio não define nenhum dos dois como
+ * atendimento, e o PRD §380 pede o dado "quando a informação já existir".
+ *
+ * ## O `companyId` DENTRO da relação não é redundante
+ *
+ * `ServiceOrder.technicianId` é FK simples, sem `(companyId, technicianId)`: o
+ * schema aceita uma OS da empresa B apontando um técnico da empresa A — o vetor
+ * que a `DQ-7.1` já explorou. Filtrar só o técnico pela empresa A deixaria uma
+ * OS de B pôr um técnico de A "em atendimento" no painel de A.
+ */
+export function technicianInServiceWhere(companyId: string) {
+  return {
+    serviceOrders: { some: { companyId, status: "IN_PROGRESS" as const } },
+  };
+}
+
+function buildTechnicianListWhere(
+  companyId: string,
+  params: ListTechniciansParams,
+): Record<string, unknown> {
+  const where: Record<string, unknown> = { companyId };
+  if (params.active !== undefined) where.active = params.active;
+  if (params.inService) Object.assign(where, technicianInServiceWhere(companyId));
+  if (params.search) {
+    where.user = {
+      name: { contains: params.search, mode: "insensitive" },
+    };
+  }
+  return where;
 }
 
 function toPublicTechnician(technician: {
@@ -55,14 +96,7 @@ export async function listCompanyTechnicians(
 ): Promise<TechnicianListResult> {
   const page = Math.max(1, params.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
-
-  const where: Record<string, unknown> = { companyId };
-  if (params.active !== undefined) where.active = params.active;
-  if (params.search) {
-    where.user = {
-      name: { contains: params.search, mode: "insensitive" },
-    };
-  }
+  const where = buildTechnicianListWhere(companyId, params);
 
   const [technicians, total] = await Promise.all([
     prisma.technician.findMany({
@@ -81,6 +115,20 @@ export async function listCompanyTechnicians(
     page,
     pageSize,
   };
+}
+
+/**
+ * Quantos técnicos a listagem mostraria — o número do cartão do painel, pelo
+ * MESMO `where` da tela de destino. `some` é `EXISTS`: um técnico com duas OS
+ * em atendimento conta uma vez, nunca duas.
+ */
+export async function countCompanyTechnicians(
+  companyId: string,
+  params: Omit<ListTechniciansParams, "page" | "pageSize"> = {},
+): Promise<number> {
+  return prisma.technician.count({
+    where: buildTechnicianListWhere(companyId, params),
+  });
 }
 
 export async function getCompanyTechnician(

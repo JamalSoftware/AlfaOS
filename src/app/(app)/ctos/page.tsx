@@ -1,7 +1,14 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { EmptyState } from "@/components/EmptyState";
+import { ListSliceBanner } from "@/components/ListSliceBanner";
 import { isCtoNetworkEnabled, listCompanyCtos } from "@/lib/cto";
+import {
+  CTO_ATTENTION_LABELS,
+  getCompanyCtoStates,
+  matchesCtoAttention,
+  parseCtoAttentionFilter,
+} from "@/lib/cto-attention";
 import { requirePageProfile } from "@/lib/guards";
 import { CtoListManager } from "./CtoListManager";
 
@@ -9,7 +16,11 @@ export const metadata: Metadata = {
   title: "CTOs",
 };
 
-export default async function CtosPage() {
+interface PageProps {
+  searchParams: { [key: string]: string | string[] | undefined };
+}
+
+export default async function CtosPage({ searchParams }: PageProps) {
   const session = await requirePageProfile(["ADMIN"]);
 
   /*
@@ -25,9 +36,27 @@ export default async function CtosPage() {
   }
 
   // Inclui inativas: o ADMIN precisa enxergar o que inativou para reativar.
-  const ctos = await listCompanyCtos(session.companyId, {
+  const todas = await listCompanyCtos(session.companyId, {
     includeInactive: true,
   });
+
+  /*
+    Recorte do painel (DASH-1): "defeito" ou "com-os-abertas".
+
+    O estado de cada caixa vem de `getCompanyCtoStates`, a MESMA leitura que
+    conta o cartão — então a lista mostra exatamente as caixas que o cartão
+    contou. A lista não é paginada, e o filtro em memória é sobre as caixas da
+    empresa, que já estão aqui de qualquer jeito.
+  */
+  const situacao = parseCtoAttentionFilter(searchParams.situacao);
+  const estados = situacao ? await getCompanyCtoStates(session.companyId) : null;
+  const ctos =
+    situacao && estados
+      ? todas.filter((cto) => {
+          const estado = estados.get(cto.id);
+          return estado ? matchesCtoAttention(estado, situacao) : false;
+        })
+      : todas;
 
   return (
     <div>
@@ -39,11 +68,30 @@ export default async function CtosPage() {
         </p>
       </div>
 
-      {ctos.length === 0 && (
+      {situacao && (
+        <ListSliceBanner
+          label={CTO_ATTENTION_LABELS[situacao]}
+          total={ctos.length}
+          singular="CTO"
+          plural="CTOs"
+          clearHref="/ctos"
+        />
+      )}
+
+      {todas.length === 0 && (
         <div className="mb-6 rounded-2xl border border-border bg-surface shadow-sm">
           <EmptyState
             title="Nenhuma CTO cadastrada"
             description="Cadastre a primeira caixa para que o técnico saiba onde o cliente está conectado."
+          />
+        </div>
+      )}
+
+      {situacao && todas.length > 0 && ctos.length === 0 && (
+        <div className="mb-6 rounded-2xl border border-border bg-surface shadow-sm">
+          <EmptyState
+            title="Nenhuma CTO neste recorte"
+            description="Nenhuma caixa se encaixa neste recorte agora."
           />
         </div>
       )}

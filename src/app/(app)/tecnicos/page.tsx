@@ -4,6 +4,7 @@ import { AccessProfile } from "@prisma/client";
 import { requirePageProfile } from "@/lib/guards";
 import { listCompanyTechnicians } from "@/lib/technicians";
 import { EmptyState } from "@/components/EmptyState";
+import { ListSliceBanner } from "@/components/ListSliceBanner";
 import { Pagination } from "@/components/Pagination";
 
 export const metadata: Metadata = {
@@ -30,18 +31,22 @@ export default async function TechniciansPage({ searchParams }: PageProps) {
   const search = typeof searchParams.search === "string" ? searchParams.search : "";
   const activeRaw = typeof searchParams.active === "string" ? searchParams.active : "";
   const active = activeRaw === "true" ? true : activeRaw === "false" ? false : undefined;
+  // Recorte do painel (DASH-1): só quem tem OS em atendimento agora.
+  const inService = searchParams.emAtendimento === "true";
   const page = Math.max(1, Number(searchParams.page ?? 1) || 1);
   const pageSize = 20;
 
   const result = await listCompanyTechnicians(session.companyId, {
     search: search || undefined,
     active,
+    inService,
     page,
     pageSize,
   });
 
-  function buildHref(p: number): string {
+  function buildHref(p: number, semRecorte = false): string {
     const params = new URLSearchParams();
+    if (inService && !semRecorte) params.set("emAtendimento", "true");
     if (search) params.set("search", search);
     if (activeRaw) params.set("active", activeRaw);
     if (p > 1) params.set("page", String(p));
@@ -68,10 +73,21 @@ export default async function TechniciansPage({ searchParams }: PageProps) {
         )}
       </div>
 
+      {inService && (
+        <ListSliceBanner
+          label="Técnicos em atendimento"
+          total={result.total}
+          singular="técnico"
+          plural="técnicos"
+          clearHref={buildHref(1, true)}
+        />
+      )}
+
       <form
         method="get"
         className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-surface p-4 shadow-sm"
       >
+        {inService && <input type="hidden" name="emAtendimento" value="true" />}
         <input
           type="search"
           name="search"

@@ -129,18 +129,8 @@ export async function getConnectivityForCustomers(
     orderBy: { observedAt: "desc" },
   });
 
-  /*
-    A MESMA regra de desempate da leitura individual.
-
-    `@@unique([companyId, customerId, externalProvider])` permite mais de uma
-    linha por cliente — uma por provider —, e uma empresa que trocou de ERP tem
-    as duas. `getCustomerDiagnostic` resolve isso com `findFirst` ordenado por
-    `observedAt desc`; aqui a ordenação é a mesma e o primeiro a chegar vence,
-    porque `Map.set` só grava quem ainda não está.
-  */
-  for (const linha of linhas) {
-    if (resultado.has(linha.customerId)) continue;
-    resultado.set(linha.customerId, {
+  for (const [customerId, linha] of Array.from(latestPerCustomer(linhas))) {
+    resultado.set(customerId, {
       connectivityStatus: linha.connectivityStatus,
       observedAt: linha.observedAt,
       sourceUpdatedAt: linha.sourceUpdatedAt,
@@ -151,6 +141,71 @@ export async function getConnectivityForCustomers(
   }
 
   return resultado;
+}
+
+/**
+ * A regra de desempate entre leituras de um mesmo cliente — num lugar só.
+ *
+ * `@@unique([companyId, customerId, externalProvider])` permite mais de uma
+ * linha por cliente — uma por provider —, e uma empresa que trocou de ERP tem
+ * as duas. `getCustomerDiagnostic` resolve isso com `findFirst` ordenado por
+ * `observedAt desc`; as leituras em lote recebem as linhas na MESMA ordem, e a
+ * primeira de cada cliente vence.
+ *
+ * Existe como função para que o lote por clientes e o lote da empresa inteira
+ * não possam discordar sobre qual leitura vale: se discordassem, o mapa e o
+ * painel mostrariam conectividades diferentes para o mesmo cliente.
+ */
+function latestPerCustomer<T extends { customerId: string }>(
+  linhasPorObservacaoDesc: readonly T[],
+): Map<string, T> {
+  const ultimas = new Map<string, T>();
+  for (const linha of linhasPorObservacaoDesc) {
+    if (!ultimas.has(linha.customerId)) ultimas.set(linha.customerId, linha);
+  }
+  return ultimas;
+}
+
+/**
+ * O estado de conectividade de cada cliente da EMPRESA que tem leitura — a
+ * contagem de "clientes offline" do painel operacional (DASH-1, PRD §380).
+ *
+ * É a mesma autoridade, amplificada outra vez: mesma tabela, mesma ordem, mesma
+ * regra de desempate (`latestPerCustomer`) — só que sem a lista de ids, porque o
+ * painel pergunta pela carteira e não por um recorte do mapa. Mandar os ids de
+ * milhares de clientes num `IN (…)` pesaria mais que ler as linhas da empresa.
+ *
+ * ## O que ela NÃO faz
+ *
+ * - **não chama provider** — é leitura de banco, como as outras duas;
+ * - **não devolve cliente sem leitura**: ausência é `UNKNOWN`, e quem conta é
+ *   obrigado a não confundir "não sabemos" com "está fora do ar" (§370);
+ * - só traz os três campos que uma contagem precisa.
+ *
+ * O `companyId` também dentro da relação: o snapshot é gravado com o tenant do
+ * cliente, e conferir de novo custa nada — a mesma lição da `DQ-7.1`, onde uma
+ * FK simples atravessava empresas.
+ */
+export async function getCompanyConnectivityStatuses(
+  companyId: string,
+  options: { activeCustomersOnly?: boolean } = {},
+): Promise<Map<string, ConnectivityStatus>> {
+  const linhas = await prisma.customerDiagnosticSnapshot.findMany({
+    where: {
+      companyId,
+      ...(options.activeCustomersOnly
+        ? { customer: { companyId, active: true } }
+        : {}),
+    },
+    select: { customerId: true, connectivityStatus: true, observedAt: true },
+    orderBy: { observedAt: "desc" },
+  });
+
+  const estados = new Map<string, ConnectivityStatus>();
+  for (const [customerId, linha] of Array.from(latestPerCustomer(linhas))) {
+    estados.set(customerId, linha.connectivityStatus);
+  }
+  return estados;
 }
 
 // ---------------------------------------------------------------------------

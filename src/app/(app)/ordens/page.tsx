@@ -7,9 +7,14 @@ import {
   SERVICE_ORDER_PRIORITY_LABELS,
   SERVICE_ORDER_STATUS_LABELS,
 } from "@/lib/service-orders";
+import {
+  SERVICE_ORDER_SLICE_LABELS,
+  parseServiceOrderSlice,
+} from "@/lib/service-order-slices";
 import { listActiveTechnicianOptions } from "@/lib/technicians";
 import { PriorityBadge, StatusBadge } from "@/components/OrderBadges";
 import { EmptyState } from "@/components/EmptyState";
+import { ListSliceBanner } from "@/components/ListSliceBanner";
 import { Pagination } from "@/components/Pagination";
 import { SyncERPButton } from "@/components/SyncERPButton";
 
@@ -40,6 +45,12 @@ export default async function OrdersPage({ searchParams }: PageProps) {
   const status = typeof searchParams.status === "string" ? searchParams.status : "";
   const priority = typeof searchParams.priority === "string" ? searchParams.priority : "";
   const technicianId = typeof searchParams.technicianId === "string" ? searchParams.technicianId : "";
+  /*
+    Recorte do painel operacional (DASH-1): "abertas", "atrasadas", "hoje".
+    Valor fora da lista é descartado, e a listagem abre sem recorte — nunca um
+    recorte adivinhado a partir do que o cliente escreveu.
+  */
+  const slice = parseServiceOrderSlice(searchParams.recorte);
   const page = Math.max(1, Number(searchParams.page ?? 1) || 1);
   const pageSize = 20;
 
@@ -49,14 +60,16 @@ export default async function OrdersPage({ searchParams }: PageProps) {
       status: (["PENDING", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const).includes(status as never) ? (status as "PENDING") : undefined,
       priority: (["LOW", "NORMAL", "HIGH", "URGENT"] as const).includes(priority as never) ? (priority as "NORMAL") : undefined,
       technicianId: technicianId || undefined,
+      slice: slice ?? undefined,
       page,
       pageSize,
     }),
     listActiveTechnicianOptions(session.companyId),
   ]);
 
-  function buildHref(p: number): string {
+  function buildHref(p: number, semRecorte = false): string {
     const params = new URLSearchParams();
+    if (slice && !semRecorte) params.set("recorte", slice);
     if (search) params.set("search", search);
     if (status) params.set("status", status);
     if (priority) params.set("priority", priority);
@@ -89,10 +102,22 @@ export default async function OrdersPage({ searchParams }: PageProps) {
         </div>
       </div>
 
+      {slice && (
+        <ListSliceBanner
+          label={SERVICE_ORDER_SLICE_LABELS[slice]}
+          total={result.total}
+          singular="OS"
+          plural="OS"
+          clearHref={buildHref(1, true)}
+        />
+      )}
+
       <form
         method="get"
         className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-surface p-4 shadow-sm"
       >
+        {/* O recorte sobrevive a "Filtrar": os filtros da tela se somam a ele. */}
+        {slice && <input type="hidden" name="recorte" value={slice} />}
         <input
           type="search"
           name="search"

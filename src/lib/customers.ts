@@ -6,6 +6,7 @@ import {
   isUniqueConstraintError,
   notFound,
 } from "./errors";
+import { getCompanyConnectivityStatuses } from "./customer-diagnostics";
 import { prisma } from "./prisma";
 
 export const EXTERNAL_ID_MAX_LENGTH = 64;
@@ -109,18 +110,37 @@ export interface CustomerListResult {
 export interface ListCustomersParams {
   search?: string;
   active?: boolean;
+  /**
+   * Só clientes cuja ÚLTIMA leitura de conectividade é `OFFLINE` — o recorte do
+   * cartão "Clientes offline" do painel (DASH-1). Quem decide se o chamador
+   * pode usá-lo é a página: ele é `ADMIN`, como a camada de clientes do mapa.
+   */
+  connectivity?: "OFFLINE";
   page?: number;
   pageSize?: number;
 }
 
-export async function listCompanyCustomers(
+/**
+ * O `where` da listagem de clientes — e do cartão do painel que abre nela.
+ *
+ * O recorte de conectividade NÃO reescreve a regra de qual leitura vale: ele
+ * pergunta a `getCompanyConnectivityStatuses`, a mesma autoridade do mapa e da
+ * OS (§370), e filtra pelos ids que ela devolve como `OFFLINE`. Cliente sem
+ * leitura nunca entra: "sem leitura" não é "offline".
+ */
+async function buildCustomerListWhere(
   companyId: string,
-  params: ListCustomersParams = {},
-): Promise<CustomerListResult> {
-  const page = Math.max(1, params.page ?? 1);
-  const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
-
+  params: ListCustomersParams,
+): Promise<Record<string, unknown>> {
   const where: Record<string, unknown> = { companyId };
+  if (params.connectivity === "OFFLINE") {
+    const estados = await getCompanyConnectivityStatuses(companyId);
+    where.id = {
+      in: Array.from(estados)
+        .filter(([, status]) => status === "OFFLINE")
+        .map(([customerId]) => customerId),
+    };
+  }
   if (params.active !== undefined) where.active = params.active;
   if (params.search) {
     where.OR = [
@@ -131,6 +151,16 @@ export async function listCompanyCustomers(
       { city: { contains: params.search, mode: "insensitive" } },
     ];
   }
+  return where;
+}
+
+export async function listCompanyCustomers(
+  companyId: string,
+  params: ListCustomersParams = {},
+): Promise<CustomerListResult> {
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
+  const where = await buildCustomerListWhere(companyId, params);
 
   const [customers, total] = await Promise.all([
     prisma.customer.findMany({
@@ -148,6 +178,16 @@ export async function listCompanyCustomers(
     page,
     pageSize,
   };
+}
+
+/** Quantos clientes a listagem mostraria — pelo MESMO `where` da tela. */
+export async function countCompanyCustomers(
+  companyId: string,
+  params: Omit<ListCustomersParams, "page" | "pageSize"> = {},
+): Promise<number> {
+  return prisma.customer.count({
+    where: await buildCustomerListWhere(companyId, params),
+  });
 }
 
 export async function getCompanyCustomer(
