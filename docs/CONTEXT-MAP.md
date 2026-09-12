@@ -91,6 +91,18 @@ Quatro coisas dessa Parte que não se redescobrem: **`STALE` não existe** no Al
 
 **Antes de tocar em Online/Offline, leia PRD §370.** A autoridade é `CustomerDiagnosticSnapshot` + `getCustomerDiagnostic` (`src/lib/customer-diagnostics.ts`), e o invariante já está no código: **falha de integração é afirmação sobre a integração, nunca sobre o cliente** — nenhum caminho de erro escreve `OFFLINE`. A leitura individual continua sendo `getCustomerDiagnostic`, e desde a `CTO-3.2.2` existe **`getConnectivityForCustomers`**, o **lote** sobre a mesma tabela devolvendo o mesmo DTO — não é uma segunda semântica, é a mesma amplificada. O que torna isso possível é que **`getCustomerDiagnostic` é leitura pura de banco**: se ela falasse com provider, um lote seria um lote de chamadas externas. E **o mapa lê, não atualiza** — o refresh tem teto de 10 chamadas por minuto por empresa (§337).
 
+## Plataforma SaaS modular — Core × módulos opcionais — FUTURE / NOT IMPLEMENTED
+
+**Carregar:** PRD **Parte XVIII (§402–§414)**; o backlog está em `docs/MASTER-PLAN.md` §11. Complementa: §114 (SaaS multiempresa), §73 (blocos do produto), Parte XVII (Collections, Recovery e Retention na forma conceitual).
+**Quando:** a tarefa fala em módulo, plano, entitlement, feature flag por tenant, WhatsApp de atendimento ou cobrança, Collections, Recovery, Retention, AI Assistant, NOC, OLT, ACS/TR-069 ou Analytics — ou quando alguém propuser pôr qualquer uma dessas coisas "dentro" de uma fatia V1.
+**Quando NÃO:** implementação do Core V1. **Nada desta seção existe em código**: não há Module Registry, entitlement, plano, billing, Super Admin, provider de mensageria, de pagamento ou de IA. Não descreva nenhum deles como arquitetura implementada.
+
+A fronteira: **Core** é tudo o que a PRD §386 lista como V1 MUST HAVE — nada sai dele por causa da decisão modular —, e **módulo opcional** é o que um tenant contrata por cima. O Core não depende de módulo; a ausência de módulo nunca o quebra (§407).
+
+**Três conceitos, e não se misturam (§405):** *entitlement* é o direito da **empresa** a um módulo; *feature flag* é disponibilidade **técnica** (rollout); *capability* é permissão do **usuário**. Acesso efetivo exige os três mais as regras de domínio. **O que já existe é lido assim, sem renomear nada:** `Company.ctoNetworkEnabled` e o que `requireCtoAccess` chama de "capability da empresa" são, em substância, entitlement/política do tenant; as `capabilities` do `GET /api/field/v1/me` são capability do usuário, derivada hoje do `AccessProfile` e da posse; `SGP_ACTIVATION_ENABLED` e `MAP_SATELLITE_ENABLED` são feature flags de **ambiente**; "capability do adapter" (§355) é um terceiro eixo; e o `CHATBOT` do ReceitaNet é uma API do provider, **não** o AI Assistant.
+
+**Quando um módulo for implementado, o primeiro trabalho é a camada central** (§406): `if (tenant.hasModule(...))` espalhado e `if (plan === "PRO")` no domínio são os defeitos a evitar. O precedente de portão único é o `requireCtoAccess`.
+
 ## Arquitetura
 
 **Carregar:** `docs/ARCHITECTURE.md`.

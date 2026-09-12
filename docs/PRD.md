@@ -1974,7 +1974,7 @@ Camada de inteligência operacional baseada em ERP, RADIUS, OLT, ONU, ACS/CPE, F
 
 ## AlfaOS SaaS **[FUTURO]**
 
-Camada comercial multiempresa para venda do produto a outros provedores — ver seção 114.
+Camada comercial multiempresa para venda do produto a outros provedores — ver seção 114, e a forma modular (Core + módulos opcionais por tenant) na Parte XVIII (§402–§414).
 
 ---
 
@@ -2563,6 +2563,13 @@ Podem ficar como evolução posterior, sem bloquear a operação inicial:
 # 114. SAAS MULTIEMPRESA — APROFUNDAMENTO **[FUTURO]**
 
 O AlfaOS será, no médio/longo prazo, um produto comercial multiempresa. Planejar (sem implementar agora): onboarding, empresas, usuários, técnicos, limites, planos, feature flags, integrações por empresa, personalização, cobrança, métricas, suporte. **Não implementar billing agora** — a arquitetura multi-tenant do Core (seção 6) já é o alicerce necessário; o que falta é a camada comercial, que é FUTURO.
+
+> **Expandida em 2026-09-12 pela Parte XVIII (§402–§414).** O SaaS multiempresa
+> passa a ter forma decidida: **AlfaOS Core + módulos opcionais por tenant**,
+> com entitlement, feature flag e capability como conceitos separados (§405).
+> O parágrafo acima continua valendo; "cobrança" nele é o billing **do AlfaOS**
+> aos provedores, e não o módulo Collections dos provedores aos assinantes
+> (§412).
 
 ---
 
@@ -11503,6 +11510,11 @@ CTO_LIVE_STATUS · CTO_QR_IDENTIFICATION
 Nenhuma flag física é decidida aqui — e o AlfaOS **não tem** infraestrutura de
 feature flag por empresa hoje, o que é pendência registrada.
 
+> **Vocabulário, 2026-09-12 (§405).** Na plataforma modular, o que esta seção
+> chama de *capability por empresa* é **entitlement ou política do tenant**; e a
+> pendência acima é de infraestrutura de entitlement/configuração por tenant,
+> não de feature flag. Nada foi renomeado — nem aqui, nem no código.
+
 ## QR é OPCIONAL, e o padrão é DESLIGADO
 
 Empresas que identificam a caixa por nome não devem ser obrigadas a colar
@@ -11783,6 +11795,11 @@ decisão que precisa ser tomada, não presumida.
 
 O Field recebe capabilities derivadas no `GET /me`, como já recebe hoje — e
 continua valendo que **UI não é controle de segurança**: cada rota reconfere.
+
+> **Vocabulário, 2026-09-12 (§405).** As políticas acima são, na plataforma
+> modular, **configuração do tenant**; as `capabilities` do `GET /me` são
+> **capability do usuário** — já no sentido que a Parte XVIII fixa. Nada foi
+> renomeado.
 
 ---
 
@@ -13587,6 +13604,15 @@ A §119 continua valendo para todos: estar descrito aqui não é autorização.
 > Ela é registrada agora por dois motivos, e só por eles: para a ideia não se
 > perder, e para que, quando voltar, volte com as fronteiras que já estão claras
 > hoje — não para entrar por baixo de outra fatia.
+>
+> **Evoluída no mesmo dia pela Parte XVIII (plataforma SaaS modular).** A
+> "Central" deixa de ser um bloco único: ela é a composição de **três módulos
+> opcionais futuros**, com fronteiras próprias (§410) — **Collections**
+> (receita: §399), **Recovery** (patrimônio: §395, §396) e **Retention** (churn:
+> §397) —, com a priorização (§398) servindo a Recovery e Retention, o contrato
+> financeiro normalizado (§400) servindo aos três, e o WhatsApp como **canal**,
+> não como parte deles (§408). Todo o conteúdo abaixo continua valendo como a
+> especificação conceitual desses módulos; nada foi removido.
 
 ---
 
@@ -13824,5 +13850,614 @@ recolhimentos · clientes em risco · churn · roteirização (§137)
 (§392), e uma camada de casos seria decisão que o reabre — com fase própria e
 decisão do dono. Quando existir, ela entra no **mesmo motor** (§207, §364), nunca
 como um segundo mapa.
+
+---
+
+# PARTE XVIII — ALFAOS COMO PLATAFORMA SaaS MODULAR
+
+> **Registrada em 2026-09-12, logo depois do freeze do Mapa Operacional V1
+> (§392). Decisão estratégica e direção de arquitetura.**
+> **NADA DESTA PARTE EXISTE EM CÓDIGO.**
+>
+> Nenhum módulo foi implementado, e esta Parte não cria enum, schema,
+> migration, rota, tela nem dependência. Ela não altera o escopo da V1 (Parte
+> XVI), não altera o contrato do Mapa Operacional (§392) e não move nenhuma
+> funcionalidade aprovada para módulo pago. A §119 vale linha por linha:
+> **documentar um módulo não é iniciar a implementação dele.**
+>
+> Ela expande a §114 (SaaS multiempresa) e a §73 (grandes blocos do produto),
+> e evolui a Parte XVII, que passa a ser a especificação conceitual de três dos
+> módulos futuros.
+
+---
+
+# 402. A DECISÃO — CORE MAIS MÓDULOS OPCIONAIS POR TENANT
+
+**O AlfaOS não será um produto monolítico em que toda empresa recebe todas as
+funcionalidades.** Ele será uma plataforma SaaS:
+
+```text
+ALFAOS CORE
+   +
+MÓDULOS OPCIONAIS, contratados e ativados POR EMPRESA
+```
+
+**O princípio comercial:** um provedor pequeno começa com o Core e acrescenta
+capacidade conforme cresce — sem trocar de sistema e sem pagar pelo que não usa.
+Um exemplo de composição, só conceitual:
+
+```text
+AlfaOS Core
+ + WhatsApp · Cobrança · Recovery · Retention
+ + AI Atendimento · NOC · Network / OLT · ACS / Wi-Fi · Analytics
+```
+
+**Nenhum preço e nenhum plano comercial definitivo são decididos aqui** (§412).
+O que esta decisão fixa é a forma: o que é Core, o que é módulo, e como o
+sistema decide quem pode usar o quê.
+
+A §114 já previa planos, limites, feature flags e integrações por empresa; ela
+continua valendo, e esta Parte lhe dá uma arquitetura. A §73 continua sendo a
+visão dos blocos do produto (Core, Field App, Toolkit, Network Intelligence,
+SaaS): bloco de visão não é módulo contratável por definição, e a
+correspondência entre os dois é feita módulo a módulo, quando cada um for
+desenhado.
+
+---
+
+# 403. O ALFAOS CORE
+
+O Core é a base operacional — o que faz um provedor operar ponta a ponta:
+
+```text
+clientes · ordens de serviço · técnicos · despacho e fila · CTO e portas
+Mapa Operacional · evidências · equipamentos · estoque · gestão operacional
+permissões · auditoria · multi-tenancy · integrações-base (ERP plugável, Parte XV)
+```
+
+**A regra que fecha a fronteira: tudo o que a §386 lista como V1 MUST HAVE é
+Core.** Nenhuma funcionalidade aprovada da V1 sai do Core por causa desta
+decisão — o objetivo é arquitetura futura, não reprecificar a V1. O que já
+existe em código (Field, Jornada, fila, push, CTO, mapa) continua onde está.
+
+**O Core não depende de módulo nenhum.** A dependência aponta sempre do módulo
+para o Core (§408), e a ausência de qualquer módulo opcional não pode quebrar o
+Core (§407).
+
+**Um interruptor por tenant já existe dentro do Core, e esta Parte não decide o
+destino dele.** `Company.ctoNetworkEnabled` (padrão desligado) liga a área de
+CTO por empresa. No vocabulário da §405 ele é, em substância, um entitlement —
+mas a CTO é Core. Se ele continua como está, vira configuração operacional ou
+passa a ser entitlement de um sub-módulo é decisão futura (§414).
+
+---
+
+# 404. MODULE REGISTRY — O QUE EXISTE, E DO QUE DEPENDE
+
+A plataforma vai precisar de um **Module Registry** — o nome é conceitual —: o
+único lugar que sabe **quais módulos existem**, do que cada um depende, em que
+estados um módulo pode estar (§407) e que configuração ele aceita.
+
+Identificadores conceituais, **não** um enum:
+
+```text
+CORE · WHATSAPP · COLLECTIONS · RECOVERY · RETENTION
+AI_ASSISTANT · NOC · NETWORK_MANAGEMENT · ACS_WIFI · ANALYTICS
+```
+
+**Dependências são explícitas no registro, nunca implícitas no código.** As que
+já se sabem:
+
+```text
+COLLECTIONS     funciona sem AI_ASSISTANT
+RECOVERY        pode USAR Collections, sem depender dele
+AI_ASSISTANT    consome as ferramentas dos módulos que o tenant tiver
+NOC             existe independente de Collections
+todo módulo     depende do CORE; o CORE não depende de nenhum
+```
+
+As dependências completas não são definidas agora — cada uma é decidida quando
+o módulo for desenhado. O que fica decidido é **onde** elas moram.
+
+**Nenhum enum, tabela ou código é criado agora.**
+
+---
+
+# 405. ENTITLEMENT, FEATURE FLAG E CAPABILITY — TRÊS PERGUNTAS DIFERENTES
+
+```text
+ENTITLEMENT (módulo)   a EMPRESA tem direito de usar este módulo?
+                       comercial · contratual · por tenant
+FEATURE FLAG           esta funcionalidade está DISPONÍVEL agora?
+                       técnico · rollout · experimento · desligamento
+CAPABILITY             este USUÁRIO pode fazer esta ação?
+                       funcional · por perfil ou permissão · dentro do módulo
+```
+
+Exemplo: a empresa contratou **WhatsApp** (entitlement). O administrador pode
+configurá-lo, o atendente pode responder e o técnico pode não ter acesso nenhum
+(capability). Uma funcionalidade nova do módulo pode estar ligada só para parte
+dos tenants enquanto é homologada (feature flag).
+
+**Nenhum dos três substitui outro, e misturá-los é o defeito a evitar:** um flag
+usado como contrato comercial some quando o rollout termina; um entitlement
+usado como permissão entrega ao técnico o que foi contratado para o
+administrador.
+
+## Acesso efetivo
+
+```text
+permitido  se  o tenant tem o módulo                          (entitlement)
+           e   a funcionalidade está disponível               (feature flag)
+           e   o usuário tem a capability                     (capability)
+           e   o recurso satisfaz as regras de domínio que já existem
+               — tenancy, posse, máquina de estados, CAS
+```
+
+## O vocabulário que o PRD e o código já usam — reconciliado, não renomeado
+
+O termo *capability* já aparece no projeto em mais de um sentido. Daqui em
+diante, **texto novo usa os três termos no sentido acima**, e o que já existe é
+lido assim:
+
+| onde | como aparece hoje | na plataforma modular |
+|---|---|---|
+| §338, §346; `Company.ctoNetworkEnabled` e o portão `requireCtoAccess` | capability **por empresa** | **entitlement ou política do tenant** |
+| `GET /api/field/v1/me` → `capabilities` | o que ESTE técnico pode fazer | **capability do usuário** — já no sentido novo |
+| `AccessProfile` (`ADMIN · DISPATCHER · TECHNICIAN`) + regras de posse | perfil | **fonte atual da capability do usuário**; não existe registro fino por usuário |
+| §355 — `supportsCustomerLookup(adapter)` | capability do **adapter** | **terceiro eixo**: o que um provider sabe fazer; mantém o nome qualificado |
+| §210, §333, §352 | capability **oficial** | área de produto registrada no PRD — nem permissão, nem entitlement |
+| `SGP_ACTIVATION_ENABLED`, `MAP_SATELLITE_ENABLED` | variável de ambiente | **feature flag de ambiente** — global, não por tenant |
+| §140 — `CALLCENTER` · `CHATBOT` do ReceitaNet | capabilities do provider | APIs distintas do ReceitaNet; o `CHATBOT` **não** é o AI Assistant (§411) |
+
+**Nenhum nome é renomeado nesta Parte** — nem seção, nem coluna, nem função.
+Renomear exige fase própria, com o código junto.
+
+---
+
+# 406. UMA CAMADA CENTRAL — E O DOMÍNIO NÃO CONHECE O PLANO
+
+**Module Registry, Entitlement Service e Capability Registry** — nomes
+conceituais — formam **uma camada central**, e a decisão de acesso mora nela.
+
+O precedente já está no código: `requireCtoAccess` é o portão **único** da área
+de CTO — sessão, depois capability da empresa, depois perfil —, justamente porque
+espalhar a sequência por várias rotas garantiria que a próxima esquecesse uma
+etapa. A plataforma modular generaliza esse desenho; ela não o troca por
+verificações espalhadas.
+
+```text
+proibido no domínio     if (tenant.hasModule(...))   em cada componente
+                        if (plan === "PRO")
+                        if (subscription === "ENTERPRISE")
+```
+
+**O domínio de negócio não conhece o plano comercial**, e componente não decide
+cobrança. Plano é um pacote de entitlements (§412), resolvido **fora** do
+domínio; a regra de negócio pergunta, no máximo, pelo módulo ou pela
+capability — nunca pelo nome do plano. Mudar o conteúdo de um plano não pode
+exigir mudar regra de negócio.
+
+**O servidor decide; a tela esconde.** Esconder o controle de um módulo não
+contratado é conveniência; quem barra é o servidor, como já é hoje (§376).
+
+**A ordem das verificações segue o precedente de não vazar existência.** Em
+`requireCtoAccess` a verificação da empresa vem antes do perfil porque, na ordem
+inversa, um 403 confirmaria que o módulo existe para quem não o contratou. O
+mesmo vale para entitlement antes de capability.
+
+---
+
+# 407. CICLO DE VIDA, CONFIGURAÇÃO E DESATIVAÇÃO
+
+## Estados de um módulo, para um tenant
+
+```text
+AVAILABLE    existe e pode ser contratado
+ENABLED      contratado e em uso
+DISABLED     desligado
+SUSPENDED    suspenso — por exemplo, por pendência comercial
+```
+
+Terminologia conceitual — **nenhum enum é criado**, e ela pode mudar quando o
+registro for desenhado.
+
+## Configuração por tenant
+
+Cada módulo pode ter configuração própria por empresa:
+
+```text
+WhatsApp      provider · templates
+Collections   régua de cobrança
+Retention     limiares — por exemplo, o período offline
+AI            ferramentas permitidas
+```
+
+Sem schema agora. Credencial de fornecedor, quando existir, segue o padrão que o
+ERP já usa: cifrada, vinculada a (empresa, provider), nunca em claro e nunca no
+cliente (Parte XV).
+
+## Desativar não apaga
+
+**Desativar, suspender ou cancelar um módulo não apaga automaticamente**
+histórico, auditoria, casos, mensagens nem registros operacionais. Visibilidade
+e uso podem ser restringidos conforme política — o dado continua. É a regra que o
+AlfaOS já segue em toda parte: vínculo de rede encerrado vira histórico (Parte
+XIII), OS vinda de outro ERP continua sendo de outro ERP (§359), e nada disso é
+reescrito.
+
+## Degradação — a ausência de módulo nunca quebra o Core
+
+```text
+tenant sem WhatsApp    → a OS continua funcionando
+tenant sem AI          → o atendimento humano continua
+tenant sem NOC         → o mapa continua
+tenant sem Recovery    → equipamento e OS continuam
+```
+
+---
+
+# 408. COMPOSIÇÃO — CANAL, INTELIGÊNCIA E CORE
+
+## Canal não é inteligência
+
+```text
+Collections   decide     "lembrar esta fatura"
+WhatsApp      executa    "enviar esta mensagem"
+```
+
+Separados, a cobrança ganha outros canais — SMS, e-mail, push — **sem ser
+reescrita**. A mesma separação vale para o AI Assistant: **o WhatsApp é canal, a
+IA é inteligência**, e a IA não pode nascer inseparável do WhatsApp — ela precisa
+poder atender por outro canal.
+
+## A dependência aponta para o Core
+
+```text
+Recovery  →  cria a OS de recolhimento  →  Field / técnico executa
+          →  estado do equipamento atualizado
+```
+
+Recovery usa o Core; o Core não conhece Recovery. A OS de recolhimento é uma OS
+como qualquer outra — mesma máquina de estados, mesma posse, mesma auditoria — e
+depende da identidade estável de equipamento que ainda não existe (§395).
+
+## Composição opcional
+
+O AI Assistant consulta o NOC **se** o tenant tiver os dois módulos. Sem NOC, a
+IA continua funcionando — só não tem aquela ferramenta. Um módulo nunca presume
+a presença de outro que não declarou como dependência (§404).
+
+## Eventos entre módulos
+
+Possibilidade futura, só conceitual:
+
+```text
+InvoiceOverdue          → Collections abre o caso
+PaymentReceived         → Collections encerra a cobrança
+CustomerOfflineTooLong  → Retention avalia o risco
+RecoveryApproved        → o Core recebe a OS de recolhimento
+KnownIncidentStarted    → o AI Assistant responde com o incidente conhecido
+```
+
+`CustomerOfflineTooLong` carrega a mesma dependência da §397: o diagnóstico
+atual não sustenta "offline há N dias". **Nenhum barramento de eventos é
+construído agora.** Quando for, o ponto de partida é a outbox transacional que
+já existe (§156) — avaliar o que ela atende antes de introduzir mecanismo novo.
+
+---
+
+# 409. PROVIDERS — NENHUM MÓDULO É INSEPARÁVEL DE UM FORNECEDOR
+
+O padrão já existe, e é reforçado, não inventado: o ERP é plugável (Parte XV),
+o push tem abstração de provider (`PushNotificationProvider`), e o provedor de
+tiles do mapa é configuração (§365). Todo fornecedor externo fica atrás de um
+contrato:
+
+```text
+ERP Provider         já existe (Parte XV)
+Messaging Provider   WhatsApp e demais canais
+Payment Provider     PIX · boleto · link de pagamento
+AI Provider          o modelo de linguagem
+OLT Adapter          por fabricante
+ACS Adapter          TR-069 · TR-369 (USP)
+```
+
+**Nenhum módulo pode ser inseparável de um fornecedor.** Trocar de fornecedor é
+trocar o adapter, não reescrever o módulo — pela mesma razão que o AlfaOS nunca
+teve um `if (RECEITANET)` no aplicativo do técnico.
+
+## Finance Read Model
+
+Collections, Recovery e Retention **não** podem depender do payload do
+ReceitaNet, do SGP ou de qualquer ERP. Eles leem um **contrato financeiro
+normalizado** (§400). Forma conceitual — **não é schema**:
+
+```text
+Invoice
+  customerId · externalId · amount · dueDate · status
+  paidAt · paymentUrl · pixCode · provider
+```
+
+`provider` é **histórico**, como `externalProvider` (§359): diz de onde a fatura
+veio, nunca decide por onde ela é lida. E o fato do código que decide o custo:
+**nenhum adapter lê financeiro hoje** — nem ReceitaNet, nem SGP.
+
+---
+
+# 410. FUTURE SaaS MODULES — O CATÁLOGO (BACKLOG)
+
+> **Todos os módulos abaixo são BACKLOG: sem versão atribuída, sem prazo e sem
+> compromisso de V1.** Nenhum deles vira bloqueador da produção V1, e nenhum
+> entra em fatia do Master Plan sem decisão explícita do dono. A única exceção
+> de rótulo — o NOC, que a §388 chama de V2 — está em §414.
+
+| módulo | propósito | já registrado no PRD |
+|---|---|---|
+| WhatsApp / Customer Messaging | canal com o assinante | §96, §168, §279, §282, §387, §399 |
+| Collections — Cobrança Inteligente | recuperar receita | §399, §400 |
+| Recovery — Recuperação | recuperar patrimônio | §395, §396, §398 |
+| Retention — Churn | evitar abandono | §397, §398 |
+| AI Assistant — AI Atendimento | atender por ferramentas | §108, §189 · §411 |
+| NOC — Network Operations | operar incidentes de rede | §103, §388 |
+| Network Management — OLT | gerência da rede óptica | §102, §104 |
+| ACS / Wi-Fi | gerência remota do CPE | §106, §178, §265 |
+| Analytics — BI | indicadores de negócio | §39, §112, §302, §388 |
+
+## WhatsApp / Customer Messaging
+
+Capacidades possíveis: atendimento · templates · avisos · notificações ·
+histórico de conversa · campanhas operacionais · envio de mensagens por eventos ·
+integração com os demais módulos.
+
+É **canal** (§408), com provider não definido e arquitetura para mais de um
+(§409). E não se confunde com o que o PRD já prevê **sem** ele: abrir o WhatsApp
+do aparelho a partir do Field (§96) e o compartilhamento nativo do contrato
+(§282) são a pessoa enviando do próprio telefone, sem API; a tentativa de
+contato (§168) registra que alguém tentou, não envia nada. Quando o módulo
+existir, o que precisar de envio **pelo sistema** — OTP (§279), entrega pela
+Business API (§282) — usa o canal dele; nenhuma funcionalidade nasce com
+integração própria de WhatsApp.
+
+## Collections — Cobrança Inteligente
+
+Capacidades possíveis: lembrete de fatura · aviso pré-vencimento · cobrança após
+vencimento · envio de PIX, boleto ou link · régua configurável · promessa de
+pagamento · negociação · acordo · pausa automática depois de pagamento ou acordo.
+
+Lê o Finance Read Model (§409) e **não** escreve título, baixa nem cancelamento
+no ERP (§394). A especificação conceitual é a §399.
+
+## Recovery — Recuperação
+
+Objetivo: reduzir perda patrimonial e financeira. Cruza inadimplência,
+equipamentos em comodato, valor patrimonial, tentativas de contato, acordos,
+conectividade e ordens de recolhimento. A especificação conceitual é a §395, a
+§396 e a §398.
+
+## Retention — Churn
+
+Objetivo: detectar risco de abandono **antes** do cancelamento formal. Sinais
+possíveis: offline contínuo, financeiro, histórico de contato, OS, incidentes e
+sinais de abandono. **OFFLINE não é cancelamento**, e o frescor da conectividade
+é dependência (§397).
+
+## Collections × Recovery × Retention — as fronteiras
+
+```text
+COLLECTIONS   recuperar RECEITA — o pagamento
+RECOVERY      recuperar PATRIMÔNIO — o equipamento — e tratar a perda operacional
+RETENTION     evitar o ABANDONO — o churn
+```
+
+Os três podem trabalhar juntos — um acordo em Collections pode encerrar um caso
+de Recovery; um risco de Retention pode pedir contato antes de cobrança —, mas
+**não são o mesmo módulo**, e nenhum presume a presença de outro (§404).
+
+## NOC — Network Operations
+
+Capacidades possíveis: indisponibilidades · falhas coletivas · alarmes ·
+incidentes · correlação · manutenção · status da rede · painéis operacionais.
+
+Relaciona-se com a correlação de incidentes (§103) e com o que a §388 põe fora
+do lançamento. **O Mapa Operacional V1 não infere incidente** (§371), e falha
+coletiva continua sendo fase própria.
+
+## Network Management — OLT
+
+Capacidades possíveis: OLTs · PONs · ONUs · potência óptica · alarmes ·
+provisionamento · SNMP · diagnósticos · integração por fabricante (OLT Adapter,
+§409).
+
+Relaciona-se com o pré-diagnóstico remoto (§102), a integração com OLT (§104) e a
+trilha Network Intelligence (§73, §118). **Não se integra ao Mapa Operacional V1
+congelado** (§392), e a fronteira com o FiberMap continua a da §334: topologia
+física não é duplicada.
+
+## ACS / Wi-Fi — gerência do CPE
+
+Tecnologias: TR-069 · TR-369 (USP). Capacidades possíveis: configuração remota ·
+SSID · senha · diagnóstico · reboot · parâmetros · saúde do CPE.
+
+Relaciona-se com a §106 e com a ordem de preferência já registrada — ACS,
+TR-069, USP/TR-369, API oficial do fabricante (§178, §265). Credencial de ACS
+continua fora do aplicativo do técnico (§265).
+
+## Analytics — Business Intelligence
+
+Indicadores possíveis: SLA · produtividade · churn · inadimplência ·
+recuperação · patrimônio perdido e recuperado · OS · eficiência de técnicos ·
+tendências.
+
+Duas regras que já existem valem para ele: nenhum indicador reimplementa cálculo
+que já tem fonte única (§302), e métrica de técnico não vira ranking punitivo
+sem decisão de produto (§388, §219). **Nenhum data warehouse agora.**
+
+---
+
+# 411. AI ASSISTANT — A IA NÃO É AUTORIDADE
+
+Módulo premium futuro: **AI Atendimento / AI Assistant**.
+
+Capacidades possíveis: atendimento automático · triagem · consulta de situação
+cadastral · consulta financeira autorizada · conectividade · OS existente ·
+abertura de OS · orientação básica · consulta de incidentes · encaminhamento
+para humano.
+
+**Não confundir** com o `CHATBOT` do ReceitaNet (§140), que é uma API do
+provider, nem com o AI Copilot (§189), que assiste o técnico no Field. Os três
+podem conversar no futuro; não são a mesma coisa.
+
+## A regra
+
+**A IA nunca é autoridade** de cliente, financeiro, conectividade, OS,
+equipamento, rede ou cobrança. Isso estende a regra absoluta da §108 — a IA
+nunca substitui controles determinísticos de segurança e autorização — para os
+**dados**: a IA interpreta e conversa; o AlfaOS fornece os fatos e executa as
+ações autorizadas.
+
+```text
+Cliente
+   ↓
+Canal — WhatsApp, ou outro
+   ↓
+AI Orchestrator
+   ↓
+Ferramentas do AlfaOS — serviços de aplicação
+   ↓
+Domínios, com as regras que já existem
+```
+
+## Por ferramentas, nunca pelo banco
+
+Ferramentas autorizadas, só conceituais:
+
+```text
+getCustomer · getFinancialStatus · getConnectivity
+getOpenServiceOrders · createServiceOrder · getKnownIncident
+```
+
+O modelo **não** consulta o banco, **não** recebe o ORM e **não** tem caminho de
+escrita que não passe pelos mesmos serviços que a tela e o Field usam — com
+tenancy, posse, máquina de estados, CAS e auditoria. `getConnectivity` devolve o
+que a §370 devolve: sem leitura continua sendo `SEM LEITURA`, e falha de
+integração continua não sendo `OFFLINE`.
+
+## Guardrails — obrigatórios quando existir
+
+```text
+capability checks    a mesma verificação de qualquer ação humana
+tenancy              a empresa vem do canal configurado — nunca do texto
+                     da conversa
+auditoria            toda ação da IA auditada, identificando que veio da IA
+                     e por qual canal
+allowlist de tools   por tenant (§407); ferramenta fora da lista não existe
+handoff humano       sempre disponível
+confirmação          explícita antes de ação sensível
+privacidade          dado pessoal só quando necessário para a ação (§379)
+rate limits          por tenant e por canal
+prompt injection     texto do cliente é dado, nunca instrução
+```
+
+Nada disso é implementado agora.
+
+---
+
+# 412. EMBALAGEM COMERCIAL, BILLING DO SaaS E ADMINISTRAÇÃO — DIREÇÃO, NÃO DECISÃO
+
+## Embalagem
+
+Módulos poderão ser vendidos **individualmente, em bundles ou em planos**. Os
+nomes são só ilustrativos — *Starter · Operations · Pro · AI* — e **não são
+finais**. **Nenhum preço é definido.** Plano é um pacote de entitlements (§406),
+e o domínio nunca vê o nome dele.
+
+## Billing do SaaS
+
+O AlfaOS poderá cobrar, conforme o módulo, por plano base, módulos, consumo,
+quantidade de clientes, quantidade de usuários, volume de mensagens e consumo de
+IA. **Billing não é implementado agora** (§114).
+
+> **Duas cobranças que não se misturam.** O **billing do SaaS** é o AlfaOS
+> cobrando o **provedor**. O módulo **Collections** é o provedor cobrando o
+> **assinante** dele. Compartilham a palavra — não o modelo, não os dados, não o
+> fluxo.
+
+## Tela de módulos (futura)
+
+O administrador do tenant poderá ver os módulos com estados como:
+
+```text
+Ativo · Disponível · Não contratado · Configuração necessária
+```
+
+Nenhuma tela agora.
+
+## Super Admin (possibilidade)
+
+Coerente com multiempresa, um **Super Admin** poderá administrar
+disponibilidade de módulos, entitlements, rollout, planos e limites. **Hoje ele
+não existe:** `AccessProfile` tem três valores, todos de dentro de uma empresa.
+
+Um perfil que enxerga várias empresas é, por definição, uma exceção à regra de
+tenancy — e por isso, quando for desenhado, nasce como **plano de controle da
+plataforma**, separado dos perfis de empresa: administra oferta e contrato,
+**não** lê dado operacional de tenant por padrão, e qualquer acesso a dado de
+empresa exige desenho de segurança próprio e auditado. Decisão futura (§414).
+
+---
+
+# 413. INVARIANTES DA PLATAFORMA MODULAR
+
+```text
+MOD-01  o Core não depende de módulo opcional; ausência de módulo não quebra
+        o Core
+MOD-02  todo módulo é tenant-scoped — entitlement, configuração e dado nunca
+        atravessam empresa
+MOD-03  entitlement ≠ feature flag ≠ capability; o acesso efetivo exige os três
+        e as regras de domínio
+MOD-04  a decisão de acesso é central; o domínio não conhece plano comercial
+MOD-05  o servidor decide; a tela só esconde
+MOD-06  desativar módulo não apaga histórico, auditoria, casos nem mensagens
+MOD-07  fornecedor fica atrás de provider; nenhum módulo é inseparável de um
+MOD-08  canal não é inteligência; a inteligência não nasce presa a um canal
+MOD-09  a IA não é autoridade; ela age por ferramentas autorizadas
+MOD-10  módulos reutilizam a auditoria existente (§46); trilha paralela só com
+        necessidade demonstrada
+MOD-11  dependência entre módulos é explícita no registro, nunca presumida
+MOD-12  documentar um módulo não é iniciar a implementação dele (§119)
+```
+
+---
+
+# 414. O QUE ESTA PARTE NÃO AUTORIZA, E O QUE FICA ABERTO
+
+## A V1 não muda
+
+O Core V1 continua congelado como está na Parte XVI e no Master Plan. Nenhum
+módulo desta Parte é bloqueador da produção V1, e as próximas fatias continuam
+sendo `DASH-1 · TL-1 · EV-1 · GS-1`, na ordem que o dono decidir. O critério da
+§393 vale para os módulos como para qualquer ideia: se não bloqueia a operação
+V1, é backlog.
+
+**Nada foi implementado:** nenhum módulo, enum, schema, migration, rota, tela,
+dependência, nem provider de mensageria, pagamento ou IA.
+
+## Decisões abertas — e são do dono
+
+```text
+1  vocabulário          confirmar a leitura da §405: "capability por empresa"
+                        (§338, §346) = entitlement ou política do tenant
+2  ctoNetworkEnabled    continua como está, vira configuração operacional ou
+                        entitlement de sub-módulo? (§403)
+3  WhatsApp da §387     o aviso operacional (V1 SHOULD HAVE) fica no Core ou
+                        depende do módulo de mensageria? Esta Parte não o move.
+4  NOC                  a §388 o rotula V2; o catálogo trata os módulos como
+                        backlog sem versão. Esta Parte não reescreve capítulo
+                        da V1 — a reclassificação é do dono.
+5  Super Admin          o desenho do plano de controle da plataforma (§412)
+6  nomes                identificadores de módulo e nomes de plano são
+                        provisórios
+```
 
 ---

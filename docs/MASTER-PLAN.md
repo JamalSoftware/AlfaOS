@@ -38,6 +38,10 @@ MAPA OPERACIONAL V1     CTO-3.1 → CTO-3.2.2e                          APPROVED
 O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e a lista
 do que falta está em **§386**. O contrato final do mapa é a **PRD §392**.
 
+**O AlfaOS será uma plataforma SaaS modular** — Core mais módulos opcionais por
+tenant (PRD Parte XVIII, §402–§414). **Este plano cobre o Core V1**; os módulos
+futuros são backlog separado (§11) e não entram nas fatias abaixo.
+
 ---
 
 ## 2. A sequência até o lançamento
@@ -256,8 +260,8 @@ V2 e V3 (PRD §388, §389): falha coletiva, central de incidentes, modo NOC,
 manutenção preventiva, camada de técnico ao vivo, métricas de técnico, FiberMap
 e rede física.
 
-Qualquer ideia nova de **mapa** depois do freeze (PRD §392) e a **Central de
-Retenção e Recuperação** (§10 abaixo).
+Qualquer ideia nova de **mapa** depois do freeze (PRD §392), a **Central de
+Retenção e Recuperação** (§10 abaixo) e os **módulos SaaS futuros** (§11).
 
 Trilhas documentadas e não promovidas: **Escala de Trabalho** (PRD §288–§307),
 **Colaboração entre Técnicos** (§342–§351), **custódia de patrimônio**
@@ -303,3 +307,41 @@ capability financeira no ERP        nenhum adapter lê financeiro hoje; entraria
 Promover qualquer peça daqui para o roadmap é **decisão explícita do dono**, e
 ela volta a este plano como fatia própria — com dependências, entregas, testes,
 segurança e risco, como as outras.
+
+**Evoluída pela plataforma modular (PRD §410):** a "Central" é a composição de
+três módulos opcionais futuros — **Collections** (receita, §399), **Recovery**
+(patrimônio, §395–§396) e **Retention** (churn, §397) —, com o WhatsApp como
+canal e não como parte deles. As dependências acima continuam valendo para os
+três. Eles estão listados, com os demais, em §11.
+
+---
+
+## 11. Future SaaS Modules — backlog separado
+
+> **BACKLOG. NENHUM MÓDULO É FATIA, NENHUM TEM VERSÃO, PRAZO OU COMPROMISSO DE
+> V1.** Decisão registrada em 2026-09-12: o AlfaOS é **Core + módulos opcionais
+> por tenant**. Especificação conceitual: **PRD Parte XVIII (§402–§414)**. Nada
+> existe em código.
+
+```text
+WhatsApp / Customer Messaging   canal com o assinante            PRD §410
+Collections                     recuperar receita                PRD §410 · §399
+Recovery                        recuperar patrimônio             PRD §410 · §395–§396
+Retention                       evitar churn                     PRD §410 · §397
+AI Assistant                    atender por ferramentas          PRD §411
+NOC                             operar incidentes de rede        PRD §410 · §388
+Network Management — OLT        gerência da rede óptica          PRD §410 · §104
+ACS / Wi-Fi                     gerência remota do CPE           PRD §410 · §106
+Analytics                       indicadores de negócio           PRD §410
+```
+
+**As fatias V1 não mudam.** `DASH-1 · TL-1 · EV-1 · GS-1` continuam sendo o
+próximo trabalho, na ordem que o dono decidir, e **nenhum módulo entra dentro
+delas** — nem como "já que estamos mexendo aqui" (PRD §393).
+
+**O que um módulo precisa antes de virar fatia**, além da decisão do dono: a
+camada central de acesso — Module Registry, entitlement por tenant e capability
+do usuário como conceitos separados (PRD §404–§406) —, porque o primeiro módulo
+construído sem ela espalharia `if (tenant.hasModule(...))` pelo código, e é esse
+o defeito que a Parte XVIII existe para evitar. Também valem as dependências já
+medidas da §10 e as decisões abertas da PRD §414.
