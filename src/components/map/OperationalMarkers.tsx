@@ -16,7 +16,7 @@ import {
   SERVICE_ORDER_PRIORITY_LABELS,
   SERVICE_ORDER_STATUS_LABELS,
 } from "@/lib/service-order-labels";
-import { customerInitials } from "@/lib/customer-initials";
+import { customerFirstName } from "@/lib/customer-presentation";
 import { OPERATIONAL_MAP_PATH } from "@/lib/return-to";
 
 /**
@@ -55,15 +55,29 @@ const cacheDeIcones = new Map<string, DivIcon>();
  * wrapper de dentro —, então o alvo continua com 30px em qualquer zoom.
  */
 const HIT_BOX = 30;
-const VISUAL_CLIENTE = 18;
-const VISUAL_OS = 20;
+/*
+  Cliente 18 → 21 na `CTO-3.2.2d`, por pedido do dono; e a OS 20 → 23 JUNTO.
+
+  O objetivo do dono é `CTO > OS > cliente`, com proporções próximas. Crescer só
+  o cliente inverteria a segunda metade, e o número do lado do ícone esconde
+  isso — o que pesa na tela é a área do DESENHO, medida no zoom neutro:
+
+    cliente 21   disco de raio 7 (6 no viewBox de 18)      ≈ 154 px²
+    OS      20   losango de diagonal 17 (no viewBox de 20) ≈ 144 px²   ← abaixo
+    OS      23   losango de diagonal 19,6                  ≈ 191 px²
+
+  Com a OS em 20 o cliente passaria a pesar mais que ela. Os dois cresceram na
+  mesma medida (~15%), e a razão OS/cliente que o dono aprovou na `CTO-3.2.2c`
+  (1,28 em área) ficou em 1,24. A caixa segue sendo a maior.
+*/
+const VISUAL_CLIENTE = 21;
+const VISUAL_OS = 23;
 
 function iconeDeCliente(
   status: CustomerMapMarker["connectivityStatus"],
   comOs: boolean,
-  iniciais: string,
 ): DivIcon {
-  const chave = `cli:${status}:${comOs ? "1" : "0"}:${iniciais}`;
+  const chave = `cli:${status}:${comOs ? "1" : "0"}`;
   const guardado = cacheDeIcones.get(chave);
   if (guardado) return guardado;
 
@@ -113,20 +127,6 @@ function iconeDeCliente(
         : status === "OFFLINE"
           ? '<circle class="cto-dot__body" cx="9" cy="9" r="6" /><circle class="cto-dot__hollow" cx="9" cy="9" r="2.2" />'
           : '<circle class="cto-dot__body cto-dot__body--sem-leitura" cx="9" cy="9" r="5.6" />',
-      /*
-        As INICIAIS, e é a garantia de saída do helper que as autoriza aqui.
-
-        `divIcon` recebe HTML CRU, e a regra do projeto é que nome digitado por
-        gente não entra nele. `customerInitials` devolve `[A-Z]{0,2}` — nenhum
-        caractere com significado em HTML sobrevive à peneira dela, e há teste
-        com entrada hostil provando isso. O nome completo continua só no popup.
-
-        Elas somem no zoom distante por CSS (`map--rotulos`), sem recriar
-        marcador.
-      */
-      iniciais
-        ? `<text class="cto-dot__initials" x="9" y="9" text-anchor="middle" dominant-baseline="central">${iniciais}</text>`
-        : "",
       "</svg>",
       "</span></span>",
     ].join(""),
@@ -167,6 +167,10 @@ function iconeDeCliente(
  * desempate do mesmo ponto.
  */
 const OS_ACIMA_DO_CLIENTE = 1000;
+
+/** Respiros do `autoPan` do popup da OS — ver o comentário no `<Popup>`. */
+const OS_POPUP_RESPIRO_TOPO_ESQUERDA: [number, number] = [52, 50];
+const OS_POPUP_RESPIRO_BASE_DIREITA: [number, number] = [24, 24];
 
 /** O rótulo acessível da OS: número, prioridade e situação, por extenso. */
 function rotuloDaOs(os: ServiceOrderMapMarker): string {
@@ -290,19 +294,53 @@ function CustomerMarkersBase({ markers, canOpenCustomer }: CustomerMarkersProps)
           cliente.connectivityStatus,
         );
         const comOs = cliente.openServiceOrderCount > 0;
+        const primeiroNome = customerFirstName(cliente.name);
         return (
           <Marker
             key={cliente.id}
             position={[cliente.latitude, cliente.longitude]}
-            icon={iconeDeCliente(
-              cliente.connectivityStatus,
-              comOs,
-              customerInitials(cliente.name),
-            )}
+            icon={iconeDeCliente(cliente.connectivityStatus, comOs)}
             // Nome acessível sem depender de cor nem de abrir o popup.
             title={`${cliente.name} — ${apresentacao.mapLabel}`}
             alt={`${cliente.name} — ${apresentacao.mapLabel}`}
           >
+            {/*
+              O PRIMEIRO NOME, e ele vem por `Tooltip` — nunca pelo ícone.
+
+              O ícone é `divIcon`, que recebe HTML CRU, e a regra do projeto
+              desde a plaqueta da CTO é que nome digitado por gente não entra
+              ali. A fase anterior usava INICIAIS, e podia: `[A-Z]{0,2}` não tem
+              caractere com significado em HTML. Um primeiro nome não tem essa
+              garantia — pode conter `<`, `&`, aspas —, então ele passa pelo
+              `Tooltip`, cujo conteúdo o React escapa.
+
+              Só o primeiro nome: o completo vive no popup, aberto por ação
+              explícita.
+
+              ## À ESQUERDA do ponto, e não à direita
+
+              A OS usa a coordenada do cliente, e o número dela vai à direita
+              do losango. Com o nome também à direita, os dois rótulos nasciam
+              um em cima do outro — medido: `Camada` em (785, 418) e
+              `OS-N°8800` em (786, 418), a um pixel. Cada família tem a sua
+              direção, e no mesmo ponto elas não se cruzam: caixa ACIMA, OS à
+              DIREITA, cliente à ESQUERDA — e a linha lê `Maria ◆ OS-N°7`.
+
+              ABAIXO foi considerado e descartado pela conta: o nome desceria
+              38px, e a plaqueta da caixa sobe 59px acima dela, então um cliente
+              a 80m ao norte de uma caixa cruzaria a plaqueta dela.
+            */}
+            {primeiroNome ? (
+              <Tooltip
+                permanent
+                direction="left"
+                offset={[-11, 0]}
+                className="cto-map-label cto-map-label--cliente"
+              >
+                <span data-testid="customer-map-label">{primeiroNome}</span>
+              </Tooltip>
+            ) : null}
+
             <Popup>
               <div
                 className="min-w-[220px] max-w-[280px] p-3"
@@ -451,104 +489,170 @@ function ServiceOrderMarkersBase({
           <Tooltip
             permanent
             direction="right"
-            offset={[10, 0]}
+            offset={[12, 0]}
             className="cto-map-label cto-map-label--os"
           >
-            <span data-testid="order-map-label">
-              {os.priority === "URGENT" ? "! " : ""}
-              {`OS-N°${os.number}`}
-            </span>
+            {/*
+              O `!` mora no SÍMBOLO, e não aqui.
+
+              Ele aparecia nos dois — desenho e texto — e o dono apontou a
+              duplicação. O reforço que a cor não pode dispensar continua
+              existindo, uma vez só, dentro do losango. O rótulo é o número, e
+              nada mais: prioridade por extenso é assunto do popup.
+            */}
+            <span data-testid="order-map-label">{`OS-N°${os.number}`}</span>
           </Tooltip>
-          <Popup>
+          <Popup
+            /*
+              O empurrão do `autoPan` pousa o popup FORA dos controles do mapa.
+
+              Com 24px de respiro em todos os lados, o popup — 242px num mapa
+              de 398 — quase sempre terminava com o topo a 24px da borda de
+              cima, e os dois cantos de cima têm controle: medido, o zoom ocupa
+              (10–44, 10–74) e o seletor Mapa/Satélite/Híbrido (776–962, 12–42).
+              Perto da borda direita o seletor cobria o "×"; perto da esquerda,
+              o zoom cobria o cabeçalho.
+
+              Cada respiro limpa UM controle, e juntos limpam os dois em
+              qualquer posição: topo ≥ 50 passa por baixo do seletor (termina
+              em 42), e esquerda ≥ 52 passa ao lado do zoom (termina em 44). Um
+              respiro de cima de 82 limparia os dois sozinho, e não caberia no
+              mapa de 320px da tela estreita.
+
+              O que impede o empurrão de DESMONTAR o marcador não é isto — é o
+              popup caber no mapa. Mais alto que o mapa, o `autoPan` mostra o
+              topo dele e empurra o marcador para fora da vista; a releitura
+              vem sem o marcador e o conteúdo some.
+            */
+            autoPanPaddingTopLeft={OS_POPUP_RESPIRO_TOPO_ESQUERDA}
+            autoPanPaddingBottomRight={OS_POPUP_RESPIRO_BASE_DIREITA}
+          >
             <div
-              className="min-w-[220px] max-w-[280px] p-3"
+              /*
+                COMPACTO e com as AÇÕES fora da rolagem.
+
+                Medido antes da correção: o popup tinha 222×473px num mapa de
+                398px — 119% da altura — e nascia 355px acima da borda de cima.
+                Um popup mais alto que o mapa força o `autoPan` a empurrar o
+                marcador para fora da vista; a releitura então vinha sem ele, o
+                marcador era desmontado e o conteúdo do popup sumia junto,
+                deixando só a casca com o "×". Era o "Abrir OS" que o dono via
+                fora da área útil — e, às vezes, simplesmente não existia.
+
+                A estrutura é cabeçalho fixo, conteúdo com rolagem própria e
+                rodapé fixo com as ações. O teto de altura garante que o popup
+                caiba no menor degrau do mapa; se um nome longo fizer o conteúdo
+                crescer, quem rola é o meio — "Abrir OS" continua à vista.
+              */
+              className="flex max-h-[240px] w-[300px] max-w-[calc(100vw-3rem)] flex-col p-3"
               data-testid="order-map-popup"
               data-order-id={os.id}
             >
-              <p className="text-sm font-semibold text-fg">OS Nº {os.number}</p>
-              <p className="mt-0.5 text-xs text-fg-muted">
-                {SERVICE_ORDER_STATUS_LABELS[os.status]}
-                {os.typeName ? ` · ${os.typeName}` : ""}
-              </p>
-
-              {/*
-                A PRIORIDADE por extenso, e ela vem do domínio.
-
-                No mapa a urgência é cor mais `!`, que é o suficiente para bater
-                o olho; aqui ela é escrita, porque o popup é onde se decide o
-                que fazer. O rótulo sai de `SERVICE_ORDER_PRIORITY_LABELS`, a
-                mesma tabela que o despacho usa — nada aqui deduz urgência de
-                tipo, status ou tempo em aberto.
-              */}
-              <p
-                className={`mt-1.5 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                  os.priority === "URGENT"
-                    ? "border-danger-border bg-danger-bg text-danger-fg"
-                    : "border-border-subtle bg-surface-muted text-fg-secondary"
-                }`}
-                data-testid="order-map-priority"
-              >
-                {os.priority === "URGENT" ? "! " : ""}
-                Prioridade: {SERVICE_ORDER_PRIORITY_LABELS[os.priority]}
-              </p>
-
-              <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                <dt className="text-fg-muted">Cliente</dt>
-                <dd className="text-right font-medium text-fg">
-                  {os.customerName}
-                </dd>
-                <dt className="text-fg-muted">Aberta</dt>
-                <dd className="text-right font-medium text-fg">
+              <div className="shrink-0">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-semibold text-fg">OS Nº {os.number}</p>
                   {/*
-                    Calculado a partir do instante canônico. Nada de
-                    `ageMinutes` persistido — estaria errado no segundo
-                    seguinte.
+                    A PRIORIDADE por extenso, e ela vem do domínio.
+
+                    Sem `!` aqui: a regra do dono é que a exclamação mora SÓ no
+                    símbolo do mapa. Neste selo a palavra "Urgente" carrega o
+                    sinal, então a cor não está sozinha. O rótulo sai de
+                    `SERVICE_ORDER_PRIORITY_LABELS`, a mesma tabela do despacho.
                   */}
-                  {connectivityAge(os.openedAt) ?? "—"}
-                </dd>
-                <dt className="text-fg-muted">Técnico</dt>
-                <dd className="text-right font-medium text-fg">
-                  {os.technicianName ?? "—"}
-                </dd>
-                {os.cto ? (
-                  <>
-                    <dt className="text-fg-muted">CTO</dt>
-                    <dd className="text-right font-medium text-fg">
-                      {os.cto.ctoName} · {os.cto.portNumber}
-                    </dd>
-                  </>
-                ) : null}
-              </dl>
+                  <p
+                    className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                      os.priority === "URGENT"
+                        ? "border-danger-border bg-danger-bg text-danger-fg"
+                        : "border-border-subtle bg-surface-muted text-fg-secondary"
+                    }`}
+                    data-testid="order-map-priority"
+                  >
+                    {SERVICE_ORDER_PRIORITY_LABELS[os.priority]}
+                  </p>
+                </div>
+                <p className="mt-0.5 text-xs text-fg-muted">
+                  {SERVICE_ORDER_STATUS_LABELS[os.status]}
+                  {os.typeName ? ` · ${os.typeName}` : ""}
+                </p>
+              </div>
+
+              <div className="mt-2 min-h-0 flex-1 overflow-y-auto">
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                  <dt className="text-fg-muted">Cliente</dt>
+                  <dd className="truncate text-right font-medium text-fg">
+                    {os.customerName}
+                  </dd>
+                  <dt className="text-fg-muted">Aberta</dt>
+                  <dd className="text-right font-medium text-fg">
+                    {/*
+                      Calculado a partir do instante canônico. Nada de
+                      `ageMinutes` persistido — estaria errado no segundo
+                      seguinte.
+                    */}
+                    {connectivityAge(os.openedAt) ?? "—"}
+                  </dd>
+                  <dt className="text-fg-muted">Técnico</dt>
+                  <dd className="truncate text-right font-medium text-fg">
+                    {os.technicianName ?? "—"}
+                  </dd>
+                  {os.cto ? (
+                    <>
+                      {/*
+                        O nome da caixa JÁ COMEÇA com "CTO": o rótulo à esquerda
+                        é "Rede", e não "CTO", para não sair "CTO CTO QA FIELD 01"
+                        — a mesma duplicação que o dono apontou no popup do
+                        cliente. "Porta" vai por extenso.
+                      */}
+                      <dt className="text-fg-muted">Rede</dt>
+                      <dd
+                        className="truncate text-right font-medium text-fg"
+                        data-testid="order-map-cto"
+                      >
+                        {os.cto.ctoName} · Porta {os.cto.portNumber}
+                      </dd>
+                    </>
+                  ) : null}
+                </dl>
+
+                {/*
+                  A conectividade do CLIENTE, dentro do popup da OS.
+
+                  É a informação que mais muda o que o despachante faz a seguir:
+                  uma OS de um cliente offline é outra conversa que a mesma OS de
+                  um cliente online.
+                */}
+                <LinhaDeEstado
+                  status={os.connectivityStatus}
+                  observedAt={os.connectivityObservedAt}
+                />
+              </div>
 
               {/*
-                A conectividade do CLIENTE, dentro do popup da OS.
+                As AÇÕES, fora da rolagem, numa linha só.
 
-                É a informação que mais muda o que o despachante faz a seguir:
-                uma OS de um cliente offline é outra conversa que a mesma OS de
-                um cliente online.
+                "Abrir OS" é a principal e vem primeiro, cheia; "Abrir cliente" é
+                a secundária. Lado a lado economizam a altura que empilhadas
+                custavam — e altura era exatamente o defeito.
               */}
-              <LinhaDeEstado
-                status={os.connectivityStatus}
-                observedAt={os.connectivityObservedAt}
-              />
-
-              <Link
-                href={comVolta(`/ordens/${os.id}`)}
-                className="cto-map-action mt-3 inline-flex w-full items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition-colors"
-                data-testid="order-map-open"
-              >
-                Abrir OS
-              </Link>
-
-              {canOpenCustomer ? (
+              <div className="mt-2.5 flex shrink-0 flex-wrap gap-1.5">
                 <Link
-                  href={comVolta(`/clientes/${os.customerId}/editar`)}
-                  className="cto-map-secondary mt-1.5 inline-flex w-full items-center justify-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
-                  data-testid="order-map-open-customer"
+                  href={comVolta(`/ordens/${os.id}`)}
+                  className="cto-map-action inline-flex flex-1 basis-24 items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition-colors"
+                  data-testid="order-map-open"
                 >
-                  Abrir cliente
+                  Abrir OS
                 </Link>
-              ) : null}
+
+                {canOpenCustomer ? (
+                  <Link
+                    href={comVolta(`/clientes/${os.customerId}/editar`)}
+                    className="cto-map-secondary inline-flex flex-1 basis-24 items-center justify-center rounded-lg px-3 py-2 text-xs font-medium transition-colors"
+                    data-testid="order-map-open-customer"
+                  >
+                    Abrir cliente
+                  </Link>
+                ) : null}
+              </div>
             </div>
           </Popup>
         </Marker>

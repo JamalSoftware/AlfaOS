@@ -768,6 +768,22 @@
 }
 
 /*
+  As caudas das OUTRAS direções também — CTO-3.2.2d.
+
+  O rótulo da OS (à direita) nasceu na `CTO-3.2.2c` sem esta regra, e o do
+  cliente passou a ficar à esquerda do ponto. O triângulo padrão do Leaflet é
+  branco: no tema claro coincide com o fundo e ninguém nota; no escuro vira uma
+  seta branca presa a uma plaqueta escura.
+*/
+.cto-map-shell .leaflet-tooltip-right.cto-map-label::before {
+  border-right-color: rgb(var(--surface));
+}
+
+.cto-map-shell .leaflet-tooltip-left.cto-map-label::before {
+  border-left-color: rgb(var(--surface));
+}
+
+/*
   O truncamento desceu para o NOME — CTO-3.2.1c.
 
   Ele estava no contêiner, e ali ele cortaria a linha do estado junto quando a
@@ -983,23 +999,15 @@
 }
 
 /*
-  As INICIAIS do cliente, dentro do ponto.
+  A plaqueta do CLIENTE: mesma família da plaqueta da CTO, discreta.
 
-  Duas letras identificam sem transformar o mapa numa lista de pessoas. O nome
-  completo vive no popup — ver `customerInitials`, cuja garantia de saída
-  (`[A-Z]{0,2}`) é o que autoriza texto derivado de nome num `divIcon`.
+  Ela traz o PRIMEIRO NOME — e vem por `Tooltip`, que o React escapa, porque
+  nome digitado por gente não entra em `divIcon`. Ver
+  `src/lib/customer-presentation.ts`.
 */
-.cto-dot__initials {
-  font-family: inherit;
-  font-size: 7.5px;
-  font-weight: 700;
-  fill: rgb(var(--surface));
-  letter-spacing: -0.2px;
-}
-
-/* Sem leitura é oco: a letra precisa da cor do traço para ser lida. */
-.cto-dot--neutral .cto-dot__body--sem-leitura ~ .cto-dot__initials {
-  fill: rgb(var(--neutral-fg));
+.cto-map-label--cliente {
+  font-size: 10px;
+  font-weight: 600;
 }
 
 /*
@@ -1035,13 +1043,13 @@
 /*
   # Densidade de rótulo por ZOOM
 
-  Iniciais e número de OS aparecem a partir do zoom operacional. Abaixo dele o
+  Primeiro nome e número de OS aparecem a partir do zoom operacional. Abaixo dele o
   mapa é leitura de distribuição, não de identidade, e o texto vira ruído
   sobreposto.
 
   Some por CSS e não por prop: cruzar o limiar não pode recriar marcador.
 */
-.leaflet-container:not(.map--rotulos) .cto-dot__initials,
+.leaflet-container:not(.map--rotulos) .cto-map-label--cliente,
 .leaflet-container:not(.map--rotulos) .cto-map-label--os {
   display: none;
 }
