@@ -5734,3 +5734,247 @@ caixa. Com 90px ela fica negativa e o teste para ali.
 
 **`S18` mede a área PINTADA**, com o traço: 188 px² de disco contra 171 de
 losango com a OS em 20. Com a OS em 23 o losango pinta ~226.
+
+## 45. `CTO-3.2.2e` — estabilização final de UX do Mapa Operacional
+
+**Estado:** `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.
+**Migration:** nenhuma. **Schema:** nenhum. **Dependência:** nenhuma. **Dart:** zero.
+**Rota nova:** nenhuma. **PRD:** não tocado, por instrução da fase — o dono
+congela a documentação depois da validação final. Esta seção é nota técnica.
+
+Sete pedidos do dono, e cinco deles tinham causa-raiz que a medição achou
+antes de qualquer edição.
+
+### 45.1 O flicker tinha DOIS indicadores, e o que piscava era o sem atraso
+
+Sonda de 20 ms durante um arrasto com resposta normal:
+
+```text
+----------------------------L-L-L-L-------------------------------   L = "Carregando CTOs…"
+                                                                    U = "Atualizando mapa…" (nunca)
+```
+
+`OperationalMap` desenhava **"Carregando CTOs…"** no instante em que a camada
+de CTO começava a ler, e o apagava no instante da resposta — ~80 ms de vida.
+Ao lado dele, a camada já tinha o aviso único "Atualizando mapa…", com 160 ms
+de atraso, que numa resposta normal nunca chegava a aparecer. Eram dois
+indicadores para a mesma coisa.
+
+Ficou **um**, da camada, e a cadência virou função pura
+(`src/lib/map-activity-indicator.ts`): **250 ms para aparecer** e **300 ms de
+tempo mínimo na tela**. Leitura rápida nunca mostra nada; leitura lenta mostra
+depois do atraso e não some no milissegundo seguinte; leitura emendada na
+anterior não apaga e reacende. O pedido ao servidor sai na hora — só o aviso
+espera. `OperationalMap` perdeu a prop `loading`, e um teste estrutural proíbe
+o texto e o `data-testid` de voltarem.
+
+A prova de navegador é **temporal**: um cronômetro no próprio navegador
+registra quando a requisição da camada sai e quando o aviso aparece e some.
+Com resposta de 120 ms, zero aparições; com 320 ms, uma aparição ≥ 200 ms
+depois do pedido, visível por ≥ 250 ms.
+
+### 45.2 O espaço vazio dos popups era o `p { margin: 1.3em }` do Leaflet
+
+Medido no popup da CTO: nome a **31 px** do topo em vez de 13, status 34 px
+abaixo dele, 321 px no total. No da OS: cabeçalho de **104 px** para uns 40 de
+conteúdo — e a conectividade do cliente a **y=210 num miolo que terminava em
+187**: fora da área rolável. Era isso que o dono via como "pouco evidente".
+
+A causa é uma regra do `leaflet.css` — `.leaflet-popup-content p { margin:
+1.3em 0 }` —, mais específica que o reset de `p` do Tailwind e que qualquer
+utility `mt-*`. Todo parágrafo de popup nascia com ~18 px em cima e embaixo.
+
+A correção é uma regra escopada (`.cto-map-popup--compacto p { margin: 0 }`)
+mais a decisão de os dois popups compactos **não usarem `<p>` com margem** —
+o espaçamento é de contêiner. Escopada porque o popup do **cliente** foi
+aprovado pelo dono como está, com as margens do Leaflet; ele não muda nesta
+fase.
+
+| | antes | agora |
+|---|---|---|
+| CTO — invólucro | 321 px | **229 px** (−29 %) |
+| CTO — nome a partir do topo | 31 px | 13 px |
+| OS — cabeçalho | 104 px | **37 px** |
+| OS — invólucro | 242 px | 248 px, **tudo visível sem rolar** |
+| OS — conectividade | fora do miolo visível | dentro, com o sujeito escrito |
+
+No popup da CTO o nome e o selo de estado passaram a dividir a primeira linha
+(o `pr-5` mantém o nome fora do "×", que mora nos 24 px do canto). Nenhuma
+informação saiu: capacidade, livres, ocupadas, reservadas, danificadas,
+ativos, online, offline, sem leitura, OS abertas, e as três ações.
+
+### 45.3 O popup da OS usa a largura
+
+O nome do cliente vivia numa coluna à direita do rótulo e era truncado
+("ROSELI JESUNO DE…"). Agora ocupa a largura inteira, em até duas linhas; a
+conectividade vira selo com o **sujeito** — `customerLabel` na tabela de
+`connectivity-presentation.ts`: "Cliente online", "Cliente offline", "Sem
+leitura" — com a idade da leitura na mesma linha; "Aberta" e "Técnico"
+dividem uma linha em duas colunas; a caixa, quando há, fecha o miolo.
+Cabeçalho e ações continuam fixos, fora da rolagem; o teto subiu de 240 para
+280 px, e o miolo cabe sem rolar (136 px de conteúdo em 136 de área).
+
+### 45.4 O popup da CTO pousa fora dos controles
+
+A `CTO-3.2.2d` deixou registrado que, perto da borda direita, o seletor de
+base cobria o "×" deste popup, e perto da esquerda o zoom cobria o cabeçalho
+— e não corrigiu porque com 321 px ele não cabia com 50 de respiro no menor
+mapa. Compactado, cabe: os dois popups leem a **mesma** constante
+(`popup-clearance.ts`, `[52, 50]` / `[24, 24]`), porque a geometria dos
+controles é do mapa e não de uma camada. Medido nas três janelas, no centro e
+nas quatro bordas: popup inteiro no mapa, fora do zoom, do seletor e da
+atribuição, com "×", "Abrir CTO", "Ver clientes" e "Ajustar posição"
+recebendo o clique no centro deles.
+
+### 45.5 A altura do mapa tem um degrau por ALTURA de janela
+
+O dono pediu mais área vertical, e "quanto" depende de quanto sobra abaixo do
+mapa. O topo do mapa fica em 298 px de documento com as camadas padrão e em
+309 com a camada de clientes ligada (o cartão de camadas ganha o filtro e
+cresce 11 px). Medido com as três camadas ligadas, o pior caso:
+
+| janela | antes | agora | mapa termina em | resumo | legenda |
+|---|---|---|---|---|---|
+| 1440×900 | 400 | **440** | 749 | inteiro (765–817) | **inteira** (833–895) |
+| 1366×768 | 400 | **410** | 719 | começa em 735 | começa em 803 |
+| 1280×720 | 400 | **410** | 719 | começa em 735 | começa em 803 |
+
+Em 720 de altura, **410 é o teto**: o mapa termina a um pixel da dobra, e um
+mapa cortado na dobra é pior que um mapa pequeno. Em 900 sobram 200, e **440
+é o maior mapa que ainda deixa resumo e legenda inteiros na primeira dobra
+com as três camadas ligadas** — a propriedade que a `CTO-3.2.2` corrigiu
+(§41.14) e que a `LAYER-21` guarda desde então. 460 seria possível ao custo
+de 15 px de legenda abaixo da dobra; **ficou como decisão do dono, não
+tomada aqui**.
+
+Por isso o último degrau é `[@media(min-width:1024px) and (min-height:860px)]`
+— **um número de pixels**, discreto e previsível, e não um mapa que cresce com
+a janela. A regra da `CTO-3.2.1b` não mudou: nenhuma unidade de viewport, em
+degrau nenhum. Os degraus menores subiram 20 (340/380/400).
+
+O preço, declarado: em 768 e 720 de altura, com a camada de clientes ligada, o
+resumo começa 15 px abaixo da dobra (com as camadas padrão ele cabe em 768).
+É a "rolagem pequena" que o dono aceitou em troca do mapa maior.
+
+### 45.6 Ajustar posição traz a caixa para a área segura
+
+O dono via a caixa "lá embaixo" ao entrar em edição. Medido: o `autoPan` do
+popup empurra a vista para o popup caber **acima** do marcador, então o
+marcador vai parar no rodapé (y=354 num mapa de 400); fechado o popup, ele
+fica lá — e no canto esquerdo, debaixo do painel de edição (172–386, 316 px
+de largura).
+
+Ao entrar em edição a camada chama o **`panInside` do Leaflet** com respiros
+medidos — topo 106 (o zoom termina em 74 e o ícone tem 32), esquerda 64,
+direita 40, base 48 — e um retângulo a evitar no canto inferior esquerdo
+(332 × 250, o painel com folga). O canvas escolhe entre subir e ir para a
+direita pelo menor deslocamento. `panInside` move o mínimo que resolve e **só
+se precisar**: caixa já na área segura não se move, e o teste prova as duas
+coisas — no centro a vista de depois é a de antes; nas bordas ela muda. É
+pan de **vista**: a coordenada gravada não muda, nada é escrito, e quem
+escreve continua sendo o arrasto explícito do marcador.
+
+### 45.7 "Sem leitura" ganhou corpo
+
+Antes: contorno tracejado de 1,75 px, sem preenchimento. Sobre satélite e
+híbrido, invisível. Agora são quatro sinais, e nenhum é cor sozinha: um
+**halo** na cor da superfície por baixo (o recurso que já dá contraste ao
+online e ao offline pelo traço deles), preenchimento neutro **claro** com
+contorno tracejado **escuro** de 1,9 px, e um **centro**. O raio do halo (6,9)
+dá ao ponto a mesma área aparente do disco cheio com o traço dele — a razão
+medida é 1,04. Contraste contorno × preenchimento calculado do
+`getComputedStyle` nos dois temas: ≥ 7:1. Continua neutro (canais a menos de
+40 de distância) e continua tracejado; não vira vermelho nem verde.
+
+### 45.8 Cliente com OS urgente: sinal ADICIONAL, com uma autoridade
+
+`hasUrgentOpenServiceOrder` entrou no DTO — um booleano, e nada além: o
+marcador precisa saber SE há urgência, não quais OS. Sai da **mesma**
+consulta que conta as OS abertas: o `groupBy` passou a agrupar por cliente **e
+prioridade**, e a urgência é o grupo `URGENT` entre os abertos. `HIGH` não
+conta; urgente concluída ou cancelada não conta; nada é deduzido de tipo,
+texto ou tempo. Zero consulta a mais — o teste conta: oito clientes, um
+`groupBy`, zero `findMany`, zero `count`.
+
+No desenho: **anel vermelho no lugar do âmbar** (nunca os dois) e um selo `!`
+no canto, **fora** do disco — dentro ele disputaria com o furo do offline e o
+centro do sem leitura. O miolo não muda: online continua verde, offline
+continua vermelho (quem o distingue do offline comum é o anel a mais e o
+selo, não um tom de vermelho), sem leitura continua tracejado. **Estático**:
+nenhuma animação, medido por `animationName`. O rótulo acessível diz "com OS
+urgente" por extenso. A legenda ganhou "Cliente com OS urgente" com o mesmo
+símbolo, por último — ela não substitui nenhuma das quatro entradas. O popup
+do cliente ganhou um chip "OS urgente" na linha que já existia, e só isso.
+
+### 45.9 O que NÃO mudou
+
+Popup do cliente (aprovado), chips de resumo, controle de camadas fora do
+canvas, filtros, rótulos de cliente e de OS, tamanhos dos marcadores (CTO 32,
+OS 23, cliente 21), a escala por zoom em CSS, o `translate3d` do Leaflet, e a
+ordem OS acima de cliente. O empate CTO↔cliente na mesma coordenada
+**continua em aberto**.
+
+### 45.10 Fixtures e testes que mudaram de contrato, legitimamente
+
+`VIS-03` afirmava `fill: none` no sem leitura — o contrato agora é "tem
+preenchimento, e ele não é o de nenhum dos outros dois estados"; a prova de
+contraste ficou na `UNKNOWNVIS`. `LEGEND-01..06` ganhou a quinta entrada.
+`OSPOP` subiu o teto de 260 para 300 e ganhou as asserções `OSPOP2` sobre
+cabeçalho, conectividade à vista e largura do nome. O bairro `PROX` ganhou
+dois vizinhos — Carlos (online + urgente) e Pedro (offline com HIGH aberta e
+urgente concluída) — e João passou a ter uma urgente além da normal; Roseli
+fica sem OS de propósito, porque é o cliente que a `PROX-01` clica
+diretamente.
+
+### 45.11 INFO
+
+* **O popup do cliente ainda carrega as margens de parágrafo do Leaflet**
+  (~18 px entre blocos). Foi aprovado pelo dono como está e a fase mandou não
+  redesenhar; se a consistência com os outros dois importar, a classe
+  `cto-map-popup--compacto` já existe.
+* **460 em 1440×900 é possível**, ao custo de a legenda terminar 15 px abaixo
+  da dobra com as três camadas ligadas. Ficou em 440 para não desfazer a
+  propriedade que a `CTO-3.2.2` corrigiu; é decisão do dono.
+* **1280×720:** com clientes ligados os chips do resumo quebram em duas
+  linhas (111 px) por LARGURA, e a legenda começa a ~83 px da dobra. Já era
+  assim antes da fase (a diferença é os 10 px do mapa).
+* **O empate CTO↔cliente na mesma coordenada** segue em aberto, sem piora.
+
+### 45.12 Sabotagens
+
+Dezenove mutações — as dezesseis do enunciado e mais três sobre o que esta
+fase consertou —, cada uma sobre o estado commitado, com `.next` limpo,
+restaurada por `git checkout` e conferida por `git status` vazio.
+**Dezenove detectadas.**
+
+| # | O que a mutação faz | Detector | O que ele disse |
+|---|---|---|---|
+| `S1` | atraso do indicador volta a zero | `LOADFLICKER-02/09` (Vitest), `LOADFLICKER-01` | `o indicador piscou numa leitura rápida` |
+| `S2` | "Carregando CTOs…" reaparece, sem atraso | `LOADFLICKER-01/04`, `LOADFLICKER-02/05` | contagem de "Carregando CTOs" ≠ 0 |
+| `S3` | indicador volta ao fluxo do documento | `LOADUX-01..06` | `mapa mudou de posição durante o refresh: 310 → 360` |
+| `S4` | sem leitura volta a oco, sem halo | `VIS-03`, `UNKNOWNVIS-01..06` | `fill` voltou a `none` |
+| `S5` | URGENT aberta não destaca | `URGCLIENT-01/03b/07` (Vitest), `URGCLIENT-04` | flag falsa no Carlos |
+| `S6` | HIGH destaca como urgente | `URGCLIENT-03` (Vitest), `URGCLIENT-04` | Lucas com anel e selo |
+| `S7` | urgente FECHADA destaca (predicado de aberta some) | `URGCLIENT-02`, `CUSTMAP-09b`, `CTOSUM-01..05` | contagens erradas |
+| `S8` | urgência pinta o miolo de vermelho | `URGCLIENT-04` | `Carlos deveria continuar verde: rgb(185, 28, 28)` |
+| `S9` | popup da OS volta a 430px | `OSPOP` | `centro: o popup passou da borda do mapa` |
+| `S10` | conectividade some do popup da OS | `OSPOP2`, `LAYER-10/11` | `a conectividade não está à vista` |
+| `S11` | popup da OS sem `autoPan` | `OSPOP` | `o popup passou da borda do mapa` |
+| `S12` | popup da CTO volta ao espaço vazio | `CTOPOP-01` | `popup com 293px` |
+| `S13` | popup da CTO com respiro esquerdo curto | `CTOPOP-08` | `esquerda: o popup ficou debaixo de o zoom` |
+| `S14` | popup da CTO com respiro de topo curto | `CTOPOP-07/09` | `direita: o × está coberto` |
+| `S15` | altura do mapa volta a 400 | `UXP-01/01b` (Vitest), `MAPHEIGHT-01` | `altura do mapa` |
+| `S16` | painel de edição sai do mapa | `EDITUX-01` | `o painel escapou do mapa` |
+| `S17` | entrar em edição não chama `panInside` | `EDITUX-03` | `fundo-esquerda: a caixa ficou debaixo do painel` |
+| `S18` | o retângulo do painel deixa de ser evitado | `EDITUX-03` | `fundo-esquerda: a caixa ficou debaixo do painel` |
+| `S19` | tempo mínimo visível volta a zero | `LOADFLICKER-05/09` (Vitest), `LOADFLICKER-02/05` | `sumiu cedo demais` |
+
+**`S15` não aplicou na primeira volta**, e a culpa foi do script: a âncora
+ainda tinha os `420/460` da primeira versão da altura, trocados por `410/440`
+depois de escrevê-lo. Corrigida a âncora, caiu nos dois detectores.
+
+**`S17` e `S18` caem no MESMO caso**, "fundo-esquerda", e é o esperado: sem
+`panInside` a caixa fica onde o `autoPan` a deixou, e sem o retângulo do
+painel o `panInside` a considera dentro dos respiros e não a tira de baixo
+dele. O que os separa é o "direita" e o "fundo": com `S18` esses dois ainda
+passam.

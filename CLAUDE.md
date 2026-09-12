@@ -1050,6 +1050,22 @@ Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §43 e PRD (Parte XVI, semântica
 
 Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §44.
 
+**`CTO-3.2.2e` ENTREGUE — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** Estabilização final de UX sobre a `CTO-3.2.2d`. **Zero migration, zero schema, zero dependência, zero rota, zero Dart — e o PRD NÃO foi tocado**, por instrução da fase. Registro em nota técnica (§45).
+
+**O flicker eram DOIS indicadores.** `OperationalMap` desenhava "Carregando CTOs…" no instante da requisição (medido em sonda de 20 ms: ~80 ms de vida por arrasto) ao lado do "Atualizando mapa…" da camada, que tinha atraso e numa resposta normal nunca aparecia. Ficou **um**, da camada, com cadência em função pura (`src/lib/map-activity-indicator.ts`): 250 ms para aparecer, 300 ms mínimo na tela, e leitura emendada na anterior não apaga e reacende. O pedido sai na hora; só o aviso espera. A prova de navegador é **temporal** — cronômetro na página, com `performance.now()`.
+
+**O espaço vazio dos popups era do `leaflet.css`**: `.leaflet-popup-content p { margin: 1.3em 0 }` vence o reset do Tailwind e qualquer `mt-*`. Nome da CTO a 31 px do topo, cabeçalho da OS com 104 px para 40 de conteúdo — e a conectividade do cliente **fora da área rolável** do popup da OS, que era o "pouco evidente" do dono. Reset escopado a `.cto-map-popup--compacto`; os popups compactos não usam `<p>` com margem. CTO 321 → **229 px**; OS mostra tudo sem rolar, com o nome na largura inteira e "Cliente offline" como selo. O popup do **cliente** ficou como o dono aprovou. Os dois popups leem a **mesma** constante de respiro do `autoPan` (`popup-clearance.ts`), porque a geometria dos controles é do mapa, não de uma camada — e o popup da CTO deixou de pousar sob o seletor de base e sob o zoom nas bordas.
+
+**A caixa "lá embaixo" na edição vinha do `autoPan` do popup**, que empurra o marcador para o rodapé para o popup caber acima. Entrar em edição chama o `panInside` do Leaflet com respiros medidos (topo 106, esquerda 64, direita 40, base 48) e um retângulo a evitar — o painel, 332 × 250 —, escolhendo entre subir e ir para a direita pelo menor deslocamento. Move o mínimo, **só se precisar** (no centro a vista não muda), e nunca grava: a coordenada só muda pelo arrasto explícito.
+
+**A altura do mapa ganhou um degrau por ALTURA de janela:** 340/380/400/**410** por largura, e **440** com `[@media(min-width:1024px) and (min-height:860px)]`. Pixels, discreto; a regra "nenhuma unidade de viewport" continua. 410 é o teto em 720 (o mapa termina a 1 px da dobra com clientes ligados); 440 é o maior que deixa resumo **e** legenda inteiros na dobra de 900 com as três camadas (legenda em 895 — a propriedade que a `CTO-3.2.2` corrigiu e a `LAYER-21` guarda). 460 custaria 15 px de legenda fora da dobra: **decisão do dono, não tomada**.
+
+**Urgência no cliente sai da MESMA consulta**: o `groupBy` de OS abertas agrupa por cliente **e** prioridade, e `hasUrgentOpenServiceOrder` é "há grupo `URGENT` entre os abertos" — `HIGH` não conta, urgente fechada não conta, zero consulta a mais (medido: oito clientes, um `groupBy`). No desenho é sinal **adicional**: anel vermelho no lugar do âmbar (nunca os dois) e selo `!` fora do disco; o miolo online/offline/sem leitura não muda e nada anima. "Sem leitura" ganhou halo, preenchimento claro, contorno tracejado escuro e centro — contraste ≥ 7:1 nos dois temas, mesma área aparente do disco cheio.
+
+**Duas correções de fixture que valem registro:** uma segunda OS no mesmo cliente nasce no **mesmo pixel** da primeira e intercepta o clique que os testes fazem nela — a urgência foi para vizinhos próprios; e "a caixa precisa se mover ao entrar em edição" **não é dado de tabela**: na borda direita o `autoPan` do próprio popup já a traz, e o teste passou a medir se precisava.
+
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §45.
+
 **Próxima fatia: decisão do dono entre `DASH-1`, `TL-1`, `EV-1` e `GS-1`** (`docs/MASTER-PLAN.md`). Não iniciada.
 
 ## Princípios
