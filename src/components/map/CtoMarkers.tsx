@@ -8,6 +8,10 @@ import type { CtoMapMarker } from "@/lib/cto-map";
 import { ctoMapStatusPresentation } from "@/lib/cto-map-presentation";
 import { OPERATIONAL_MAP_PATH } from "@/lib/return-to";
 import { CTO_MARKER_SIZE, ctoMarkerHtml } from "./cto-marker-icon";
+import {
+  MAP_POPUP_CLEARANCE_BOTTOM_RIGHT,
+  MAP_POPUP_CLEARANCE_TOP_LEFT,
+} from "./popup-clearance";
 
 /**
  * # Os marcadores da camada de CTO
@@ -385,18 +389,20 @@ function CtoMarkers({
 
             <Popup
               /*
-                O `autoPan` VOLTOU, e o que mudou foi o tamanho do popup.
+                O `autoPan` VOLTOU na `CTO-3.2.2b`, e o que mudou foi o tamanho
+                do popup: com 520px num mapa de 558 ele empurrava a vista 291px
+                a cada clique, e era isso que o dono via como "o mapa se mexe
+                sozinho". Desligar o `autoPan` foi TENTADO e medido — o popup
+                passava a nascer 236px acima da borda, cortado. Um controle que
+                esconde metade do próprio conteúdo é defeito pior que um
+                deslocamento pequeno.
 
-                O defeito que o dono relatou como "o mapa se mexe sozinho" era
-                um empurrão de 291px a cada clique, e ele tinha uma causa
-                medida: o popup tinha 520px num mapa de 558 — 93% da altura.
-                Com o popup em 319px o ajuste fica proporcional, e é o ajuste
-                que torna o popup visível.
-
-                Desligar o `autoPan` foi TENTADO e medido: o mapa de fato para
-                de se mexer, e o popup passa a nascer 236px acima da borda
-                superior, cortado. Um controle que esconde metade do próprio
-                conteúdo é defeito pior que um deslocamento pequeno.
+                Os respiros são os MESMOS do popup da OS (`popup-clearance.ts`):
+                a `CTO-3.2.2d` deixou registrado que, perto da borda direita, o
+                seletor Mapa/Satélite/Híbrido cobria o "×" deste popup, e perto
+                da esquerda o zoom cobria o cabeçalho. Com 321px ele não cabia
+                com 50 de topo no menor degrau do mapa; compactado (ver o
+                comentário do reset de `p` em `globals.css`), cabe.
 
                 O que matava o popup NÃO era o empurrão em si: era o recorte
                 sem folga (`MAP_VIEWPORT_PADDING_RATIO`). Com a folga, o
@@ -404,47 +410,62 @@ function CtoMarkers({
                 sobrevive — provado por sonda, 3,75s aberto atravessando a
                 resposta.
               */
-              autoPanPadding={[24, 24]}
+              autoPanPaddingTopLeft={MAP_POPUP_CLEARANCE_TOP_LEFT}
+              autoPanPaddingBottomRight={MAP_POPUP_CLEARANCE_BOTTOM_RIGHT}
             >
               <div
-                className="w-[300px] max-w-[calc(100vw-3rem)] p-3"
+                /*
+                  COMPACTO — `CTO-3.2.2e`.
+
+                  Medido antes: nome a 31px do topo, status 34px abaixo dele,
+                  321px no total. Metade disso era o `p { margin: 1.3em }` do
+                  Leaflet, e a outra metade era o status numa linha só dele.
+                  Agora o nome e o selo de estado dividem a primeira linha, e
+                  nenhum bloco aqui é `<p>` — o espaçamento é do contêiner.
+
+                  `pr-5` na primeira linha: o "×" do Leaflet mora nos 24px do
+                  canto superior direito do invólucro, por cima do conteúdo.
+                */
+                className="cto-map-popup--compacto w-[300px] max-w-[calc(100vw-3rem)] p-3"
                 data-testid="cto-map-popup"
                 data-cto-id={marker.id}
               >
-                <p className="text-sm font-semibold text-fg">{marker.name}</p>
-                {marker.code ? (
-                  <p className="mt-0.5 text-xs text-fg-muted">
-                    Código {marker.code}
-                  </p>
-                ) : null}
-
-                <p
-                  className={`mt-2 inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${
-                    {
-                      success:
-                        "border-success-border bg-success-bg text-success-fg",
-                      warning:
-                        "border-warning-border bg-warning-bg text-warning-fg",
-                      danger: "border-danger-border bg-danger-bg text-danger-fg",
-                      neutral:
-                        "border-neutral-border bg-neutral-bg text-neutral-fg",
-                    }[apresentacao.tone]
-                  }`}
-                  data-testid="cto-map-popup-status"
-                >
-                  <span aria-hidden="true">{apresentacao.glyph}</span>
-                  {apresentacao.label}
-                </p>
+                <div className="flex items-start justify-between gap-2 pr-5">
+                  <div className="min-w-0">
+                    <div className="break-words text-sm font-semibold leading-tight text-fg">
+                      {marker.name}
+                    </div>
+                    {marker.code ? (
+                      <div className="mt-0.5 text-[11px] text-fg-muted">
+                        Código {marker.code}
+                      </div>
+                    ) : null}
+                  </div>
+                  <span
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                      {
+                        success:
+                          "border-success-border bg-success-bg text-success-fg",
+                        warning:
+                          "border-warning-border bg-warning-bg text-warning-fg",
+                        danger: "border-danger-border bg-danger-bg text-danger-fg",
+                        neutral:
+                          "border-neutral-border bg-neutral-bg text-neutral-fg",
+                      }[apresentacao.tone]
+                    }`}
+                    data-testid="cto-map-popup-status"
+                  >
+                    <span aria-hidden="true">{apresentacao.glyph}</span>
+                    {apresentacao.label}
+                  </span>
+                </div>
 
                 {/*
                   CONTAGENS EM CHIPS, e nunca duas listas empilhadas.
 
-                  Medido: com dois `<dl>` de 5 e 6 linhas, o popup tinha 520px
-                  num mapa de 558 — 93% da altura. Um popup quase do tamanho do
-                  mapa força o `autoPan` do Leaflet a empurrar a vista 291px a
-                  cada clique, e era isso que o dono via como "o mapa se mexe
-                  sozinho". Os mesmos onze números cabem em quatro linhas que
-                  quebram sozinhas.
+                  Medido na `CTO-3.2.2b`: com dois `<dl>` de 5 e 6 linhas, o
+                  popup tinha 520px num mapa de 558 — 93% da altura. Os mesmos
+                  onze números cabem em quatro linhas que quebram sozinhas.
 
                   Continua sendo LISTA, e nunca barra ou rosca:
                   `livres + reservadas + danificadas + ocupadas` pode passar da
@@ -452,7 +473,7 @@ function CtoMarkers({
                   conta nas duas (`CTO-2.2`). Um gráfico de fatias afirmaria uma
                   soma que o domínio não garante.
                 */}
-                <div className="mt-2.5 flex flex-wrap items-center gap-1">
+                <div className="mt-2 flex flex-wrap items-center gap-1">
                   <span className="mr-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-muted">
                     Portas
                   </span>
@@ -511,7 +532,6 @@ function CtoMarkers({
                   </div>
                 ) : null}
 
-
                 {canOpenDetail ? (
                   <Link
                     href={hrefDoDetalhe(marker.id)}
@@ -523,7 +543,7 @@ function CtoMarkers({
                       texto saia azul sobre azul. `cto-map-action` e a classe
                       que devolve a decisao ao design system; ver globals.css.
                     */
-                    className="cto-map-action mt-3 inline-flex w-full items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition-colors"
+                    className="cto-map-action mt-2.5 inline-flex w-full items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition-colors"
                     data-testid="cto-map-popup-open"
                   >
                     Abrir CTO
@@ -531,24 +551,18 @@ function CtoMarkers({
                 ) : null}
 
                 {/*
-                  A ação SECUNDÁRIA, e ela é deliberadamente discreta.
+                  As ações SECUNDÁRIAS, deliberadamente discretas.
 
                   O popup não vira painel de ações: "Abrir CTO" continua sendo o
-                  caminho principal, cheio e com a cor do primário, e "Ajustar
-                  posição" é um botão de texto abaixo dele. Corrigir coordenada é
-                  raro; abrir a ficha é o que se faz o tempo todo.
-
+                  caminho principal, cheio e com a cor do primário. Corrigir
+                  coordenada é raro; abrir a ficha é o que se faz o tempo todo.
                   Quem barra continua sendo o servidor — `requireCtoAccess`
-                  exige `ADMIN` e a capability antes de qualquer escrita. Esconder
-                  o botão é apresentação, e nada mais.
-                */}
-                {/*
-                  A lista nominal NÃO vem no recorte — ela é buscada ao clicar.
+                  exige `ADMIN` e a capability antes de qualquer escrita.
 
+                  A lista nominal NÃO vem no recorte — ela é buscada ao clicar.
                   Mandar os nomes dos clientes de cada caixa visível seria
-                  payload enorme e, o que pesa mais, espalhar nome de assinante
-                  por uma resposta cujo trabalho é desenhar pontos. O nome só
-                  viaja quando alguém pede aquela caixa.
+                  espalhar nome de assinante por uma resposta cujo trabalho é
+                  desenhar pontos.
                 */}
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {canSeeCustomers &&

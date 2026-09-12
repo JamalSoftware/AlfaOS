@@ -336,6 +336,27 @@
 }
 
 /*
+  O espaço VAZIO dos popups tinha um dono: `leaflet.css`.
+
+  `.leaflet-popup-content p { margin: 1.3em 0 }` é mais específico que o reset
+  de `p` do Tailwind, então todo parágrafo de popup nascia com ~18px em cima e
+  embaixo — e `mt-2` numa utility (especificidade menor) nem era lida. Medido
+  na `CTO-3.2.2e`: o nome da CTO a 31px do topo em vez de 13; o cabeçalho da
+  OS com 104px para uns 40 de conteúdo, o que empurrava a conectividade do
+  cliente para FORA da área rolável — era isso que o dono via como "pouco
+  evidente".
+
+  Zerar aqui vence a regra do Leaflet e também venceria uma utility de margem
+  num `p`. Por isso os popups compactos NÃO usam `<p>` com `mt-*`: o
+  espaçamento deles é de contêiner (`mt-*` em `div`, `gap`), e esta regra fica
+  como rede para um `<p>` que entre no futuro. Escopada à classe, e não a
+  todo popup, porque o do cliente foi aprovado pelo dono como está.
+*/
+.cto-map-shell .leaflet-popup-content .cto-map-popup--compacto p {
+  margin: 0;
+}
+
+/*
   O marcador.
 
   Forma, glifo e cor — nessa ordem de importância. A cor é a ÚLTIMA pista de
@@ -873,12 +894,36 @@
   fill: rgb(var(--surface));
 }
 
-/* `SEM LEITURA`: oco e tracejado — não é um estado, é a ausência de um. */
+/*
+  `SEM LEITURA`: tracejado — não é um estado, é a ausência de um.
+
+  Até a `CTO-3.2.2d` ele era só o contorno, sem preenchimento, e o dono não o
+  enxergava sobre satélite e híbrido: um traço de 1,75px de cinza médio sobre
+  telhado é invisível. Agora são quatro sinais, e nenhum deles é cor sozinha:
+
+    halo        disco na cor da superfície, por baixo — o mesmo recurso que o
+                traço branco dá ao online e ao offline;
+    corpo       preenchimento neutro CLARO com contorno tracejado ESCURO e mais
+                grosso — contraste alto nos dois temas (7:1 medido pelos tokens);
+    centro      um ponto escuro, para o miolo não parecer vazio;
+    tracejado   continua sendo o que o distingue pela forma.
+
+  `!important` porque `.cto-dot--neutral .cto-dot__body` (dois seletores)
+  venceria esta classe sozinha e pintaria o corpo de cinza escuro cheio.
+*/
+.cto-dot__halo {
+  fill: rgb(var(--surface));
+}
+
 .cto-dot__body--sem-leitura {
-  fill: none !important;
+  fill: rgb(var(--neutral-bg)) !important;
   stroke: rgb(var(--neutral-fg));
-  stroke-width: 1.75;
-  stroke-dasharray: 2.2 1.8;
+  stroke-width: 1.9;
+  stroke-dasharray: 2.4 1.6;
+}
+
+.cto-dot__core {
+  fill: rgb(var(--neutral-fg));
 }
 
 .cto-dot--success .cto-dot__body {
@@ -902,6 +947,41 @@
   fill: none;
   stroke: rgb(var(--warning-fg));
   stroke-width: 1.6;
+}
+
+/*
+  O cliente com OS URGENTE aberta — `CTO-3.2.2e`.
+
+  Anel vermelho no lugar do âmbar (nunca os dois) e um selo `!` no canto, por
+  fora do disco. É sinal ADICIONAL: o miolo continua dizendo online, offline ou
+  sem leitura. `OFFLINE` já é vermelho, então quem distingue "offline" de
+  "offline com OS urgente" é o anel a mais e o selo — e não um tom de vermelho.
+
+  ESTÁTICO. Sem animação: um mapa operacional chama atenção sem cansar quem o
+  olha o turno inteiro.
+
+  `overflow: visible` porque o selo mora fora do viewBox do ponto.
+*/
+.cto-dot--urgente {
+  overflow: visible;
+}
+
+.cto-dot__order--urgente {
+  stroke: rgb(var(--danger-fg));
+  stroke-width: 2;
+}
+
+.cto-dot__bang-bg {
+  fill: rgb(var(--danger-fg));
+  stroke: rgb(var(--surface));
+  stroke-width: 0.9;
+}
+
+.cto-dot__bang {
+  font-family: inherit;
+  font-size: 5.6px;
+  font-weight: 800;
+  fill: rgb(var(--surface));
 }
 
 /* A OS: LOSANGO pequeno, sem texto. Três formas, distinguíveis sem cor. */
