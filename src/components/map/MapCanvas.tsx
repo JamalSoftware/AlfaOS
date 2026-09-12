@@ -65,6 +65,29 @@ export interface MapCanvasHandle {
    * tem, e não deve ter, a instância dele.
    */
   closePopup: () => void;
+  /**
+   * Traz um ponto para dentro de uma área SEGURA do mapa, com o menor
+   * deslocamento que resolva — `CTO-3.2.2e`.
+   *
+   * É o `panInside` do Leaflet, e é isso que o torna previsível: se o ponto já
+   * está dentro dos respiros, nada se move; se está fora, o mapa anda só o que
+   * falta. Nunca recentraliza. Move a VISTA — a coordenada de quem está sendo
+   * trazido não muda, e nada é gravado.
+   *
+   * `avoidBottomLeft` é um retângulo do canto inferior esquerdo (o painel de
+   * edição) que o ponto também precisa evitar. O canvas não sabe o que é o
+   * painel; sabe que existe um retângulo, e escolhe entre subir e ir para a
+   * direita pelo menor deslocamento.
+   */
+  panInside: (
+    latitude: number,
+    longitude: number,
+    options: {
+      paddingTopLeft: [number, number];
+      paddingBottomRight: [number, number];
+      avoidBottomLeft?: { width: number; height: number };
+    },
+  ) => void;
 }
 
 /** Onde a câmera está: o que a URL precisa para reconstruir a vista. */
@@ -197,6 +220,37 @@ function CanvasHandle({ onReady }: { onReady?: (h: MapCanvasHandle) => void }) {
       },
       closePopup: () => {
         map.closePopup();
+      },
+      panInside: (latitude, longitude, options) => {
+        const ponto = map.latLngToContainerPoint([latitude, longitude]);
+        const tamanho = map.getSize();
+        const [, topo] = options.paddingTopLeft;
+        const [direita] = options.paddingBottomRight;
+        let esquerda = options.paddingTopLeft[0];
+        let base = options.paddingBottomRight[1];
+
+        const evitar = options.avoidBottomLeft;
+        if (
+          evitar &&
+          ponto.x < evitar.width &&
+          ponto.y > tamanho.y - evitar.height
+        ) {
+          /*
+            Dentro do retângulo a evitar: subir ou ir para a direita, o que
+            custar MENOS pixels. Aumentar os dois respiros de uma vez faria o
+            `panInside` resolver os dois, e o mapa andaria em diagonal sem
+            necessidade.
+          */
+          const subir = ponto.y - (tamanho.y - evitar.height);
+          const empurrarParaDireita = evitar.width - ponto.x;
+          if (subir <= empurrarParaDireita) base = Math.max(base, evitar.height);
+          else esquerda = Math.max(esquerda, evitar.width);
+        }
+
+        map.panInside([latitude, longitude], {
+          paddingTopLeft: [esquerda, topo],
+          paddingBottomRight: [direita, base],
+        });
       },
     });
   }, [map, onReady]);

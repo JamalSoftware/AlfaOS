@@ -122,8 +122,20 @@ export interface OperationalMapProps {
   initialView: MapInitialView;
   onViewportChange: (bbox: BoundingBox, camera: MapCamera) => void;
   onReady?: (handle: MapCanvasHandle) => void;
-  /** Uma leitura está em voo. Vira um aviso discreto, nunca um mapa em branco. */
-  loading?: boolean;
+  /*
+    NÃO existe prop de carregamento aqui — e existiu, até a `CTO-3.2.2e`.
+
+    O invólucro desenhava "Carregando CTOs…" no instante em que a camada de
+    CTO começava a ler e o apagava no instante em que ela terminava. Numa
+    resposta normal isso dava um flash de ~80 ms a cada zoom e a cada arrasto
+    (medido em sonda de 20 ms), e o dono via o mapa "piscando". Em paralelo a
+    camada já tinha o aviso único "Atualizando mapa…", com atraso — eram DOIS
+    indicadores para a mesma coisa, e o que piscava era o que não esperava.
+
+    O aviso de atividade é responsabilidade da CAMADA, que sabe quantas
+    leituras estão em voo, e entra por `overlay`. A cadência dele mora em
+    `src/lib/map-activity-indicator.ts`.
+  */
   /** A leitura falhou. Substitui o conteúdo por uma explicação e um botão. */
   error?: string | null;
   onRetry?: () => void;
@@ -159,7 +171,6 @@ export function OperationalMap({
   initialView,
   onViewportChange,
   onReady,
-  loading = false,
   error = null,
   onRetry,
   overlay,
@@ -182,14 +193,34 @@ export function OperationalMap({
         esconder o resto da página.
 
         ```text
-        celular   380px      tablet   500px
-        pequeno   440px      desktop  560px
+        celular   340px      desktop            410px
+        pequeno   380px      desktop ALTO       440px
+        tablet    400px      (≥ 1024 × ≥ 860)
         ```
+
+        ## O degrau de ALTURA — `CTO-3.2.2e`
+
+        O dono pediu mais área vertical, e a resposta honesta depende de
+        quanto sobra abaixo do mapa. Medido com o topo do mapa em 309px de
+        documento (com a camada de clientes ligada, o cartão de camadas ganha
+        o filtro e cresce 11px): numa janela de 720 de altura, um mapa de 410
+        termina em 719 — um pixel a mais e ele é cortado na dobra, que é pior
+        que ser pequeno. Numa de 900 sobram 200, e 440 é o maior mapa que
+        ainda deixa resumo E legenda inteiros na primeira dobra com as TRÊS
+        camadas ligadas (a legenda termina em 895) — a propriedade que a
+        `CTO-3.2.2` corrigiu e a `LAYER-21` guarda. 460 seria possível ao custo
+        de 15px de legenda abaixo da dobra; ficou registrado como decisão do
+        dono, não tomada aqui.
+
+        Por isso o último degrau é por LARGURA e ALTURA de janela, e continua
+        sendo um número de pixels — um degrau discreto, previsível, e não um
+        mapa que cresce junto com a janela. A regra não mudou: nenhuma unidade
+        de viewport, em degrau nenhum.
 
         `100vh` continua fora de propósito, e não só como padrão: num notebook
         com barra de tarefas ele produz um mapa que nunca cabe inteiro.
       */
-      className="cto-map-shell relative h-[320px] w-full overflow-hidden rounded-2xl border border-border bg-surface-muted sm:h-[360px] md:h-[380px] lg:h-[400px]"
+      className="cto-map-shell relative h-[340px] w-full overflow-hidden rounded-2xl border border-border bg-surface-muted sm:h-[380px] md:h-[400px] lg:h-[410px] [@media(min-width:1024px)_and_(min-height:860px)]:h-[440px]"
       data-testid="operational-map"
     >
       <MapCanvas
@@ -213,23 +244,6 @@ export function OperationalMap({
       {editor ? (
         <div className="pointer-events-auto absolute bottom-3 left-3 z-[600] w-[min(19rem,calc(100%-1.5rem))]">
           {editor}
-        </div>
-      ) : null}
-
-      {/*
-        O aviso de carregamento é uma FAIXA, e não uma cortina.
-
-        Cobrir o mapa a cada arrasto tiraria da tela justamente a referência que
-        a pessoa está usando para se localizar. O mapa continua visível com os
-        marcadores anteriores, e a faixa diz que vem coisa nova.
-      */}
-      {loading && !error ? (
-        <div
-          className="absolute left-1/2 top-3 z-[600] -translate-x-1/2 rounded-full border border-border bg-surface px-3 py-1 text-xs font-medium text-fg-secondary shadow-sm"
-          role="status"
-          data-testid="map-loading"
-        >
-          Carregando CTOs…
         </div>
       ) : null}
 

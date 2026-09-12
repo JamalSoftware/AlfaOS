@@ -22,6 +22,7 @@ import type { MapInitialView, MapTilesConfig } from "@/lib/map-config";
   e o que a `CTO-3.2.1b` quase repetiu ao centralizar constantes de zoom.
 */
 import { MAP_LABEL_MIN_ZOOM } from "@/lib/map-tiles.config.mjs";
+import { nextMapActivityStep } from "@/lib/map-activity-indicator";
 import {
   DEFAULT_CUSTOMER_FILTER,
   DEFAULT_MAP_LAYERS,
@@ -165,6 +166,33 @@ const ROTULO_DO_FILTRO: Record<CustomerFilter, string> = {
   WITHOUT_OPEN_OS: "Sem OS aberta",
 };
 
+/**
+ * A área segura da caixa em EDIÇÃO, em pixels do mapa — `CTO-3.2.2e`.
+ *
+ * Medido em coordenadas do contêiner: o zoom ocupa (10–44, 10–74), o seletor
+ * de base termina em y=42, a atribuição ocupa os 22px de baixo à direita, e o
+ * painel de edição fica no canto inferior esquerdo com 304px de largura mais
+ * 12 de margem, e 214px de altura (mais com mensagem de erro).
+ *
+ * Os respiros valem para a ÂNCORA da caixa, que é a base do ícone de 32px:
+ *
+ * ```text
+ * topo      106  zoom termina em 74; 106 − 32 deixa o ícone inteiro abaixo dele
+ * esquerda  64   zoom termina em 44; 64 − 16 deixa o ícone à direita dele
+ * direita   40   meio ícone e folga
+ * base      48   meio ícone acima da atribuição
+ * painel    332 × 250   304 + 12 de margem + folga; 214 + 12 + folga
+ * ```
+ *
+ * Não é uma engine: são números medidos, e o `panInside` do Leaflet faz o
+ * resto. Uma caixa que já está na área segura não se move.
+ */
+const AREA_SEGURA_DE_EDICAO = {
+  paddingTopLeft: [64, 106] as [number, number],
+  paddingBottomRight: [40, 48] as [number, number],
+  avoidBottomLeft: { width: 332, height: 250 },
+};
+
 /** Onde a caixa em edição está agora, antes de qualquer escrita. */
 interface PosicaoEsboco {
   latitude: number;
@@ -194,12 +222,14 @@ export function CtoMapLayer({
   const [view, setView] = useState<CtoMapView | null>(null);
   const [loading, setLoading] = useState(false);
   /*
-    O indicador de atualização, com ATRASO — e o atraso é só da UI.
+    O indicador de atualização, com ATRASO para aparecer e tempo MÍNIMO na
+    tela — e os dois são só da UI. O pedido sai na hora; quem espera é o aviso.
 
-    Uma resposta que volta em 80ms faria a pílula piscar, o que incomoda mais
-    do que informa. O pedido sai na hora; quem espera é o aviso.
+    A cadência é uma função pura (`nextMapActivityStep`), testada com relógio
+    de mentira; aqui só se executa o que ela responde.
   */
   const [mostrarAtualizando, setMostrarAtualizando] = useState(false);
+  const atualizandoDesdeRef = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [mode, setMode] = useState<MapMode>(() =>
@@ -466,14 +496,35 @@ export function CtoMapLayer({
   */
   const atualizando = loading || clientes.carregando || ordens.carregando;
 
+  /*
+    Sem flash, nos DOIS sentidos — `CTO-3.2.2e`.
+
+    Leitura rápida: o `show` fica pendente e a limpeza do efeito o cancela
+    quando `atualizando` cai — o aviso nunca existe. Leitura lenta: aparece
+    depois do atraso e, se a resposta chegar logo em seguida, o `hide` espera
+    completar o tempo mínimo. Leitura emendada na anterior enquanto o aviso
+    está na tela: a função responde "nada", e a limpeza cancela o `hide`
+    pendente — o aviso não apaga e reacende.
+  */
   useEffect(() => {
-    if (!atualizando) {
-      setMostrarAtualizando(false);
-      return;
-    }
-    const t = setTimeout(() => setMostrarAtualizando(true), 160);
+    const passo = nextMapActivityStep(
+      atualizando,
+      mostrarAtualizando,
+      atualizandoDesdeRef.current,
+      Date.now(),
+    );
+    if (passo.action === "none") return;
+    const t = setTimeout(() => {
+      if (passo.action === "show") {
+        atualizandoDesdeRef.current = Date.now();
+        setMostrarAtualizando(true);
+      } else {
+        atualizandoDesdeRef.current = null;
+        setMostrarAtualizando(false);
+      }
+    }, passo.afterMs);
     return () => clearTimeout(t);
-  }, [atualizando]);
+  }, [atualizando, mostrarAtualizando]);
 
   const carregarClientes = useCallback(
     async (bbox: BoundingBox, filtro: CustomerFilter) => {
@@ -778,6 +829,22 @@ export function CtoMapLayer({
         custou o popup inteiro na `CTO-3.2.1`.
       */
       mapRef.current?.closePopup();
+      /*
+        E a caixa é trazida para a ÁREA SEGURA — `CTO-3.2.2e`.
+
+        O dono via a caixa "lá embaixo" ao entrar em edição, e a medição
+        explica: o `autoPan` do popup empurra a vista para o popup caber ACIMA
+        do marcador, então o marcador vai parar no rodapé do mapa (medido:
+        y=354 num mapa de 400). Fechado o popup, ele fica lá — a 14px da borda
+        e, no canto esquerdo, debaixo do painel de edição.
+
+        `panInside` move o mínimo que resolve, e só se precisar. É pan de
+        VISTA: a coordenada da caixa não muda, nada é gravado, e quem escreve
+        continua sendo o arrasto explícito do marcador.
+      */
+      if (alvo.latitude !== null && alvo.longitude !== null) {
+        mapRef.current?.panInside(alvo.latitude, alvo.longitude, AREA_SEGURA_DE_EDICAO);
+      }
     },
     [markers],
   );
@@ -1016,7 +1083,6 @@ export function CtoMapLayer({
         initialView={initialView}
         onViewportChange={handleViewport}
         onReady={guardarMapa}
-        loading={loading}
         error={error}
         onRetry={tentarNovamente}
         /*
@@ -1979,6 +2045,39 @@ function MapLegend({
               </svg>
             </SimboloDeLegenda>
             Com OS aberta
+          </span>
+          {/*
+            O cliente com OS URGENTE — `CTO-3.2.2e`.
+
+            O MESMO símbolo adicional do marcador: anel vermelho e o selo `!`
+            no canto. O miolo neutro aqui não é um estado — é o lugar onde, no
+            mapa, fica o online, o offline ou o sem leitura. É por isso que
+            esta entrada vem por último e não substitui nenhuma das quatro.
+          */}
+          <span className="flex items-center gap-1.5" data-testid="map-legend-urgent-customer">
+            <SimboloDeLegenda>
+              <svg
+                className="cto-dot cto-dot--neutral cto-dot--urgente"
+                viewBox="0 0 18 18"
+                width="16"
+                height="16"
+                overflow="visible"
+              >
+                <circle className="cto-dot__order cto-dot__order--urgente" cx="9" cy="9" r="8" />
+                <circle className="cto-dot__body" cx="9" cy="9" r="6" />
+                <circle className="cto-dot__bang-bg" cx="15.4" cy="2.6" r="3.6" />
+                <text
+                  className="cto-dot__bang"
+                  x="15.4"
+                  y="2.9"
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                >
+                  !
+                </text>
+              </svg>
+            </SimboloDeLegenda>
+            Cliente com OS urgente
           </span>
         </section>
       ) : null}

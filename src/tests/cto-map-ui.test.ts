@@ -1359,8 +1359,59 @@ describe("UXP-01..03 — altura do mapa", () => {
       Medido em 1440×900: com o mapa em 400, o documento fecha em 900 exatos.
     */
     const altura = Number(lg![1]);
-    expect(altura).toBeGreaterThanOrEqual(360);
+    /*
+      MAIOR que 400, e não "400 ou mais".
+
+      400 foi o degrau de desktop da `CTO-3.2.2b` até a `CTO-3.2.2d`, e o dono
+      pediu mais área na `CTO-3.2.2e`. Com `>= 400` a sabotagem que devolve o
+      valor antigo passa; o limite inferior tem de excluir o que se quer sair.
+      O teto continua: 420 num monitor de 720 de altura já termina a 2px da
+      dobra — medido.
+    */
+    expect(altura).toBeGreaterThan(400);
     expect(altura).toBeLessThanOrEqual(440);
+  });
+
+  it("UXP-01b · o degrau ALTO é por largura E altura de janela, em pixels", () => {
+    /*
+      A resposta honesta a "mais altura" depende de quanto sobra abaixo do
+      mapa: numa janela de 720 não sobra nada, numa de 900 sobram 200. Por
+      isso existe um degrau a mais, condicionado à altura da janela — e ele
+      continua sendo um NÚMERO de pixels, não uma fração da tela.
+    */
+    const classes = classesDaMoldura();
+    const alto =
+      /\[@media\(min-width:(\d+)px\)_and_\(min-height:(\d+)px\)\]:h-\[(\d+)px\]/.exec(
+        classes,
+      );
+    expect(alto, "falta o degrau alto de desktop").not.toBeNull();
+
+    const [, minLargura, minAltura, altura] = alto!.map(Number);
+    // Só para desktop (a largura do `lg`), e só quando a janela tem altura.
+    expect(minLargura).toBe(1024);
+    expect(minAltura).toBeGreaterThanOrEqual(800);
+    // Um degrau, e não o dobro: entre 30 e 80px acima do desktop comum, e
+    // entre 40 e 80 acima dos 400 que o dono achou baixos.
+    const lg = Number(/lg:h-\[(\d+)px\]/.exec(classes)![1]);
+    expect(altura - lg).toBeGreaterThanOrEqual(30);
+    expect(altura - lg).toBeLessThanOrEqual(80);
+    expect(altura - 400).toBeGreaterThanOrEqual(40);
+    expect(altura).toBeLessThanOrEqual(480);
+  });
+
+  it("LOADFLICKER-04s · o invólucro NÃO tem indicador de carregamento próprio", () => {
+    /*
+      O flicker que o dono viu vinha daqui: "Carregando CTOs…" desenhado no
+      instante da requisição, sem atraso, em paralelo ao "Atualizando mapa…"
+      da camada. Um indicador só, e ele é da camada — o invólucro não sabe
+      quantas leituras estão em voo.
+    */
+    const codigo = semComentarios(leia("src/components/map/OperationalMap.tsx"));
+    expect(codigo).not.toContain("Carregando CTOs");
+    expect(codigo).not.toContain("map-loading");
+    // A prop, e não o `loading:` do `dynamic()`, que é o esqueleto do SSR.
+    expect(codigo).not.toMatch(/loading\?: boolean/);
+    expect(codigo).not.toMatch(/\{loading && !error/);
   });
 
   it("UXP-02 · NENHUMA altura do mapa é fração de viewport", () => {
@@ -1403,7 +1454,7 @@ describe("UXP-01..03 — altura do mapa", () => {
       expect(alturas[i]).toBeGreaterThanOrEqual(alturas[i - 1]);
     }
 
-    // E dentro das faixas, refeitas na `CTO-3.2.2b` — ver `UXP-01`.
+    // E dentro das faixas, refeitas na `CTO-3.2.2b` e alargadas na `2e` — ver `UXP-01`.
     expect(alturas[0]).toBeGreaterThanOrEqual(290);
     expect(alturas[0]).toBeLessThanOrEqual(360);
     expect(alturas[2]).toBeGreaterThanOrEqual(340);
