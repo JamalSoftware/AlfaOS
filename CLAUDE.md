@@ -1038,6 +1038,18 @@ Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §42.
 
 Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §43 e PRD (Parte XVI, semântica aprovada).
 
+**`CTO-3.2.2d` ENTREGUE — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** Polimento final sobre a `CTO-3.2.2c`. **Zero migration, zero schema, zero dependência, zero Dart — e o PRD NÃO foi tocado**, por instrução da fase: o dono quer validar o acabamento antes de congelar decisão visual. O registro é nota técnica (§44).
+
+**Cliente pelo PRIMEIRO NOME**, por `Tooltip` e nunca pelo `divIcon` — as iniciais podiam ir no ícone porque `[A-Z]{0,2}` não tem caractere de HTML; um nome pode ter. `customerFirstName` pula conector de ponta e normaliza caixa (`ROSELI JESUNO DE SOUZA TEIXEIRA` → `Roseli`). **Cada família de rótulo tem uma direção**, e no mesmo ponto elas não se cruzam: caixa acima, OS à direita, cliente à ESQUERDA — com os dois à direita, nome e número nasciam a 1px (medido).
+
+**A OS cresceu junto com o cliente** (18→21 e 20→23), e o motivo é de área, não de lado: um disco de 21 pinta mais que um losango de 20, e a hierarquia `CTO > OS > cliente` inverteria com os números em ordem certa. O `!` da urgente mora só no símbolo; o rótulo é `OS-N°<n>`. Legenda: `Cliente online`/`Cliente offline`.
+
+**O popup da OS era mais alto que o mapa** (222×473 num mapa de 398) — o `autoPan` empurrava o marcador para fora, a releitura o desmontava e o conteúdo sumia. Agora tem 300×240 no máximo, com cabeçalho e ações fora da rolagem, e **pousa fora dos controles do mapa**: a prova de borda achou o seletor Mapa/Satélite/Híbrido cobrindo o "×". `autoPanPaddingTopLeft = [52, 50]` limpa um controle com cada respiro. O popup da CAIXA não foi mudado.
+
+**Três armadilhas de medição que valem para qualquer teste de Leaflet:** "parou" pela URL não cobre animação (ela muda no `moveend`, no fim do empurrão); `getBoundingClientRect` de `<circle>` inclui o traço; e rótulos moram no painel de TOOLTIPS, não no de marcadores. Duas asserções minhas da fase anterior não mediam o que diziam — uma casava a letra `s` em vez de espaço, outra comparava a área de clique de qualquer marcador que chegasse primeiro no DOM — e foram corrigidas.
+
+Registro em `docs/CTO-NETWORK-DISTRIBUTION.md` §44.
+
 **Próxima fatia: decisão do dono entre `DASH-1`, `TL-1`, `EV-1` e `GS-1`** (`docs/MASTER-PLAN.md`). Não iniciada.
 
 ## Princípios

@@ -5522,3 +5522,215 @@ toca React em lugar nenhum** — a escala é variável CSS, e nenhum marcador é
 re-renderizado. Uma sabotagem que fizesse o zoom desmontar marcador teria de
 reintroduzir o acoplamento zoom→render, que é uma reescrita e não uma troca de
 sinal. A `ZOOMSEQ-01` continua valendo como guarda contra essa regressão futura.
+
+## 44. `CTO-3.2.2d` — polimento final e usabilidade do popup da OS
+
+**Estado:** `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.
+**Migration:** nenhuma. **Schema:** nenhum. **Dependência:** nenhuma. **Dart:** zero.
+**PRD:** não tocado, por instrução da fase — o dono quer validar o acabamento
+antes de congelar decisão visual. Esta seção é nota técnica: registra o que foi
+medido e por quê, não promove nada a regra de produto.
+
+### 44.1 Cliente pelo PRIMEIRO NOME, e por `Tooltip`
+
+`customerFirstName` (`src/lib/customer-presentation.ts`) devolve a primeira
+palavra significativa em caixa de apresentação: `ROSELI JESUNO DE SOUZA
+TEIXEIRA` → `Roseli`, `João da Silva Neto` → `João`, `   Ana    Maria   ` →
+`Ana`. Conector na ponta é pulado (`de Souza` → `Souza`), nome com hífen é um
+nome só (`ANA-CLARA` → `Ana-Clara`), e sem nome não há rótulo — nada é
+fabricado.
+
+**Ele não pode ir para o `divIcon`.** As iniciais da `CTO-3.2.2c` podiam, porque
+`[A-Z]{0,2}` não tem caractere com significado em HTML e a garantia era do
+helper. Um primeiro nome pode conter `<`, `&` ou aspas. Ele vai pelo `Tooltip`,
+que o React escapa. `customer-initials.ts` foi removido — ficou sem consumidor.
+
+O nome completo continua no popup, aberto por ação explícita; telefone,
+documento e endereço não entram no mapa.
+
+### 44.2 Cada família de rótulo tem uma DIREÇÃO
+
+A OS usa a coordenada do cliente, e o número dela vai à direita do losango. Com
+o nome do cliente também à direita, os dois nasciam **a um pixel um do outro** —
+medido: `Camada` em (785, 418) e `OS-N°8800` em (786, 418).
+
+```text
+             [CAIXA]        ← plaqueta da caixa: ACIMA
+  Maria  ●◆  OS-N°7         ← cliente à ESQUERDA, OS à DIREITA
+```
+
+**Abaixo do ponto foi considerado e descartado pela conta:** o nome desceria
+38px, e a plaqueta da caixa sobe 59px acima dela — um cliente a 80m ao norte de
+uma caixa cruzaria a plaqueta. À esquerda, no mesmo ponto, as três direções
+não se cruzam. Colisão entre pontos DIFERENTES e próximos continua sendo
+densidade: o limite que a `CTO-3.2.1c` declarou (o limiar de zoom evita a
+parede, não toda sobreposição).
+
+As caudas `::before` das direções `right` e `left` passaram a usar `--surface`.
+A padrão do Leaflet é branca: no tema claro coincide com a plaqueta; no escuro
+vira uma seta branca presa a uma plaqueta escura. A da OS estava assim desde a
+`CTO-3.2.2c`.
+
+### 44.3 Tamanhos — a hierarquia é de ÁREA desenhada
+
+| | `CTO-3.2.2c` | agora (z17) | corpo pintado |
+|---|---|---|---|
+| Caixa | 32px | 32px | carcaça 14,5 × 19,6 |
+| OS | 20px | **23px** | losango de diagonal 19,6 (≈ 191 px²) |
+| Cliente | 18px | **21px** | disco de 14 (≈ 154 px²) |
+
+O pedido foi só o cliente (≈ 20–22px), com o objetivo `CTO > OS > Cliente`. **A
+OS subiu junto**, e o motivo é a conta que o lado do ícone esconde: o losango
+ocupa metade do quadrado dele, o disco bem mais. Com a OS em 20 e o cliente em
+21, o cliente pintaria 154 px² contra 144 da OS — hierarquia invertida com os
+números em ordem certa. Os dois cresceram ~15%, e a razão de área OS/cliente
+aprovada na fase anterior (1,28) ficou em 1,24.
+
+O comentário escrito no código antes dessa medição afirmava o contrário ("21 de
+círculo e 20 de losango deixam a OS com mais peso") e foi corrigido.
+
+A área de clique continua 30px para os dois: o desenho cresceu, o alvo não.
+
+### 44.4 O `!` mora só no símbolo
+
+O rótulo da OS é `OS-N°<número>` para qualquer prioridade. A urgente continua
+vermelha e com `!` **dentro do losango**; o texto não o repete. A pílula de
+prioridade do popup também perdeu o `!` — ela diz "Urgente" por extenso.
+Urgência continua sendo `priority === "URGENT"` e somente isso.
+
+### 44.5 Legenda
+
+`Online`/`Offline` viraram `Cliente online`/`Cliente offline`: a legenda tem um
+grupo de OS com "Aberta" e "Urgente", e "Online" sozinho não dizia de quê.
+`Sem leitura` e `Com OS aberta` ficaram. Os filtros da camada de clientes
+continuam `Online`/`Offline` — ali o sujeito já é o controle "Clientes ativos".
+
+### 44.6 O popup da OS — compacto, e fora dos controles do mapa
+
+**O defeito relatado**, medido antes de tocar em código: o popup tinha
+**222 × 473px** num mapa de 398. O `autoPan` mostrava o topo dele e empurrava o
+marcador para fora da vista; a releitura vinha sem o marcador, ele era
+desmontado e o conteúdo do popup sumia — sobrava a casca com o "×". É a cadeia
+da `CTO-3.2.2b`, agora no popup da OS.
+
+**A forma nova:** 300px de largura e **no máximo 240 de altura**, com cabeçalho
+(número + prioridade) e ações **fora** da rolagem; só o miolo rola. Uma sonda
+mediu 20 casos com ela — quatro janelas (1440×900, 1366×768, 1280×720,
+1024×700) × centro e as quatro bordas —, e o popup ficou em **302 × 242** com o
+"Abrir OS" dentro do mapa, dentro da janela e recebendo o clique em todos. Essa
+sonda é anterior ao ajuste de respiro abaixo; depois dele, quem mede é a `OSPOP`
+permanente, nas três janelas do enunciado.
+
+**E o que a prova de borda achou depois:** perto da borda direita o seletor
+Mapa/Satélite/Híbrido interceptava o clique no "×". Os controles ficam acima
+dos painéis do Leaflet, e o popup — 242px num mapa de 398 — quase sempre
+terminava com o topo a 24px da borda de cima, onde os dois cantos têm
+controle. Medido em coordenadas do mapa: zoom em (10–44, 10–74), seletor em
+(776–962, 12–42), atribuição em (625–974, 376–398).
+
+A correção é `autoPanPaddingTopLeft = [52, 50]`: **cada respiro limpa um
+controle**, e juntos limpam os dois em qualquer posição — topo ≥ 50 passa por
+baixo do seletor, esquerda ≥ 52 passa ao lado do zoom. Um topo de 82 limparia
+os dois sozinho e não caberia no mapa de 320px da tela estreita. Embaixo e à
+direita ficam os 24px de antes, que já limpam a atribuição.
+
+A `OSPOP` agora afirma, nas três janelas do enunciado e nas cinco posições: o
+popup para de se mexer, fica inteiro dentro do mapa e fora de todo controle, o
+"Abrir OS", o "Abrir cliente" e o "×" recebem o clique no centro deles, o
+marcador sobrevive ao empurrão — e, na borda de cima, o clique no "Abrir OS"
+navega de fato.
+
+**O popup da CAIXA não foi mudado** — está fora do escopo e aprovado pelo dono —
+e continua com 24px de respiro. Ver 44.9.
+
+### 44.7 Ativos próximos — o critério de regressão do dono
+
+O dono validou abrir caixa, cliente e OS individualmente com eles próximos.
+Não havia teste de navegador para isso. A `PROX-01` monta um bairro próprio,
+longe de todas as outras fixtures, com a caixa, um cliente a **36px** dela em
+z17 (≈5px entre as áreas de clique) e duas OS em clientes vizinhos, e clica
+cada um partindo do mesmo enquadramento. Um controle positivo afirma que eles
+estão mesmo próximos — se a conta de graus os espalhasse, o teste provaria
+cliques em alvos isolados.
+
+**Mesma coordenada exata continua sendo a decisão aberta** e não é testada aí.
+O aumento do cliente **não** a piorou: cresceu o desenho, que não recebe
+ponteiro; a área de clique continua 30px.
+
+### 44.8 Três armadilhas de medição, e duas asserções minhas que não mediam
+
+**"Parou" pela URL não cobre animação.** A vista só é reescrita no `moveend`, no
+FIM do empurrão; duas leituras iguais logo após o clique são duas leituras da
+vista velha. Medido duas vezes: o popup ainda andou 9px depois do "estável", e
+um Cancelar que estava certo foi acusado de errar 185px — o tamanho do
+empurrão do popup da caixa. A espera passou a ser pelo **objeto**: três
+leituras iguais do popup, ou do marcador junto com a URL.
+
+**`getBoundingClientRect` de `<circle>` inclui o traço.** O disco de 14px mede
+15,5. O limite inferior que escrevi primeiro (`> 12,5`) aceitava o tamanho
+antigo, que pinta ~13,3 — a sabotagem que desfaz o aumento passaria por ele.
+
+**Os rótulos moram no painel de TOOLTIPS**, não no de marcadores. A
+`LABELZOOM-03` lia `.leaflet-marker-pane` para afirmar que o nome completo não
+aparece — e nunca veria um nome vazado. E a asserção de "uma palavra só"
+estava escrita `/s/`, a letra, porque a barra invertida se perdeu no script que
+a gerou; passava porque "Camada" não tem "s". As duas foram corrigidas, e a
+`FIRSTNAME-MAP` afirma a lista exata com nomes reais de várias palavras.
+
+**O `Esc` do Leaflet não fecha popup depois de um clique em marcador.** O
+handler de teclado só é ligado com o foco no contêiner, e o marcador
+(`tabindex=0`) toma o foco. Os testes fecham pelo "×", como a pessoa fecha.
+
+### 44.9 INFO
+
+* **O popup da CAIXA pode pousar debaixo dos controles perto das bordas.** Mesma
+  classe do defeito corrigido na OS; não foi tocado por estar fora do escopo e
+  aprovado pelo dono. Medido: na borda direita o seletor Mapa/Satélite/Híbrido cobre o "×" do popup da caixa (`elementFromPoint` devolve o seletor), e na esquerda o zoom cobre o cabeçalho — em 1440×900 e em 1280×720. É anterior a esta fase (o popup de 321px com 24px de respiro vem da `CTO-3.2.2b`). O conserto da OS **não se transfere direto**: 321px de popup, mais 50 de respiro, mais os 32 do ícone passam dos 398 do mapa, e o `autoPan` voltaria a empurrar o marcador para fora. Pede decisão própria — encolher o popup da caixa ou outro arranjo dos controles.
+* **Colisão de rótulos entre pontos diferentes e próximos** continua possível em
+  z16–z17 com o nome do cliente ligado — é densidade, e o limiar de zoom é a
+  regra que existe para ela. Pedir para esconder rótulo por sobreposição seria
+  uma regra que o operador não consegue prever (decisão da `CTO-3.2.1c`).
+* **O empate CTO↔cliente na mesma coordenada** segue em aberto, sem piora.
+* **O `title` do marcador de cliente** carrega o nome completo, como antes: é o
+  nome acessível e aparece só no hover do navegador, não é rótulo permanente.
+
+### 44.10 Sabotagens
+
+Dezoito mutações — as catorze do enunciado e mais quatro sobre o que esta fase
+consertou —, cada uma sobre o estado commitado, com `.next` limpo, restaurada
+por `git checkout` e conferida por `git status` vazio. **Dezoito detectadas.**
+
+| # | O que a mutação faz | Detector | O que ele disse |
+|---|---|---|---|
+| `S1` | cliente volta a 18px | `ZOOMVIS-01`, `CUSTOMERVIS-01` | `cliente não cresceu: 18`; `disco de 13.25px` |
+| `S2` | rótulo com o nome completo | `LABELZOOM-03`, `CUSTOMERVIS-07`, `FIRSTNAME-MAP` | `rótulo com mais de uma palavra: CAMADA CLIENTE OFFLINE` |
+| `S3` | "Roseli Jesuno" (duas palavras) | 7 testes `FIRSTNAME` (Vitest), `FIRSTNAME-MAP` | lista de rótulos diferente da esperada |
+| `S4` | urgente volta a `! OS-N°` | `OSURG/OSLABEL` | o rótulo `OS-N°8802` deixou de existir |
+| `S5` | urgente perde o `!` do símbolo | `OSURG/OSLABEL` | contagem de `!` |
+| `S6` | urgente perde o vermelho | `OSURG/OSLABEL` | `a urgente não se distingue da normal` |
+| `S7` | normal vira vermelha | `OSURG/OSLABEL` | contagem de normais |
+| `S8` | legenda volta a "Online" | `LEGEND-01..06`, `VIS-01` | lista exata da legenda |
+| `S9` | popup da OS com 430px | `OSPOP` | `centro: o popup passou da borda do mapa` |
+| `S10` | popup da OS sem `autoPan` | `OSPOP` | `centro: o popup passou da borda do mapa` |
+| `S11` | contêiner do cliente zerado | `LAYER-08/09` | o clique no cliente esgota o tempo |
+| `S12` | área de clique de 90px | `PROX-01` | `folga entre caixa e cliente: -25px` |
+| `S13` | caixa não arrastável em edição | `MAPEDIT-05/06/07`, `MAPEDIT-08/14` | o arrasto move o mapa, não a caixa |
+| `S14` | indicador de carregamento no fluxo | `LOADUX-01..06` | `mapa mudou de posição durante o refresh: 310 → 360` |
+| `S15` | nome do cliente de volta à direita | `LABELCOL-01` | `nome × OS 8800` |
+| `S16` | caudas com a cor padrão do Leaflet | `LABELCOL-02` | `a cauda da plaqueta ficou com a cor padrão` |
+| `S17` | popup da OS com 24px de respiro | `OSPOP` | `esquerda: o popup ficou debaixo do zoom` |
+| `S18` | OS de volta a 20px | `ZOOMVIS-01`, `CUSTOMERVIS-02` | `a OS ficou menor que o cliente: 171 contra 188 px²` |
+
+**`S10` é a borda de CIMA, não a de baixo.** O enunciado descreve o caso como
+"popup edge-bottom esconde botão". O Leaflet abre o popup **acima** do marcador,
+então perto da borda de baixo o botão fica logo acima do ponto e não some por
+construção — medido nas cinco posições. Sem `autoPan`, quem perde o botão é a
+borda de cima e o próprio centro (popup de 242px sobre um marcador a 199px).
+
+**`S12` cai na folga, antes do clique.** A `PROX-01` afirma a folga entre as
+áreas de clique com dois limites: o de cima prova que os ativos estão mesmo
+próximos; o de baixo é a propriedade — a área do cliente não alcança a da
+caixa. Com 90px ela fica negativa e o teste para ali.
+
+**`S18` mede a área PINTADA**, com o traço: 188 px² de disco contra 171 de
+losango com a OS em 20. Com a OS em 23 o losango pinta ~226.
