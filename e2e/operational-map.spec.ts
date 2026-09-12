@@ -4337,7 +4337,11 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
                   '.leaflet-control-zoom, .leaflet-control-attribution, [data-testid="map-mode-control"]',
                 ),
               ).map((el) => ({
-                nome: el.getAttribute("data-testid") ?? el.className.toString().split(" ")[1],
+                nome: el.classList.contains("leaflet-control-zoom")
+                  ? "o zoom"
+                  : el.classList.contains("leaflet-control-attribution")
+                    ? "a atribuição"
+                    : "o seletor de base",
                 caixa: r(el),
               })),
               marcador: r(
@@ -5327,10 +5331,15 @@ test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do
     await expect(page.locator(".leaflet-marker-pane svg.cto-order")).toHaveCount(2);
 
     /*
-      Controle positivo: eles estão MESMO próximos.
+      A folga entre as ÁREAS DE CLIQUE, com os dois limites.
 
-      Se a conta de graus errasse e espalhasse os pontos, o teste passaria
-      provando cliques em alvos isolados — que não é o que o dono validou.
+      O de cima é controle positivo: eles estão MESMO próximos. Se a conta de
+      graus espalhasse os pontos, o teste provaria cliques em alvos isolados —
+      que não é o que o dono validou.
+
+      O de baixo é a propriedade: a área de clique do cliente NÃO alcança a da
+      caixa. Um tamanho novo que a fizesse cobrir a caixa (`S12`, área de 90px)
+      cai aqui com folga negativa, antes mesmo do clique ser interceptado.
     */
     const caixa = (await marcadorDe(page, NOME_PROX_CAIXA).boundingBox())!;
     const cliente = (await marcadorDe(page, "ROSELI JESUNO").boundingBox())!;
