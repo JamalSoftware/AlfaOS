@@ -124,6 +124,7 @@ async function criarOs(
   customerId: string,
   status: "PENDING" | "ASSIGNED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED",
   companyId = fixture.companyA.id,
+  priority: "LOW" | "NORMAL" | "HIGH" | "URGENT" = "NORMAL",
 ) {
   contador += 1;
   return prisma.serviceOrder.create({
@@ -134,6 +135,7 @@ async function criarOs(
       type: "INSTALACAO",
       description: "os de teste",
       status,
+      priority,
       ...(status === "COMPLETED" ? { completedAt: new Date() } : {}),
     },
   });
@@ -488,6 +490,7 @@ describe("CUSTMAP-01..13 — camada de clientes ativos", () => {
       "connectivityObservedAt",
       "connectivityStatus",
       "cto",
+      "hasUrgentOpenServiceOrder",
       "id",
       "latitude",
       "longitude",
@@ -557,6 +560,106 @@ describe("CUSTMAP-01..13 — camada de clientes ativos", () => {
     expect(
       vista.markers.find((m) => m.id === cliente.id)!.openServiceOrderCount,
     ).toBe(2);
+  });
+
+  /*
+    URGCLIENT — o cliente com OS URGENTE aberta (`CTO-3.2.2e`).
+
+    A autoridade é UMA: `ServiceOrder.priority === URGENT`, entre as OS que o
+    predicado consolidado considera abertas. Cada teste abaixo é um caminho
+    pelo qual alguém poderia "deduzir" urgência de outra coisa — e prova que
+    o mapa não deduz.
+  */
+  it("URGCLIENT-01 · OS URGENT aberta marca o cliente, sem apagar o estado", async () => {
+    const cliente = await criarCliente({ nome: "URG ABERTA", lat: BASE.lat });
+    await gravarLeitura(cliente.id, "ONLINE");
+    await criarOs(cliente.id, "ASSIGNED", fixture.companyA.id, "URGENT");
+
+    const vista = await getCustomerMapView(fixture.companyA.id, { bbox: BBOX });
+    const m = vista.markers.find((x) => x.id === cliente.id)!;
+    expect(m.hasUrgentOpenServiceOrder).toBe(true);
+    // ADICIONAL ao estado, nunca substituto: o online continua online.
+    expect(m.connectivityStatus).toBe("ONLINE");
+    expect(m.openServiceOrderCount).toBe(1);
+  });
+
+  it("URGCLIENT-02 · OS URGENT concluída ou cancelada NÃO marca", async () => {
+    const cliente = await criarCliente({ nome: "URG FECHADA", lat: BASE.lat });
+    await criarOs(cliente.id, "COMPLETED", fixture.companyA.id, "URGENT");
+    await criarOs(cliente.id, "CANCELLED", fixture.companyA.id, "URGENT");
+    // E uma aberta NORMAL, para provar que "tem OS aberta" ≠ "tem urgente".
+    await criarOs(cliente.id, "PENDING", fixture.companyA.id, "NORMAL");
+
+    const vista = await getCustomerMapView(fixture.companyA.id, { bbox: BBOX });
+    const m = vista.markers.find((x) => x.id === cliente.id)!;
+    expect(m.openServiceOrderCount).toBe(1);
+    expect(m.hasUrgentOpenServiceOrder).toBe(false);
+  });
+
+  it("URGCLIENT-03 · HIGH não é urgente — nem LOW, nem NORMAL", async () => {
+    const cliente = await criarCliente({ nome: "URG ALTA", lat: BASE.lat });
+    await criarOs(cliente.id, "ASSIGNED", fixture.companyA.id, "HIGH");
+    await criarOs(cliente.id, "IN_PROGRESS", fixture.companyA.id, "LOW");
+    await criarOs(cliente.id, "PENDING", fixture.companyA.id, "NORMAL");
+
+    const vista = await getCustomerMapView(fixture.companyA.id, { bbox: BBOX });
+    const m = vista.markers.find((x) => x.id === cliente.id)!;
+    expect(m.openServiceOrderCount).toBe(3);
+    expect(m.hasUrgentOpenServiceOrder).toBe(false);
+  });
+
+  it("URGCLIENT-03b · a urgência de UM cliente não vaza para o vizinho", async () => {
+    const urgente = await criarCliente({ nome: "URG A", lat: BASE.lat });
+    const vizinho = await criarCliente({ nome: "URG B", lat: BASE.lat });
+    await criarOs(urgente.id, "ASSIGNED", fixture.companyA.id, "URGENT");
+    await criarOs(vizinho.id, "ASSIGNED", fixture.companyA.id, "NORMAL");
+
+    const vista = await getCustomerMapView(fixture.companyA.id, { bbox: BBOX });
+    const porId = new Map(vista.markers.map((m) => [m.id, m]));
+    expect(porId.get(urgente.id)!.hasUrgentOpenServiceOrder).toBe(true);
+    expect(porId.get(vizinho.id)!.hasUrgentOpenServiceOrder).toBe(false);
+  });
+
+  it("URGCLIENT-07 · a urgência sai da MESMA consulta que conta as abertas — zero N+1", async () => {
+    const espiaoGroupBy = vi.spyOn(prisma.serviceOrder, "groupBy");
+    const espiaoFindMany = vi.spyOn(prisma.serviceOrder, "findMany");
+    const espiaoCount = vi.spyOn(prisma.serviceOrder, "count");
+
+    const clientes = await Promise.all(
+      Array.from({ length: 8 }, (_, i) =>
+        criarCliente({ nome: `URG N ${i}`, lat: BASE.lat }),
+      ),
+    );
+    for (let i = 0; i < clientes.length; i += 1) {
+      await criarOs(clientes[i].id, "ASSIGNED", fixture.companyA.id, i % 2 === 0 ? "URGENT" : "NORMAL");
+    }
+
+    espiaoGroupBy.mockClear();
+    espiaoFindMany.mockClear();
+    espiaoCount.mockClear();
+
+    const vista = await getCustomerMapView(fixture.companyA.id, { bbox: BBOX });
+
+    /*
+      OITO clientes, UMA consulta de OS. O caminho ingênuo — para cada
+      cliente, "tem urgente?" — daria oito a mais; uma segunda agregação só
+      para a urgência daria uma a mais. Nem uma, nem outra.
+    */
+    expect(espiaoGroupBy).toHaveBeenCalledTimes(1);
+    expect(espiaoFindMany).not.toHaveBeenCalled();
+    expect(espiaoCount).not.toHaveBeenCalled();
+
+    // E a resposta está certa, senão "uma consulta" seria uma consulta errada.
+    const porId = new Map(vista.markers.map((m) => [m.id, m]));
+    for (let i = 0; i < clientes.length; i += 1) {
+      expect(porId.get(clientes[i].id)!.hasUrgentOpenServiceOrder, `cliente ${i}`).toBe(
+        i % 2 === 0,
+      );
+    }
+
+    espiaoGroupBy.mockRestore();
+    espiaoFindMany.mockRestore();
+    espiaoCount.mockRestore();
   });
 
   it("CUSTMAP-14 · o vínculo de CTO vem do registro, nunca de proximidade", async () => {

@@ -96,6 +96,18 @@ export interface CustomerMapMarker {
   /** ISO, ou `null` quando nunca houve leitura. */
   connectivityObservedAt: string | null;
   openServiceOrderCount: number;
+  /**
+   * Alguma das OS ABERTAS deste cliente é `URGENT` — `CTO-3.2.2e`.
+   *
+   * Um booleano, e nada além: o marcador precisa saber SE há urgência, não
+   * quais OS, nem a prioridade de cada uma. A lista de OS não viaja no mapa.
+   *
+   * A autoridade é a mesma da camada de OS: `ServiceOrder.priority === URGENT`
+   * e só entre as abertas (`OPEN_SERVICE_ORDER_STATUSES`). `HIGH` é "Alta" e
+   * não conta; OS urgente concluída ou cancelada não conta. Nada é deduzido de
+   * tipo, texto, tempo ou SLA. Vem da MESMA consulta que conta as abertas.
+   */
+  hasUrgentOpenServiceOrder: boolean;
   cto: MapCtoLink | null;
 }
 
@@ -193,27 +205,43 @@ export interface CtoPortCustomer {
 /** O predicado de OS aberta, numa forma só, para todas as consultas daqui. */
 const OS_ABERTA = { status: { in: OPEN_SERVICE_ORDER_STATUSES } };
 
+/** O que o mapa sabe das OS abertas de um cliente. */
+interface OsAbertasDoCliente {
+  total: number;
+  /** Quantas das abertas são `URGENT`. O marcador só precisa de `> 0`. */
+  urgentes: number;
+}
+
 /**
- * Quantas OS abertas cada cliente tem, numa consulta.
+ * Quantas OS abertas cada cliente tem — e quantas são urgentes — numa consulta.
  *
  * `groupBy` e não `findMany`: a pergunta é uma contagem, e trazer as linhas para
  * contá-las em memória levaria o conteúdo das OS junto — payload e exposição
  * por nada.
+ *
+ * Agrupado por cliente E prioridade (`CTO-3.2.2e`): a urgência sai da MESMA
+ * consulta, somando os grupos por cliente e olhando o grupo `URGENT`. Uma
+ * segunda consulta "quem tem urgente?" seria uma segunda leitura do mesmo
+ * predicado de OS aberta, e por cliente seria o N+1 que a fase proíbe.
  */
 async function contarOsAbertasPorCliente(
   companyId: string,
   customerIds: string[],
-): Promise<Map<string, number>> {
-  const resultado = new Map<string, number>();
+): Promise<Map<string, OsAbertasDoCliente>> {
+  const resultado = new Map<string, OsAbertasDoCliente>();
   if (customerIds.length === 0) return resultado;
 
   const grupos = await prisma.serviceOrder.groupBy({
-    by: ["customerId"],
+    by: ["customerId", "priority"],
     where: { companyId, customerId: { in: customerIds }, ...OS_ABERTA },
     _count: { _all: true },
   });
   for (const grupo of grupos) {
-    resultado.set(grupo.customerId, grupo._count._all);
+    const atual = resultado.get(grupo.customerId) ?? { total: 0, urgentes: 0 };
+    atual.total += grupo._count._all;
+    // `URGENT` e SOMENTE `URGENT`: `HIGH` é outra coisa.
+    if (grupo.priority === "URGENT") atual.urgentes += grupo._count._all;
+    resultado.set(grupo.customerId, atual);
   }
   return resultado;
 }
@@ -359,7 +387,8 @@ export async function getCustomerMapView(
       longitude: cliente.location!.longitude.toNumber(),
       connectivityStatus: estado.status,
       connectivityObservedAt: estado.observedAt,
-      openServiceOrderCount: osAbertas.get(cliente.id) ?? 0,
+      openServiceOrderCount: osAbertas.get(cliente.id)?.total ?? 0,
+      hasUrgentOpenServiceOrder: (osAbertas.get(cliente.id)?.urgentes ?? 0) > 0,
       cto: vinculos.get(cliente.id) ?? null,
     };
   });
@@ -600,7 +629,7 @@ export async function getCtoOperationalSummaries(
     else if (estado === "OFFLINE") alvo.offlineCount += 1;
     else alvo.unknownCount += 1;
 
-    alvo.openServiceOrderCount += osAbertas.get(vinculo.customerId) ?? 0;
+    alvo.openServiceOrderCount += osAbertas.get(vinculo.customerId)?.total ?? 0;
   }
 
   return { summaries: resumo, occupiedPortIds };
@@ -660,7 +689,7 @@ export async function getCtoPortCustomers(
         customerActive: vinculo.customer.active,
         connectivityStatus: leitura?.connectivityStatus ?? "UNKNOWN",
         connectivityObservedAt: leitura?.observedAt.toISOString() ?? null,
-        openServiceOrderCount: osAbertas.get(vinculo.customerId) ?? 0,
+        openServiceOrderCount: osAbertas.get(vinculo.customerId)?.total ?? 0,
       };
     })
     .sort((a, b) => a.portNumber - b.portNumber);
