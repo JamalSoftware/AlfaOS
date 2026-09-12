@@ -1931,8 +1931,15 @@ function MapLegend({
           </h3>
           {(
             [
-              ["ONLINE", "success", "Online"],
-              ["OFFLINE", "danger", "Offline"],
+              /*
+                "Cliente online", e não "Online".
+
+                Na mesma legenda existe um grupo de OS com "Aberta" e "Urgente",
+                e a caixa tem "Com vaga". Sem o sujeito, "Online" ficava solto —
+                online o quê? O dono pediu o nome da coisa.
+              */
+              ["ONLINE", "success", "Cliente online"],
+              ["OFFLINE", "danger", "Cliente offline"],
               ["UNKNOWN", "neutral", "Sem leitura"],
             ] as const
           ).map(([status, tom, rotulo]) => (
