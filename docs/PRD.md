@@ -13106,6 +13106,38 @@ CTOs com defeito · CTOs com OS abertas
 **Estado real medido:** o dashboard atual já mostra cartões de contagem e **não
 tem nenhum link**. A lacuna da V1 é a navegabilidade, não a existência.
 
+## Decidido pelo dono na `DASH-1`
+
+"Atrasada" e "de hoje" não tinham definição neste documento nem no código — o
+SLA é futuro (§112), e o único prazo que a OS carrega é o agendamento. As duas
+foram decididas na abertura da fase, junto com o conjunto de cartões:
+
+```text
+OS atrasada    agendada, com o agendamento vencido, e AINDA NÃO INICIADA —
+               a OS em atendimento não é atrasada; OS sem agendamento nunca é
+OS de hoje     aberta e agendada para o dia civil de hoje no fuso da EMPRESA —
+               é o trabalho que ainda falta hoje, inclusive o em atendimento
+cartões        os desta seção, mais "OS pendentes" (sem técnico), que já
+               tinha destino pronto; "Concluídas hoje" e "Técnicos ativos"
+               saíram — o primeiro exigiria filtro novo fora desta seção, o
+               segundo é cadastro, não estado operacional
+```
+
+**O cartão é a listagem.** Cada número vem da mesma função de contagem da tela
+que o cartão abre, com o mesmo filtro que o link leva — a igualdade é por
+construção, não por coincidência. "Técnicos em atendimento" é fato de OS (OS
+`IN_PROGRESS`), não presença, Jornada nem GPS.
+
+**Quem vê o quê**, preservando o acesso que já existia (§376): OS e equipe para
+`ADMIN` e `DISPATCHER`; **clientes offline só para `ADMIN`**, como a
+conectividade da carteira no mapa; **CTOs só para `ADMIN`**, e só com a
+capability de rede ligada, porque o destino é `/ctos`. Seção que falha aparece
+como falha, nunca como zero; e sem nenhum cliente ativo com leitura, o cartão
+diz **"Sem leitura"**, não "0 offline".
+
+**Implementado na `DASH-1`** — `READY FOR OWNER VALIDATION`. Os detalhes de
+implementação estão em `docs/CONTEXT-MAP.md`.
+
 ---
 
 # 381. TIMELINE DO CLIENTE V1
@@ -13242,7 +13274,7 @@ O que precisa estar de pé para o primeiro lançamento.
 | Busca operacional do mapa (CTO · cliente · OS) | **implementado** (`CTO-3.2.2`) — endereço é da busca global (§374, §384) |
 | Checklist por tipo de OS | **implementado** (v0.10) — verificar cobertura |
 | Equipamentos e estoque | **implementado** no estado atual |
-| Dashboard operacional acionável | **parcial** — cartões existem, sem navegação |
+| Dashboard operacional acionável | **implementado** (`DASH-1`) — aguarda validação do dono (§380) |
 | Timeline do cliente | **falta** |
 | Pacote técnico de evidências | **falta a reunião** — as peças existem |
 | Busca global do AlfaOS | **falta** |

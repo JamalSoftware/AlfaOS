@@ -55,7 +55,8 @@ CTO-3.2.2b · c · d · e   estabilização e acabamento de UX           ← con
    ↓  validação do dono — CTO-3.2.2e APPROVED
 MAPA OPERACIONAL V1 — FROZEN (PRD §392)                             ← 2026-09-12
    ↓
-DASH-1 · TL-1 · EV-1 · GS-1    (ordem entre si: decisão do dono)    ← PRÓXIMO
+DASH-1                         dashboard acionável       ← READY FOR OWNER VALIDATION
+TL-1 · EV-1 · GS-1             (ordem entre si: decisão do dono)
    ↓
 LANÇAMENTO V1
    ↓
@@ -65,7 +66,8 @@ V2 (PRD §388)  →  V3 (PRD §389)
 **A ordem entre `DASH-1`, `TL-1`, `EV-1` e `GS-1` não está congelada.** Elas são
 independentes entre si e todas dependem apenas do que já existe. Congelar a
 ordem agora seria decidir por antecipação algo que o uso real vai informar
-melhor. **Nenhuma delas foi iniciada.**
+melhor. **O dono escolheu a `DASH-1` primeiro**, e ela aguarda validação;
+`TL-1`, `EV-1` e `GS-1` não foram iniciadas.
 
 ---
 
@@ -104,6 +106,13 @@ técnica).
 ---
 
 ## 4. `DASH-1` — Dashboard operacional acionável
+
+> **Estado: ENTREGUE — `READY FOR OWNER VALIDATION`.** Commits locais, sem tag
+> e sem push. Zero migration, zero schema, zero dependência, zero Dart, zero
+> rota de API. As definições que o PRD não trazia — "OS atrasada", "OS de
+> hoje" e o conjunto de cartões — foram decididas pelo dono e registradas na
+> PRD §380; o mapa do código está em `docs/CONTEXT-MAP.md`. O que segue é o
+> plano como foi escrito.
 
 **Objetivo.** Transformar os cartões de contagem que já existem em indicadores
 que levam a algum lugar, e acrescentar os que faltam.

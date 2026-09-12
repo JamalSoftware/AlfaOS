@@ -85,7 +85,7 @@ concluir pela ausência** é como um contêiner de 43 horas de uptime vira
 
 Quatro coisas dessa Parte que não se redescobrem: **`STALE` não existe** no AlfaOS — a conectividade tem três estados e o que viaja junto é a **idade** da leitura (§370); **o checklist por tipo de OS já está implementado** desde a v0.10, e foi apresentado como escopo novo por engano (§382); **a máquina de estados da OS tem cinco valores**, e *agendada*, *em deslocamento* e *pausada* **não são estados** — os gaps estão registrados em §385 sem inventar enum; e **`CANCELLED` é declarado e inalcançável**.
 
-**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias V1 que faltam (`DASH-1`, `TL-1`, `EV-1`, `GS-1`, ordem por decisão do dono), cada uma com dependências, entregas, testes, segurança e risco; a `CTO-3.2.2` está lá como **concluída**. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
+**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias V1 (`DASH-1` entregue e aguardando validação do dono; `TL-1`, `EV-1`, `GS-1`, ordem por decisão do dono), cada uma com dependências, entregas, testes, segurança e risco; a `CTO-3.2.2` está lá como **concluída**. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
 
 **O MAPA OPERACIONAL V1 ESTÁ CONGELADO — PRD §392** (`CTO-3.2.2e` `APPROVED`, 2026-09-12). Antes de propor qualquer coisa no mapa, leia a §392 e a **§393**, o critério contra o feature creep: ideia nova que não bloqueia a operação V1 vai para o backlog, e o código do mapa só reabre por **correção crítica de defeito**. Não existe `CTO-3.2.2f`. A **Central de Retenção e Recuperação** (inadimplência, patrimônio em risco, recolhimento, churn, cobrança, WhatsApp) é a **PRD Parte XVII (§394–§401)** — backlog sem versão, **nada em código**, e não é fatia do Master Plan.
 
@@ -125,6 +125,34 @@ A fronteira: **Core** é tudo o que a PRD §386 lista como V1 MUST HAVE — nada
 **Carregar:** `docs/SERVICE-ORDERS.md` (inclui origem INTERNAL/EXTERNAL e catálogo `ServiceOrderType`, §1.1 e §1.2, e o número operacional da OS, §1.3 — `id` é identidade técnica, `number` é identidade operacional humana); e `docs/TECHNICIAN-EXECUTION.md` se a tarefa envolver o fluxo de atendimento do técnico (iniciar atendimento, diagnóstico, serviço realizado, observações); e `docs/SERVICE-ORDER-CLOSING.md` se envolver o fechamento (evidências/fotos, materiais, assinatura, `COMPLETED`, storage/upload, imutabilidade pós-conclusão).
 **Quando:** qualquer tarefa que toque Ordem de Serviço, atribuição de técnico, máquina de estados da OS, ou a experiência do técnico em campo.
 **Quando NÃO:** tarefas de outros módulos sem relação com OS (ex.: só cadastro de cliente, configurações da empresa). Não carregue os três documentos de uma vez — execução e fechamento são fases distintas.
+
+## Dashboard operacional — `DASH-1` (READY FOR OWNER VALIDATION)
+
+**Carregar:** PRD **§380** (contrato e as decisões do dono) e `docs/MASTER-PLAN.md` §4. Não há documento de módulo: o contrato é curto e está nos comentários do código abaixo.
+**Quando:** a tarefa toca `/dashboard`, um cartão do painel, ou um dos filtros de destino (`/ordens?recorte=`, `/tecnicos?emAtendimento=`, `/clientes?conectividade=`, `/ctos?situacao=`).
+**Quando NÃO:** análise histórica, séries, rankings ou BI — isso é o módulo Analytics, futuro e não implementado (PRD §410). O painel responde "o que está acontecendo agora".
+
+**A regra que não se desfaz: o cartão é a listagem.** Nenhum número é calculado no painel — cada um vem da função `count…` do módulo da listagem que o cartão abre, com o MESMO filtro que o link leva:
+
+| Cartão | Contagem (= destino) | Destino |
+|---|---|---|
+| OS abertas / atrasadas / de hoje | `countCompanyServiceOrders({ slice })` — `src/lib/service-order-slices.ts` | `/ordens?recorte=abertas\|atrasadas\|hoje` |
+| OS pendentes | `countCompanyServiceOrders({ status: "PENDING" })` | `/ordens?status=PENDING` |
+| Técnicos em atendimento | `countCompanyTechnicians({ inService })` — `technicianInServiceWhere` | `/tecnicos?emAtendimento=true` |
+| Clientes offline (`ADMIN`) | `countCompanyCustomers({ active, connectivity: "OFFLINE" })` → `getCompanyConnectivityStatuses` | `/clientes?active=true&conectividade=OFFLINE` |
+| CTOs com defeito / com OS abertas (`ADMIN` + capability) | `getCompanyCtoStates` + `matchesCtoAttention` — `src/lib/cto-attention.ts` | `/ctos?situacao=defeito\|com-os-abertas` |
+
+**Código:** `src/lib/dashboard.ts` (leitura, uma por visita, seções independentes), `src/lib/dashboard-cards.ts` (apresentação pura: erro → "—", "Sem leitura", cor, destino), `src/app/(app)/dashboard/page.tsx` (só desenha), `src/components/ListSliceBanner.tsx` (a faixa do recorte nas listas). Testes: `src/tests/dashboard.test.ts`, `dashboard-cards.test.ts`, `service-order-slices.test.ts`, `civil-day-bounds.test.ts`, `e2e/dashboard.spec.ts`.
+
+Cinco coisas que não se redescobrem:
+
+* **"Hoje" é o da EMPRESA**: `civilDayBoundsIn` em `src/lib/workday.ts` (a autoridade de fuso, junto de `civilDateIn`), com dia de 23/25 h e meia-noite pulada. `new Date(ano, mês, dia)` usa o fuso do processo — é o defeito que o antigo "Concluídas hoje" tinha e que `/minhas-os` ainda tem.
+* **Atrasada exclui a OS em atendimento, e OS sem agendamento nunca é atrasada** (decisão do dono). `NOT_STARTED_SERVICE_ORDER_STATUSES` é derivado de `OPEN_SERVICE_ORDER_STATUSES`, nunca listado.
+* **O recorte entra por `AND`** no `where` da listagem: juntar as chaves deixaria o filtro de status da tela sobrescrever o do recorte em silêncio.
+* **"Em atendimento" põe `companyId` DENTRO da relação** técnico → OS: `ServiceOrder.technicianId` é FK simples, e uma OS de outra empresa poderia pôr um técnico nosso "em atendimento" (vetor da `DQ-7.1`).
+* **O estado da CTO é montado com as primitivas exportadas do mapa** (`isPortWithinCapacity`, `summarizePortCounts`, `getCtoOperationalSummaries`, `deriveCtoMapStatus`) sem tocar o código congelado do mapa — e um teste de paridade compara, caixa a caixa, com o marcador. A leitura de conectividade da empresa usa o MESMO desempate (`latestPerCustomer`) do lote do mapa.
+
+**Seção que falha é `error`, nunca `0`**, e a tela a mostra como "—". A falha transitória `P1001` do Docker Desktop (seção acima) já apareceu assim no painel, na primeira leitura depois de subir o servidor: só a seção afetada ficou em "—".
 
 ## Auditorias
 
