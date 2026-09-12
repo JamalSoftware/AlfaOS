@@ -706,6 +706,7 @@ describe("DASH-STRUCT — escopo e fronteiras", () => {
   it("DASH-STRUCT-01 · nenhum módulo do painel fala com ERP ou provider", () => {
     for (const arquivo of [
       "src/lib/dashboard.ts",
+      "src/lib/dashboard-cards.ts",
       "src/lib/cto-attention.ts",
       "src/lib/service-order-slices.ts",
       "src/app/(app)/dashboard/page.tsx",
@@ -717,20 +718,10 @@ describe("DASH-STRUCT — escopo e fronteiras", () => {
     }
   });
 
-  it("DASH-STRUCT-02 · os cartões são EXATAMENTE os do contrato, cada um com o seu destino", () => {
+  it("DASH-STRUCT-02 · a página desenha os cartões da função pura — não monta os seus", () => {
     const fonte = fonteSemComentarios("src/app/(app)/dashboard/page.tsx");
-    const pares = Array.from(
-      fonte.matchAll(/chave:\s*"([^"]+)",\s*rotulo:\s*"[^"]+",\s*href:\s*"([^"]+)"/g),
-    ).map((m) => [m[1], m[2]]);
-    expect(Object.fromEntries(pares)).toEqual({
-      abertas: "/ordens?recorte=abertas",
-      atrasadas: "/ordens?recorte=atrasadas",
-      hoje: "/ordens?recorte=hoje",
-      pendentes: "/ordens?status=PENDING",
-      "tecnicos-em-atendimento": "/tecnicos?emAtendimento=true",
-      "clientes-offline": "/clientes?active=true&conectividade=OFFLINE",
-      "ctos-com-defeito": "/ctos?situacao=defeito",
-      "ctos-com-os-abertas": "/ctos?situacao=com-os-abertas",
-    });
+    expect(fonte).toMatch(/buildDashboardCards\(painel\)/);
+    // Destino escrito na página seria um segundo lugar para divergir do contrato.
+    expect(fonte).not.toMatch(/href:\s*"\/(ordens|tecnicos|clientes|ctos)/);
   });
 });
