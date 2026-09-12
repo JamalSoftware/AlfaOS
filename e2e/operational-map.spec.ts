@@ -1161,9 +1161,15 @@ test.describe("Mapa Operacional — altura", () => {
     em PIXELS, nunca fração de tela. Unidade de viewport traria de volta o mapa
     que cresce e empurra o resto para fora.
   */
+  /*
+    As faixas foram alargadas na `CTO-3.2.2e`: o desktop ALTO (≥ 860 de
+    altura de janela) ganhou um degrau próprio. O notebook de 800 fica no
+    degrau comum — nele, um mapa maior já empurraria o resumo para fora da
+    dobra. A prova fina de cada janela é a `MAPHEIGHT`.
+  */
   for (const caso of [
-    { nome: "desktop", width: 1440, height: 900, min: 360, max: 440 },
-    { nome: "notebook", width: 1280, height: 800, min: 360, max: 440 },
+    { nome: "desktop", width: 1440, height: 900, min: 440, max: 480 },
+    { nome: "notebook", width: 1280, height: 800, min: 400, max: 440 },
     { nome: "tablet", width: 768, height: 1024, min: 340, max: 420 },
     { nome: "celular", width: 390, height: 844, min: 290, max: 360 },
   ]) {
@@ -3350,7 +3356,6 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     ).toBe(assentado);
   });
 
-
   /*
     A FOLGA do recorte, afirmada no contrato e não num sintoma.
 
@@ -3401,7 +3406,6 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
         "apagar o que está na tela",
     ).toBeGreaterThan(1.3);
   });
-
 
   test("STAB-05 · o cartão de camadas não cobre os controles do mapa", async ({
     page,
@@ -3545,7 +3549,15 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
       Cor sozinha não distingue para quem não a enxerga, e um glifo de 7px é
       ilegível num ponto de 16px — quem carrega a diferença é a forma.
     */
-    expect(lido.semLeitura.fill).toBe("none");
+    /*
+      Era `fill: none` até a `CTO-3.2.2d`; a `CTO-3.2.2e` deu corpo ao ponto,
+      porque oco ele sumia sobre satélite. O que continua sendo o contrato é a
+      FORMA: tracejado, e um preenchimento que não é o de nenhum dos outros
+      dois estados. A prova fina de contraste é a `UNKNOWNVIS`.
+    */
+    expect(lido.semLeitura.fill).not.toBe("none");
+    expect(lido.semLeitura.fill).not.toBe(lido.online.fill);
+    expect(lido.semLeitura.fill).not.toBe(lido.offline.fill);
     expect(
       lido.semLeitura.tracejado,
       "sem leitura precisa ser tracejado, e não só cinza",
@@ -3614,7 +3626,6 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     expect(r, `a OS deveria ser laranja: ${cor}`).toBeGreaterThan(b);
     expect(g, `a OS deveria ser laranja: ${cor}`).toBeGreaterThan(b);
   });
-
 
   /** O lado do desenho de um marcador, já com a escala de zoom aplicada. */
   async function ladoDoDesenho(page: Page, seletor: string) {
@@ -3790,7 +3801,6 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     expect(depois.hitOs).toBeGreaterThanOrEqual(28);
   });
 
-
   test("LABELZOOM-01/02/04/05/07 · os rótulos aparecem no zoom operacional", async ({
     page,
   }) => {
@@ -3960,7 +3970,6 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     expect(urgenteId).toContain("Urgente");
   });
 
-
   // -------------------------------------------------------------------------
   // CTO-3.2.2d — polimento final
   // -------------------------------------------------------------------------
@@ -4096,16 +4105,21 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
           anel: Boolean(item.querySelector(".cto-dot__order")),
           tracejado: Boolean(item.querySelector(".cto-dot__body--sem-leitura")),
           exclamacao: Boolean(item.querySelector(".cto-order__bang")),
+          anelUrgente: Boolean(item.querySelector(".cto-dot__order--urgente")),
+          seloUrgente: Boolean(item.querySelector(".cto-dot__bang")),
         })),
       );
 
     const clientes = await entradas("map-legend-customers");
     // LEGEND-01..04
+    // LEGEND-01..04, mais a entrada de urgência da `CTO-3.2.2e` — por último,
+    // porque ela não substitui nenhuma das quatro.
     expect(clientes.map((e) => e.rotulo)).toEqual([
       "Cliente online",
       "Cliente offline",
       "Sem leitura",
       "Com OS aberta",
+      "Cliente com OS urgente",
     ]);
     // E o símbolo de cada termo é o do mapa: o rótulo não pode mudar de dono.
     expect(clientes[0].classes).toContain("cto-dot--success");
@@ -4113,6 +4127,10 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     expect(clientes[1].furo).toBe(true);
     expect(clientes[2].tracejado).toBe(true);
     expect(clientes[3].anel).toBe(true);
+    expect(clientes[3].anelUrgente).toBe(false);
+    // O símbolo ADICIONAL do urgente: anel vermelho e selo — o mesmo do marcador.
+    expect(clientes[4].anelUrgente).toBe(true);
+    expect(clientes[4].seloUrgente).toBe(true);
 
     const ordens = await entradas("map-legend-orders");
     // LEGEND-05/06
@@ -4332,6 +4350,14 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
               ctaAcerta: acerta(cta, "order-map-open"),
               clienteAcerta: acerta(cliente, "order-map-open-customer"),
               fecharAcerta: Boolean(noFechar && noFechar.closest(".leaflet-popup-close-button")),
+              // OSPOP2 — os blocos de dentro, para afirmar o aproveitamento.
+              cabecalho: r(document.querySelector('[data-testid="order-map-popup"] > :first-child')),
+              corpo: r(document.querySelector('[data-testid="order-map-popup"] > :nth-child(2)')),
+              conect: r(document.querySelector('[data-testid="order-map-popup"] [data-testid="map-connectivity"]')),
+              conectTexto:
+                document.querySelector('[data-testid="order-map-popup"] [data-testid="map-connectivity"]')
+                  ?.textContent?.trim() ?? "",
+              nomeCliente: r(document.querySelector('[data-testid="order-map-customer"]')),
               controles: Array.from(
                 document.querySelectorAll(
                   '.leaflet-control-zoom, .leaflet-control-attribution, [data-testid="map-mode-control"]',
@@ -4377,7 +4403,23 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
 
         // OSPOP-07: o popup inteiro dentro do mapa — nada cortado pela borda.
         expect(dentro(m.popup, m.mapa), `${nome}: o popup passou da borda do mapa`).toBe(true);
-        expect(m.popup!.h, `${nome}: o popup ficou alto demais`).toBeLessThanOrEqual(260);
+        expect(m.popup!.h, `${nome}: o popup ficou alto demais`).toBeLessThanOrEqual(300);
+
+        /*
+          OSPOP2-01..04 — `CTO-3.2.2e`: o popup APROVEITA o espaço.
+
+          Medido antes: cabeçalho de 104px para ~40 de conteúdo (o `p` do
+          Leaflet), e a conectividade FORA da área rolável. Agora o cabeçalho
+          cabe em menos de 48px, o corpo mostra tudo sem rolar, a conectividade
+          está dentro da parte visível do corpo e diz de quem é, e o nome do
+          cliente usa a largura do popup em vez de uma coluna estreita.
+        */
+        expect(m.cabecalho!.h, `${nome}: cabeçalho com espaço vazio`).toBeLessThanOrEqual(48);
+        expect(m.cabecalho!.t - m.popup!.t, `${nome}: espaço vazio no topo`).toBeLessThanOrEqual(16);
+        expect(dentro(m.conect, m.corpo), `${nome}: a conectividade não está à vista`).toBe(true);
+        expect(m.conectTexto).toMatch(/Cliente (online|offline)|Sem leitura/);
+        expect(m.nomeCliente!.w, `${nome}: o nome do cliente numa coluna estreita`).toBeGreaterThanOrEqual(240);
+        expect(m.popup!.h).toBeGreaterThanOrEqual(200);
 
         // OSPOP-01/03..06: o botão principal visível — no mapa, no popup, na janela.
         expect(dentro(m.cta, m.mapa), `${nome}: Abrir OS fora do mapa`).toBe(true);
@@ -4609,7 +4651,6 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     await expect(popup).toContainText("CAMADA CLIENTE ONLINE");
   });
 
-
   test("ZOOMSEQ-01 · zoom repetido não some, não duplica e não fecha o popup", async ({
     page,
   }) => {
@@ -4693,6 +4734,664 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     expect(porZoom, `requisições demais por degrau de zoom: ${pedidos.length}`).toBeLessThan(4);
   });
 
+  // -------------------------------------------------------------------------
+  // CTO-3.2.2e — altura, indicador, sem leitura, popup da caixa e edição
+  // -------------------------------------------------------------------------
+
+  type Retangulo = { l: number; t: number; r: number; b: number };
+  const CANAIS = (cor: string) => (cor.match(/\d+(\.\d+)?/g) ?? []).map(Number);
+  const DENTRO = (a: Retangulo | null, b: Retangulo | null, folga = 1) =>
+    Boolean(a && b && a.l >= b.l - folga && a.r <= b.r + folga && a.t >= b.t - folga && a.b <= b.b + folga);
+  const CRUZA = (a: Retangulo | null, b: Retangulo | null) =>
+    Boolean(a && b && a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b);
+
+  /** As faixas verticais da página, em coordenadas de DOCUMENTO. */
+  async function faixasDaPagina(page: Page) {
+    return page.evaluate(() => {
+      const r = (s: string) => {
+        const el = document.querySelector(s);
+        if (!el) throw new Error(`sem ${s}`);
+        const b = el.getBoundingClientRect();
+        return { top: b.top + window.scrollY, bottom: b.bottom + window.scrollY, height: b.height };
+      };
+      return {
+        rolagem: window.scrollY,
+        documento: document.documentElement.scrollHeight,
+        mapa: r('[data-testid="operational-map"]'),
+        resumo: r('[data-testid="map-summary"]'),
+        legenda: r('[data-testid="map-legend"]'),
+      };
+    });
+  }
+
+  /**
+   * Espera um MARCADOR parar de se mexer: três leituras iguais seguidas.
+   *
+   * A URL só muda no `moveend`, no FIM de uma animação — "duas leituras iguais
+   * da barra de endereço" sai no meio de um `autoPan` ou de um `panInside`. O
+   * sinal honesto é o objeto que se quer medir.
+   */
+  async function esperarMarcadorParar(page: Page, seletor: string) {
+    let anterior = "";
+    let iguais = 0;
+    for (let i = 0; i < 40 && iguais < 2; i += 1) {
+      const atual = JSON.stringify(await page.locator(seletor).first().boundingBox());
+      iguais = atual === anterior ? iguais + 1 : 0;
+      anterior = atual;
+      await page.waitForTimeout(120);
+    }
+  }
+
+  /*
+    # MAPHEIGHT — o mapa cresceu, e continua inteiro na dobra
+
+    O dono pediu mais área vertical. A resposta depende da altura da janela, e
+    por isso o degrau alto é por largura E altura (`OperationalMap`): 460 no
+    desktop com ≥ 860 de altura, 420 nos demais desktops. Medido: em 720 de
+    altura o mapa de 420 termina a 2px da dobra — um pixel a mais e ele seria
+    cortado, que é pior que ser pequeno.
+
+    Tudo aqui é `getBoundingClientRect` em coordenadas de documento, com a
+    camada de clientes LIGADA — o pior caso, porque o cartão ganha o filtro e
+    a legenda ganha um grupo.
+  */
+  for (const caso of [
+    { largura: 1440, altura: 900, mapa: 440, legendaNaDobra: true },
+    { largura: 1366, altura: 768, mapa: 410, legendaNaDobra: false },
+    { largura: 1280, altura: 720, mapa: 410, legendaNaDobra: false },
+  ]) {
+    test(`MAPHEIGHT-01..05 · ${caso.largura}×${caso.altura}: mapa maior e inteiro, resumo logo abaixo, legenda ao alcance`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: caso.largura, height: caso.altura });
+      await abrirCamadas(page, ADMIN_EMAIL, 17);
+      await page.getByTestId("map-layer-customers").check();
+      await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
+        timeout: 15_000,
+      });
+      await page.waitForTimeout(400);
+
+      const f = await faixasDaPagina(page);
+
+      // MAPHEIGHT-01/02: o contrato EXATO — e maior que os 400 de antes, senão
+      // a sabotagem que devolve o valor antigo passaria por uma faixa frouxa.
+      expect(f.mapa.height, "altura do mapa").toBe(caso.mapa);
+      expect(f.mapa.height).toBeGreaterThan(400);
+
+      // O mapa INTEIRO na primeira dobra, sem rolar. Mapa cortado na dobra é
+      // pior que mapa pequeno: a atribuição e a borda de baixo somem.
+      expect(f.rolagem).toBe(0);
+      expect(f.mapa.bottom, "o mapa passou da dobra").toBeLessThanOrEqual(caso.altura);
+
+      // MAPHEIGHT-03: o resumo IMEDIATAMENTE abaixo.
+      expect(f.resumo.top - f.mapa.bottom).toBeLessThanOrEqual(24);
+      expect(f.legenda.top - f.resumo.bottom).toBeLessThanOrEqual(24);
+
+      /*
+        MAPHEIGHT-04: a legenda ao alcance.
+
+        No desktop alto ela fica INTEIRA na dobra mesmo com as três camadas
+        ligadas — é a propriedade que a `CTO-3.2.2` corrigiu e que decidiu o
+        teto de 440 (medido: termina em 895). Nos outros, começa a menos de
+        100px da dobra: a rolagem pequena que o dono aceitou.
+      */
+      if (caso.legendaNaDobra) {
+        expect(f.legenda.bottom, "a legenda saiu da dobra").toBeLessThanOrEqual(caso.altura);
+      } else {
+        // 150 e não 100: em 1280 de LARGURA, com clientes ligados, os chips do
+        // resumo quebram em duas linhas (111px) e a legenda começa a 142px da
+        // dobra — já era 132 antes da fase. É largura, não altura do mapa.
+        expect(f.legenda.top).toBeLessThanOrEqual(caso.altura + 150);
+      }
+      expect(f.documento - caso.altura, "rolagem demais").toBeLessThanOrEqual(260);
+
+      // MAPHEIGHT-05: zoom, seletor de base e cartão de camadas não se cruzam.
+      const zoom = (await page.locator(".leaflet-control-zoom").boundingBox())!;
+      const modo = (await page.getByTestId("map-mode-control").boundingBox())!;
+      const cartao = (await page.getByTestId("map-layer-control").boundingBox())!;
+      const caixa = (b: { x: number; y: number; width: number; height: number }) => ({
+        l: b.x,
+        t: b.y,
+        r: b.x + b.width,
+        b: b.y + b.height,
+      });
+      expect(CRUZA(caixa(zoom), caixa(modo))).toBe(false);
+      expect(CRUZA(caixa(zoom), caixa(cartao))).toBe(false);
+      expect(CRUZA(caixa(modo), caixa(cartao))).toBe(false);
+    });
+  }
+
+  test("MAPHEIGHT-04b · 1440×900 com as camadas padrão: resumo E legenda inteiros na dobra", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await abrirCamadas(page, ADMIN_EMAIL, 17);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-box").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.waitForTimeout(400);
+    const f = await faixasDaPagina(page);
+    expect(f.mapa.height).toBe(440);
+    expect(f.resumo.bottom).toBeLessThanOrEqual(900);
+    expect(f.legenda.bottom, "a legenda saiu da dobra no estado inicial").toBeLessThanOrEqual(900);
+  });
+
+  /*
+    # LOADFLICKER — o indicador não pisca
+
+    O dono via "Carregando CTOs…" piscando a cada zoom e a cada arrasto.
+    Medido em sonda de 20ms: existia por ~80ms. A raiz eram DOIS indicadores —
+    um no invólucro, sem atraso, e o "Atualizando mapa…" da camada, com
+    atraso. Ficou um só, com atraso para aparecer e tempo mínimo na tela.
+
+    A medição é TEMPORAL, no próprio navegador: um cronômetro registra quando
+    o indicador aparece e some, e quando a requisição da camada sai.
+  */
+  interface CronometroDoIndicador {
+    mostrou: number[];
+    escondeu: number[];
+    pediu: number[];
+    carregandoCtos: number;
+  }
+
+  async function instalarCronometroDoIndicador(page: Page) {
+    await page.evaluate(() => {
+      const w = window as unknown as { __indicador: CronometroDoIndicador };
+      w.__indicador = { mostrou: [], escondeu: [], pediu: [], carregandoCtos: 0 };
+      const original = window.fetch.bind(window);
+      window.fetch = (entrada, init) => {
+        const url =
+          typeof entrada === "string"
+            ? entrada
+            : entrada instanceof URL
+              ? entrada.href
+              : entrada.url;
+        if (url.includes("/api/map/customers")) w.__indicador.pediu.push(performance.now());
+        return original(entrada, init);
+      };
+      const shell = document.querySelector(".cto-map-shell")!;
+      let visivel = false;
+      const tick = () => {
+        const agora = Boolean(document.querySelector('[data-testid="map-updating"]'));
+        if (
+          document.querySelector('[data-testid="map-loading"]') ||
+          Array.from(shell.querySelectorAll("p, div, span")).some(
+            (el) => el.childElementCount === 0 && /Carregando CTOs/.test(el.textContent ?? ""),
+          )
+        ) {
+          w.__indicador.carregandoCtos += 1;
+        }
+        if (agora && !visivel) w.__indicador.mostrou.push(performance.now());
+        if (!agora && visivel) w.__indicador.escondeu.push(performance.now());
+        visivel = agora;
+      };
+      new MutationObserver(tick).observe(shell, { childList: true, subtree: true });
+      setInterval(tick, 15);
+    });
+  }
+
+  function lerCronometro(page: Page) {
+    return page.evaluate(
+      () => (window as unknown as { __indicador: CronometroDoIndicador }).__indicador,
+    );
+  }
+
+  async function arrastarOMapa(page: Page) {
+    const area = (await page.locator(".leaflet-container").boundingBox())!;
+    const x = area.x + area.width * 0.3;
+    const y = area.y + area.height * 0.4;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 70, y + 50, { steps: 10 });
+    await page.mouse.up();
+  }
+
+  test("LOADFLICKER-01/04 · leitura rápida: o indicador NUNCA aparece, e não existe outro", async ({
+    page,
+  }) => {
+    await abrirCamadas(page, ADMIN_EMAIL, 17);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.waitForTimeout(600);
+    await instalarCronometroDoIndicador(page);
+
+    // 120ms: mais lento que uma resposta local, e mais rápido que o atraso.
+    await page.route("**/api/map/customers**", async (route) => {
+      await new Promise((r) => setTimeout(r, 120));
+      return route.fallback();
+    });
+
+    await arrastarOMapa(page);
+    await page.waitForTimeout(1800);
+
+    const c = await lerCronometro(page);
+    expect(c.pediu.length, "o arrasto não pediu a camada").toBeGreaterThanOrEqual(1);
+    expect(c.mostrou, "o indicador piscou numa leitura rápida").toEqual([]);
+    // LOADFLICKER-04: "Carregando CTOs…" não existe mais, em amostra nenhuma.
+    expect(c.carregandoCtos).toBe(0);
+  });
+
+  test("LOADFLICKER-02/05 · leitura lenta: aparece depois do atraso, fica o tempo mínimo, e é UM só", async ({
+    page,
+  }) => {
+    await abrirCamadas(page, ADMIN_EMAIL, 17);
+    await page.getByTestId("map-layer-customers").check();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.waitForTimeout(600);
+    await instalarCronometroDoIndicador(page);
+
+    /*
+      320ms: passa do atraso de 250 e termina logo depois de o aviso nascer.
+      Sem o tempo mínimo, o aviso existiria por ~70ms — o flash que o dono
+      viu, só que com outro nome.
+    */
+    await page.route("**/api/map/customers**", async (route) => {
+      await new Promise((r) => setTimeout(r, 320));
+      return route.fallback();
+    });
+
+    await arrastarOMapa(page);
+    await expect(page.getByTestId("map-updating")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("map-updating")).toHaveText("Atualizando mapa…");
+    await page.waitForTimeout(1500);
+
+    const c = await lerCronometro(page);
+    expect(c.mostrou.length, "apareceu mais de uma vez").toBe(1);
+    expect(c.escondeu.length).toBe(1);
+    // LOADFLICKER-02: depois do atraso — nunca no instante do pedido.
+    expect(c.mostrou[0] - c.pediu[0], "apareceu cedo demais").toBeGreaterThanOrEqual(200);
+    // LOADFLICKER-05: e ficou o tempo mínimo, embora a resposta tenha chegado ~70ms depois dele nascer.
+    expect(c.escondeu[0] - c.mostrou[0], "sumiu cedo demais").toBeGreaterThanOrEqual(250);
+    expect(c.carregandoCtos).toBe(0);
+  });
+
+  /*
+    # UNKNOWNVIS — "sem leitura" é visível, e continua sendo "sem leitura"
+
+    Nos dois temas, porque os tokens mudam com eles e o tile embaixo não. O
+    contraste é o da WCAG para componente de interface (3:1), calculado a
+    partir do `getComputedStyle` — nunca de um hex que alguém lembrou.
+  */
+  for (const tema of ["light", "dark"] as const) {
+    test(`UNKNOWNVIS-01..06 · sem leitura tem corpo, contraste e forma — tema ${tema}`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ colorScheme: tema });
+      await abrirCamadas(page, ADMIN_EMAIL, 17);
+      await page.getByTestId("map-layer-customers").check();
+      await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(3, {
+        timeout: 15_000,
+      });
+
+      const lido = await page.evaluate(() => {
+        const svg = (t: string) =>
+          document.querySelector(`.leaflet-marker-icon[title^="${t}"] svg.cto-dot`)!;
+        const sem = svg("CAMADA CLIENTE SEM LEITURA");
+        const on = svg("CAMADA CLIENTE ONLINE");
+        const off = svg("CAMADA CLIENTE OFFLINE");
+        const est = (el: Element | null) => (el ? getComputedStyle(el) : null);
+        const largura = (el: Element | null) => (el ? el.getBoundingClientRect().width : 0);
+        const corpo = est(sem.querySelector(".cto-dot__body"))!;
+        return {
+          fill: corpo.fill,
+          stroke: corpo.stroke,
+          strokeWidth: parseFloat(corpo.strokeWidth),
+          tracejado: corpo.strokeDasharray,
+          halo: est(sem.querySelector(".cto-dot__halo"))?.fill ?? null,
+          nucleo: est(sem.querySelector(".cto-dot__core"))?.fill ?? null,
+          larguraSem: largura(sem.querySelector(".cto-dot__halo")),
+          larguraOn: largura(on.querySelector(".cto-dot__body")),
+          fillOn: est(on.querySelector(".cto-dot__body"))!.fill,
+          fillOff: est(off.querySelector(".cto-dot__body"))!.fill,
+        };
+      });
+
+      // UNKNOWNVIS-02: a forma — tracejado, halo por baixo e centro.
+      expect(lido.tracejado).not.toBe("none");
+      expect(lido.halo, "sem halo").not.toBeNull();
+      expect(lido.nucleo, "sem centro").not.toBeNull();
+      expect(lido.strokeWidth).toBeGreaterThanOrEqual(1.75);
+
+      // UNKNOWNVIS-01: contraste contorno × preenchimento, e centro × preenchimento.
+      expect(lido.fill).not.toBe("none");
+      expect(contraste(lido.stroke, lido.fill)).toBeGreaterThanOrEqual(3);
+      expect(contraste(lido.nucleo!, lido.fill)).toBeGreaterThanOrEqual(3);
+      // UNKNOWNVIS-04/05: e o halo — a cor de superfície do tema — contrasta com
+      // o contorno; é ele que separa o ponto de um telhado ou de uma rua.
+      expect(contraste(lido.stroke, lido.halo!)).toBeGreaterThanOrEqual(3);
+
+      // UNKNOWNVIS-03: área aparente comparável ao disco cheio (com o traço dele).
+      const razao = lido.larguraSem / lido.larguraOn;
+      expect(razao, `sem leitura parece menor: ${razao.toFixed(2)}`).toBeGreaterThanOrEqual(0.9);
+      expect(razao, `sem leitura parece maior: ${razao.toFixed(2)}`).toBeLessThanOrEqual(1.25);
+
+      // UNKNOWNVIS-06: neutro — nem verde nem vermelho, e nenhum dos dois miolos.
+      for (const cor of [lido.stroke, lido.fill]) {
+        const [r, g, b] = CANAIS(cor);
+        expect(Math.max(r, g, b) - Math.min(r, g, b), `não é neutro: ${cor}`).toBeLessThan(40);
+      }
+      expect(lido.fill).not.toBe(lido.fillOn);
+      expect(lido.fill).not.toBe(lido.fillOff);
+    });
+  }
+
+  /*
+    # CTOPOP — o popup da caixa, compacto, no centro e nas quatro bordas
+
+    Medido antes: 321px, com o nome a 31px do topo e o status 34px abaixo dele
+    (o `p { margin: 1.3em }` do Leaflet). A `CTO-3.2.2d` deixou registrado que
+    o seletor de base cobria o "×" perto da borda direita e o zoom cobria o
+    cabeçalho perto da esquerda. A posição da caixa é CALCULADA a partir do
+    tamanho real do mapa, com controle positivo de que ela está na borda.
+  */
+  for (const [largura, altura] of OSPOP_VIEWPORTS) {
+    test(`CTOPOP-01..09 · o popup da caixa é compacto e utilizável no centro e nas bordas — ${largura}×${altura}`, async ({
+      page,
+    }) => {
+      test.setTimeout(150_000);
+      await page.setViewportSize({ width: largura, height: altura });
+      await login(page, ADMIN_EMAIL);
+      await interceptarTiles(page);
+
+      const pxLng = (256 * 2 ** 17) / 360;
+      const pxLat = pxLng / Math.cos((LAYER_BASE.latitude * Math.PI) / 180);
+      const MARGEM = 40;
+      const seletorDaCaixa = '.leaflet-marker-icon[title^="CAMADA CAIXA"]';
+      const marcador = page.locator(seletorDaCaixa);
+
+      // Sem a camada de clientes: o cliente ONLINE está no ponto exato da caixa
+      // (o empate CTO↔cliente segue em aberto, e não é o assunto daqui).
+      await page.goto(
+        `/mapa?lat=${LAYER_BASE.latitude}&lng=${LAYER_BASE.longitude}&z=17&layers=CTOS,ORDERS`,
+      );
+      await expect(marcador).toBeVisible({ timeout: 15_000 });
+      const mapa0 = (await page.locator(".leaflet-container").boundingBox())!;
+      const meiaL = mapa0.width / 2 - MARGEM;
+      const meiaA = mapa0.height / 2 - MARGEM;
+
+      const casos = [
+        ["centro", 0, 0],
+        ["topo", -meiaA / pxLat, 0],
+        ["fundo", meiaA / pxLat, 0],
+        ["esquerda", 0, meiaL / pxLng],
+        ["direita", 0, -meiaL / pxLng],
+      ] as const;
+
+      for (const [nome, dLat, dLng] of casos) {
+        await page.goto(
+          `/mapa?lat=${(LAYER_BASE.latitude + dLat).toFixed(6)}&lng=${(LAYER_BASE.longitude + dLng).toFixed(6)}&z=17&layers=CTOS,ORDERS`,
+        );
+        await expect(marcador).toBeVisible({ timeout: 15_000 });
+        await esperarMarcadorParar(page, seletorDaCaixa);
+
+        // Controle positivo: a ÂNCORA (a base do ícone) está onde o caso diz.
+        const antes = await caixaNoMapa(page, seletorDaCaixa);
+        const cx = antes.x + antes.width / 2;
+        const cy = antes.y + antes.height - 2;
+        const noLugar = {
+          centro: Math.min(cx, mapa0.width - cx, cy, mapa0.height - cy) > 120,
+          topo: Math.abs(cy - MARGEM) <= 3,
+          fundo: Math.abs(mapa0.height - cy - MARGEM) <= 3,
+          esquerda: Math.abs(cx - MARGEM) <= 3,
+          direita: Math.abs(mapa0.width - cx - MARGEM) <= 3,
+        }[nome];
+        expect(noLugar, `${nome}: a caixa não está onde o caso diz (${cx}, ${cy})`).toBe(true);
+
+        await marcador.click();
+        const popup = page.getByTestId("cto-map-popup");
+        await expect(popup).toBeVisible();
+        await esperarMarcadorParar(page, ".leaflet-popup-content-wrapper");
+
+        const m = await page.evaluate(() => {
+          const r = (el: Element | null) => {
+            if (!el) return null;
+            const b = el.getBoundingClientRect();
+            return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height };
+          };
+          const acerta = (el: Element | null, alvo: string) => {
+            if (!el) return false;
+            const b = el.getBoundingClientRect();
+            const topo = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+            return Boolean(topo && topo.closest(alvo));
+          };
+          const pop = document.querySelector('[data-testid="cto-map-popup"]')!;
+          return {
+            mapa: r(document.querySelector(".leaflet-container")),
+            popup: r(document.querySelector(".leaflet-popup-content-wrapper")),
+            // `textContent`, e não `innerText`: os rótulos "Portas" e "Clientes"
+            // são `uppercase` por CSS, e `innerText` devolve o que se vê.
+            texto: pop.textContent ?? "",
+            status: pop.querySelector('[data-testid="cto-map-popup-status"]')?.textContent ?? "",
+            abrirAcerta: acerta(pop.querySelector('[data-testid="cto-map-popup-open"]'), '[data-testid="cto-map-popup-open"]'),
+            verAcerta: acerta(pop.querySelector('[data-testid="cto-map-show-customers"]'), '[data-testid="cto-map-show-customers"]'),
+            ajustarAcerta: acerta(pop.querySelector('[data-testid="cto-map-popup-edit-position"]'), '[data-testid="cto-map-popup-edit-position"]'),
+            fecharAcerta: acerta(document.querySelector(".leaflet-popup-close-button"), ".leaflet-popup-close-button"),
+            controles: Array.from(
+              document.querySelectorAll(
+                '.leaflet-control-zoom, .leaflet-control-attribution, [data-testid="map-mode-control"]',
+              ),
+            ).map((el) => ({
+              nome: el.classList.contains("leaflet-control-zoom")
+                ? "o zoom"
+                : el.classList.contains("leaflet-control-attribution")
+                  ? "a atribuição"
+                  : "o seletor de base",
+              caixa: r(el),
+            })),
+          };
+        });
+
+        // CTOPOP-01: menor que os 321 de antes — e com folga, não por um pixel.
+        expect(m.popup!.h, `${nome}: popup com ${m.popup!.h}px`).toBeLessThanOrEqual(260);
+        expect(m.popup!.h).toBeGreaterThanOrEqual(180);
+        expect(DENTRO(m.popup, m.mapa), `${nome}: o popup passou da borda do mapa`).toBe(true);
+
+        // CTOPOP-02: nenhuma informação perdida.
+        for (const termo of [
+          "CAMADA CAIXA",
+          "Portas",
+          "Capacidade",
+          "Livres",
+          "Ocupadas",
+          "Reservadas",
+          "Danificadas",
+          "Clientes",
+          "Ativos",
+          "Online",
+          "Offline",
+          "Sem leitura",
+          "OS abertas",
+          "Abrir CTO",
+          "Ver clientes",
+          "Ajustar posição",
+        ]) {
+          expect(m.texto, `${nome}: sumiu "${termo}"`).toContain(termo);
+        }
+        expect(m.status).toMatch(/Com vaga|Sem vaga|Com defeito|Inativa/);
+
+        // CTOPOP-03/04/05: as três ações recebem o clique no centro delas.
+        expect(m.abrirAcerta, `${nome}: Abrir CTO coberto`).toBe(true);
+        expect(m.verAcerta, `${nome}: Ver clientes coberto`).toBe(true);
+        expect(m.ajustarAcerta, `${nome}: Ajustar posição coberto`).toBe(true);
+        // CTOPOP-06/07: e o "×" também — era ele que o seletor de base cobria.
+        expect(m.fecharAcerta, `${nome}: o × está coberto`).toBe(true);
+        // CTOPOP-08/09: fora de todo controle do mapa.
+        expect(m.controles.length).toBeGreaterThanOrEqual(3);
+        for (const c of m.controles) {
+          expect(CRUZA(m.popup, c.caixa), `${nome}: o popup ficou debaixo de ${c.nome}`).toBe(false);
+        }
+
+        await page.locator(".leaflet-popup-close-button").click();
+        await expect(popup).toHaveCount(0);
+      }
+    });
+  }
+
+  /*
+    # EDITUX — Ajustar posição traz a caixa para a área segura
+
+    O dono via a caixa "lá embaixo" ao entrar em edição. Medido: o `autoPan`
+    do popup empurra a vista para o popup caber ACIMA do marcador, e o
+    marcador vai parar no rodapé (y=354 num mapa de 400); fechado o popup, ele
+    fica lá — e no canto esquerdo, debaixo do painel. `panInside` move o mínimo
+    que resolve; uma caixa já na área segura não se move. É pan de VISTA: a
+    coordenada gravada não muda.
+  */
+  for (const [largura, altura] of OSPOP_VIEWPORTS) {
+    test(`EDITUX-01..03 · entrar em Ajustar posição deixa a caixa numa área útil — ${largura}×${altura}`, async ({
+      page,
+    }) => {
+      test.setTimeout(150_000);
+      await page.setViewportSize({ width: largura, height: altura });
+      await login(page, ADMIN_EMAIL);
+      await interceptarTiles(page);
+
+      const pxLng = (256 * 2 ** 17) / 360;
+      const pxLat = pxLng / Math.cos((LAYER_BASE.latitude * Math.PI) / 180);
+      const seletorDaCaixa = '.leaflet-marker-icon[title^="CAMADA CAIXA"]';
+      const marcador = page.locator(seletorDaCaixa);
+
+      await page.goto(
+        `/mapa?lat=${LAYER_BASE.latitude}&lng=${LAYER_BASE.longitude}&z=17&layers=CTOS,ORDERS`,
+      );
+      await expect(marcador).toBeVisible({ timeout: 15_000 });
+      const mapa0 = (await page.locator(".leaflet-container").boundingBox())!;
+      const W = mapa0.width;
+      const H = mapa0.height;
+
+      /*
+        [nome, deslocamento da CÂMERA em lat/lng]
+
+        "topo-esquerda" põe a âncora em (58, 90): dentro da zona insegura (a
+        área segura começa em x=64, y=106) e ainda clicável — com a caixa
+        DEBAIXO do zoom o clique cairia no "+", e o Playwright reportaria o
+        botão interceptando o ponteiro em vez de provar alguma coisa.
+
+        Se a caixa "precisa se mover" NÃO é dado da tabela: é medido depois
+        do popup. Na borda direita o `autoPan` do próprio popup (302px de
+        largura) já traz a caixa para dentro antes de a edição começar, e
+        um teste que cravasse "deve mover" acusaria o `panInside` de não ter
+        feito o que não precisava fazer — medido na primeira rodada.
+      */
+      const casos = [
+        ["centro", 0, 0],
+        ["fundo-esquerda (sob o painel)", (H / 2 - 30) / pxLat, (W / 2 - 60) / pxLng],
+        ["fundo", (H / 2 - 30) / pxLat, 0],
+        ["topo-esquerda (encostada no zoom)", -(H / 2 - 90) / pxLat, (W / 2 - 58) / pxLng],
+        ["direita", 0, -(W / 2 - 20) / pxLng],
+      ] as const;
+
+      /** A ÂNCORA (base do ícone) está na área segura da edição? Os mesmos números de `AREA_SEGURA_DE_EDICAO`. */
+      const naAreaSegura = async () => {
+        const icone = await caixaNoMapa(page, seletorDaCaixa);
+        const ax = icone.x + icone.width / 2;
+        const ay = icone.y + icone.height - 2;
+        const dentroDosRespiros = ax >= 64 && ax <= W - 40 && ay >= 106 && ay <= H - 48;
+        const sobOPainel = ax < 332 && ay > H - 250;
+        return dentroDosRespiros && !sobOPainel;
+      };
+
+      const gravada = await prisma.cTO.findUniqueOrThrow({ where: { id: camadas.ctoId } });
+      let casosQuePrecisaram = 0;
+
+      for (const [nome, dLat, dLng] of casos) {
+        await page.goto(
+          `/mapa?lat=${(LAYER_BASE.latitude + dLat).toFixed(6)}&lng=${(LAYER_BASE.longitude + dLng).toFixed(6)}&z=17&layers=CTOS,ORDERS`,
+        );
+        await expect(marcador).toBeVisible({ timeout: 15_000 });
+        await esperarMarcadorParar(page, seletorDaCaixa);
+        const molduraAntes = await page
+          .getByTestId("operational-map")
+          .evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
+
+        await marcador.click();
+        await expect(page.getByTestId("cto-map-popup")).toBeVisible();
+        await esperarMarcadorParar(page, seletorDaCaixa);
+        await esperarMapaParar(page);
+        const vistaComPopup = vistaDaUrl(page);
+        const deveMover = !(await naAreaSegura());
+        if (deveMover) casosQuePrecisaram += 1;
+
+        await page.getByTestId("cto-map-popup-edit-position").click();
+        await expect(page.getByTestId("cto-map-position-panel")).toBeVisible();
+        await esperarMarcadorParar(page, seletorDaCaixa);
+        await esperarMapaParar(page);
+
+        const m = await page.evaluate((sel) => {
+          const r = (el: Element | null) => {
+            if (!el) return null;
+            const b = el.getBoundingClientRect();
+            return { l: b.left, t: b.top, r: b.right, b: b.bottom };
+          };
+          return {
+            mapa: r(document.querySelector(".leaflet-container")),
+            icone: r(document.querySelector(sel)),
+            painel: r(document.querySelector('[data-testid="cto-map-position-panel"]')),
+            zoom: r(document.querySelector(".leaflet-control-zoom")),
+            modo: r(document.querySelector('[data-testid="map-mode-control"]')),
+            moldura:
+              document.querySelector('[data-testid="operational-map"]')!.getBoundingClientRect().top +
+              window.scrollY,
+          };
+        }, seletorDaCaixa);
+
+        // EDITUX-01/02: o painel dentro do mapa, e a moldura no MESMO lugar.
+        expect(DENTRO(m.painel, m.mapa), `${nome}: o painel escapou do mapa`).toBe(true);
+        expect(Math.abs(m.moldura - molduraAntes), `${nome}: o mapa se moveu no layout`).toBeLessThanOrEqual(1);
+
+        // EDITUX-03: a caixa INTEIRA numa área útil — dentro do mapa com folga,
+        // fora do painel, do zoom e do seletor de base.
+        const i = m.icone!;
+        const mp = m.mapa!;
+        expect(i.t, `${nome}: a caixa encostou no topo`).toBeGreaterThanOrEqual(mp.t + 8);
+        expect(i.b, `${nome}: a caixa encostou na base`).toBeLessThanOrEqual(mp.b - 12);
+        expect(i.l, `${nome}: a caixa encostou na esquerda`).toBeGreaterThanOrEqual(mp.l + 44);
+        expect(i.r, `${nome}: a caixa encostou na direita`).toBeLessThanOrEqual(mp.r - 20);
+        expect(CRUZA(m.icone, m.painel), `${nome}: a caixa ficou debaixo do painel`).toBe(false);
+        expect(CRUZA(m.icone, m.zoom), `${nome}: a caixa ficou debaixo do zoom`).toBe(false);
+        expect(CRUZA(m.icone, m.modo), `${nome}: a caixa ficou debaixo do seletor`).toBe(false);
+
+        /*
+          E o mapa só andou se PRECISAVA. No centro a caixa já estava na área
+          segura, e a vista de depois é a de antes — um `panInside` que
+          recentralizasse por hábito seria o "mover sozinho" que a `STAB-03`
+          proibiu.
+        */
+        const vistaEmEdicao = vistaDaUrl(page);
+        if (!deveMover) {
+          expect(vistaEmEdicao.get("lat")).toBe(vistaComPopup.get("lat"));
+          expect(vistaEmEdicao.get("lng")).toBe(vistaComPopup.get("lng"));
+        } else {
+          expect(
+            vistaEmEdicao.get("lat") !== vistaComPopup.get("lat") ||
+              vistaEmEdicao.get("lng") !== vistaComPopup.get("lng"),
+            `${nome}: a caixa estava na borda e o mapa não a trouxe`,
+          ).toBe(true);
+        }
+        expect(vistaEmEdicao.get("z")).toBe(vistaComPopup.get("z"));
+
+        // Pan de VISTA: nada foi gravado.
+        const agora = await prisma.cTO.findUniqueOrThrow({ where: { id: camadas.ctoId } });
+        expect(agora.latitude).toEqual(gravada.latitude);
+        expect(agora.longitude).toEqual(gravada.longitude);
+
+        await page.getByTestId("cto-map-position-cancel").click();
+        await expect(page.getByTestId("cto-map-position-panel")).toHaveCount(0);
+      }
+
+      /*
+        Controle positivo: o `panInside` PRECISOU agir em pelo menos três dos
+        cinco casos. Sem isto, uma geometria em que o popup já trouxesse a
+        caixa em todos os casos faria o teste provar só "não se moveu quando
+        não precisava" — e a sabotagem que remove o `panInside` passaria.
+      */
+      expect(casosQuePrecisaram, "poucos casos exercitaram o panInside").toBeGreaterThanOrEqual(3);
+    });
+  }
 
   test("LAYER-01/02/03 · o estado inicial das camadas", async ({ page }) => {
     await abrirCamadas(page);
@@ -5227,6 +5926,7 @@ const prox = {
   ctoId: "",
   osNormal: "",
   osUrgente: "",
+  ordens: [] as string[],
   clientes: [] as string[],
 };
 
@@ -5234,11 +5934,6 @@ async function abrirBairro(page: Page, extra = "&layers=CTOS,ORDERS,CUSTOMERS") 
   await page.goto(`/mapa?lat=${PROX.latitude}&lng=${PROX.longitude}&z=17${extra}`);
   await expect(page.locator(".leaflet-container")).toBeVisible();
   await expect(marcadorDe(page, NOME_PROX_CAIXA)).toBeVisible({ timeout: 15_000 });
-}
-
-/** Os canais de uma cor `rgb(...)` do `getComputedStyle`. */
-function canaisDaCor(cor: string): number[] {
-  return (cor.match(/\d+(\.\d+)?/g) ?? []).map(Number);
 }
 
 test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do dono", () => {
@@ -5258,11 +5953,38 @@ test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do
       lat: PROX.latitude - PROX_DLAT,
       lng: PROX.longitude,
     });
-    prox.clientes = [roseli.id, joao.id, maria.id];
+    /*
+      Três vizinhos, para a urgência — `CTO-3.2.2e`.
+
+      Carlos é ONLINE com OS URGENTE aberta; Pedro é OFFLINE com OS URGENTE
+      aberta; Lucas é OFFLINE com uma HIGH aberta e uma URGENTE já concluída —
+      o controle que prova que "Alta" não é urgente e que OS fechada não
+      conta. Roseli fica SEM OS de propósito: é o cliente que a `PROX-01`
+      clica diretamente, e uma OS em cima dela poria o losango por cima do
+      ponto. E João fica só com a 8810: uma segunda OS nele nasceria no MESMO
+      pixel e interceptaria o clique que os testes fazem na normal — foi
+      exatamente o que aconteceu na primeira versão desta fixture.
+    */
+    const carlos = await criarClienteE2E("Carlos Eduardo Lima", {
+      lat: PROX.latitude + 2 * PROX_DLAT,
+      lng: PROX.longitude - 3 * PROX_DLNG,
+    });
+    const pedro = await criarClienteE2E("Pedro Henrique Alves", {
+      lat: PROX.latitude + 2 * PROX_DLAT,
+      lng: PROX.longitude + 3 * PROX_DLNG,
+    });
+    const lucas = await criarClienteE2E("Lucas Ferreira Rocha", {
+      lat: PROX.latitude - 2 * PROX_DLAT,
+      lng: PROX.longitude + 3 * PROX_DLNG,
+    });
+    prox.clientes = [roseli.id, joao.id, maria.id, carlos.id, pedro.id, lucas.id];
 
     for (const [customerId, status] of [
       [roseli.id, "ONLINE"],
       [joao.id, "OFFLINE"],
+      [carlos.id, "ONLINE"],
+      [pedro.id, "OFFLINE"],
+      [lucas.id, "OFFLINE"],
     ] as const) {
       await prisma.customerDiagnosticSnapshot.create({
         data: {
@@ -5299,6 +6021,25 @@ test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do
     prox.osNormal = normal.id;
     prox.osUrgente = urgente.id;
 
+    const extras = await Promise.all([
+      // Pedro: OFFLINE + urgente aberta.
+      prisma.serviceOrder.create({
+        data: { companyId, number: 8813, customerId: pedro.id, type: "REPARO", description: "urgente do Pedro", status: "PENDING", priority: "URGENT" },
+      }),
+      // Carlos: ONLINE + urgente aberta.
+      prisma.serviceOrder.create({
+        data: { companyId, number: 8812, customerId: carlos.id, type: "REPARO", description: "urgente do Carlos", status: "ASSIGNED", priority: "URGENT" },
+      }),
+      // Lucas: HIGH aberta (não é urgente) e URGENTE concluída (não conta).
+      prisma.serviceOrder.create({
+        data: { companyId, number: 8814, customerId: lucas.id, type: "REPARO", description: "alta do Lucas", status: "ASSIGNED", priority: "HIGH" },
+      }),
+      prisma.serviceOrder.create({
+        data: { companyId, number: 8815, customerId: lucas.id, type: "REPARO", description: "urgente fechada do Lucas", status: "COMPLETED", priority: "URGENT", completedAt: new Date() },
+      }),
+    ]);
+    prox.ordens = [normal.id, urgente.id, ...extras.map((o) => o.id)];
+
     const cto = await criarCto(NOME_PROX_CAIXA, {
       latitude: PROX.latitude,
       longitude: PROX.longitude,
@@ -5308,7 +6049,7 @@ test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do
 
   test.afterAll(async () => {
     await prisma.serviceOrder.deleteMany({
-      where: { id: { in: [prox.osNormal, prox.osUrgente].filter(Boolean) } },
+      where: { id: { in: prox.ordens } },
     });
     await prisma.customerDiagnosticSnapshot.deleteMany({
       where: { customerId: { in: prox.clientes } },
@@ -5325,10 +6066,11 @@ test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do
     await login(page, ADMIN_EMAIL);
     await interceptarTiles(page);
     await abrirBairro(page);
-    await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(3, {
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(6, {
       timeout: 15_000,
     });
-    await expect(page.locator(".leaflet-marker-pane svg.cto-order")).toHaveCount(2);
+    // 8810, 8811, 8812, 8813 e 8814 — a 8815 está concluída e não é desenhada.
+    await expect(page.locator(".leaflet-marker-pane svg.cto-order")).toHaveCount(5);
 
     /*
       A folga entre as ÁREAS DE CLIQUE, com os dois limites.
@@ -5380,7 +6122,7 @@ test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do
       // Cada clique parte do MESMO enquadramento: o `autoPan` do anterior não
       // pode decidir onde o próximo alvo está.
       await abrirBairro(page);
-      await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(3, {
+      await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(6, {
         timeout: 15_000,
       });
       await caso.alvo.click();
@@ -5397,13 +6139,13 @@ test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do
     await login(page, ADMIN_EMAIL);
     await interceptarTiles(page);
     await abrirBairro(page);
-    await expect(page.getByTestId("customer-map-label")).toHaveCount(3, { timeout: 15_000 });
+    await expect(page.getByTestId("customer-map-label")).toHaveCount(6, { timeout: 15_000 });
 
     // Os exemplos do dono, e a caixa normalizada: "ROSELI" vira "Roseli".
     const rotulos = (await page.getByTestId("customer-map-label").allTextContents())
       .map((t) => t.trim())
       .sort();
-    expect(rotulos).toEqual(["João", "Maria", "Roseli"]);
+    expect(rotulos).toEqual(["Carlos", "João", "Lucas", "Maria", "Pedro", "Roseli"]);
 
     /*
       Nenhum pedaço do sobrenome em lugar nenhum do mapa.
@@ -5414,7 +6156,7 @@ test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do
     // Sem distinguir caixa: "Roseli jesuno" vaza o sobrenome tanto quanto
     // "ROSELI JESUNO".
     const mapa = (await page.locator(".leaflet-map-pane").innerText()).toLocaleLowerCase("pt-BR");
-    for (const pedaco of ["jesuno", "souza", "teixeira", "silva", "neto", "gonçalves"]) {
+    for (const pedaco of ["jesuno", "souza", "teixeira", "silva", "neto", "gonçalves", "eduardo", "lima", "henrique", "alves", "ferreira", "rocha"]) {
       expect(mapa, `o mapa mostra "${pedaco}" sem ninguém ter clicado`).not.toContain(pedaco);
     }
 
@@ -5425,8 +6167,176 @@ test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do
     );
   });
 
+  /*
+    # URGCLIENT (navegador) — a urgência é um sinal A MAIS, em cada estado
+
+    A fixture tem os três pares: Carlos é ONLINE + urgente, Pedro é OFFLINE +
+    urgente, Maria é SEM LEITURA + urgente. Lucas é o controle: OFFLINE com
+    uma HIGH aberta e uma URGENTE concluída — nem "Alta" nem OS fechada podem
+    acender o destaque. O que se afirma é o desenho: miolo, anel, selo, e a
+    ausência de animação.
+  */
+  test("URGCLIENT-04/05/06/08 · online, offline e sem leitura mantêm o estado e ganham anel e selo", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await interceptarTiles(page);
+    await abrirBairro(page);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(6, {
+      timeout: 15_000,
+    });
+
+    const canais = (cor: string) => (cor.match(/\d+(\.\d+)?/g) ?? []).map(Number);
+    const lido = await page.evaluate(() => {
+      const ler = (titulo: string) => {
+        const icone = document.querySelector(`.leaflet-marker-icon[title^="${titulo}"]`)!;
+        const svg = icone.querySelector("svg.cto-dot")!;
+        const corpo = svg.querySelector(".cto-dot__body")!;
+        const anel = svg.querySelector(".cto-dot__order");
+        return {
+          classes: svg.getAttribute("class") ?? "",
+          titulo: icone.getAttribute("title") ?? "",
+          fill: getComputedStyle(corpo).fill,
+          anel: anel ? getComputedStyle(anel).stroke : null,
+          anelUrgente: Boolean(svg.querySelector(".cto-dot__order--urgente")),
+          selo: Boolean(svg.querySelector(".cto-dot__bang")),
+          semLeitura: Boolean(svg.querySelector(".cto-dot__body--sem-leitura")),
+          animacoes: [svg, corpo, anel]
+            .filter(Boolean)
+            .map((el) => getComputedStyle(el as Element).animationName),
+        };
+      };
+      return {
+        carlos: ler("Carlos"),
+        joao: ler("João"),
+        maria: ler("Maria"),
+        pedro: ler("Pedro"),
+        lucas: ler("Lucas"),
+        roseli: ler("ROSELI"),
+      };
+    });
+
+    // URGCLIENT-04: online + urgente — o miolo continua VERDE.
+    const [cr, cg] = canais(lido.carlos.fill);
+    expect(cg, `Carlos deveria continuar verde: ${lido.carlos.fill}`).toBeGreaterThan(cr);
+    expect(lido.carlos.anelUrgente).toBe(true);
+    expect(lido.carlos.selo).toBe(true);
+    const [ar, ag, ab] = canais(lido.carlos.anel!);
+    expect(ar, `o anel de urgência deveria ser vermelho: ${lido.carlos.anel}`).toBeGreaterThan(ag);
+    expect(ar).toBeGreaterThan(ab);
+
+    // URGCLIENT-05: offline + urgente — vermelho continua vermelho; quem
+    // distingue do offline comum é o anel e o selo, não um tom a mais.
+    const [pr0, pg0] = canais(lido.pedro.fill);
+    expect(pr0).toBeGreaterThan(pg0);
+    expect(lido.pedro.anelUrgente).toBe(true);
+    expect(lido.pedro.selo).toBe(true);
+    // Lucas é offline SEM urgência: mesmo miolo, e nem anel vermelho nem selo.
+    expect(lido.lucas.fill).toBe(lido.pedro.fill);
+    expect(lido.lucas.anelUrgente).toBe(false);
+    expect(lido.lucas.selo).toBe(false);
+    // Lucas TEM OS aberta (a HIGH): o anel dele é o âmbar de "com OS aberta".
+    expect(lido.lucas.anel, "Lucas deveria ter o anel de OS aberta").not.toBeNull();
+    const [lr, lg, lb] = canais(lido.lucas.anel!);
+    expect(lg, `o anel de OS aberta deveria ser âmbar: ${lido.lucas.anel}`).toBeGreaterThan(lb);
+    expect(lr).toBeGreaterThan(lb);
+    expect(lido.lucas.classes).not.toContain("cto-dot--urgente");
+    // João: só a normal 8810 — anel âmbar, sem urgência.
+    expect(lido.joao.anelUrgente).toBe(false);
+    expect(lido.joao.selo).toBe(false);
+
+    // URGCLIENT-06: sem leitura + urgente.
+    expect(lido.maria.semLeitura).toBe(true);
+    expect(lido.maria.anelUrgente).toBe(true);
+    expect(lido.maria.selo).toBe(true);
+
+    // Roseli: sem OS nenhuma — nem anel, nem selo.
+    expect(lido.roseli.anel).toBeNull();
+    expect(lido.roseli.selo).toBe(false);
+
+    // Destaque ESTÁTICO: nenhuma animação em nenhuma das peças.
+    for (const [nome, cliente] of Object.entries(lido)) {
+      for (const a of cliente.animacoes) expect(a, `${nome} está animado`).toBe("none");
+    }
+
+    // O rótulo acessível diz a urgência por extenso, só para quem a tem.
+    expect(lido.carlos.titulo).toContain("com OS urgente");
+    expect(lido.pedro.titulo).toContain("com OS urgente");
+    expect(lido.lucas.titulo).not.toContain("urgente");
+    expect(lido.joao.titulo).not.toContain("urgente");
+    expect(lido.roseli.titulo).not.toContain("urgente");
+
+    // URGCLIENT-08: a legenda nomeia o sinal com o MESMO símbolo.
+    const legenda = page.getByTestId("map-legend-urgent-customer");
+    await expect(legenda).toContainText("Cliente com OS urgente");
+    await expect(legenda.locator(".cto-dot__order--urgente")).toHaveCount(1);
+    await expect(legenda.locator(".cto-dot__bang")).toHaveCount(1);
+  });
+
+  test("URGCLIENT-09 · o popup do cliente ganha o chip, e só quem tem urgência", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await interceptarTiles(page);
+    await abrirBairro(page);
+    // Sem a camada de OS: o losango fica por cima do ponto (decisão da
+    // `CTO-3.2.2`), e aqui o alvo é o CLIENTE.
+    await page.getByTestId("map-layer-orders").uncheck();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-order")).toHaveCount(0);
+    await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(6, {
+      timeout: 15_000,
+    });
+
+    await marcadorDe(page, "Carlos").click();
+    const popup = page.getByTestId("customer-map-popup");
+    await expect(popup).toBeVisible();
+    await expect(popup).toContainText("Carlos Eduardo Lima");
+    await expect(popup.getByTestId("customer-map-urgent")).toHaveText("OS urgente");
+    await page.locator(".leaflet-popup-close-button").click();
+    await expect(popup).toHaveCount(0);
+
+    // Lucas tem OS aberta (HIGH) e uma urgente CONCLUÍDA: contagem 1, sem chip.
+    await marcadorDe(page, "Lucas").click();
+    await expect(popup).toBeVisible();
+    await expect(popup.getByTestId("customer-map-open-os")).toHaveText("1");
+    await expect(popup.getByTestId("customer-map-urgent")).toHaveCount(0);
+  });
+
+  /*
+    # OWNER-FLOW — o roteiro do dono da `CTO-3.2.2e`, de ponta a ponta
+
+    Os 22 passos do enunciado, na ordem, sobre o bairro de fixtures. Cada passo
+    afirma geometria ou estado, nunca só "está visível".
+  */
   test("OWNER-FLOW · o roteiro do dono, de ponta a ponta", async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(300_000);
+    const seletorDaCaixa = `.leaflet-marker-icon[title^="${NOME_PROX_CAIXA}"]`;
+    const canais = (cor: string) => (cor.match(/\d+(\.\d+)?/g) ?? []).map(Number);
+    const rect = (sel: string) =>
+      page.evaluate((s) => {
+        const el = document.querySelector(s);
+        if (!el) return null;
+        const b = el.getBoundingClientRect();
+        return { l: b.left, t: b.top, r: b.right, b: b.bottom, w: b.width, h: b.height };
+      }, sel);
+    const acerta = (sel: string) =>
+      page.evaluate((s) => {
+        const el = document.querySelector(s);
+        if (!el) return false;
+        const b = el.getBoundingClientRect();
+        const topo = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return Boolean(topo && topo.closest(s));
+      }, sel);
+    const pararMarcador = async (sel: string) => {
+      let anterior = "";
+      let iguais = 0;
+      for (let i = 0; i < 40 && iguais < 2; i += 1) {
+        const atual = JSON.stringify(await page.locator(sel).first().boundingBox());
+        iguais = atual === anterior ? iguais + 1 : 0;
+        anterior = atual;
+        await page.waitForTimeout(120);
+      }
+    };
 
     await test.step("1. abrir o mapa", async () => {
       await login(page, ADMIN_EMAIL);
@@ -5434,109 +6344,79 @@ test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do
       await abrirBairro(page, "");
     });
 
-    await test.step("2. ligar as três camadas", async () => {
+    await test.step("2. ligar clientes", async () => {
       await page.getByTestId("map-layer-customers").check();
-      for (const camada of ["ctos", "orders", "customers"]) {
-        await expect(page.getByTestId(`map-layer-${camada}`)).toBeChecked();
-      }
-      await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(3, {
+      await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(6, {
         timeout: 15_000,
       });
     });
 
-    await test.step("3. o cliente mostra o primeiro nome", async () => {
-      await expect(
-        page.getByTestId("customer-map-label").filter({ hasText: /^Roseli$/ }),
-      ).toBeVisible();
+    const svgDe = (titulo: string) => page.locator(`.leaflet-marker-icon[title^="${titulo}"] svg.cto-dot`);
+
+    await test.step("3. localizar online", async () => {
+      await expect(svgDe("ROSELI")).toHaveClass(/cto-dot--success/);
+      await expect(page.getByTestId("customer-map-label").filter({ hasText: /^Roseli$/ })).toBeVisible();
     });
 
-    await test.step("4. o cliente cresceu e continua menor que a caixa", async () => {
-      const lado = async (seletor: string) =>
-        (await page.locator(`.leaflet-marker-pane ${seletor}`).first().boundingBox())!.width;
-      const ladoCliente = await lado("svg.cto-dot");
-      expect(ladoCliente).toBeGreaterThan(18);
-      expect(ladoCliente).toBeLessThanOrEqual(22);
-      expect(await lado("svg.cto-box")).toBeGreaterThan(ladoCliente);
+    await test.step("4. localizar offline", async () => {
+      await expect(svgDe("Pedro")).toHaveClass(/cto-dot--danger/);
     });
 
-    await test.step("5–6. clicar no cliente, e fechar", async () => {
-      await marcadorDe(page, "ROSELI JESUNO").click();
-      await expect(page.getByTestId("customer-map-popup")).toBeVisible();
-      await page.locator(".leaflet-popup-close-button").click();
-      await expect(page.locator(".leaflet-popup")).toHaveCount(0);
+    await test.step("5. localizar sem leitura", async () => {
+      await expect(svgDe("Maria").locator(".cto-dot__body--sem-leitura")).toHaveCount(1);
     });
 
-    const popupOs = page.getByTestId("order-map-popup");
-    /** O "Abrir OS" está dentro do mapa, e é ele que recebe o clique. */
-    const ctaAcertavel = () =>
-      page.getByTestId("order-map-open").evaluate((cta) => {
-        const b = cta.getBoundingClientRect();
-        const mapa = document.querySelector(".leaflet-container")!.getBoundingClientRect();
-        const topo = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
-        return (
-          b.top >= mapa.top &&
-          b.bottom <= mapa.bottom &&
-          Boolean(topo && topo.closest('[data-testid="order-map-open"]'))
-        );
-      });
+    await test.step("6. localizar cliente com OS urgente", async () => {
+      await expect(svgDe("Carlos")).toHaveClass(/cto-dot--urgente/);
+      await expect(svgDe("Carlos").locator(".cto-dot__bang")).toHaveCount(1);
+    });
 
-    let zoomDoMapa: string | null = null;
-    await test.step("7–10. OS normal: rótulo sem !, popup utilizável, Abrir OS clicável", async () => {
-      await esperarMapaParar(page);
-      zoomDoMapa = vistaDaUrl(page).get("z");
+    await test.step("7. confirmar que a urgência é ADICIONAL ao estado", async () => {
+      const fill = await svgDe("Carlos").locator(".cto-dot__body").evaluate((el) => getComputedStyle(el).fill);
+      const [r, g] = canais(fill);
+      expect(g, `Carlos deveria continuar verde: ${fill}`).toBeGreaterThan(r);
+      await expect(svgDe("Carlos").locator(".cto-dot__order--urgente")).toHaveCount(1);
+      // Lucas: HIGH não é urgente.
+      await expect(svgDe("Lucas")).not.toHaveClass(/cto-dot--urgente/);
+    });
+
+    await test.step("8. abrir OS", async () => {
       await page.locator('.leaflet-marker-icon[title^="OS número 8810"]').click();
-      await expect(popupOs).toHaveAttribute("data-order-id", prox.osNormal);
-      await expect(
-        page.getByTestId("order-map-label").filter({ hasText: "8810" }),
-      ).toHaveText("OS-N°8810");
-      await esperarMapaParar(page);
-      expect(await ctaAcertavel(), "Abrir OS fora do mapa ou coberto").toBe(true);
-      await page.getByTestId("order-map-open").click();
-      await expect(page).toHaveURL(new RegExp(`/ordens/${prox.osNormal}`));
+      await expect(page.getByTestId("order-map-popup")).toHaveAttribute("data-order-id", prox.osNormal);
+      await pararMarcador(".leaflet-popup-content-wrapper");
     });
 
-    await test.step("11. voltar ao mapa", async () => {
-      await page.getByTestId("order-back-link").click();
-      await expect(page.locator(".leaflet-container")).toBeVisible({ timeout: 15_000 });
-      await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(3, {
-        timeout: 15_000,
-      });
-      expect(vistaDaUrl(page).get("z")).toBe(zoomDoMapa);
-    });
-
-    await test.step("12–15. OS urgente: vermelha com !, rótulo sem !, Abrir OS visível", async () => {
-      const osUrgente = page.locator('.leaflet-marker-icon[title^="OS número 8811"]');
-      await osUrgente.click();
-      await expect(popupOs).toHaveAttribute("data-order-id", prox.osUrgente);
-
-      const desenho = osUrgente.locator("svg.cto-order");
-      await expect(desenho).toHaveClass(/cto-order--urgente/);
-      await expect(desenho.locator(".cto-order__bang")).toHaveCount(1);
-      const [r, g] = canaisDaCor(
-        await desenho.locator(".cto-order__body").evaluate((el) => getComputedStyle(el).fill),
-      );
-      expect(r, "a urgente deveria ser vermelha").toBeGreaterThan(g);
-
-      await expect(
-        page.getByTestId("order-map-label").filter({ hasText: "8811" }),
-      ).toHaveText("OS-N°8811");
-
-      await esperarMapaParar(page);
-      expect(await ctaAcertavel(), "Abrir OS fora do mapa ou coberto").toBe(true);
+    await test.step("9. confirmar popup da OS compacto", async () => {
+      const wrap = (await rect(".leaflet-popup-content-wrapper"))!;
+      const cabecalho = (await rect('[data-testid="order-map-popup"] > :first-child'))!;
+      const corpo = (await rect('[data-testid="order-map-popup"] > :nth-child(2)'))!;
+      const conect = (await rect('[data-testid="order-map-popup"] [data-testid="map-connectivity"]'))!;
+      expect(wrap.h).toBeLessThanOrEqual(300);
+      expect(cabecalho.h).toBeLessThanOrEqual(48);
+      expect(conect.t >= corpo.t - 1 && conect.b <= corpo.b + 1, "conectividade fora da vista").toBe(true);
+      await expect(page.getByTestId("order-map-popup").getByTestId("map-connectivity")).toContainText("Cliente offline");
+      expect(await acerta('[data-testid="order-map-open"]'), "Abrir OS coberto").toBe(true);
       await page.locator(".leaflet-popup-close-button").click();
       await expect(page.locator(".leaflet-popup")).toHaveCount(0);
     });
 
-    await test.step("16. zoom", async () => {
-      await page.locator(".leaflet-control-zoom-in").click();
-      await expect.poll(() => vistaDaUrl(page).get("z")).toBe("18");
-      await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(3);
-      await page.locator(".leaflet-control-zoom-out").click();
-      await expect.poll(() => vistaDaUrl(page).get("z")).toBe("17");
-      await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(3);
+    await test.step("10. abrir CTO", async () => {
+      await page.locator(seletorDaCaixa).click();
+      await expect(page.getByTestId("cto-map-popup")).toContainText(NOME_PROX_CAIXA);
+      await pararMarcador(".leaflet-popup-content-wrapper");
     });
 
-    await test.step("17. pan", async () => {
+    await test.step("11. confirmar popup da CTO compacto", async () => {
+      const wrap = (await rect(".leaflet-popup-content-wrapper"))!;
+      expect(wrap.h).toBeLessThanOrEqual(260);
+      await expect(page.getByTestId("cto-map-popup-status")).toBeVisible();
+      expect(await acerta(".leaflet-popup-close-button"), "× coberto").toBe(true);
+      expect(await acerta('[data-testid="cto-map-popup-open"]'), "Abrir CTO coberto").toBe(true);
+      await page.locator(".leaflet-popup-close-button").click();
+      await expect(page.locator(".leaflet-popup")).toHaveCount(0);
+    });
+
+    await test.step("12. mover o mapa", async () => {
       await esperarMapaParar(page);
       const lngAntes = vistaDaUrl(page).get("lng");
       const area = (await page.locator(".leaflet-container").boundingBox())!;
@@ -5546,69 +6426,62 @@ test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do
       await page.mouse.down();
       await page.mouse.move(pegaX + 90, pegaY, { steps: 10 });
       await page.mouse.up();
-      /*
-        POLL, e não `esperarMapaParar`.
-
-        A URL só muda no `moveend`, que vem depois da inércia do arrasto. Duas
-        leituras iguais logo após o `mouseup` são duas leituras da vista VELHA —
-        medido: o teste afirmou que o pan não moveu o mapa, e moveu.
-      */
       await expect
         .poll(() => vistaDaUrl(page).get("lng"), { message: "o pan não moveu o mapa" })
         .not.toBe(lngAntes);
-      await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(3);
+      await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(6);
     });
 
-    await test.step("18. o ativo próximo: a caixa, a 36px do cliente, abre a CAIXA", async () => {
-      await abrirBairro(page);
-      await marcadorDe(page, NOME_PROX_CAIXA).click();
-      await expect(page.getByTestId("cto-map-popup")).toContainText(NOME_PROX_CAIXA);
+    await test.step("13. zoom", async () => {
+      await page.locator(".leaflet-control-zoom-in").click();
+      await expect.poll(() => vistaDaUrl(page).get("z")).toBe("18");
+      await page.locator(".leaflet-control-zoom-out").click();
+      await expect.poll(() => vistaDaUrl(page).get("z")).toBe("17");
+      await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(6);
     });
 
-    /*
-      Referência: onde o marcador fica em relação à coordenada GRAVADA.
-
-      É o ancoramento do ícone, constante enquanto ele estiver sobre ela — e
-      invariante a pan, que é o que a comparação de pixels de tela não era.
-    */
+    /** Onde a caixa fica em relação à coordenada GRAVADA — invariante a pan. */
     const desvioDaCaixa = async () => {
-      /*
-        Parado = o MARCADOR e a URL iguais em duas leituras seguidas.
-
-        Só a URL não basta: ela muda no `moveend`, no FIM da animação do
-        `autoPan`. Medido: a referência tirada logo depois de abrir o popup da
-        caixa pegou o marcador no meio do empurrão com a vista de antes, e o
-        Cancelar foi acusado de errar 185px — o tamanho do empurrão.
-      */
-      let anterior = "";
-      for (let i = 0; i < 30; i += 1) {
-        const agora = JSON.stringify({
-          m: await marcadorDe(page, NOME_PROX_CAIXA).boundingBox(),
-          v: vistaDaUrl(page).toString(),
-        });
-        if (agora === anterior) break;
-        anterior = agora;
-        await page.waitForTimeout(150);
-      }
+      await pararMarcador(seletorDaCaixa);
+      await esperarMapaParar(page);
       const linha = await prisma.cTO.findUniqueOrThrow({ where: { id: prox.ctoId } });
-      const esperado = await pontoDaCoordenada(
-        page,
-        Number(linha.latitude),
-        Number(linha.longitude),
-      );
+      const esperado = await pontoDaCoordenada(page, Number(linha.latitude), Number(linha.longitude));
       const mapa = (await page.locator(".leaflet-container").boundingBox())!;
-      const m = (await marcadorDe(page, NOME_PROX_CAIXA).boundingBox())!;
+      const m = (await page.locator(seletorDaCaixa).boundingBox())!;
       return { x: m.x - mapa.x - esperado.x, y: m.y - mapa.y - esperado.y };
     };
-    const original = await prisma.cTO.findUniqueOrThrow({ where: { id: prox.ctoId } });
-    const ancora = await desvioDaCaixa();
 
-    await test.step("19–20. Ajustar posição, arrastar, Cancelar: nada gravado", async () => {
+    let original = await prisma.cTO.findUniqueOrThrow({ where: { id: prox.ctoId } });
+    let ancora = { x: 0, y: 0 };
+
+    await test.step("14. entrar em Ajustar posição", async () => {
+      await abrirBairro(page);
+      await page.locator(seletorDaCaixa).click();
+      await expect(page.getByTestId("cto-map-popup")).toContainText(NOME_PROX_CAIXA);
+      ancora = await desvioDaCaixa();
       await page.getByTestId("cto-map-popup-edit-position").click();
       await expect(page.getByTestId("cto-map-position-panel")).toBeVisible();
+      await pararMarcador(seletorDaCaixa);
+    });
+
+    await test.step("15. confirmar a área segura", async () => {
+      const mapa = (await rect(".leaflet-container"))!;
+      const icone = (await rect(seletorDaCaixa))!;
+      const painel = (await rect('[data-testid="cto-map-position-panel"]'))!;
+      const zoom = (await rect(".leaflet-control-zoom"))!;
+      const cruza = (a: typeof icone, b: typeof icone) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+      expect(icone.t).toBeGreaterThanOrEqual(mapa.t + 8);
+      expect(icone.b).toBeLessThanOrEqual(mapa.b - 12);
+      expect(icone.l).toBeGreaterThanOrEqual(mapa.l + 44);
+      expect(icone.r).toBeLessThanOrEqual(mapa.r - 20);
+      expect(cruza(icone, painel), "a caixa ficou debaixo do painel").toBe(false);
+      expect(cruza(icone, zoom), "a caixa ficou debaixo do zoom").toBe(false);
+      expect(painel.t >= mapa.t && painel.b <= mapa.b, "o painel escapou do mapa").toBe(true);
+    });
+
+    await test.step("16. cancelar", async () => {
       await arrastar(page, 50, 30, NOME_PROX_CAIXA);
       await expect(page.getByTestId("cto-map-position-save")).toBeEnabled();
-
       await page.getByTestId("cto-map-position-cancel").click();
       await expect(page.getByTestId("cto-map-position-panel")).toHaveCount(0);
       const gravada = await prisma.cTO.findUniqueOrThrow({ where: { id: prox.ctoId } });
@@ -5619,28 +6492,30 @@ test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do
       expect(Math.abs(voltou.y - ancora.y)).toBeLessThanOrEqual(1.5);
     });
 
-    let salva: { latitude: number; longitude: number } = { latitude: 0, longitude: 0 };
-    await test.step("21–22. repetir, e salvar", async () => {
-      await marcadorDe(page, NOME_PROX_CAIXA).click();
+    await test.step("17. repetir", async () => {
+      await page.locator(seletorDaCaixa).click();
       await page.getByTestId("cto-map-popup-edit-position").click();
       await expect(page.getByTestId("cto-map-position-panel")).toBeVisible();
       await arrastar(page, 50, 30, NOME_PROX_CAIXA);
+      await expect(page.getByTestId("cto-map-position-save")).toBeEnabled();
+    });
 
+    let salva = { latitude: 0, longitude: 0 };
+    await test.step("18. salvar", async () => {
       await page.getByTestId("cto-map-position-save").click();
-      await expect(page.getByTestId("cto-map-position-panel")).toHaveCount(0, {
-        timeout: 15_000,
-      });
+      await expect(page.getByTestId("cto-map-position-panel")).toHaveCount(0, { timeout: 15_000 });
       await expect(page.getByTestId("cto-map-position-error")).toHaveCount(0);
       const linha = await prisma.cTO.findUniqueOrThrow({ where: { id: prox.ctoId } });
       salva = { latitude: Number(linha.latitude), longitude: Number(linha.longitude) };
       // Para a direita e para baixo: longitude sobe, latitude desce.
       expect(salva.longitude).toBeGreaterThan(Number(original.longitude));
       expect(salva.latitude).toBeLessThan(Number(original.latitude));
+      original = linha;
     });
 
-    await test.step("23–24. recarregar, e a posição persiste", async () => {
+    await test.step("19. recarregar — a posição persiste", async () => {
       await page.reload();
-      await expect(marcadorDe(page, NOME_PROX_CAIXA)).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator(seletorDaCaixa)).toBeVisible({ timeout: 15_000 });
       const linha = await prisma.cTO.findUniqueOrThrow({ where: { id: prox.ctoId } });
       expect(Number(linha.latitude)).toBe(salva.latitude);
       expect(Number(linha.longitude)).toBe(salva.longitude);
@@ -5648,5 +6523,19 @@ test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do
       expect(Math.abs(naNova.x - ancora.x)).toBeLessThanOrEqual(1.5);
       expect(Math.abs(naNova.y - ancora.y)).toBeLessThanOrEqual(1.5);
     });
+
+    for (const [passo, modo] of [
+      ["20. Mapa", "normal"],
+      ["21. Satélite", "satellite"],
+      ["22. Híbrido", "hybrid"],
+    ] as const) {
+      await test.step(passo, async () => {
+        await page.getByTestId(`map-mode-${modo}`).click();
+        await expect(page.getByTestId(`map-mode-${modo}`)).toHaveAttribute("aria-pressed", "true");
+        // Trocar a base não recria o mapa: os pontos continuam lá.
+        await expect(page.locator(".leaflet-marker-pane svg.cto-dot")).toHaveCount(6);
+        await expect(page.locator(seletorDaCaixa)).toBeVisible();
+      });
+    }
   });
 });
