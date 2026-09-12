@@ -28,11 +28,18 @@ import {
 } from "./dispatch-queue-service";
 import { snapshotChecklistForOrder } from "./checklists";
 import { allocateServiceOrderNumber } from "./service-order-number";
+import {
+  companySliceClock,
+  serviceOrderSliceWhere,
+  type ServiceOrderSlice,
+  type SliceClock,
+} from "./service-order-slices";
 import { resolveServiceOrderTypeForCreation } from "./service-order-types";
 import {
   technicianAssignmentIssue,
   technicianExecutionIssue,
 } from "./technicians";
+import { DEFAULT_TIMEZONE } from "./workday";
 
 // ---------------------------------------------------------------------------
 // Centralized labels (single source of truth for the UI).
@@ -213,6 +220,13 @@ export interface ListServiceOrdersParams {
   priority?: ServiceOrderPriority;
   technicianId?: string;
   search?: string;
+  /** Recorte operacional do painel (DASH-1) — `service-order-slices.ts`. */
+  slice?: ServiceOrderSlice;
+  /**
+   * Relógio do recorte. Opcional: sem ele, o de "agora" no fuso da empresa é
+   * lido do banco — só quando o recorte depende de tempo.
+   */
+  clock?: SliceClock;
   page?: number;
   pageSize?: number;
 }
@@ -742,14 +756,33 @@ async function persistImportedServiceOrder(
 // Queries
 // ---------------------------------------------------------------------------
 
-export async function listCompanyServiceOrders(
+/**
+ * O `where` da listagem de OS — e do cartão do painel que abre nela.
+ *
+ * Existe separado para que `countCompanyServiceOrders` (o cartão) e
+ * `listCompanyServiceOrders` (a tela de destino) usem o MESMO predicado: a
+ * contagem do cartão é igual à da listagem por construção, e não por
+ * coincidência entre duas fórmulas (PRD §380, MASTER-PLAN §4).
+ *
+ * O recorte entra por `AND`, e não como chaves soltas: ele também escreve em
+ * `status`, e juntar os dois objetos deixaria o filtro de status da tela
+ * sobrescrever o do recorte em silêncio. Com `AND` os dois valem — "atrasadas"
+ * mais "Concluída" dá lista vazia, que é a resposta certa.
+ */
+async function buildServiceOrderListWhere(
   companyId: string,
-  params: ListServiceOrdersParams = {},
-): Promise<ServiceOrderListResult> {
-  const page = Math.max(1, params.page ?? 1);
-  const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
-
+  params: ListServiceOrdersParams,
+): Promise<Record<string, unknown>> {
   const where: Record<string, unknown> = { companyId };
+  if (params.slice) {
+    // "abertas" não depende de tempo: não vale uma leitura do fuso da empresa.
+    const clock =
+      params.clock ??
+      (params.slice === "abertas"
+        ? { now: new Date(), timezone: DEFAULT_TIMEZONE }
+        : await companySliceClock(companyId));
+    where.AND = [serviceOrderSliceWhere(params.slice, clock)];
+  }
   if (params.status) where.status = params.status;
   if (params.priority) where.priority = params.priority;
   if (params.technicianId) where.technicianId = params.technicianId;
@@ -779,6 +812,16 @@ export async function listCompanyServiceOrders(
       },
     ];
   }
+  return where;
+}
+
+export async function listCompanyServiceOrders(
+  companyId: string,
+  params: ListServiceOrdersParams = {},
+): Promise<ServiceOrderListResult> {
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
+  const where = await buildServiceOrderListWhere(companyId, params);
 
   const [serviceOrders, total] = await Promise.all([
     prisma.serviceOrder.findMany({
@@ -797,6 +840,19 @@ export async function listCompanyServiceOrders(
     page,
     pageSize,
   };
+}
+
+/**
+ * Quantas OS a listagem mostraria com estes filtros — o número do cartão do
+ * painel. Um `COUNT` sobre `ServiceOrder` apenas, sem `include`: nenhuma
+ * relação 1:N entra na consulta, então nada multiplica a contagem.
+ */
+export async function countCompanyServiceOrders(
+  companyId: string,
+  params: Omit<ListServiceOrdersParams, "page" | "pageSize"> = {},
+): Promise<number> {
+  const where = await buildServiceOrderListWhere(companyId, params);
+  return prisma.serviceOrder.count({ where });
 }
 
 export async function getCompanyServiceOrder(

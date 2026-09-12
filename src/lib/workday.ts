@@ -95,6 +95,73 @@ export function utcOffsetIn(instant: Date, timezone: string): string {
   return offset.length === 0 ? "+00:00" : offset;
 }
 
+const UM_DIA_MS = 24 * 60 * 60 * 1000;
+
+/** `+HH:MM` → milissegundos, com sinal. */
+function offsetEmMs(instant: Date, timezone: string): number {
+  const m = /^([+-])(\d{2}):(\d{2})$/.exec(utcOffsetIn(instant, timezone));
+  if (!m) return 0;
+  const minutos = Number(m[2]) * 60 + Number(m[3]);
+  return (m[1] === "-" ? -1 : 1) * minutos * 60 * 1000;
+}
+
+/**
+ * O primeiro instante da data civil `YYYY-MM-DD`, no fuso dado.
+ *
+ * ## Por que não é "meia-noite menos o deslocamento"
+ *
+ * Porque o deslocamento que vale à meia-noite não é, necessariamente, o de
+ * outra hora do dia — e há fusos em que a meia-noite **não existe**: quando o
+ * horário de verão começava à 0h, como em São Paulo até 2019, o relógio
+ * pulava de 23h59 para 1h, e o dia começava à 1h. Por isso cada deslocamento
+ * em vigor por perto vira um candidato, e fica o MENOR candidato que de fato
+ * cai na data pedida. Três amostras bastam: nenhuma lei mudou o fuso duas
+ * vezes em dois dias.
+ */
+function inicioDaDataCivil(date: string, timezone: string): Date {
+  const meiaNoiteUtc = Date.parse(`${date}T00:00:00.000Z`);
+  const deslocamentos = new Set(
+    [meiaNoiteUtc - UM_DIA_MS, meiaNoiteUtc, meiaNoiteUtc + UM_DIA_MS].map(
+      (t) => offsetEmMs(new Date(t), timezone),
+    ),
+  );
+  let inicio: number | null = null;
+  for (const deslocamento of Array.from(deslocamentos)) {
+    const candidato = meiaNoiteUtc - deslocamento;
+    if (civilDateIn(new Date(candidato), timezone) !== date) continue;
+    if (inicio === null || candidato < inicio) inicio = candidato;
+  }
+  // Sem candidato só aconteceria num fuso que salta um dia inteiro — o que
+  // `Intl` não produz para data civil válida. Cai no UTC em vez de lançar.
+  return new Date(inicio ?? meiaNoiteUtc);
+}
+
+/**
+ * O dia civil que contém `instant`, no fuso dado, como intervalo `[start, end)`.
+ *
+ * Existe para o painel operacional (DASH-1): "OS de hoje" é o hoje da
+ * EMPRESA. Montar o dia com `new Date(ano, mês, dia)` usa o fuso do SERVIDOR —
+ * que em produção costuma ser UTC — e desloca a fronteira em três horas para
+ * uma empresa em São Paulo: uma OS agendada às 22h de hoje sairia do "hoje"
+ * e entraria no de amanhã.
+ *
+ * O fim é o início da data seguinte, e não `start + 24h`: dia de mudança de
+ * horário tem 23 ou 25 horas.
+ */
+export function civilDayBoundsIn(
+  instant: Date,
+  timezone: string,
+): { start: Date; end: Date } {
+  const hoje = civilDateIn(instant, timezone);
+  const amanha = new Date(Date.parse(`${hoje}T00:00:00.000Z`) + UM_DIA_MS)
+    .toISOString()
+    .slice(0, 10);
+  return {
+    start: inicioDaDataCivil(hoje, timezone),
+    end: inicioDaDataCivil(amanha, timezone),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // A sequência efetiva
 // ---------------------------------------------------------------------------
