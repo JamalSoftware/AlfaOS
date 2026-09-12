@@ -4,7 +4,10 @@ import {
   POST as createTechnician,
 } from "@/app/api/technicians/route";
 import { prisma } from "@/lib/prisma";
-import { getDashboardStats } from "@/lib/dashboard";
+import {
+  countCompanyTechnicians,
+  listCompanyTechnicians,
+} from "@/lib/technicians";
 import {
   apiRequest,
   createTokenFor,
@@ -109,7 +112,13 @@ describe("Técnicos", () => {
     expect(res.status).toBe(403);
   });
 
-  it("KPI Técnicos Ativos conta technicians.active da empresa", async () => {
+  /*
+    O cartão "Técnicos ativos" saiu do painel na DASH-1, por decisão do dono:
+    é cadastro, não estado operacional. A afirmação que ele protegia continua
+    valendo onde o número mora agora — o filtro "Ativos" da listagem —, e com a
+    mesma autoridade: `Technician.active`, não `User.active`.
+  */
+  it("Filtro Ativos da listagem conta technicians.active da empresa", async () => {
     const token = await createTokenFor(fixture.adminA.id);
     await createTechnician(
       apiRequest(
@@ -119,16 +128,16 @@ describe("Técnicos", () => {
       ),
     );
 
-    const stats = await getDashboardStats(fixture.companyA.id);
-    expect(stats.tecnicosAtivos).toBe(1);
+    expect((await listCompanyTechnicians(fixture.companyA.id, { active: true })).total).toBe(1);
+    expect(await countCompanyTechnicians(fixture.companyA.id, { active: true })).toBe(1);
 
     await prisma.technician.updateMany({
       where: { userId: fixture.techA.id },
       data: { active: false },
     });
 
-    const statsAfter = await getDashboardStats(fixture.companyA.id);
-    expect(statsAfter.tecnicosAtivos).toBe(0);
+    expect((await listCompanyTechnicians(fixture.companyA.id, { active: true })).total).toBe(0);
+    expect(await countCompanyTechnicians(fixture.companyA.id, { active: true })).toBe(0);
   });
 
   it("Listagem de técnicos é isolada por empresa", async () => {

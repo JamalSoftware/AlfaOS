@@ -9,7 +9,8 @@ import {
   startServiceOrder,
   updateServiceOrderExecution,
 } from "@/lib/service-orders";
-import { getDashboardStats } from "@/lib/dashboard";
+import { AccessProfile } from "@prisma/client";
+import { getOperationalDashboard } from "@/lib/dashboard";
 import { DomainError } from "@/lib/errors";
 import {
   allocateTestServiceOrderNumber,
@@ -1153,7 +1154,22 @@ describe("Execução do técnico — leitura", () => {
   });
 });
 
-describe("Dashboard — KPI Em Atendimento", () => {
+/*
+  O cartão da DASH-1 conta TÉCNICOS em atendimento (PRD §380), não OS. A
+  afirmação que este teste sempre protegeu continua a mesma: só `IN_PROGRESS`
+  põe alguém em atendimento — `ASSIGNED` é trabalho entregue, não trabalho
+  sendo feito —, e só na empresa da sessão.
+*/
+const emAtendimento = async (companyId: string) => {
+  const painel = await getOperationalDashboard({
+    companyId,
+    profile: AccessProfile.ADMIN,
+  });
+  if (painel.team.state !== "ok") throw new Error("seção de equipe indisponível");
+  return painel.team.data.emAtendimento;
+};
+
+describe("Dashboard — Técnicos em atendimento", () => {
   it("Conta apenas IN_PROGRESS da empresa da sessão", async () => {
     const { order, token } = await assignedOrderScenario();
     const customer = await prisma.customer.findFirstOrThrow({
@@ -1171,18 +1187,12 @@ describe("Dashboard — KPI Em Atendimento", () => {
       ).id,
     });
 
-    expect(
-      (await getDashboardStats(fixture.companyA.id)).osEmAtendimento,
-    ).toBe(0);
+    expect(await emAtendimento(fixture.companyA.id)).toBe(0);
 
     await startAndGetExecution(order.id, order.version, token);
 
-    expect(
-      (await getDashboardStats(fixture.companyA.id)).osEmAtendimento,
-    ).toBe(1);
+    expect(await emAtendimento(fixture.companyA.id)).toBe(1);
     // Company B sees nothing of company A's work.
-    expect(
-      (await getDashboardStats(fixture.companyB.id)).osEmAtendimento,
-    ).toBe(0);
+    expect(await emAtendimento(fixture.companyB.id)).toBe(0);
   });
 });

@@ -24,8 +24,13 @@ import {
   putSignature,
   sniffImageMime,
 } from "@/lib/service-order-closing";
-import { startServiceOrder, updateServiceOrderExecution } from "@/lib/service-orders";
-import { getDashboardStats } from "@/lib/dashboard";
+import { AccessProfile } from "@prisma/client";
+import {
+  listCompanyServiceOrders,
+  startServiceOrder,
+  updateServiceOrderExecution,
+} from "@/lib/service-orders";
+import { getOperationalDashboard } from "@/lib/dashboard";
 import {
   allocateTestServiceOrderNumber,
   apiRequest,
@@ -1516,16 +1521,49 @@ describe("Contratos das rotas", () => {
 // ---------------------------------------------------------------------------
 
 describe("Dashboard", () => {
-  it("conta concluídas por empresa", async () => {
+  /*
+    O cartão "Concluídas hoje" saiu do painel na DASH-1, por decisão do dono
+    (PRD §380 define o conjunto). O que este teste protegia continua sendo
+    afirmado: concluir tira a OS dos números operacionais da empresa DELA — e
+    de nenhuma outra —, e a conclusão continua contável pela listagem.
+  */
+  it("concluir tira a OS dos números operacionais, só na empresa dela", async () => {
     const s = await scenario();
+    const viewerA = { companyId: fixture.companyA.id, profile: AccessProfile.ADMIN };
+    const viewerB = { companyId: fixture.companyB.id, profile: AccessProfile.ADMIN };
+
+    const antesA = await getOperationalDashboard(viewerA);
+    const antesB = await getOperationalDashboard(viewerB);
+    if (antesA.serviceOrders.state !== "ok" || antesA.team.state !== "ok") {
+      throw new Error("painel da empresa A indisponível");
+    }
+    expect(antesA.team.data.emAtendimento).toBe(1);
+
     await completeServiceOrder(fixture.companyA.id, fixture.techA.id, s.order.id, {
       expectedOrderVersion: s.orderVersion,
       expectedExecutionVersion: s.executionVersion,
     });
-    const statsA = await getDashboardStats(fixture.companyA.id);
-    const statsB = await getDashboardStats(fixture.companyB.id);
-    expect(statsA.osConcluidasHoje).toBe(1);
-    expect(statsA.osEmAtendimento).toBe(0);
-    expect(statsB.osConcluidasHoje).toBe(0);
+
+    const depoisA = await getOperationalDashboard(viewerA);
+    const depoisB = await getOperationalDashboard(viewerB);
+    if (depoisA.serviceOrders.state !== "ok" || depoisA.team.state !== "ok") {
+      throw new Error("painel da empresa A indisponível");
+    }
+    expect(depoisA.serviceOrders.data.abertas).toBe(
+      antesA.serviceOrders.data.abertas - 1,
+    );
+    expect(depoisA.team.data.emAtendimento).toBe(0);
+    // A empresa B não vê nada do trabalho da A, antes nem depois.
+    expect(depoisB.serviceOrders).toEqual(antesB.serviceOrders);
+    expect(depoisB.team).toEqual(antesB.team);
+
+    const concluidasA = await listCompanyServiceOrders(fixture.companyA.id, {
+      status: "COMPLETED",
+    });
+    const concluidasB = await listCompanyServiceOrders(fixture.companyB.id, {
+      status: "COMPLETED",
+    });
+    expect(concluidasA.total).toBe(1);
+    expect(concluidasB.total).toBe(0);
   });
 });
