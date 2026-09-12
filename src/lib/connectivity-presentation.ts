@@ -52,6 +52,19 @@ export interface ConnectivityPresentation {
    */
   mapLabel: string;
   /**
+   * O mesmo estado, com o SUJEITO — "Cliente online".
+   *
+   * Onde o estado aparece ao lado de outras coisas que também podem estar
+   * "online" ou "abertas" — a legenda, que tem um grupo de OS; o popup da OS,
+   * que fala da ordem e do cliente —, "Online" sozinho não diz de quê. O dono
+   * pediu o nome da coisa. "Sem leitura" já carrega o sujeito implícito
+   * (ninguém leu o cliente) e fica como está.
+   *
+   * Mora na mesma linha da tabela pela mesma razão de `mapLabel`: fraseado
+   * pode variar, significado não.
+   */
+  customerLabel: string;
+  /**
    * O glifo. Estado nunca viaja só como cor.
    *
    * Um mapa que distinguisse online de offline apenas por matiz seria ilegível
@@ -70,6 +83,7 @@ export const CONNECTIVITY_PRESENTATION: Record<
     status: "ONLINE",
     label: "Online",
     mapLabel: "Online",
+    customerLabel: "Cliente online",
     glyph: "●",
     tone: "success",
   },
@@ -77,6 +91,7 @@ export const CONNECTIVITY_PRESENTATION: Record<
     status: "OFFLINE",
     label: "Offline",
     mapLabel: "Offline",
+    customerLabel: "Cliente offline",
     glyph: "×",
     tone: "danger",
   },
@@ -84,6 +99,7 @@ export const CONNECTIVITY_PRESENTATION: Record<
     status: "UNKNOWN",
     label: "Desconhecido",
     mapLabel: "Sem leitura",
+    customerLabel: "Sem leitura",
     glyph: "?",
     tone: "neutral",
   },
