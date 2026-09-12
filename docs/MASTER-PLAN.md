@@ -29,30 +29,29 @@ v0.14  CTO — cadastro, portas, capacidade, vínculo do cliente
 Entregue, local, **sem tag e sem push**:
 
 ```text
-CTO-3.1    contrato de leitura geográfica          APPROVED
-CTO-3.2    Mapa Operacional web — camada de CTO    READY FOR OWNER VALIDATION
-CTO-3.2.1  bases, marcador de caixa, navegação     READY FOR OWNER VALIDATION
+CTO-2                   vínculo cliente ↔ porta, Web e Field          DONE
+MAPA OPERACIONAL V1     CTO-3.1 → CTO-3.2.2e                          APPROVED · FROZEN
+                        CTOs · OS abertas · clientes · conectividade
+                        em lote · busca · navegação · posição da CTO
 ```
 
-O escopo do primeiro lançamento está congelado em **PRD §362–§391**, e a lista
-do que falta está em **§386**.
+O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e a lista
+do que falta está em **§386**. O contrato final do mapa é a **PRD §392**.
 
 ---
 
 ## 2. A sequência até o lançamento
 
 ```text
-CTO-3.2.1
-   ↓  validação do dono — bases, marcador de caixa, voltar ao mapa
-PRD V1 Launch Scope Freeze                                    ← concluído
+CTO-3.2.1 · 3.2.1b · 3.2.1c   bases, marcador, navegação           ← concluído
+PRD V1 Launch Scope Freeze                                          ← concluído
+CTO-3.2.1d   ADMIN corrige a posição da CTO no mapa                 ← APPROVED
+CTO-3.2.2    clientes + OS abertas + Online/Offline em lote         ← concluído
+CTO-3.2.2b · c · d · e   estabilização e acabamento de UX           ← concluído
+   ↓  validação do dono — CTO-3.2.2e APPROVED
+MAPA OPERACIONAL V1 — FROZEN (PRD §392)                             ← 2026-09-12
    ↓
-CTO-3.2.1b · 3.2.1c   polimento de UX e o estado na silhueta   ← concluído
-   ↓  validação do dono em uso real
-CTO-3.2.1d   ADMIN corrige a posição da CTO no mapa            ← APROVADO
-   ↓
-CTO-3.2.2   camada de clientes + OS abertas + Online/Offline em lote  ← ENTREGUE
-   ↓  validação do dono — Mapa Operacional V1 completo
-DASH-1 · TL-1 · EV-1 · GS-1    (ordem entre si: decisão do dono)
+DASH-1 · TL-1 · EV-1 · GS-1    (ordem entre si: decisão do dono)    ← PRÓXIMO
    ↓
 LANÇAMENTO V1
    ↓
@@ -62,113 +61,41 @@ V2 (PRD §388)  →  V3 (PRD §389)
 **A ordem entre `DASH-1`, `TL-1`, `EV-1` e `GS-1` não está congelada.** Elas são
 independentes entre si e todas dependem apenas do que já existe. Congelar a
 ordem agora seria decidir por antecipação algo que o uso real vai informar
-melhor.
+melhor. **Nenhuma delas foi iniciada.**
 
 ---
 
-## 2.1. `CTO-3.2.1d` — a posição da CTO, corrigida no mapa
+## 3. Mapa Operacional V1 — CONCLUÍDO · FROZEN
 
-Entrou na sequência depois da validação em uso real da `CTO-3.2.1c`: o dono viu
-uma coordenada errada e não tinha como corrigi-la de onde estava olhando.
+> **`CTO-3.2.2e` — APPROVED. Mapa Operacional V1 — FROZEN.** Validado pelo dono
+> na interface real em 2026-09-12. **Fora da lista de trabalho ativo.**
 
-**Escopo, e ele é estreito de propósito:** o `ADMIN` seleciona a caixa, entra em
-modo de edição explícito, arrasta, confere e salva — ou cancela. Enquanto não
-houver `Salvar`, **o banco não muda**. A escrita reaproveita o caminho que a tela
-de detalhe já usa (`PATCH /api/ctos/[id]` com payload só de coordenada), então
-não existe segunda validação nem segundo serviço.
-
-**PRD §377, `DECISION UPDATED`.** Confirmação em campo, GPS do Field,
-`accuracyMeters`, `source`, `confirmedAt`/`confirmedBy` e o workflow de
-verificação continuam **pós-V1**. Receber uma coordenada não é confirmá-la, e o
-ADMIN corrigindo pelo mapa não esteve no poste.
-
-Zero migration, zero Prisma, zero Dart, zero dependência.
-
----
-
-## 3. `CTO-3.2.2` — Mapa Operacional V1: clientes e OS abertas
-
-> **Estado: ENTREGUE — `READY FOR OWNER VALIDATION`.** Commits locais, sem tag
-> e sem push. Zero migration, zero schema, zero dependência, zero Dart. O
-> registro completo — decisões, medições e sabotagens — está em
-> `docs/CTO-NETWORK-DISTRIBUTION.md` §41. O que segue é o plano como ele foi
-> escrito, mantido para comparação.
->
-> Duas coisas que o plano não previa e que a implementação trouxe: o empate de
-> `z-index` entre o ponto do cliente e o losango da OS, que fazia o popup
-> aberto depender de qual resposta HTTP chegava primeiro; e três testes que
-> passavam sem provar nada, porque o arrasto do ponteiro caía fora do mapa.
-
-**Objetivo.** Ligar as duas camadas que faltam ao motor que já existe: clientes
-ativos localizáveis e OS abertas, com conectividade vinda da autoridade que a
-tela da OS já usa.
-
-**Dependências.** `CTO-3.2.1` validada pelo dono. PRD §366–§374, §376–§379.
-
-### O portão obrigatório: discovery do Online/Offline
-
-Antes de escrever código, responder — com arquivo e linha, não de memória:
+O que ele entregou, sobre um motor só: as bases Mapa/Satélite/Híbrido; as
+camadas de CTOs, OS abertas e clientes ativos; conectividade em lote sobre a
+mesma autoridade da OS; destaque de OS aberta e de OS urgente no cliente; busca
+global no tenant (CTO, cliente, OS); navegação de ida e volta com a vista
+preservada; e a correção manual da posição da CTO pelo `ADMIN`. Zero migration
+em toda a trilha.
 
 ```text
-1  de onde vem Online/Offline?
-2  qual provider responde, e como ele é escolhido?
-3  existe cache? de quê, por quanto tempo?
-4  qual endpoint a tela da OS usa?
-5  qual é o conceito de frescor?
-6  qual é o fallback quando a fonte não responde?
-7  como o erro é representado?
-8  que testes já existem?
-9  dá para reutilizar diretamente, ou é preciso extrair um read model comum?
+contrato       PRD §392 (consolidado) · §364–§379 · decisões que mudaram em §390
+medições       docs/CTO-NETWORK-DISTRIBUTION.md §34–§46
+arquitetura    docs/CONTEXT-MAP.md — "Mapa Operacional V1 — a arquitetura real"
 ```
 
-**O levantamento já feito no congelamento do PRD respondeu a maior parte, e a
-resposta está em §370.** Ele fica aqui como portão porque a implementação
-precisa **confirmar** contra o código no momento em que for escrever, e não
-confiar nesta anotação.
+**Regra daqui em diante.** Não existe `CTO-3.2.2f`. Ideia nova de mapa vai para
+o backlog (PRD §393); o código do mapa só reabre por **correção crítica de
+defeito**. Uma decisão fica aberta e é do dono — CTO e cliente na mesma
+coordenada exata (PRD §371) —, e não bloqueia a V1.
 
-> O que o levantamento já mediu, e que a implementação precisa respeitar:
-> a leitura de hoje é **de um cliente por chamada** (`getCustomerDiagnostic` →
-> `findFirst`). Uma camada de mapa faria `N+1`. **A extração autorizada é uma
-> leitura em lote sobre a mesma tabela e o mesmo DTO** — ampliar a autoridade,
-> nunca criar uma segunda.
->
-> E o mapa **lê**; ele não dispara refresh. O refresh tem teto de 10 chamadas
-> por minuto por empresa (PRD §337), e um mapa que atualizasse por marcador
-> queimaria a cota da OS num arrasto.
-
-### Entregas
-
-```text
-backend   leitura em lote de conectividade (extração de customer-diagnostics)
-          leitura de clientes por recorte — bbox + teto + tenant em SQL
-          leitura de OS abertas por recorte
-          resumo de conectividade e contagem de OS por CTO — derivados
-web       camada de clientes (OFF por padrão) e de OS abertas (ON)
-          popups de cliente e de OS
-          filtros simples de cliente
-          busca ampliada: cliente, endereço, número de OS
-          selo numérico de OS no marcador da CTO
-          clientes ativos vinculados no popup da CTO
-Field     nenhuma alteração
-migration nenhuma esperada
-```
-
-**Testes.** Tenancy com controle positivo em cada leitura nova; teto e recorte
-afirmados **sobre a consulta**, não só sobre o resultado; `N+1` provado ausente
-por contagem de consultas; falha de integração **não** vira `OFFLINE`;
-cliente sem coordenada não vira marcador e alimenta o contador; DTO mínimo
-afirmado por igualdade de chaves.
-
-**Segurança.** PRD §376 e §379. Coordenada de outro tenant é vazamento mesmo
-isolada. Nenhuma ampliação de perfil sem levantamento de capabilities.
-
-**Validação do dono.** Mapa Operacional V1 completo, na interface real.
-
-**Risco.** *Médio-alto* — é a primeira superfície que mostra muitos clientes de
-uma vez, e o volume de assinantes é a ordem de grandeza que o mapa de CTO não
-tinha. Os dois pontos de atenção são desempenho da leitura em lote e a
-disciplina de não deixar nenhuma pergunta de conectividade escapar da autoridade
-única.
+Duas coisas que o plano original desta fatia não previa e que a implementação
+trouxe, e que valem para qualquer tela futura com mapa: o empate de
+empilhamento entre o ponto do cliente e o marcador da OS, que fazia o popup
+aberto depender de qual resposta HTTP chegava primeiro; e o recorte pedido ao
+servidor, que **não pode** ser o viewport cru — senão o próprio popup tira da
+tela o que o operador está olhando. O plano original, fase a fase, está no
+histórico do Git deste arquivo e no registro da `CTO-3.2.2` (§41 da nota
+técnica).
 
 ---
 
@@ -273,8 +200,11 @@ migration nenhuma esperada
 ```
 
 **Estado medido:** não existe. Há a busca de cliente **no ERP**
-(`/api/integrations/customers/search`) e a busca do mapa (`CTO-3.2`), ambas com
-escopo próprio.
+(`/api/integrations/customers/search`) e a busca do mapa (`/api/map/search`:
+CTO por nome/código, cliente ativo por nome, OS aberta por número), ambas com
+escopo próprio. **Endereço, telefone e documento ficaram fora da busca do mapa
+por decisão (PRD §374)** — são desta fatia, com a revisão de privacidade que ela
+já prevê.
 
 > **Avaliar reuso antes de construir, e não introduzir motor externo de busca
 > sem necessidade medida.** Postgres responde bem a esse volume; um serviço de
@@ -311,6 +241,10 @@ Validação do dono               toda fatia com UI real termina em
                                 READY FOR OWNER VALIDATION, nunca em APPROVED
                                 automático
 
+Escopo congelado                ideia nova que não bloqueia a operação V1 vai
+                                para o backlog (PRD §393); o mapa congelado só
+                                reabre por correção crítica de defeito (§392)
+
 Git                             sem push e sem tag sem autorização explícita
 ```
 
@@ -322,9 +256,50 @@ V2 e V3 (PRD §388, §389): falha coletiva, central de incidentes, modo NOC,
 manutenção preventiva, camada de técnico ao vivo, métricas de técnico, FiberMap
 e rede física.
 
+Qualquer ideia nova de **mapa** depois do freeze (PRD §392) e a **Central de
+Retenção e Recuperação** (§10 abaixo).
+
 Trilhas documentadas e não promovidas: **Escala de Trabalho** (PRD §288–§307),
 **Colaboração entre Técnicos** (§342–§351), **custódia de patrimônio**
 (§210–§223), **contratos e assinatura eletrônica** (Parte X) e as **capabilities
 de negócio do SGP**.
 
 Elas continuam sob a §119: estar no PRD não é autorização para implementar.
+
+---
+
+## 10. Backlog futuro — Central de Retenção e Recuperação
+
+> **BACKLOG. NÃO É FATIA, NÃO É ROADMAP IMEDIATO, NÃO TEM VERSÃO.** Registrada em
+> 2026-09-12, no freeze do Mapa Operacional V1. Especificação conceitual:
+> **PRD Parte XVII (§394–§401)**. Nada existe em código.
+
+Objetivo: reduzir perdas financeiras e patrimoniais do provedor. As peças:
+
+```text
+inadimplência e patrimônio em risco           PRD §395
+recuperação e OS de recolhimento              PRD §396
+risco de churn — offline não é cancelamento   PRD §397
+Recovery Risk Score                           PRD §398
+cobrança, lembrete de fatura e WhatsApp       PRD §399
+financeiro por contrato normalizado de ERP    PRD §400
+"Ver casos no mapa" — opcional                PRD §401
+```
+
+**Por que não entra na sequência acima.** Não é bloqueador da operação V1
+(PRD §393), e três dependências que o código já mostra tornariam qualquer fatia
+agora prematura:
+
+```text
+identidade e valor do equipamento   hoje o equipamento é linha por OS, sem
+                                    identidade estável nem valor (PRD §395)
+frescor da conectividade            "offline há N dias" não é pergunta que o
+                                    snapshot sob demanda responde (PRD §397)
+capability financeira no ERP        nenhum adapter lê financeiro hoje; entraria
+                                    como capability do adapter, nunca por
+                                    formato de um ERP (PRD §400)
+```
+
+Promover qualquer peça daqui para o roadmap é **decisão explícita do dono**, e
+ela volta a este plano como fatia própria — com dependências, entregas, testes,
+segurança e risco, como as outras.

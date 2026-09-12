@@ -5978,3 +5978,61 @@ depois de escrevê-lo. Corrigida a âncora, caiu nos dois detectores.
 painel o `panInside` a considera dentro dos respiros e não a tira de baixo
 dele. O que os separa é o "direita" e o "fundo": com `S18` esses dois ainda
 passam.
+
+---
+
+## 46. Fechamento — `CTO-3.2.2e` APPROVED · Mapa Operacional V1 FROZEN
+
+> **2026-09-12. Documentação apenas** — zero código, zero teste, zero
+> migration, zero schema, zero rota.
+
+```text
+CTO-3.2.2e                  APPROVED — validada pelo dono na interface real
+Mapa Operacional V1         FROZEN
+CTO-3.2.2f                  não existe
+```
+
+**O dono validou a `CTO-3.2.2e`** e, com ela, o mapa inteiro: as três bases,
+zoom, pan e vista persistida; as três camadas e o filtro de clientes; os
+marcadores de CTO e de OS, com a OS urgente; o cliente online, offline, sem
+leitura, com OS aberta e com OS urgente; o primeiro nome no mapa e os rótulos
+sumindo de longe; os três popups, inclusive perto das bordas; o clique
+individual entre entidades próximas; o indicador de carregamento sem flicker
+relevante; o ajuste de posição da CTO — entrar, cancelar, salvar e recarregar;
+chips de resumo, legenda, hierarquia e resposta ao zoom. Segurança, tenancy e
+permissões preservadas; conectividade e OS pelas autoridades que já existiam;
+nenhuma regressão observada.
+
+**A implementação do mapa web está congelada para a V1.** O contrato aprovado
+foi sincronizado no PRD: §364–§379 descrevem o comportamento real, as decisões
+que mudaram estão marcadas `DECISION UPDATED` e indexadas em §390, e o contrato
+consolidado está em **PRD §392**. O critério contra o feature creep é a **PRD
+§393**: ideia nova de mapa vai para o backlog; o código do mapa só reabre por
+**correção crítica de defeito**.
+
+**Esta nota técnica não foi reescrita.** As seções §34–§45 descrevem o estado no
+momento de cada entrega e continuam sendo a casa das medições que o PRD, de
+propósito, não carrega — tamanhos, alturas, tempos do indicador, respiros de
+popup, tetos, empilhamento e as armadilhas de teste. Onde um número mudou numa
+fase seguinte, **a seção mais recente vence** (a faixa de altura do mapa, por
+exemplo, é a da §45, não a da §42).
+
+Pendências que atravessam o freeze, **nenhuma bloqueante**:
+
+```text
+CTO ↔ cliente na mesma coordenada exata    decisão do dono, aberta (PRD §371)
+degrau de altura maior em telas altas      avaliado; custaria parte da legenda
+                                           abaixo da dobra — decisão do dono,
+                                           não tomada (§45)
+popup do cliente                           mantém o espaçamento padrão do
+                                           Leaflet — aprovado como está (§45)
+seleção de cliente e de OS                 não existe; a seleção do mapa é de
+                                           caixa (§43)
+CTO-3.3 · 3.4 · CTO-6 · CTO-7              fora do mapa web; seguem sob a §119
+```
+
+**Backlog registrado no mesmo fechamento, sem código:** a Central de Retenção e
+Recuperação — inadimplência, patrimônio em risco, recolhimento, risco de churn,
+cobrança e WhatsApp — é a **PRD Parte XVII (§394–§401)**. Ela não é fase desta
+especificação, não tem versão atribuída, e **não** acrescenta camada ao mapa
+congelado (PRD §401).

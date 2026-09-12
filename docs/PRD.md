@@ -12194,6 +12194,16 @@ as duas escalas de prioridade (§117, §194).
 > A §119 continua valendo **linha por linha**: estar no PRD não é autorização
 > para implementar. O que esta Parte acrescenta é o inverso — uma lista curta do
 > que **é** autorizado, para que o produto tenha um fim.
+>
+> **Sincronizada em 2026-09-12, no freeze do Mapa Operacional V1.** O dono
+> validou a `CTO-3.2.2e` na interface real e o mapa foi congelado. As seções
+> §364–§379 passaram a descrever o comportamento **aprovado** — e só ele —, as
+> decisões que mudaram estão marcadas `DECISION UPDATED` (§390), o contrato
+> consolidado está em **§392** e o critério contra o feature creep em **§393**.
+> Medidas de implementação (pixels, milissegundos, camadas de empilhamento,
+> tetos numéricos) **não** entram aqui: elas vivem na nota técnica
+> (`docs/CTO-NETWORK-DISTRIBUTION.md` §34–§46) e podem mudar sem que o contrato
+> mude.
 
 ---
 
@@ -12236,13 +12246,17 @@ O Mapa Operacional passa a ser **superfície central** do AlfaOS, e não um anex
 do módulo de CTO.
 
 ```text
-Operational Map
-├── CTO layer                  V1 — implementada (CTO-3.1 · 3.2 · 3.2.1)
-├── Open Service Orders layer  V1 — CTO-3.2.2
-├── Customer layer             V1 — CTO-3.2.2
+Operational Map                                    V1 — APPROVED · FROZEN (§392)
+├── CTO layer                  V1 — implementada (CTO-3.1 · 3.2 · 3.2.1 · 3.2.1d)
+├── Open Service Orders layer  V1 — implementada (CTO-3.2.2)
+├── Customer layer             V1 — implementada (CTO-3.2.2)
 ├── Technician layer           FUTURO (§135, §136)
-└── Physical Network layer     FUTURO / FiberMap (§334)
+└── Physical Network layer     FUTURO / FiberMap (§334, §389)
 ```
+
+As três camadas da V1 existem em código e foram aprovadas pelo dono na
+interface real. O acabamento que veio depois delas (`CTO-3.2.2b` a `3.2.2e`)
+mudou apresentação e estabilidade, **não** o contrato de dados.
 
 **Ele não é um "Mapa de CTOs", e o nome é a decisão.** A §207 já fixou que
 quadro, mapa e agenda são três visões do **mesmo** trabalho sobre um motor só.
@@ -12253,6 +12267,11 @@ uma segunda tela — que é exatamente o que a §207 existe para evitar.
 camadas, seletor de plugins nem interface `MapLayer`, e não deve ganhar um
 antes da segunda camada real. Escolher a forma de composição com um caso só
 produz uma forma que nenhum caso validou.
+
+**A V1 fechou com três camadas reais e continua sem esse mecanismo** — cada
+camada entra no mesmo motor pelo mesmo caminho, e isso bastou. Criar um
+registro de camadas agora seria decisão de arquitetura própria, nunca efeito
+colateral de uma camada nova.
 
 ---
 
@@ -12295,11 +12314,27 @@ ligados ao mesmo tempo transformam o mapa numa mancha, e a mancha esconde
 justamente o que o despachante abriu o mapa para ver. O administrador liga
 quando a pergunta dele for sobre clientes.
 
-O estado das camadas faz parte da vista preservada (§375).
+Com a camada de clientes ligada existe **um filtro simples**, e só um:
+
+```text
+todos · online · offline · sem leitura · com OS aberta · sem OS aberta
+```
+
+Camadas são o que se desenha **sobre** o mapa; a base (§365) é o fundo. São dois
+controles distintos, e a tela não os mistura — "Satélite" e "Clientes" não são
+alternativas entre si.
+
+O estado das camadas **e o filtro** fazem parte da vista preservada (§375). A
+camada de clientes só é oferecida a quem pode vê-la (§376): o servidor recusa a
+leitura, e a tela nem mostra o controle.
 
 ---
 
 # 367. MARCADOR DA CTO
+
+**A CTO é o principal elemento de infraestrutura do mapa** — é ela que dá a
+leitura de onde a rede está, e as outras camadas são o trabalho e as pessoas em
+cima dessa rede.
 
 A CTO tem marcador **próprio**, com silhueta de caixa óptica FTTH — nunca um
 alfinete genérico. Num mapa que vai receber cliente, OS e futuramente técnico,
@@ -12318,24 +12353,44 @@ razão pela qual `OCCUPIED` nunca virou coluna (§333, `C-01`).
 O marcador carrega **silhueta + selo**, e o selo carrega **forma e glifo**:
 
 ```text
-AVAILABLE  +      FULL  0      DAMAGED  !      INACTIVE  ×
+AVAILABLE  +   com vaga      FULL  0   sem vaga
+DAMAGED    !   com defeito   INACTIVE  ×   inativa
 ```
 
 A cor é a quarta pista. Um mapa impresso, ou visto por quem não distingue
-vermelho de verde, continua legível.
+vermelho de verde, continua legível. O contorno da caixa acompanha o estado com
+o **mesmo** token do selo — duas cores para o mesmo estado seriam duas fontes de
+verdade —, e a caixa inativa apaga a figura, **nunca o selo**, e escreve o estado
+na plaqueta: "apagado" sozinho é vocabulário de controle desabilitado, e aqui é
+um fato da rede.
+
+**Seleção e edição não dependem do estado.** Uma caixa lotada, com defeito ou
+inativa é selecionável, abre o popup e pode ter a posição corrigida (§377) como
+qualquer outra. A seleção é um sinal visual próprio, que nunca apaga nem
+substitui o sinal de estado — se apagasse, clicar numa caixa esconderia
+justamente a informação que fez alguém clicar.
 
 ---
 
 # 368. CLIENTES ATIVOS NO MAPA
 
-**Obrigatória para a V1.** O administrador e os perfis autorizados (§376) podem
-ver no Mapa Operacional os clientes **cadastralmente ativos** que tenham
-localização válida.
+**Obrigatória para a V1 — implementada.** O administrador e os perfis
+autorizados (§376) podem ver no Mapa Operacional os clientes que satisfazem as
+**três** condições ao mesmo tempo:
 
-Cliente sem coordenada válida **não vira marcador em `0,0`**. Ele alimenta um
-indicador próprio — *"X clientes ativos sem localização"* — pela mesma regra que
-a `CTO-3.1` já aplica às caixas: uma entidade sem coordenada não está em região
-nenhuma, e inventar um ponto é pior que admitir a ausência.
+```text
+cadastralmente ativo · localização válida · do tenant da sessão
+```
+
+**`CustomerLocation` continua sendo a autoridade geográfica do cliente** (§377).
+O mapa lê a coordenada de lá; ele não geocodifica endereço, não deriva posição
+da CTO nem da OS, e não tem coordenada própria.
+
+Cliente sem coordenada válida **não vira marcador em `0,0`** — nem em ponto
+nenhum. Ele alimenta um indicador próprio — *"X clientes ativos sem
+localização"* — pela mesma regra que a `CTO-3.1` já aplica às caixas: uma
+entidade sem coordenada não está em região nenhuma, e inventar um ponto é pior
+que admitir a ausência.
 
 ---
 
@@ -12430,15 +12485,35 @@ queimaria o teto num único arrasto e deixaria a OS — que é o caso de uso rea
 sem cota. A camada de clientes apresenta o **último estado conhecido com a idade
 da leitura**, e nada mais.
 
+O contrato congelado, em uma lista:
+
+```text
+lê o snapshot normalizado que já existe          CustomerDiagnosticSnapshot
+usa a MESMA autoridade da tela da OS             nenhuma segunda semântica
+lê em LOTE sobre essa mesma autoridade           nunca uma consulta por marcador
+nunca chama ERP nem provider concreto            nem por marcador, nem por zoom,
+                                                 nem por arrasto, nem por camada
+UNKNOWN é apresentado como "Sem leitura"         nunca como "Offline"
+falha de integração não vira OFFLINE             a última leitura continua valendo
+```
+
 ---
 
 # 371. OS ABERTAS NO MAPA, E O SELO NA CTO
 
 A camada **OS abertas** nasce ligada.
 
-Uma OS aberta aparece no mapa quando houver localização suficiente,
-preferencialmente **na posição do cliente** quando a OS for de cliente — a OS
-não tem geografia própria, ela herda a de quem é atendido.
+Uma OS aberta aparece no mapa **na posição do cliente** atendido — a OS não tem
+geografia própria, ela herda a de quem é atendido. OS cujo cliente não tem
+localização válida **não recebe posição inventada**: entra na contagem de "sem
+localização", como o cliente e a caixa.
+
+**"Aberta" tem uma definição só, e o mapa a consome.** O predicado de OS aberta
+é o compartilhado (`OPEN_SERVICE_ORDER_STATUSES`, derivado dos estados
+**terminais** — tudo o que não é concluído nem cancelado), usado na camada, na
+contagem por cliente, no resumo da caixa e na busca. O mapa **não** mantém lista
+própria de estados: uma segunda lista seria o lugar onde um estado novo nasceria
+fechado e invisível.
 
 Cliente com OS aberta recebe **destaque visual**, e o destaque combina com o
 estado de conectividade em vez de substituí-lo:
@@ -12446,6 +12521,23 @@ estado de conectividade em vez de substituí-lo:
 ```text
 ONLINE + OS aberta        OFFLINE + OS aberta        SEM LEITURA + OS aberta
 ```
+
+**Cliente com OS URGENTE aberta recebe um destaque adicional mais forte** —
+aprovado pelo dono na `CTO-3.2.2e` —, e a mesma regra vale: ele **se soma** ao
+estado de conectividade e nunca o substitui. Um cliente online com OS urgente
+continua lendo como online; o que muda é o sinal de trabalho em cima dele. Nada
+pisca, nada anima.
+
+```text
+urgente     ServiceOrder.priority === URGENT — e SOMENTE URGENT
+aberta      pelo mesmo predicado compartilhado acima
+HIGH        é "Alta", não é urgente, e não produz esse destaque
+fechada     OS urgente concluída ou cancelada não produz destaque nenhum
+```
+
+A urgência do cliente sai da **mesma leitura** que já conta as OS abertas dele —
+não é uma consulta a mais, e não é inferida de tipo, título, tempo em aberto ou
+SLA.
 
 ## Os dois marcadores ocupam o MESMO ponto, e a OS abre na frente
 
@@ -12469,6 +12561,10 @@ ocuparem exatamente a mesma coordenada, qual dos dois abre? O caso é diferente
 do anterior — a colisão cliente↔OS é estrutural, enquanto esta exige igualdade
 exata entre coordenadas de origens independentes.
 
+**Ela continua aberta depois do freeze (§392), e não bloqueia a V1.** Nenhuma
+implementação a resolveu em silêncio; desligar a camada de clientes devolve o
+ponto à caixa.
+
 ## A HIERARQUIA visual do mapa, e o que ela significa
 
 Três famílias, e o operador precisa distingui-las de relance:
@@ -12479,37 +12575,82 @@ OS        trabalho pendente     — o que precisa ser feito
 CLIENTE   assinante atendido    — quem está do outro lado
 ```
 
-**A caixa é a maior, a OS vem depois e o cliente é o menor** — nessa ordem, e
-com diferença suficiente para ser lida sem contar pixels. Os tamanhos exatos
-são decisão de implementação e não entram aqui: o que é contrato é a ordem.
+**A hierarquia operacional é `CTO > OS > Cliente`**: a caixa é a maior, a OS
+vem depois e o cliente é o menor — nessa ordem, e com diferença suficiente para
+ser lida sem contar pixels. Os tamanhos exatos são decisão de implementação e
+não entram aqui: o que é contrato é a ordem.
 
 Os ativos **respondem ao zoom**. Aproximar deixa o desenho mais evidente e
-libera os rótulos; afastar reduz proporcionalmente. Duas regras acompanham:
+libera os rótulos; afastar reduz proporcionalmente. Três regras acompanham:
 
 * a **caixa reduz menos** que cliente e OS, porque de longe o mapa ainda precisa
   de referência de infraestrutura;
 * **a área de clique não encolhe junto com o desenho** — alvo pequeno demais é
-  defeito de acessibilidade, não de estética.
+  defeito de acessibilidade, não de estética; entidades próximas continuam
+  clicáveis uma a uma;
+* **escalar o desenho nunca desloca o ponto** — o marcador continua ancorado na
+  coordenada geográfica em qualquer zoom.
 
 Escala é decisão de **cliente**: ela não pode custar requisição nem recarregar
 dado. O recorte continua sendo o mecanismo separado que já existe (§200).
 
 ## Como cada família se IDENTIFICA no mapa
 
-**O cliente é identificado por INICIAIS** — duas letras derivadas do nome. Nome
-completo como rótulo permanente espalharia identificação por uma tela cujo
-trabalho é desenhar pontos; ele continua no popup, aberto por ação explícita.
-Conectores (*da*, *de*, *dos*, *e*) não viram inicial.
+### `DECISION UPDATED` — o cliente é identificado pelo PRIMEIRO NOME
+
+Esta seção dizia que *"o cliente é identificado por INICIAIS — duas letras
+derivadas do nome"*. **A validação do dono trocou as iniciais pelo primeiro
+nome** (`CTO-3.2.2d`, aprovada com a `CTO-3.2.2e`): duas letras não
+distinguiam ninguém numa rua com dez assinantes, e o operador abria popup por
+popup para descobrir quem era quem.
+
+O que **não** mudou é o motivo da regra antiga. O rótulo permanente continua
+sendo o **mínimo** que identifica:
+
+```text
+rótulo permanente   só o PRIMEIRO NOME, em zoom operacional
+                    conectores de ponta (da, de, dos, e) não contam como nome
+popup autorizado    nome completo, aberto por ação explícita
+nunca em rótulo     nome completo · telefone · documento · CPF · endereço
+```
+
+Nome completo como rótulo permanente espalharia identificação por uma tela cujo
+trabalho é desenhar pontos. E o rótulo é **texto escapado**, nunca HTML: um
+nome é digitado por gente e pode conter qualquer caractere.
+
+### A OS
 
 **A OS é identificada pelo NÚMERO** dela — o número do domínio, nunca o
-identificador de banco. Tipo, status e prioridade por extenso ficam no popup:
-um rótulo permanente com o texto inteiro vira parede na primeira dezena de
-ordens.
+identificador de banco —, no rótulo curto **`OS-N°<número>`**. Tipo, status e
+prioridade por extenso ficam no popup: um rótulo permanente com o texto inteiro
+vira parede na primeira dezena de ordens.
+
+O marcador da OS é **próprio**, distinto do da caixa e do cliente:
+
+```text
+OS normal     âmbar
+OS urgente    vermelho + símbolo de urgência NO MARCADOR
+```
 
 **A OS urgente é visualmente distinta**, e a urgência vem **exclusivamente** da
-prioridade do domínio (`ServiceOrder.priority`). Nada no mapa pode deduzir
-urgência de tipo, status, título, tempo em aberto ou SLA. A distinção não é só
-cor: quem não distingue vermelho de âmbar continua vendo o sinal.
+prioridade do domínio (`ServiceOrder.priority === URGENT`; `HIGH` não é
+urgente). Nada no mapa pode deduzir urgência de tipo, status, título, tempo em
+aberto ou SLA. A distinção não é só cor: quem não distingue vermelho de âmbar
+continua vendo o símbolo. E o símbolo mora **só** no marcador — repetir a
+urgência no rótulo seria o mesmo sinal duas vezes no mesmo ponto.
+
+### O cliente, pela conectividade
+
+```text
+ONLINE        verde
+OFFLINE       vermelho
+SEM LEITURA   neutro, com FORMA própria — nunca um "offline claro"
+```
+
+A forma carrega o estado junto com a cor, pelo mesmo motivo do selo da caixa
+(§367). "Sem leitura" precisa ser tão visível quanto os outros dois nos dois
+temas: é ausência de afirmação, e ausência apagada seria lida como "não há
+cliente ali".
 
 **Vermelho não tem um significado só, e isso é aceito:** numa OS ele é
 urgência, num cliente é `OFFLINE`. As duas famílias têm formas diferentes,
@@ -12517,7 +12658,14 @@ rótulos diferentes e entradas próprias na legenda — é a combinação que ca
 a semântica, nunca a cor sozinha.
 
 Rótulo é **denso por zoom**: no zoom operacional as identificações aparecem; de
-longe o mapa é leitura de distribuição, e texto em cada ponto vira sobreposição.
+longe o mapa é leitura de distribuição, e texto em cada ponto vira sobreposição
+— os rótulos **somem**. A caixa selecionada mantém o nome em qualquer zoom,
+porque quem a achou na busca precisa saber qual mancha é a dela. Esconder
+rótulo por sobreposição **não** é regra da V1: seria um comportamento que o
+operador não consegue prever.
+
+**Não há agrupamento (clustering) na V1.** Ele continua futuro, e só entra se a
+escala medida pedir (§378).
 
 ## O refresh não pode mexer na página
 
@@ -12530,6 +12678,12 @@ Ele é sobreposição dentro do mapa. Nem o mapa, nem o controle de camadas, nem
 resumo, nem a legenda mudam de posição ou de altura enquanto uma leitura está
 em voo.
 
+E ele é **um só e discreto**. Um aviso que nasce e morre junto com cada
+requisição pisca a cada gesto e transmite instabilidade em vez de informar; por
+isso uma leitura rápida **pode não exibir aviso nenhum**, e um aviso que chegou
+a aparecer fica o bastante para ser lido. O pedido ao servidor sai na hora — só
+o aviso espera. Os tempos exatos são de implementação.
+
 ## O selo numérico da CTO
 
 Quando clientes vinculados a uma CTO têm OS abertas, o marcador da caixa pode
@@ -12539,16 +12693,20 @@ exibir um selo numérico.
 [CTO]  🔧 4     →  4 OS abertas em clientes atualmente vinculados a esta caixa
 ```
 
-**Isto é funcionalidade V1**, e é derivada — nunca uma coluna. Ela prepara o
-dado que a falha coletiva (§388) vai usar um dia, e **não** implementa falha
-coletiva: quatro OS abertas na mesma caixa é um número, não um diagnóstico.
+**Isto é funcionalidade V1 — implementada**, e é derivada — nunca uma coluna.
+Ela prepara o dado que a falha coletiva (§388) vai usar um dia, e **não**
+implementa falha coletiva: quatro OS abertas na mesma caixa é um número, não um
+diagnóstico. **O mapa não infere incidente coletivo** a partir de OS, de
+clientes offline nem da combinação dos dois.
 
 ---
 
 # 372. CLIENTES DA CTO E RESUMO DE CONECTIVIDADE
 
-Ao selecionar uma CTO, o operador consegue ver os clientes **ativos** vinculados
-às portas dela:
+Ao selecionar uma CTO, o operador consegue ver os clientes **atualmente
+vinculados** às portas dela, cada um com o status cadastral ao lado da
+conectividade — um cliente inativo que ainda ocupa a porta aparece como
+inativo, porque o cabo continua lá:
 
 ```text
 Porta 01   João Silva     Ativo · Online
@@ -12558,7 +12716,12 @@ Porta 04   Ana Lima       Ativo · Sem leitura
 ```
 
 **A lista vem do vínculo operacional real** (`CustomerNetworkConnection` com
-`disconnectedAt IS NULL`), e a conectividade vem da autoridade da §370.
+`disconnectedAt IS NULL`), e a conectividade vem da autoridade da §370. Ela é
+aberta pela ação **Ver clientes** do popup da caixa (§373), e é `ADMIN` (§376).
+
+**Histórico encerrado não é vínculo atual.** Um cliente que saiu da porta — por
+desconexão ou por mudança para outra caixa — não aparece nesta lista nem entra
+nas contagens; a história dele continua inteira no backend (`CTO-2`).
 
 > **Nunca derivar o cliente da CTO por endereço ou proximidade.** Duas caixas a
 > trinta metros são indistinguíveis por GPS (§339), e um cliente atribuído à
@@ -12572,41 +12735,84 @@ CTO-021
 5 online · 2 offline · 0 sem leitura · 3 OS abertas
 ```
 
-Todos derivados. **Nunca persistir `cto.onlineCount` ou `cto.offlineCount`** —
-seria uma segunda autoridade sobre a mesma pergunta, e a primeira a divergir
-seria a que ninguém revisou. Uma materialização futura é possível, e exige
-decisão de arquitetura explícita mais teste de consistência contra a função
-derivada — o mesmo que a `CTO-3.1` deixou escrito para `summarizePortCounts`.
+Os valores operacionais do resumo são **derivados** a cada leitura:
+
+```text
+activeCustomerCount     clientes ativos com vínculo ativo na caixa
+onlineCount             desses, ONLINE pela autoridade da §370
+offlineCount            desses, OFFLINE
+unknownCount            desses, SEM LEITURA — nunca somado a offline
+openServiceOrderCount   OS abertas desses clientes, pelo predicado da §371
+```
+
+`activeCustomerCount` pode ser **menor** que "ocupadas": porta ocupada por
+cliente desativado continua ocupada, e as duas perguntas são diferentes.
+
+**Nunca persistir essas contagens na CTO** (`cto.onlineCount`,
+`cto.offlineCount` ou qualquer irmã) — seria uma segunda autoridade sobre a
+mesma pergunta, e a primeira a divergir seria a que ninguém revisou. Uma
+materialização futura é possível, e exige decisão de arquitetura explícita mais
+teste de consistência contra a função derivada — o mesmo que a `CTO-3.1` deixou
+escrito para `summarizePortCounts`.
 
 ---
 
 # 373. POPUPS — CTO, CLIENTE E OS
 
+> **`DECISION UPDATED` no freeze — o contrato abaixo é o aprovado pelo dono.**
+> A versão de 2026-09-09 listava *resumo de endereço* e **Abrir OS** no popup do
+> cliente, e **Abrir CTO** no popup da OS. Nenhum dos três existe no popup
+> aprovado, e a razão está escrita em cada bloco. O registro está em §390.
+
+Três regras valem para os três popups:
+
+* **compacto e operacional** — responde "o que é, em que estado está, e para onde
+  eu vou", e não vira ficha cadastral;
+* **utilizável perto das bordas do mapa** — nenhum controle do mapa (zoom,
+  seletor de base, camadas) cobre o cabeçalho, o fechar ou a ação principal, em
+  qualquer canto;
+* **ação oferecida é ação permitida** — o botão só aparece para o perfil que pode
+  segui-lo (§376); um botão que redireciona sem explicação é pior que a ausência
+  dele.
+
 ## CTO
 
-Nome · código · status · capacidade · livres · ocupadas · reservadas ·
-danificadas · clientes ativos vinculados (online / offline / sem leitura) ·
-OS abertas associadas.
+Nome · código, quando houver · status · capacidade e ocupação (livres ·
+ocupadas · reservadas · danificadas) · clientes ativos vinculados com o resumo
+de conectividade (online · offline · sem leitura) · OS abertas associadas
+(§372).
 
-Ações: **Abrir CTO** e, se couber sem poluir, **Ver clientes**.
+Ações: **Abrir CTO** · **Ver clientes** · **Ajustar posição** (§377).
 
 **As contagens continuam sendo lista, nunca fatia de um todo.** `livres +
 reservadas + danificadas + ocupadas` pode passar da capacidade, porque uma porta
-danificada pode estar ocupada (`CTO-2.2`).
+danificada pode estar ocupada (`CTO-2.2`). E "livres" e "online" nunca aparecem
+somáveis: um é porta, o outro é pessoa.
 
 ## Cliente
 
-Nome · status cadastral · conectividade · idade da leitura, quando a autoridade
-a fornece · resumo de endereço · CTO · porta · OS aberta, quando existir.
+Nome **completo** · status cadastral · conectividade · idade da leitura, quando
+a autoridade a fornece · CTO e porta, quando vinculado · quantidade de OS
+abertas · indicador de **OS urgente**, quando houver.
 
-Ações: **Abrir cliente** · **Abrir OS** · **Abrir CTO**.
+Ações: **Abrir cliente** · **Abrir CTO**, quando vinculado.
+
+**Não é ficha cadastral.** Endereço, telefone e documento ficam no cadastro,
+aberto por **Abrir cliente** — o popup existe para localizar e agir, e cada campo
+a mais é multiplicado pelos pontos da tela (§379). A OS do cliente é alcançada
+pelo marcador da própria OS, que abre na frente no mesmo ponto (§371).
 
 ## OS
 
-Número · cliente · tipo · status · tempo em aberto · técnico responsável quando
-atribuído · CTO e porta quando disponíveis · conectividade do cliente.
+Número · prioridade · status · tipo, quando houver · cliente · conectividade
+do cliente com a idade da leitura · tempo em aberto · técnico responsável,
+quando atribuído · CTO e porta, quando disponíveis.
 
-Ações: **Abrir OS** · **Abrir cliente** · **Abrir CTO**.
+Ações: **Abrir OS** · **Abrir cliente**.
+
+A CTO e a porta aparecem como **informação** — o caminho para a caixa é o
+marcador dela no mapa. A conectividade fica **à vista** junto do cliente, sem
+rolar: é a primeira pergunta de quem despacha.
 
 ## O que nenhum popup faz
 
@@ -12621,14 +12827,24 @@ Nenhum popup expõe dado pessoal além do necessário para agir (§379).
 
 # 374. BUSCA OPERACIONAL DO MAPA
 
-A busca do mapa localiza:
+A busca do mapa é **global dentro do tenant** — não do recorte visível — e
+localiza:
 
 ```text
-CTO por nome · CTO por código
-Cliente por nome · cliente pelos identificadores que o padrão atual permite
-Endereço
-Número da OS
+CTO        por nome · por código
+Cliente    por nome — cadastralmente ativo, e só para quem vê a camada (§376)
+OS         pelo número — abertas, pelo predicado da §371
 ```
+
+### `DECISION UPDATED` — endereço e identificadores não entram na busca do mapa
+
+A versão de 2026-09-09 listava também *"endereço"* e *"cliente pelos
+identificadores que o padrão atual permite"*. **A busca aprovada não os tem**, e
+a exclusão é deliberada: buscar por documento, telefone ou e-mail muda a
+conversa sobre privacidade e sobre quem pode enumerar a carteira — é revisão
+própria, não efeito colateral de uma camada de mapa. Endereço, telefone e os
+demais identificadores são escopo da **busca global** (§384), que precisa
+avaliar reuso antes de existir.
 
 **Busca não se mistura com o recorte.** O contrato do recorte tem `bbox`
 obrigatório e teto informado; a busca é global no tenant e tem teto próprio.
@@ -12667,18 +12883,42 @@ vista viaja em parâmetros próprios, validados um a um, e o destino é
 **remontado** a partir do que passou. Nada do que o cliente escreveu é ecoado
 numa `href`.
 
-Preservar, quando possível: **centro · zoom · modo · busca · entidade
-selecionada · camadas ativas**.
+Preservar, quando possível: **centro · zoom · base · camadas ativas · filtro de
+clientes · busca · CTO selecionada**. A seleção do mapa é de **caixa**: cliente
+e OS não têm seleção própria na V1, e a vista não finge que têm.
+
+**A vista é endereço, não cache.** Ela vive na URL e é espelhada sem criar
+entrada de histórico a cada arrasto; nenhum marcador, contagem ou dado de
+cliente viaja nela. Parâmetro inválido cai no padrão, nunca vira erro nem link
+montado com o que o cliente escreveu.
 
 ---
 
 # 376. PERMISSÕES DA CAMADA DE CLIENTES
 
+### `DECISION UPDATED` — o `DISPATCHER` foi decidido na `CTO-3.2.2`
+
+A versão de 2026-09-09 deixava o `DISPATCHER` *"a decidir na fase de
+implementação, com levantamento de capabilities"*. O levantamento foi feito, e
+a decisão foi **não ampliar**: nenhuma decisão aprovada estendia ao despacho a
+carteira nominal — onde cada assinante mora e quem ele é. O contrato V1 é:
+
 ```text
-ADMIN         vê clientes ativos no Mapa Operacional
-DISPATCHER    a decidir na fase de implementação, com levantamento de capabilities
-TECHNICIAN    NÃO — não ganha acesso só porque um mapa passou a existir
+ADMIN         CTOs · OS abertas · camada de clientes · conectividade
+              resumo operacional da caixa · clientes por porta (Ver clientes)
+              busca com clientes · Abrir CTO · Abrir cliente · Ajustar posição
+DISPATCHER    CTOs e OS abertas, em leitura, como a CTO-3.1/3.2 entregaram
+              busca de CTO e de OS — o servidor remove os resultados de cliente
+              sem camada de clientes, sem clientes por porta, sem resumo
+              operacional da caixa, sem Abrir CTO (o detalhe é ADMIN), sem
+              Abrir cliente pelo mapa, sem Ajustar posição
+TECHNICIAN    NÃO — não ganha acesso web só porque um mapa passou a existir
 ```
+
+Todas as leituras do mapa passam pelo **mesmo portão**: sessão → capability de
+rede da empresa → perfil, nessa ordem (§338; `requireCtoAccess`). Capability
+depois do perfil faria um `DISPATCHER` de empresa sem o módulo receber 403, que
+confirma a existência dele.
 
 **Nenhuma autorização existe apenas no frontend.** Esconder um controle é
 conveniência; quem barra é o servidor, e digitar a URL termina no mesmo lugar.
@@ -12733,6 +12973,7 @@ source detalhada da coordenada
 confirmedAt · confirmedBy
 workflow avançado de verificação
 histórico especializado de geolocalização, se ainda for necessário
+integração com o FiberMap (§389)
 ```
 
 A distinção que sustenta o corte é a mesma da `CustomerLocation` logo acima:
@@ -12744,23 +12985,56 @@ esses campos, e a V1 não os cria.
 
 **Nenhuma coluna nova, nenhuma migration.** `CTO.latitude` / `CTO.longitude` já
 existem e já são a fonte da verdade; a V1 só acrescenta um caminho de escrita
-para elas.
+para elas — e ele é o mesmo da tela de detalhe da caixa, com a mesma validação,
+e não uma segunda autoridade sobre a regra de coordenada.
+
+### O contrato do ajuste — implementado e aprovado (`CTO-3.2.1d`)
+
+```text
+modo explícito      "Ajustar posição", pelo popup da caixa, só para ADMIN
+arrastável          só a caixa em edição — nenhum marcador é arrastável fora dele
+arrastar            move o esboço; NÃO grava
+Salvar              persiste CTO.latitude / CTO.longitude
+Cancelar            não persiste nada, depois de quantos arrastos forem
+erro ao salvar      mantém o modo aberto, com a mensagem — nada é descartado
+entrar em edição    traz a caixa para a área útil do mapa se preciso,
+                    sem gravar nada
+depois de salvar    a posição vem da releitura, não de estado local
+```
+
+"Arrastou" e "salvou" são coisas diferentes: num mapa a mão está sempre
+arrastando algo, e gravar no fim do arrasto transformaria uma coordenada certa
+em errada sem nada na tela para desfazer. Cancelar é confiável porque o par
+gravado nunca foi tocado — não há o que desfazer, há uma origem intacta. A
+trilha de auditoria registra o "de → para" da coordenada.
 
 ---
 
-# 378. DESEMPENHO DA CAMADA DE CLIENTES
+# 378. DESEMPENHO DO MAPA OPERACIONAL
 
-A camada nasce pensando em **centenas a milhares** de assinantes.
+O mapa nasce pensando em **centenas a milhares** de assinantes. Os princípios
+são contrato; os números de teto são de implementação e ficam fora do PRD.
 
 ```text
-recorte obrigatório   nenhuma resposta carrega a carteira inteira (§200)
-teto por resposta     informado, nunca silencioso
+recorte no servidor   bbox obrigatório — nenhuma resposta carrega a carteira
+                      inteira (§200)
+teto por resposta     rígido, do servidor, e informado — nunca silencioso; o
+                      cliente pode pedir menos, nunca mais
 filtro de tenant      em SQL, no mesmo predicado do recorte
-consulta agregada     nada de uma consulta por marcador
+leitura em lote       conectividade, contagem de OS e resumo por caixa — nada
+                      de uma consulta por marcador (N+1 é defeito)
+camada desligada      não consulta
+zoom e arrasto        nunca chamam ERP nem provider (§370)
+resposta velha        nunca sobrescreve a vista nova — a leitura mais recente
+                      é a única que pode desenhar
+folga do recorte      o recorte pedido é maior que o visível, para que um
+                      deslocamento pequeno (inclusive o do próprio popup) não
+                      tire da tela o que o operador está olhando
+escala por zoom       é de apresentação: não custa requisição nem recarrega dado
 ```
 
-**Agrupamento não entra automaticamente.** Ele só se justifica depois de
-medição real; adicioná-lo por precaução é complexidade sem caso.
+**Agrupamento (clustering) não entra na V1.** Ele só se justifica depois de
+medição real de escala; adicioná-lo por precaução é complexidade sem caso.
 
 ---
 
@@ -12777,6 +13051,20 @@ dado pessoal apenas quando necessário para a ação
 nenhuma enumeração global
 busca sempre tenant-scoped
 ```
+
+**Toda leitura e toda escrita do mapa é tenant-scoped**, e o mapa não pode vazar
+entre empresas nenhum destes:
+
+```text
+coordenadas · nomes · conectividade · OS · contagens · resultados de busca
+```
+
+Contagem também é dado: "a empresa B tem 312 clientes sem localização" é
+informação que a empresa A não pode obter, nem por total, nem por diferença.
+
+O **rótulo permanente** do cliente é o primeiro nome e nada além (§371); o
+restante do que identifica uma pessoa só aparece em popup autorizado, aberto
+por ação explícita, ou no cadastro.
 
 `ADMIN`, `DISPATCHER` e `TECHNICIAN` seguem os contratos de autorização reais do
 projeto — capability antes de perfil, ambas obrigatórias, inclusive em leitura.
@@ -12870,8 +13158,11 @@ Registrada como V1: uma busca operacional única capaz de encontrar rapidamente
 aplicável.
 
 **Estado real medido:** não existe. O que existe é a busca de cliente **no ERP**
-(`/api/integrations/customers/search`) e a busca do mapa (`CTO-3.2`) — as duas
-com escopo próprio e nenhuma delas global.
+(`/api/integrations/customers/search`) e a busca do mapa (`CTO-3.2`, ampliada na
+`CTO-3.2.2` para CTO · cliente por nome · número de OS aberta — §374) — as duas
+com escopo próprio e nenhuma delas global. Endereço, telefone e identificadores
+do cliente ficaram **fora** da busca do mapa por decisão (§374), e são desta
+seção.
 
 > **Avaliar reuso antes de construir.** Não introduzir motor externo de busca na
 > V1 sem necessidade medida: Postgres responde bem a esse volume, e um serviço
@@ -12922,15 +13213,16 @@ O que precisa estar de pé para o primeiro lançamento.
 | Jornada / Ponto | **implementado** (v0.11) |
 | Notificações push do Field | **implementado** (v0.13) |
 | CTO, portas e vínculo do cliente | **implementado** (v0.14 · `CTO-2`) |
+| **Mapa Operacional V1 — completo** | **APPROVED** pelo dono (`CTO-3.2.2e`) · **FROZEN** (§392) |
 | Mapa Operacional — motor e camada de CTO | **implementado** (`CTO-3.1` · `3.2` · `3.2.1`) |
 | Modos Mapa / Satélite / Híbrido | **implementado** (`CTO-3.2.1`) |
 | Marcador de CTO com estado derivado | **implementado** (`CTO-3.2.1`) |
-| Navegação com origem e vista preservada | **implementado** (`CTO-3.2.1`) |
+| Navegação com origem e vista preservada | **implementado** (`CTO-3.2.1`; cliente e OS na `CTO-3.2.2`) |
 | Correção manual da posição da CTO pelo ADMIN, no mapa | **implementado** (`CTO-3.2.1d`) |
-| Camada de OS abertas | **falta** — `CTO-3.2.2` |
-| Camada de clientes ativos | **falta** — `CTO-3.2.2` |
-| Online/Offline reutilizado da OS, em lote | **falta** — extração, `CTO-3.2.2` |
-| Busca operacional do mapa (CTO · cliente · OS · endereço) | **parcial** — CTO pronto |
+| Camada de OS abertas | **implementado** (`CTO-3.2.2`) |
+| Camada de clientes ativos | **implementado** (`CTO-3.2.2`) |
+| Online/Offline reutilizado da OS, em lote | **implementado** (`CTO-3.2.2`) |
+| Busca operacional do mapa (CTO · cliente · OS) | **implementado** (`CTO-3.2.2`) — endereço é da busca global (§374, §384) |
 | Checklist por tipo de OS | **implementado** (v0.10) — verificar cobertura |
 | Equipamentos e estoque | **implementado** no estado atual |
 | Dashboard operacional acionável | **parcial** — cartões existem, sem navegação |
@@ -12954,6 +13246,10 @@ Distinção visual de
 localização confirmada      §377
 ```
 
+O WhatsApp **operacional** acima é aviso de atendimento. Mensagem de cobrança,
+lembrete de fatura e negociação são outra coisa, e são backlog sem versão
+(§399).
+
 ---
 
 # 388. V2 — O QUE FICA FORA DO LANÇAMENTO
@@ -12972,6 +13268,11 @@ e inferência errada manda equipe para o lugar errado. Ela tem fase própria.
 
 **Métricas de técnico não viram ranking punitivo** sem decisão de produto
 explícita. O AlfaOS documenta sem julgar (§219).
+
+A **Central de Retenção e Recuperação** — inadimplência, patrimônio em risco,
+recolhimento, risco de churn e cobrança — foi registrada depois deste
+congelamento como backlog próprio, **sem versão atribuída** (Parte XVII,
+§394–§401). Estar lá não a coloca em V2.
 
 ---
 
@@ -12994,6 +13295,10 @@ topologia inteira.
 
 Divergência entre os dois continua sendo fato a **exibir**, nunca merge
 automático.
+
+**No Mapa Operacional V1 congelado (§392) não há integração silenciosa:** nada
+do FiberMap é lido, copiado ou inferido. FiberMap é topologia física; o AlfaOS é
+operação — e a camada de rede física, quando existir, é fase própria.
 
 ---
 
@@ -13040,6 +13345,48 @@ está na própria §377, com a atualização abaixo dele.
 Nada disso cria coluna, tabela ou migration: `CTO.latitude`/`CTO.longitude` já
 são a fonte da verdade, e **`CTOLocation` continua proibida**.
 
+## Freeze do Mapa Operacional V1 — 2026-09-12
+
+O dono validou a `CTO-3.2.2e` na interface real (§392). O que o contrato de
+2026-09-09 dizia e o comportamento aprovado não diz está marcado na própria
+seção, com o texto anterior citado; aqui fica o índice.
+
+### §371 — `DECISION UPDATED`
+
+O cliente era identificado no mapa por **iniciais**. Passou a ser pelo
+**primeiro nome** (`CTO-3.2.2d`), porque duas letras não distinguiam ninguém numa
+rua com dez assinantes. O motivo da regra antiga continua: o rótulo permanente é
+o mínimo que identifica, e nome completo, telefone, documento e endereço nunca
+viram rótulo. Entrou também, aprovado na `CTO-3.2.2e`, o destaque adicional do
+cliente com **OS urgente aberta** — somado à conectividade, nunca no lugar dela.
+
+### §372 — refinada
+
+A lista de clientes da caixa é a de **vínculo ativo**, e mostra o status
+cadastral de cada um — cliente inativo que ainda ocupa a porta aparece como
+inativo. As contagens do resumo continuam só de clientes ativos.
+
+### §373 — `DECISION UPDATED`
+
+O popup do cliente listava *resumo de endereço* e **Abrir OS**; o da OS,
+**Abrir CTO**. O contrato aprovado não tem nenhum dos três: o popup do cliente
+não é ficha cadastral, a OS do cliente é alcançada pelo marcador da própria OS
+(que abre na frente no mesmo ponto), e a caixa, pelo marcador dela.
+
+### §374 — `DECISION UPDATED`
+
+A busca do mapa listava *endereço* e *identificadores do cliente*. Ficou em CTO
+(nome · código), cliente (nome) e OS aberta (número). Buscar por documento,
+telefone ou e-mail é revisão de privacidade própria, e endereço pertence à busca
+global (§384).
+
+### §376 — `DECISION UPDATED`
+
+O `DISPATCHER` estava *"a decidir"*. Decidido na `CTO-3.2.2`, e sem ampliação:
+ele lê CTOs e OS abertas; a carteira nominal — camada de clientes, clientes por
+porta, resumo operacional da caixa, resultados de cliente na busca — continua
+`ADMIN`. Ampliar exige decisão explícita, com levantamento de capabilities.
+
 ## §201 — reafirmada e qualificada
 
 *"Reutilizar a busca que já existe, não criar um mecanismo paralelo."* Continua
@@ -13067,29 +13414,415 @@ Já superada pela §334 na Parte XIII. Nada nesta Parte a toca.
 # 391. ROADMAP — A ORDEM ATÉ O LANÇAMENTO
 
 ```text
-CTO-3.2.1        entregue · READY FOR OWNER VALIDATION
+CTO-3.2.1 · 3.2.1b · 3.2.1c   bases, marcador, navegação          concluído
    ↓
-validação do dono do Mapa V1 (bases, marcador, navegação)
+PRD V1 Launch Scope Freeze                                         concluído
    ↓
-PRD V1 Launch Scope Freeze                          ← esta Parte
+CTO-3.2.1d                    ADMIN corrige a posição da CTO      APPROVED
    ↓
-CTO-3.2.2        camada de clientes + OS abertas + Online/Offline em lote
+CTO-3.2.2                     clientes + OS abertas + Online/Offline em lote
+CTO-3.2.2b · c · d · e        estabilização e acabamento de UX
    ↓
-validação do dono do Mapa Operacional V1
+validação do dono do Mapa Operacional V1    CTO-3.2.2e APPROVED
+MAPA OPERACIONAL V1 — FROZEN (§392)                                ← 2026-09-12
    ↓
-demais fatias V1  dashboard acionável · timeline do cliente
-                  pacote de evidências · busca global
+demais fatias V1  dashboard acionável · timeline do cliente        ← próximo:
+                  pacote de evidências · busca global                decisão do dono
    ↓
 LANÇAMENTO V1
    ↓
 V2 (§388)  →  V3 (§389)
 ```
 
-A sequência das fatias V1 depois da `CTO-3.2.2` **não está congelada entre si** —
-elas são independentes, e a ordem é decisão do dono no momento de cada uma.
+**Não existe `CTO-3.2.2f`.** Com o mapa congelado, ideia nova de mapa vai para o
+backlog; o que volta a abrir o código do mapa antes do lançamento é **correção
+crítica de defeito**, e só ela (§392).
+
+A sequência das fatias V1 depois do mapa **não está congelada entre si** — elas
+são independentes, e a ordem é decisão do dono no momento de cada uma.
 
 > **A §119 continua valendo.** Esta Parte autoriza o que está em §386; ela não
 > autoriza nada do que está em §388 ou §389, por mais detalhado que esteja
 > descrito neste documento.
+
+---
+
+# 392. MAPA OPERACIONAL V1 — CONTRATO FINAL · FROZEN
+
+> **`CTO-3.2.2e` — APPROVED.**
+> **`MAPA OPERACIONAL V1` — FROZEN.** Registrado em 2026-09-12.
+
+## A validação do dono
+
+O dono validou o Mapa Operacional na interface real, com as três camadas
+ligadas, e aprovou:
+
+```text
+bases        Mapa · Satélite · Híbrido · zoom · pan · vista persistida
+camadas      CTOs · OS abertas · Clientes ativos · filtro de clientes
+CTO          marcador e estados · popup · ajustar posição, cancelar, salvar,
+             recarregar depois do ajuste
+OS           marcador · OS urgente · popup
+cliente      online · offline · sem leitura · com OS aberta · com OS urgente
+             primeiro nome no mapa · rótulos que somem de longe · popup
+interação    popups perto das bordas · clique individual entre entidades
+             próximas · indicador de carregamento sem flicker relevante
+leitura      chips de resumo · legenda · hierarquia visual · resposta ao zoom
+garantias    segurança, tenancy e permissões preservadas · conectividade e OS
+             pelas autoridades que já existiam · nenhuma regressão observada
+```
+
+## O contrato, e onde cada parte dele está escrita
+
+| tema | contrato congelado | seção |
+|---|---|---|
+| Bases | Mapa · Satélite · Híbrido, sobre um mapa só | §365 |
+| Camadas | CTOs **ON** · OS abertas **ON** · Clientes ativos **OFF**; estado e filtro preservados na navegação | §366, §375 |
+| CTO | principal elemento de infraestrutura; `AVAILABLE · FULL · DAMAGED · INACTIVE` derivados; seleção e edição independentes do estado | §367 |
+| Posição da CTO | `ADMIN`, modo explícito; arrastar não grava; Salvar persiste; Cancelar não; `CTO.latitude/longitude`; sem `CTOLocation` | §377 |
+| Futuro da posição | confirmação em campo, precisão de GPS, `source`, `confirmedAt/By`, workflow, FiberMap — pós-V1 | §377 |
+| Clientes | ativo + localização válida + tenant; `CustomerLocation` é a autoridade; nunca `0,0`; contagem de sem localização | §368 |
+| Conectividade | `ONLINE · OFFLINE · UNKNOWN` ("Sem leitura"); sem `STALE`; idade da leitura; falha de integração não é `OFFLINE` | §369, §370 |
+| Autoridade | o snapshot da OS, em lote; nunca ERP ou provider por marcador, zoom ou arrasto | §370 |
+| Visual do cliente | verde · vermelho · neutro com forma própria; OS aberta e OS urgente como destaques **adicionais** | §371 |
+| Urgência | `priority === URGENT`, só OS aberta; `HIGH` não é urgente; urgente fechada não destaca | §371 |
+| OS abertas | marcador próprio; `OS-N°<número>`; âmbar / vermelho + símbolo; predicado compartilhado; nenhuma inferência de incidente | §371 |
+| Rótulos | primeiro nome do cliente em zoom operacional; somem de longe; sem clustering | §371 |
+| Hierarquia | `CTO > OS > Cliente`; escala por zoom sem deslocar a coordenada | §371 |
+| Carregamento | sem layout shift; um indicador discreto; leitura rápida pode não exibi-lo | §371 |
+| Clientes por porta | vínculo ativo; nunca proximidade; histórico encerrado não conta | §372 |
+| Resumo da CTO | `activeCustomerCount · onlineCount · offlineCount · unknownCount · openServiceOrderCount`, derivados, nunca persistidos | §372 |
+| Popups | CTO, cliente e OS — compactos, utilizáveis nas bordas, ações conforme o perfil | §373 |
+| Busca | global no tenant: CTO, cliente, OS; centraliza com coordenada; nunca inventa posição | §374 |
+| Navegação | Mapa → CTO / cliente / OS → Mapa, com a vista; origem em allowlist; nunca `router.back()` | §375 |
+| Permissões | `ADMIN` tudo; `DISPATCHER` CTOs e OS; `TECHNICIAN` nada novo; o servidor decide | §376 |
+| Tenancy e privacidade | tudo tenant-scoped; DTO mínimo; nada vaza entre empresas, nem contagem | §379 |
+| Desempenho | recorte no servidor, teto, lote, sem `N+1`, camada desligada não consulta, resposta velha não desenha | §378 |
+| FiberMap | fora da V1; nenhuma integração silenciosa | §389 |
+
+## O que "frozen" significa
+
+```text
+CTO-3.2.2f                      não existe
+ideia nova de mapa              → backlog / futuro
+correção crítica de defeito     → pode reabrir o código do mapa, e só ela
+mudança de contrato             → decisão explícita do dono, registrada aqui
+                                  com DECISION UPDATED (§390)
+```
+
+**Correção crítica** é defeito que impede a operação, vaza dado entre empresas,
+fura autorização, apresenta dado errado como certo ou quebra acessibilidade de
+forma crítica. Preferência visual, refinamento e "já que estamos aqui" não são
+— entram no backlog como qualquer ideia nova (§393).
+
+## O que continua aberto, e não bloqueia a V1
+
+**CTO e cliente na mesma coordenada exata** — qual dos dois abre (§371). A
+decisão é do dono; nenhuma implementação a tomou em silêncio.
+
+## O que fica FORA do PRD, de propósito
+
+Tamanhos de marcador, alturas de mapa, tempos do indicador, respiros de popup,
+tetos numéricos, empilhamento, contagens de teste e nomes de dados de QA vivem
+na nota técnica — `docs/CTO-NETWORK-DISTRIBUTION.md` §34–§46. Mudar um deles
+não muda o contrato; mudar o contrato exige esta seção.
+
+---
+
+# 393. ESCOPO V1 CONGELADO — O CRITÉRIO CONTRA O FEATURE CREEP
+
+> **Nota de produto.** Vale para o mapa e para toda a V1.
+
+O escopo da V1 está congelado (§362, §386). **Ideia útil não entra
+automaticamente na V1** — e ideia útil é justamente o que mais aparece depois
+que um produto começa a funcionar.
+
+O critério é um só:
+
+```text
+é bloqueador para a operação V1?
+   sim  → discute-se como fatia V1, com decisão explícita do dono
+   não  → backlog
+```
+
+"É útil", "é rápido" e "já que estamos mexendo aqui" não são critérios. Cada um
+deles, somado aos outros, é como um lançamento vira uma lista que nunca termina
+(§362).
+
+## O que NÃO entra agora
+
+Tudo isto é **backlog**. Nenhum item tem fase aberta, e nenhum entra por baixo
+de outra fatia:
+
+```text
+retenção                                  Parte XVII (§394)
+cobrança automática                       §399
+lembrete de boleto / fatura               §399
+WhatsApp                                  §399 (cobrança) · §387 (operacional,
+                                          SHOULD HAVE, não é fatia ativa)
+recovery score                            §398
+motor de churn                            §397
+OS automática de recolhimento             §396
+roteirização                              §137 · §401
+equipamentos em risco                     §395
+incidentes coletivos                      V2 (§388)
+FiberMap                                  V3 (§389)
+NOC                                       V2 (§388)
+IA de diagnóstico                         backlog, sem seção própria
+```
+
+A §119 continua valendo para todos: estar descrito aqui não é autorização.
+
+---
+
+# PARTE XVII — CENTRAL DE RETENÇÃO E RECUPERAÇÃO · BACKLOG FUTURO
+
+> **Registrada em 2026-09-12, no freeze do Mapa Operacional V1.**
+> **BACKLOG — NÃO IMPLEMENTAR.**
+>
+> Nada desta Parte existe em código, nenhuma fase está aberta, e ela **não tem
+> versão atribuída** — não é V1, e estar escrita não a coloca em V2. A §119 vale
+> linha por linha.
+>
+> Ela é registrada agora por dois motivos, e só por eles: para a ideia não se
+> perder, e para que, quando voltar, volte com as fronteiras que já estão claras
+> hoje — não para entrar por baixo de outra fatia.
+
+---
+
+# 394. CENTRAL DE RETENÇÃO E RECUPERAÇÃO — O QUE É, E O QUE ELA NÃO É
+
+**Objetivo: reduzir as perdas financeiras e patrimoniais do provedor.**
+
+São duas perdas diferentes, e a Central existe porque elas andam juntas:
+
+```text
+receita      mensalidade não paga · cliente que abandona o serviço
+patrimônio   equipamento do provedor instalado na casa de quem não paga
+             ou já foi embora, e que não volta
+```
+
+As peças, cada uma na sua seção:
+
+```text
+§395   inadimplência e patrimônio em risco
+§396   recuperação — o fluxo conceitual e a OS de recolhimento
+§397   risco de churn — offline não é cancelamento
+§398   priorização — Recovery Risk Score
+§399   cobrança, lembrete de fatura e WhatsApp
+§400   o financeiro entra por contrato normalizado
+§401   "Ver casos no mapa" — futuro opcional
+```
+
+**O que ela não é:** um módulo financeiro. Título, valor e vencimento pertencem
+ao ERP, e entrariam por **leitura** (§400) — esta Parte não prevê o AlfaOS
+escrevendo título, baixa ou cancelamento no ERP. A Central decide o que fazer
+com a leitura; ela não a reescreve.
+
+---
+
+# 395. INADIMPLÊNCIA E PATRIMÔNIO EM RISCO
+
+## Sinais de inadimplência
+
+Monitorar clientes inadimplentes, com sinais **possíveis** como:
+
+```text
+dias em atraso
+títulos vencidos
+valor devido
+quantidade de mensalidades em aberto
+equipamentos do provedor instalados no cliente
+valor patrimonial em risco
+```
+
+**Nenhum cronograma automático é definido aqui** — nem "no dia X, faça Y". Uma
+régua de ações sobre inadimplência é decisão de produto e de operação de cada
+provedor, e fixá-la antes de existir o fluxo real congelaria uma política que
+ninguém validou.
+
+## Equipamentos em risco
+
+Equipamentos do provedor que podem, no futuro, alimentar o cálculo de
+**patrimônio em risco**:
+
+```text
+ONU · roteador · TV Box · câmera · repetidor · fontes e acessórios relevantes
+```
+
+**O fato do código que decide o custo disto:** hoje o equipamento instalado é
+linha **por OS** (`ServiceOrderEquipment`), com série e MAC opcionais — não
+existe identidade estável de equipamento fora da OS, nem valor patrimonial
+(decisão `C-05`, `docs/CTO-NETWORK-DISTRIBUTION.md` §16). "Quanto do meu patrimônio está na casa de quem não paga"
+só tem resposta confiável depois disso existir, e os lugares onde isso seria
+resolvido já estão escritos: inventário como ledger (§181) e custódia de
+patrimônio (§210–§223).
+
+---
+
+# 396. RECUPERAÇÃO — O FLUXO CONCEITUAL E A OS DE RECOLHIMENTO
+
+## O fluxo, como vocabulário
+
+```text
+monitorando
+tentativa de contato
+negociação
+promessa de pagamento
+acordo
+aguardando pagamento
+recolhimento autorizado
+OS de recolhimento
+recuperado · não localizado · recusado · perdido/danificado
+```
+
+**Isto é vocabulário, não máquina de estados. Nenhum enum é criado agora.**
+Congelar transições antes de existir o fluxo real seria escolher, sem caso, quais
+passos podem voltar, quais são terminais e quem pode movê-los — a mesma razão
+pela qual a §385 não inventa estado de OS por conveniência de vocabulário.
+
+## A OS de recolhimento
+
+Um tipo de OS específico — **RECOLHIMENTO DE EQUIPAMENTOS** — poderá levar ao
+técnico a **lista dos equipamentos esperados** naquele endereço, para que ele
+saiba o que deve voltar com ele.
+
+Não implementar agora: nem o tipo com lista esperada, nem a criação automática
+dessa OS a partir da recuperação (§393). A lista esperada depende do mesmo
+fato da §395 — identidade estável de equipamento.
+
+---
+
+# 397. RISCO DE CHURN — OFFLINE NÃO É CANCELAMENTO
+
+## A regra candidata
+
+```text
+cliente cadastralmente ATIVO
++ financeiro REGULAR
++ OFFLINE continuamente por um período CONFIGURÁVEL
++ nenhuma justificativa operacional conhecida
+= risco de abandono (churn)
+```
+
+**Offline não significa cancelamento**, e a regra não pode assumir isso. Um
+cliente offline pode estar viajando, ter trocado o roteador de lugar, estar sem
+energia ou ter uma OS aberta — e tratar qualquer um desses como abandono
+produziria contato errado com quem só precisava de suporte.
+
+## Exclusões que a regra futura precisa considerar
+
+```text
+cliente suspenso
+cliente cancelado
+OS técnica aberta que justifique o offline
+incidente conhecido
+ausência de leitura confiável
+```
+
+## A dependência que o código já mostra
+
+`OFFLINE` só existe quando um provider **afirmou** (§370), e `SEM LEITURA`
+nunca conta como offline. E o diagnóstico atual **não sustenta** "offline há N
+dias": o snapshot é atualizado sob demanda, com gatilho na OS, e com teto por
+empresa (§337). Um cliente que ninguém consultou há vinte dias tem **uma leitura
+de vinte dias atrás**, não vinte dias de offline. Um motor de churn depende de
+uma estratégia de frescor que não existe — a mesma que bloqueia a `CTO-6`
+(§337, §341; decisão aberta `C-03` em `docs/CTO-NETWORK-DISTRIBUTION.md`) —, e é
+por isso que "ausência de leitura confiável" está na lista de exclusões.
+
+---
+
+# 398. PRIORIZAÇÃO — RECOVERY RISK SCORE
+
+Possibilidade futura: um **Recovery Risk Score** para ordenar os casos, com
+fatores como:
+
+```text
+dias de atraso
+valor dos equipamentos
+quantidade de equipamentos
+tentativas de contato sem resposta
+dias offline
+valor financeiro em aberto
+```
+
+**Nenhuma fórmula, peso ou limiar é definido aqui.** Os fatores dependem de
+dados que ainda não existem com confiança — valor patrimonial (§395) e dias
+offline (§397) —, e uma fórmula escrita antes deles seria uma precisão
+inventada.
+
+---
+
+# 399. COBRANÇA, LEMBRETE DE FATURA E WHATSAPP
+
+## Automação de cobrança
+
+O AlfaOS pode, no futuro, ter um **sistema de lembrete de faturas** e
+**mensagens automáticas para clientes inadimplentes**, com quatro objetivos:
+
+```text
+recuperar receita
+negociar ANTES do recolhimento
+reduzir churn
+reduzir perda patrimonial
+```
+
+## WhatsApp na recuperação
+
+```text
+lembrete de fatura
+mensagens automáticas de cobrança
+tentativa de recuperação
+proposta de acordo
+confirmação de uso do serviço
+agendamento de retirada
+histórico de contatos
+```
+
+**Nenhum provedor de WhatsApp é definido nesta fase.** E este WhatsApp não é o
+da §387, que é aviso de atendimento (técnico a caminho, confirmação,
+reagendamento) e é `SHOULD HAVE` da V1; os dois compartilhariam canal, não
+propósito.
+
+---
+
+# 400. O FINANCEIRO ENTRA POR CONTRATO NORMALIZADO — NUNCA PELO FORMATO DE UM ERP
+
+**Princípio arquitetural futuro:** a Central de Retenção **não** se acopla ao
+formato financeiro de um ERP específico. Ela lê um **read model normalizado**,
+e ReceitaNet, SGP e ERPs futuros convergem para **um contrato financeiro
+comum**.
+
+Isso não é regra nova — é a consequência das que já existem na Parte XV:
+
+```text
+cada empresa tem ZERO OU UM ERP ativo                    §353
+capability é pergunta ao adapter                          §355
+ERP ativo sem a capability → NOT_SUPPORTED, sem fallback
+identidade externa é histórico, nunca seleção             §359
+```
+
+Um adapter que souber responder o financeiro declara a capability; o que não
+souber, não finge. Um `if (RECEITANET)` dentro da Central seria o acoplamento que
+a Parte XV existe para impedir. As capabilities de negócio do SGP — financeiro
+incluído — continuam sob a §119.
+
+Não implementar agora.
+
+---
+
+# 401. "VER CASOS NO MAPA" — FUTURO OPCIONAL
+
+Uma visão futura, **opcional**, de *"Ver casos no mapa"* para:
+
+```text
+recolhimentos · clientes em risco · churn · roteirização (§137)
+```
+
+**Nenhuma camada nova entra no Mapa Operacional V1.** O mapa está congelado
+(§392), e uma camada de casos seria decisão que o reabre — com fase própria e
+decisão do dono. Quando existir, ela entra no **mesmo motor** (§207, §364), nunca
+como um segundo mapa.
 
 ---
