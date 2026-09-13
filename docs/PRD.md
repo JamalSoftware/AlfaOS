@@ -13409,6 +13409,60 @@ seção.
 > V1 sem necessidade medida: Postgres responde bem a esse volume, e um serviço
 > de busca a mais é um serviço a mais para operar, sincronizar e ver divergir.
 
+**`GS-1` — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** A
+busca existe: um campo **"Buscar"** no topo do menu lateral (desktop e gaveta do
+celular) leva a **`/busca?q=`**, com os resultados agrupados por tipo. Zero
+migration, zero schema, zero rota de API, zero Dart, e nenhum motor de busca: é
+leitura do Postgres do AlfaOS, sem ERP e sem provider.
+
+**Decidido pelo dono na abertura da `GS-1`:**
+
+```text
+equipamento     FORA da V1 — sem identidade própria, página nem listagem de onde
+                herdar permissão (a linha é da OS; §393)
+TECHNICIAN      sem busca global — não tem listagem na web; o campo não aparece e
+                /busca o manda para a tela dele
+superfície      campo no menu + página de resultados; formulário GET comum, como o
+                das listagens: nada é pedido a cada tecla
+```
+
+**Cada tipo pela busca que já existia (§201).** A busca global não tem predicado
+próprio: usa o MESMO `where` das listagens, e o "ver todos" de um grupo abre a
+listagem com o mesmo termo — que mostra os mesmos registros.
+
+```text
+cliente    nome · documento · e-mail · telefone 1 e 2 · endereço · bairro · cidade
+           · CEP — o predicado de /clientes, que ganhou o 2º telefone, endereço,
+           bairro e CEP; telefone e documento digitados com máscara também acham
+           o gravado só em dígitos
+OS         número · número externo · tipo · descrição · nome do cliente — o
+           predicado de /ordens; "7", "#7", "OS 7" e "Nº 7" acham a OS Nº 7, e o
+           número exato vem primeiro
+CTO        nome · código — a busca de caixa que já existia
+técnico    nome — o predicado de /tecnicos; abre a listagem filtrada por ele
+```
+
+**Quem vê o quê** — o que a listagem correspondente já mostra, e nada além:
+
+```text
+ADMIN        clientes · OS · técnicos · CTOs (com a rede ligada; /ctos é dele)
+DISPATCHER   clientes · OS · técnicos — nunca CTO
+TECHNICIAN   nada
+```
+
+**Contrato:** tenant da sessão em toda consulta, **inclusive dentro das relações**
+com cliente e usuário (uma OS apontando para cliente de outra empresa não casa
+pelo nome dele — vetor da `DQ-7.1`); **5 resultados por tipo**, com o teto
+**informado** e o "ver todos" quando há mais; **nenhuma consulta** para termo vazio,
+com menos de dois caracteres úteis (`%` e `_` não contam) ou com mais de sessenta
+— salvo o número de OS, que é pergunta completa com um dígito; **DTO mínimo** por
+tipo: nome, contexto curto (bairro e cidade do cliente; cliente, tipo e situação da
+OS; código da CTO), marca de inativo e o destino — **sem documento, telefone,
+e-mail, rua, coordenada nem identificador de ERP**; cada resultado abre a rota
+que já existia para ele; falha de leitura é **aviso de erro**, nunca "nenhum
+resultado". Nada é gravado — nem o termo, nem histórico, recentes ou favoritos.
+Mapa do código em `docs/CONTEXT-MAP.md`.
+
 ---
 
 # 385. STATUS DA OS — A TAXONOMIA REAL, E OS GAPS
@@ -13469,7 +13523,7 @@ O que precisa estar de pé para o primeiro lançamento.
 | Dashboard operacional acionável | **implementado** (`DASH-1` · `DASH-1a`) — aprovado pelo dono, `FROZEN` (§380) |
 | Timeline do cliente | **implementado** (`TL-1`) — aprovado pelo dono, `FROZEN` (§381) |
 | Pacote técnico de evidências | **implementado** (`EV-1`) — aprovado pelo dono, `FROZEN` (§383) |
-| Busca global do AlfaOS | **falta** |
+| Busca global do AlfaOS | **implementado** (`GS-1`) — `READY FOR OWNER VALIDATION` (§384) |
 
 ---
 
@@ -13822,6 +13876,8 @@ NOC                                       V2 (§388)
 IA de diagnóstico                         backlog, sem seção própria
 auto-atualização do diagnóstico na OS     backlog (DIAG-AUTO-01) — o refresh é
                                           ação explícita (§337, §370)
+busca de equipamento por série/MAC        backlog (GS-1) — o equipamento não tem
+                                          identidade fora da OS (§384)
 ```
 
 A §119 continua valendo para todos: estar descrito aqui não é autorização.

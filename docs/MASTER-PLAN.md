@@ -40,6 +40,8 @@ TIMELINE DO CLIENTE V1  TL-1                                          APPROVED �
                         histórico na ficha do cliente · 50 por vez até 500
 PACOTE TÉCNICO V1       EV-1                                          APPROVED · FROZEN
                         página da OS concluída · conferência pelo hash
+BUSCA GLOBAL V1         GS-1                                          READY FOR OWNER VALIDATION
+                        campo no menu → /busca · predicado das listagens
 ```
 
 O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e a lista
@@ -69,7 +71,7 @@ TL-1                           timeline do cliente       ← APPROVED · FROZEN 
    ↓
 EV-1                           pacote de evidências      ← APPROVED · FROZEN (2026-09-13)
    ↓
-GS-1                           busca global              ← PRÓXIMA FATIA ATIVA · não iniciada
+GS-1                           busca global              ← READY FOR OWNER VALIDATION
    ↓
 LANÇAMENTO V1
    ↓
@@ -81,7 +83,9 @@ previa.** Elas continuam independentes entre si e todas dependem apenas do que
 já existe. **`DASH-1` veio primeiro** e foi aprovada com a `DASH-1a`; o
 **`HOTFIX-FIELD-01`** fechou um defeito conhecido do técnico; e a **`TL-1`** foi
 aprovada pelo dono e congelada (§5, PRD §381); a **`EV-1`** também (§6, PRD
-§383). **A próxima fatia ativa do Core V1 é a `GS-1`** — **não iniciada**.
+§383). **A `GS-1` foi implementada e aguarda a validação do dono** (§7, PRD
+§384). Ela é a última fatia funcional planejada do Core V1; o que vem depois do
+lançamento é decisão do dono, e nada foi iniciado.
 
 ---
 
@@ -249,6 +253,12 @@ sai no DTO.
 ---
 
 ## 7. `GS-1` — Busca global do AlfaOS
+
+> **Estado: `READY FOR OWNER VALIDATION` — commits locais, sem tag e sem push.**
+> Contrato, as três decisões do dono (equipamento fora da V1, técnico sem busca,
+> campo no menu + página) e o que ficou fora: PRD §384. Mapa do código:
+> `docs/CONTEXT-MAP.md`, seção *Busca global*. O plano abaixo é o registro de como
+> a fatia foi escrita; ela se cumpriu sem migration, sem rota de API e sem Dart.
 
 **Objetivo.** Uma busca operacional única: cliente, telefone, endereço, OS, CTO,
 técnico e equipamento quando aplicável.
@@ -422,9 +432,9 @@ ACS / Wi-Fi                     gerência remota do CPE           PRD §410 · �
 Analytics                       indicadores de negócio           PRD §410
 ```
 
-**As fatias V1 não mudam.** Com a `DASH-1`, a `TL-1` e a `EV-1` concluídas, a
-`GS-1` continua sendo o trabalho do Core V1, e **nenhum módulo entra dentro
-dela** — nem como "já que estamos mexendo aqui" (PRD §393).
+**As fatias V1 não mudam.** Com a `DASH-1`, a `TL-1` e a `EV-1` concluídas e a
+`GS-1` aguardando validação, **nenhum módulo entra no Core V1** — nem como "já
+que estamos mexendo aqui" (PRD §393).
 
 **O que um módulo precisa antes de virar fatia**, além da decisão do dono: a
 camada central de acesso — Module Registry, entitlement por tenant e capability

@@ -85,7 +85,7 @@ concluir pela ausência** é como um contêiner de 43 horas de uptime vira
 
 Quatro coisas dessa Parte que não se redescobrem: **`STALE` não existe** no AlfaOS — a conectividade tem três estados e o que viaja junto é a **idade** da leitura (§370); **o checklist por tipo de OS já está implementado** desde a v0.10, e foi apresentado como escopo novo por engano (§382); **a máquina de estados da OS tem cinco valores**, e *agendada*, *em deslocamento* e *pausada* **não são estados** — os gaps estão registrados em §385 sem inventar enum; e **`CANCELLED` é declarado e inalcançável**.
 
-**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias V1, cada uma com dependências, entregas, testes, segurança e risco. Concluídos: Mapa Operacional V1, `DASH-1` + `DASH-1a`, `HOTFIX-FIELD-01`, `TL-1` e `EV-1`. **Próxima fatia ativa do Core V1: `GS-1`** — não iniciada. Os débitos conhecidos fora das fatias estão no §12 dele. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
+**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias V1, cada uma com dependências, entregas, testes, segurança e risco. Concluídos: Mapa Operacional V1, `DASH-1` + `DASH-1a`, `HOTFIX-FIELD-01`, `TL-1` e `EV-1`. **`GS-1` implementada, aguardando a validação do dono** — é a última fatia funcional planejada do Core V1. Os débitos conhecidos fora das fatias estão no §12 dele. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
 
 **O DASHBOARD OPERACIONAL V1 TAMBÉM ESTÁ CONGELADO** (`DASH-1a` `APPROVED`, 2026-09-12): nenhuma feature nova entra nele, salvo correção crítica de defeito.
 
@@ -203,6 +203,22 @@ Quatro coisas que não se redescobrem:
 * **Etiqueta aparece uma vez, junto do equipamento.** A foto `EQUIPMENT_LABEL` ligada a um equipamento sai da galeria; a do equipamento REMOVIDO volta a `TEMPORARY` (a remoção apaga a linha) e por isso não entra em lugar nenhum. Item de foto do checklist é satisfeito pela categoria confirmada — a mesma regra de `pendingChecklistItems`.
 * **Localização sem coordenada.** O check-in entra como hora, com/sem GPS, distância ao ponto cadastrado (congelada no check-in) e precisão; a mudança de ponto entra só se feita NESTA OS e para ESTE cliente. Latitude e longitude não são nem selecionadas.
 * **A série e o MAC saem como o domínio gravou** (`normalizeHardwareId`), não como foram digitados — é o que o Field mostra também.
+
+## Busca global — `GS-1` (READY FOR OWNER VALIDATION)
+
+**Carregar:** PRD **§384** (contrato e as três decisões do dono), §201 (reutilizar a busca que já existe) e `docs/MASTER-PLAN.md` §7. Não há documento de módulo: o contrato é a PRD e o cabeçalho de `src/lib/global-search.ts`.
+**Quando:** a tarefa toca `/busca`, o campo "Buscar" do menu, ou o **predicado de busca** de `/clientes`, `/ordens` ou `/tecnicos` — ele é o mesmo da busca global.
+**Quando NÃO:** a busca do Mapa Operacional (`/api/ctos/map/search`, FROZEN — contrato próprio, §374) e a busca de cliente no ERP (`/api/integrations/customers/search`).
+
+**A regra que não se desfaz: uma busca por tipo, e ela é a da listagem.** `customerSearchFilter` (`src/lib/customers.ts`), `serviceOrderSearchFilter` (`src/lib/service-orders.ts`) e `technicianSearchFilter` (`src/lib/technicians.ts`) montam o `where` da listagem E da busca global; a CTO usa `searchCtosForMap`. Mudar um campo de busca muda os dois lugares de propósito — e o "ver todos" continua mostrando os mesmos registros. Não escrever um predicado paralelo "só para a busca": busca duplicada é autorização duplicada (§201).
+
+**Código:** `src/lib/global-search.ts` (domínio: perfil antes de tudo, um lote `$transaction([...])` com cliente, OS, OS do número exato, técnico e a capability de rede; a CTO depois, só para ADMIN com a rede; DTO mínimo; `loadGlobalSearch` converte falha em `error` e loga só o tipo do erro — nem termo, nem mensagem), `src/lib/global-search-rules.ts` (PURO: mínimo/máximo do termo, os mesmos da busca do mapa, e o número de OS — o menu é componente de cliente e não pode importar o domínio), `src/components/GlobalSearchView.tsx` (servidor: formulário GET, estados), `src/app/(app)/busca/page.tsx`, o campo em `src/components/Sidebar.tsx` e `canUseGlobalSearch` em `src/lib/navigation.ts`. Testes: `src/tests/global-search.test.ts`, `global-search-page.test.ts`, `e2e/global-search.spec.ts`.
+
+Três coisas que não se redescobrem:
+
+* **Tenant dentro das relações.** `ServiceOrder.customerId` é FK simples (vetor da `DQ-7.1`): sem `companyId` dentro de `customer: {…}`, uma OS apontando para o cliente de outra empresa casaria pelo nome dele. O endurecimento vale para a listagem `/ordens` também, e o nome do cliente só sai no resultado quando ele é da mesma empresa.
+* **Telefone e documento chegam em dois formatos** — só dígitos (ERP) e como digitados (cadastro manual). Termo com cara de número (≥4 dígitos) também procura a versão só-dígitos; o inverso (gravado com máscara, digitado sem) não é coberto sem normalizar a coluna, que seria migration.
+* **"7" é pergunta completa**: número de OS com um dígito procura só a OS Nº 7, sem casar telefone nenhum. Todo o resto exige dois caracteres úteis (`%` e `_` não contam).
 
 ## Auditorias
 
