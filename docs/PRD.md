@@ -13296,7 +13296,11 @@ pacote conferível.
 já tem sequência própria para geração de documento, e antecipá-la aqui
 duplicaria o mecanismo.
 
-**`EV-1` — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** A
+**`EV-1` — `APPROVED` / `CLOSED`. Pacote Técnico de Evidências V1 — `FROZEN` /
+`APPROVED` (13/09/2026).** O dono validou a entrega; o contrato abaixo é o
+aprovado, e só reabre por defeito crítico, vazamento de tenancy, problema de
+segurança ou decisão explícita do dono — ideia nova sobre o pacote é backlog
+(§393). Commits locais, sem tag e sem push. A
 reunião existe: página **"Pacote técnico"** (`/ordens/[id]/pacote`), aberta pelo
 botão **"Ver pacote técnico"** na faixa verde da OS concluída. Visão **DERIVADA**:
 zero migration, zero schema, zero rota de API, zero Dart — nada é escrito, e
@@ -13435,7 +13439,7 @@ O que precisa estar de pé para o primeiro lançamento.
 | Equipamentos e estoque | **implementado** no estado atual |
 | Dashboard operacional acionável | **implementado** (`DASH-1` · `DASH-1a`) — aprovado pelo dono, `FROZEN` (§380) |
 | Timeline do cliente | **implementado** (`TL-1`) — aprovado pelo dono, `FROZEN` (§381) |
-| Pacote técnico de evidências | **implementado** (`EV-1`) — `READY FOR OWNER VALIDATION` (§383) |
+| Pacote técnico de evidências | **implementado** (`EV-1`) — aprovado pelo dono, `FROZEN` (§383) |
 | Busca global do AlfaOS | **falta** |
 
 ---

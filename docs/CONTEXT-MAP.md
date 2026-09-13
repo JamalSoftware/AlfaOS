@@ -85,7 +85,7 @@ concluir pela ausência** é como um contêiner de 43 horas de uptime vira
 
 Quatro coisas dessa Parte que não se redescobrem: **`STALE` não existe** no AlfaOS — a conectividade tem três estados e o que viaja junto é a **idade** da leitura (§370); **o checklist por tipo de OS já está implementado** desde a v0.10, e foi apresentado como escopo novo por engano (§382); **a máquina de estados da OS tem cinco valores**, e *agendada*, *em deslocamento* e *pausada* **não são estados** — os gaps estão registrados em §385 sem inventar enum; e **`CANCELLED` é declarado e inalcançável**.
 
-**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias V1, cada uma com dependências, entregas, testes, segurança e risco. Concluídos: Mapa Operacional V1, `DASH-1` + `DASH-1a`, `HOTFIX-FIELD-01` e `TL-1`. **`EV-1` implementada, aguardando a validação do dono**; `GS-1` vem depois dela e não foi iniciada. Os débitos conhecidos fora das fatias estão no §12 dele. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
+**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias V1, cada uma com dependências, entregas, testes, segurança e risco. Concluídos: Mapa Operacional V1, `DASH-1` + `DASH-1a`, `HOTFIX-FIELD-01`, `TL-1` e `EV-1`. **Próxima fatia ativa do Core V1: `GS-1`** — não iniciada. Os débitos conhecidos fora das fatias estão no §12 dele. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
 
 **O DASHBOARD OPERACIONAL V1 TAMBÉM ESTÁ CONGELADO** (`DASH-1a` `APPROVED`, 2026-09-12): nenhuma feature nova entra nele, salvo correção crítica de defeito.
 
@@ -185,7 +185,9 @@ Cinco coisas que não se redescobrem:
 
 **Limite declarado:** uma correção em campo para o MESMO ponto, com a MESMA origem, sobre localização não verificada e com motivo `OTHER` tem a mesma assinatura de uma confirmação, e aparece como "Localização confirmada em campo" — o efeito gravado é idêntico ao da confirmação.
 
-## Pacote técnico de evidências — `EV-1` (READY FOR OWNER VALIDATION)
+## Pacote técnico de evidências — `EV-1` (APPROVED · FROZEN)
+
+**Pacote Técnico de Evidências V1 — `FROZEN` / `APPROVED` (13/09/2026).** Validado pelo dono. Só reabre por defeito crítico, vazamento de tenancy, problema de segurança ou decisão explícita do dono; ideia nova sobre o pacote é backlog (PRD §393).
 
 **Carregar:** PRD **§383** (contrato e as quatro decisões do dono) e `docs/MASTER-PLAN.md` §6; `docs/SERVICE-ORDER-CLOSING.md` se a tarefa mexer no que o fechamento grava (hash, evidência, assinatura). Não há documento de módulo: o contrato é a PRD e o cabeçalho de `src/lib/service-order-evidence-package.ts`.
 **Quando:** a tarefa toca `/ordens/[id]/pacote`, o botão "Ver pacote técnico" da OS concluída, ou muda o que o fechamento grava numa das fontes do pacote.

@@ -38,7 +38,7 @@ DASHBOARD V1            DASH-1 → DASH-1a                              APPROVED
 HOTFIX-FIELD-01         "Hoje" de /minhas-os no fuso da empresa       APPROVED
 TIMELINE DO CLIENTE V1  TL-1                                          APPROVED · FROZEN
                         histórico na ficha do cliente · 50 por vez até 500
-PACOTE TÉCNICO V1       EV-1                                          READY FOR OWNER VALIDATION
+PACOTE TÉCNICO V1       EV-1                                          APPROVED · FROZEN
                         página da OS concluída · conferência pelo hash
 ```
 
@@ -67,8 +67,9 @@ HOTFIX-FIELD-01                "Hoje" de /minhas-os      ← APPROVED (2026-09-1
    ↓
 TL-1                           timeline do cliente       ← APPROVED · FROZEN (2026-09-13)
    ↓
-EV-1                           pacote de evidências      ← READY FOR OWNER VALIDATION
-GS-1                           busca global              ← depois da EV-1 · não iniciada
+EV-1                           pacote de evidências      ← APPROVED · FROZEN (2026-09-13)
+   ↓
+GS-1                           busca global              ← PRÓXIMA FATIA ATIVA · não iniciada
    ↓
 LANÇAMENTO V1
    ↓
@@ -79,9 +80,8 @@ V2 (PRD §388)  →  V3 (PRD §389)
 previa.** Elas continuam independentes entre si e todas dependem apenas do que
 já existe. **`DASH-1` veio primeiro** e foi aprovada com a `DASH-1a`; o
 **`HOTFIX-FIELD-01`** fechou um defeito conhecido do técnico; e a **`TL-1`** foi
-aprovada pelo dono e congelada (§5, PRD §381). **A `EV-1` foi implementada e
-aguarda a validação do dono** (§6, PRD §383). A **`GS-1`** vem depois dela e
-**não foi iniciada** — ela só começa depois da validação da `EV-1`.
+aprovada pelo dono e congelada (§5, PRD §381); a **`EV-1`** também (§6, PRD
+§383). **A próxima fatia ativa do Core V1 é a `GS-1`** — **não iniciada**.
 
 ---
 
@@ -212,7 +212,9 @@ evento" indefinidamente. A lista de tipos fica congelada no início da fatia.
 
 ## 6. `EV-1` — Pacote técnico de evidências
 
-> **Estado: `READY FOR OWNER VALIDATION` — commits locais, sem tag e sem push.**
+> **Estado: `APPROVED` / `CLOSED` — Pacote Técnico de Evidências V1 `FROZEN`
+> (2026-09-13). Commits locais, sem tag e sem push.** Validado pelo dono; só
+> reabre por defeito crítico, tenancy, segurança ou decisão explícita do dono.
 > Contrato, decisões do dono e o que ficou fora: PRD §383. Mapa do código:
 > `docs/CONTEXT-MAP.md`, seção *Pacote técnico de evidências*. O plano abaixo é o
 > registro de como a fatia foi escrita; ele se cumpriu sem migration, sem rota de
@@ -392,10 +394,9 @@ ACS / Wi-Fi                     gerência remota do CPE           PRD §410 · �
 Analytics                       indicadores de negócio           PRD §410
 ```
 
-**As fatias V1 não mudam.** Com a `DASH-1` e a `TL-1` concluídas e a `EV-1`
-aguardando validação, `EV-1 → GS-1` continuam sendo o trabalho do Core V1, e
-**nenhum módulo entra dentro delas** — nem como "já que estamos mexendo aqui"
-(PRD §393).
+**As fatias V1 não mudam.** Com a `DASH-1`, a `TL-1` e a `EV-1` concluídas, a
+`GS-1` continua sendo o trabalho do Core V1, e **nenhum módulo entra dentro
+dela** — nem como "já que estamos mexendo aqui" (PRD §393).
 
 **O que um módulo precisa antes de virar fatia**, além da decisão do dono: a
 camada central de acesso — Module Registry, entitlement por tenant e capability
