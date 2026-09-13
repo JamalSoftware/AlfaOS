@@ -33,6 +33,9 @@ CTO-2                   vínculo cliente ↔ porta, Web e Field          DONE
 MAPA OPERACIONAL V1     CTO-3.1 → CTO-3.2.2e                          APPROVED · FROZEN
                         CTOs · OS abertas · clientes · conectividade
                         em lote · busca · navegação · posição da CTO
+DASHBOARD V1            DASH-1 → DASH-1a                              APPROVED · FROZEN
+                        oito cartões acionáveis · contexto por recorte
+HOTFIX-FIELD-01         "Hoje" de /minhas-os no fuso da empresa       APPROVED
 ```
 
 O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e a lista
@@ -56,18 +59,23 @@ CTO-3.2.2b · c · d · e   estabilização e acabamento de UX           ← con
 MAPA OPERACIONAL V1 — FROZEN (PRD §392)                             ← 2026-09-12
    ↓
 DASH-1 · DASH-1a               dashboard acionável       ← APPROVED · FROZEN (2026-09-12)
-TL-1 · EV-1 · GS-1             (ordem entre si: decisão do dono)
+HOTFIX-FIELD-01                "Hoje" de /minhas-os      ← APPROVED (2026-09-13)
+   ↓
+TL-1                           timeline do cliente       ← PRÓXIMA FATIA ATIVA · não iniciada
+EV-1 · GS-1                    depois da TL-1            ← não iniciadas
    ↓
 LANÇAMENTO V1
    ↓
 V2 (PRD §388)  →  V3 (PRD §389)
 ```
 
-**A ordem entre `DASH-1`, `TL-1`, `EV-1` e `GS-1` não está congelada.** Elas são
-independentes entre si e todas dependem apenas do que já existe. Congelar a
-ordem agora seria decidir por antecipação algo que o uso real vai informar
-melhor. **O dono escolheu a `DASH-1` primeiro**, e ela foi aprovada com a
-`DASH-1a`; `TL-1`, `EV-1` e `GS-1` não foram iniciadas.
+**A ordem das fatias foi decidida pelo dono, fatia a fatia, como este plano
+previa.** Elas continuam independentes entre si e todas dependem apenas do que
+já existe. **`DASH-1` veio primeiro** e foi aprovada com a `DASH-1a`; o
+**`HOTFIX-FIELD-01`** fechou um defeito conhecido do técnico; e a **próxima
+fatia ativa do Core V1 é a `TL-1`**, seguida de **`EV-1`** e **`GS-1`**. Nenhuma
+das três foi iniciada. A próxima execução é `TL-1` — discovery, contract lock e
+implementação — sobre o que o §5 e a PRD §381 já definem.
 
 ---
 
@@ -149,6 +157,10 @@ implementar contagem própria em vez de consumir as leituras existentes.
 ---
 
 ## 5. `TL-1` — Timeline do cliente
+
+> **Estado: PRÓXIMA FATIA ATIVA — não iniciada.** O que segue é o plano como
+> foi escrito; a execução começa por discovery e contract lock, e nada abaixo
+> vira contrato antes deles.
 
 **Objetivo.** Uma leitura consolidada da vida operacional do cliente:
 instalação, OS, visitas, fotos, assinaturas, medições, CTO e porta, mudanças de
@@ -353,8 +365,8 @@ ACS / Wi-Fi                     gerência remota do CPE           PRD §410 · �
 Analytics                       indicadores de negócio           PRD §410
 ```
 
-**As fatias V1 não mudam.** `DASH-1 · TL-1 · EV-1 · GS-1` continuam sendo o
-próximo trabalho, na ordem que o dono decidir, e **nenhum módulo entra dentro
+**As fatias V1 não mudam.** Com a `DASH-1` concluída, `TL-1 → EV-1 → GS-1`
+continuam sendo o próximo trabalho do Core V1, e **nenhum módulo entra dentro
 delas** — nem como "já que estamos mexendo aqui" (PRD §393).
 
 **O que um módulo precisa antes de virar fatia**, além da decisão do dono: a
@@ -363,3 +375,32 @@ do usuário como conceitos separados (PRD §404–§406) —, porque o primeiro 
 construído sem ela espalharia `if (tenant.hasModule(...))` pelo código, e é esse
 o defeito que a Parte XVIII existe para evitar. Também valem as dependências já
 medidas da §10 e as decisões abertas da PRD §414.
+
+---
+
+## 12. Débitos registrados — fora das fatias
+
+> **Registro, não fatia.** Nenhum destes itens está sendo corrigido, nenhum
+> reabre uma entrega aprovada, e cada um tem a fase em que deve ser tratado.
+
+```text
+/minhas-os — "Próximas"
+  o quê    também contém OS sem agendamento e OS com agendamento vencido
+           (validação do dono, 13/09/2026: OS de 06/09 em "Próximas")
+  opções   A/B/C registradas SEM decisão — docs/TECHNICIAN-EXECUTION.md §9
+  fase     fluxo do técnico
+
+"Sincronizar Mock ERP"
+  o quê    visível ao ADMIN em /ordens, sem condição de ambiente
+  fase     release hardening
+
+Datas gerais no fuso do servidor
+  o quê    "Criada em", "Vinculado em" e o "Agendada:" dos cartões de /minhas-os
+  apoio    o helper do fuso da empresa já existe (src/lib/company-datetime.ts)
+  fase     release hardening
+```
+
+O `HOTFIX-FIELD-01` corrigiu **só** o fuso de "Hoje" em `/minhas-os`; a
+semântica de "Próximas" não é continuação dele. Os demais INFO continuam onde
+foram registrados — PRD §253 (jornada), as notas técnicas de cada trilha e
+`docs/SECURITY.md` — e esta lista não os substitui.

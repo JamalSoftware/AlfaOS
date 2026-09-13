@@ -268,7 +268,9 @@ atribuições**.
   technician`. O cliente nunca envia o vínculo.
 - A página `/minhas-os` lista, nesta ordem, as OS **em atendimento**, as de
   **hoje** e as **próximas** do técnico autenticado. Um técnico de outra empresa
-  não enxerga OS locais.
+  não enxerga OS locais. "Hoje" é o dia civil da **empresa**, e "Próximas" tem
+  débito de nomenclatura registrado — contrato e débito em
+  [TECHNICIAN-EXECUTION.md](TECHNICIAN-EXECUTION.md) §9.
 - **Concluídas recentes (v0.5.1)**: seção adicional com as OS `COMPLETED` do
   próprio técnico, limitada a 30 dias e 20 registros
   (`listRecentCompletedForTechnician`). É uma consulta **separada** — a fila

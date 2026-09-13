@@ -85,7 +85,9 @@ concluir pela ausência** é como um contêiner de 43 horas de uptime vira
 
 Quatro coisas dessa Parte que não se redescobrem: **`STALE` não existe** no AlfaOS — a conectividade tem três estados e o que viaja junto é a **idade** da leitura (§370); **o checklist por tipo de OS já está implementado** desde a v0.10, e foi apresentado como escopo novo por engano (§382); **a máquina de estados da OS tem cinco valores**, e *agendada*, *em deslocamento* e *pausada* **não são estados** — os gaps estão registrados em §385 sem inventar enum; e **`CANCELLED` é declarado e inalcançável**.
 
-**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias V1 (`DASH-1` entregue e aguardando validação do dono; `TL-1`, `EV-1`, `GS-1`, ordem por decisão do dono), cada uma com dependências, entregas, testes, segurança e risco; a `CTO-3.2.2` está lá como **concluída**. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
+**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias V1, cada uma com dependências, entregas, testes, segurança e risco. Concluídos: Mapa Operacional V1, `DASH-1` + `DASH-1a` e `HOTFIX-FIELD-01`. **Próxima fatia ativa do Core V1: `TL-1`**, depois `EV-1` e `GS-1` — nenhuma iniciada. Os débitos conhecidos fora das fatias estão no §12 dele. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
+
+**O DASHBOARD OPERACIONAL V1 TAMBÉM ESTÁ CONGELADO** (`DASH-1a` `APPROVED`, 2026-09-12): nenhuma feature nova entra nele, salvo correção crítica de defeito.
 
 **O MAPA OPERACIONAL V1 ESTÁ CONGELADO — PRD §392** (`CTO-3.2.2e` `APPROVED`, 2026-09-12). Antes de propor qualquer coisa no mapa, leia a §392 e a **§393**, o critério contra o feature creep: ideia nova que não bloqueia a operação V1 vai para o backlog, e o código do mapa só reabre por **correção crítica de defeito**. Não existe `CTO-3.2.2f`. A **Central de Retenção e Recuperação** (inadimplência, patrimônio em risco, recolhimento, churn, cobrança, WhatsApp) é a **PRD Parte XVII (§394–§401)** — backlog sem versão, **nada em código**, e não é fatia do Master Plan.
 
@@ -125,6 +127,8 @@ A fronteira: **Core** é tudo o que a PRD §386 lista como V1 MUST HAVE — nada
 **Carregar:** `docs/SERVICE-ORDERS.md` (inclui origem INTERNAL/EXTERNAL e catálogo `ServiceOrderType`, §1.1 e §1.2, e o número operacional da OS, §1.3 — `id` é identidade técnica, `number` é identidade operacional humana); e `docs/TECHNICIAN-EXECUTION.md` se a tarefa envolver o fluxo de atendimento do técnico (iniciar atendimento, diagnóstico, serviço realizado, observações); e `docs/SERVICE-ORDER-CLOSING.md` se envolver o fechamento (evidências/fotos, materiais, assinatura, `COMPLETED`, storage/upload, imutabilidade pós-conclusão).
 **Quando:** qualquer tarefa que toque Ordem de Serviço, atribuição de técnico, máquina de estados da OS, ou a experiência do técnico em campo.
 **Quando NÃO:** tarefas de outros módulos sem relação com OS (ex.: só cadastro de cliente, configurações da empresa). Não carregue os três documentos de uma vez — execução e fechamento são fases distintas.
+
+**`/minhas-os` — "Hoje" é o dia civil da EMPRESA** (`HOTFIX-FIELD-01` `APPROVED`): `Company.timezone` → `resolveTimezone` → `civilDayBoundsIn`, intervalo `[início, início do dia seguinte)`. O defeito antigo — `new Date(ano, mês, dia)`, o fuso do processo — está resolvido; contrato em `docs/TECHNICIAN-EXECUTION.md` §9. **Débito registrado e não corrigido:** a seção "Próximas" também contém OS sem agendamento e OS com agendamento vencido, então o nome é impreciso. As opções estão no mesmo §9 e **nenhuma foi escolhida** — não renomear, não reagrupar e não mexer na query fora da fase do fluxo do técnico.
 
 ## Dashboard operacional — `DASH-1` + `DASH-1a` (APPROVED · FROZEN)
 

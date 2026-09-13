@@ -229,6 +229,43 @@ fisicamente executando; todo o resto é planejamento.
 
 Os cards mostram número, cliente, cidade/UF, tipo, horário, prioridade e status.
 
+**Contrato de "Hoje" — definitivo (`HOTFIX-FIELD-01` `APPROVED`, 2026-09-13).**
+
+```text
+"Hoje"       o dia civil da EMPRESA
+autoridade   Company.timezone → resolveTimezone → civilDayBoundsIn
+             (companySliceClock lê o fuso — a mesma autoridade do cartão
+             "OS de hoje" do painel, PRD §380)
+intervalo    [início do dia, início do dia seguinte)
+fuso ruim    ausente ou inválido → o contrato de resolveTimezone (DEFAULT_TIMEZONE)
+nunca        fuso do servidor · do navegador · do celular ·
+             new Date(ano, mês, dia) dependente do processo · janela fixa de 24 h
+```
+
+Implementação: `listServiceOrdersForTechnician` (`src/lib/service-orders.ts`);
+prova: `src/tests/minhas-os-today.test.ts` (empresa em `Asia/Tokyo` contra o fuso
+do processo, dias de 23 h e 25 h) e `e2e/minhas-os-today.spec.ts`.
+
+**Débito registrado — a semântica de "Próximas". NÃO corrigido.** "Próximas" é,
+na prática, *tudo o que está atribuído e não é "Em atendimento" nem "Hoje"*: OS
+com agendamento futuro, OS sem agendamento e OS com agendamento **já vencido**.
+Na validação do dono em 13/09/2026, a seção mostrou OS agendadas para
+06/09/2026 — elas pertencem corretamente à fila, mas não são literalmente
+"próximas". Caminhos futuros, **sem decisão**:
+
+```text
+A   renomear "Próximas" para "Aguardando atendimento"
+B   separar em Atrasadas · Hoje · Próximas · Sem agendamento
+C   outra estrutura, definida pela fase correta do fluxo do técnico
+```
+
+Referências já escritas, que não decidem nada: a PRD §171 (agenda do técnico no
+Field) já separa "Atrasadas" de "Próximas"; e "OS atrasada" já tem definição do
+dono na PRD §380 (agendada, vencida, não iniciada) — um recorte de atrasadas
+aqui reutilizaria essa regra, nunca uma segunda. **Este débito não reabre o
+`HOTFIX-FIELD-01`**, que tratou só o fuso de "Hoje": nome, agrupamento, query e
+status de `/minhas-os` ficam como estão até a fase do fluxo do técnico.
+
 ### `/ordens/[id]`
 
 - `ASSIGNED` + técnico dono → botão grande **INICIAR ATENDIMENTO** com
