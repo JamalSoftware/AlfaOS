@@ -36,7 +36,8 @@ MAPA OPERACIONAL V1     CTO-3.1 → CTO-3.2.2e                          APPROVED
 DASHBOARD V1            DASH-1 → DASH-1a                              APPROVED · FROZEN
                         oito cartões acionáveis · contexto por recorte
 HOTFIX-FIELD-01         "Hoje" de /minhas-os no fuso da empresa       APPROVED
-TL-1                    timeline do cliente                           READY FOR OWNER VALIDATION
+TIMELINE DO CLIENTE V1  TL-1                                          APPROVED · FROZEN
+                        histórico na ficha do cliente · 50 por vez até 500
 ```
 
 O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e a lista
@@ -62,8 +63,10 @@ MAPA OPERACIONAL V1 — FROZEN (PRD §392)                             ← 2026-
 DASH-1 · DASH-1a               dashboard acionável       ← APPROVED · FROZEN (2026-09-12)
 HOTFIX-FIELD-01                "Hoje" de /minhas-os      ← APPROVED (2026-09-13)
    ↓
-TL-1                           timeline do cliente       ← READY FOR OWNER VALIDATION
-EV-1 · GS-1                    depois da TL-1            ← não iniciadas
+TL-1                           timeline do cliente       ← APPROVED · FROZEN (2026-09-13)
+   ↓
+EV-1                           pacote de evidências      ← PRÓXIMA FATIA ATIVA · não iniciada
+GS-1                           busca global              ← depois da EV-1 · não iniciada
    ↓
 LANÇAMENTO V1
    ↓
@@ -74,9 +77,10 @@ V2 (PRD §388)  →  V3 (PRD §389)
 previa.** Elas continuam independentes entre si e todas dependem apenas do que
 já existe. **`DASH-1` veio primeiro** e foi aprovada com a `DASH-1a`; o
 **`HOTFIX-FIELD-01`** fechou um defeito conhecido do técnico; e a **`TL-1`** foi
-implementada e **aguarda a validação do dono** (§5, PRD §381). **`EV-1`** e
-**`GS-1`** continuam não iniciadas, e nenhuma delas começa antes dessa
-validação.
+aprovada pelo dono e congelada (§5, PRD §381). **A próxima fatia ativa do Core
+V1 é a `EV-1`**, seguida da **`GS-1`** — nenhuma das duas iniciada. A próxima
+execução é `EV-1` — discovery, contract lock e implementação — sobre o que o §6
+e a PRD §383 já definem.
 
 ---
 
@@ -159,11 +163,15 @@ implementar contagem própria em vez de consumir as leituras existentes.
 
 ## 5. `TL-1` — Timeline do cliente
 
-> **Estado: `READY FOR OWNER VALIDATION`.** Commits locais, sem tag e sem push.
-> Zero migration, zero schema, zero rota de API, zero Dart. O contrato congelado
-> — as quatro decisões do dono, a fonte de cada fato e o que ficou fora — está na
-> PRD §381; o mapa do código, em `docs/CONTEXT-MAP.md`. O que segue é o plano
-> como foi escrito.
+> **Estado: CONCLUÍDO — `TL-1` `APPROVED`. Timeline do Cliente V1 — `FROZEN`
+> (13/09/2026).** Validada pelo dono na interface real. Commits locais, sem tag
+> e sem push. Zero migration, zero schema, zero rota de API, zero Dart. O
+> contrato congelado — as quatro decisões do dono, a fonte de cada fato e o que
+> ficou fora — está na PRD §381; o mapa do código, em `docs/CONTEXT-MAP.md`.
+> **Fora da lista de trabalho ativo:** só reabre por defeito crítico, vazamento
+> de tenancy, problema de segurança, perda de histórico ou decisão do dono, e
+> tipo de evento novo é backlog. A timeline **da OS** (`/ordens/[id]`) é outra
+> tela e tem débito próprio (§12). O que segue é o plano como foi escrito.
 >
 > Três coisas que o plano não previa e a implementação encontrou: o vínculo de
 > porta feito pelo **painel** não grava `ServiceOrderEvent` — só a linha de
@@ -202,6 +210,10 @@ evento" indefinidamente. A lista de tipos fica congelada no início da fatia.
 ---
 
 ## 6. `EV-1` — Pacote técnico de evidências
+
+> **Estado: PRÓXIMA FATIA ATIVA — não iniciada.** O que segue é o plano como
+> foi escrito; a execução começa por discovery e contract lock, e nada abaixo
+> vira contrato antes deles.
 
 **Objetivo.** Reunir num lugar conferível tudo o que a conclusão de uma OS
 produziu.
@@ -377,7 +389,7 @@ ACS / Wi-Fi                     gerência remota do CPE           PRD §410 · �
 Analytics                       indicadores de negócio           PRD §410
 ```
 
-**As fatias V1 não mudam.** Com a `DASH-1` concluída, `TL-1 → EV-1 → GS-1`
+**As fatias V1 não mudam.** Com a `DASH-1` e a `TL-1` concluídas, `EV-1 → GS-1`
 continuam sendo o próximo trabalho do Core V1, e **nenhum módulo entra dentro
 delas** — nem como "já que estamos mexendo aqui" (PRD §393).
 
@@ -409,6 +421,17 @@ medidas da §10 e as decisões abertas da PRD §414.
 Datas gerais no fuso do servidor
   o quê    "Criada em", "Vinculado em" e o "Agendada:" dos cartões de /minhas-os
   apoio    o helper do fuso da empresa já existe (src/lib/company-datetime.ts)
+  fase     release hardening
+
+Timeline DA OS — código cru (validação da TL-1, 13/09/2026)
+  o quê    a timeline da OS (/ordens/[id]) rotula 7 códigos e mostra os outros
+           crus: o dono viu PRIORITY_CHANGED; no banco de dev aparecem também
+           CHECKED_IN, CTO_PORT_*, EQUIPMENT_INSTALLED, LOCATION_CORRECTED e
+           SIGNATURE_CAPTURED, e o código grava ainda CONTACT_ATTEMPTED,
+           IMPEDIMENT_REPORTED, LOCATION_CONFIRMED, ADDRESS_CORRECTED e
+           MATERIAL_USED
+  onde     EVENT_LABELS em src/app/(app)/ordens/[id]/page.tsx
+  não é    a timeline do CLIENTE (TL-1), que tem apresentação própria e está FROZEN
   fase     release hardening
 
 E2E do mapa — MAPEDIT-05/06/07 intermitente (achado na TL-1, 13/09/2026)

@@ -130,6 +130,8 @@ A fronteira: **Core** é tudo o que a PRD §386 lista como V1 MUST HAVE — nada
 
 **`/minhas-os` — "Hoje" é o dia civil da EMPRESA** (`HOTFIX-FIELD-01` `APPROVED`): `Company.timezone` → `resolveTimezone` → `civilDayBoundsIn`, intervalo `[início, início do dia seguinte)`. O defeito antigo — `new Date(ano, mês, dia)`, o fuso do processo — está resolvido; contrato em `docs/TECHNICIAN-EXECUTION.md` §9. **Débito registrado e não corrigido:** a seção "Próximas" também contém OS sem agendamento e OS com agendamento vencido, então o nome é impreciso. As opções estão no mesmo §9 e **nenhuma foi escolhida** — não renomear, não reagrupar e não mexer na query fora da fase do fluxo do técnico.
 
+**Fixture de QA que grava OS direto no banco usa `allocateServiceOrderNumber`, nunca número próprio.** O contador por empresa (`service_order_counters`) e a unique `(companyId, number)` não se reconciliam sozinhos: número gravado por fora deixa o contador para trás, e a próxima OS criada pela aplicação colide e falha — sempre, porque a falha desfaz o próprio incremento. Estado medido no banco de **dev** em 13/09/2026: contador da Alfa Telecom em 11 e OS até a Nº 13 (fixtures do mapa, `CTO-3.2.2`), então criar OS pela aplicação nessa empresa falha até o contador ser acertado — ajuste de dado que é decisão do dono, não da fase.
+
 ## Dashboard operacional — `DASH-1` + `DASH-1a` (APPROVED · FROZEN)
 
 **Carregar:** PRD **§380** (contrato e as decisões do dono) e `docs/MASTER-PLAN.md` §4. Não há documento de módulo: o contrato é curto e está nos comentários do código abaixo.
@@ -159,11 +161,15 @@ Cinco coisas que não se redescobrem:
 
 **Seção que falha é `error`, nunca `0`**, e a tela a mostra como "—". A falha transitória `P1001` do Docker Desktop (seção acima) já apareceu assim no painel, na primeira leitura depois de subir o servidor: só a seção afetada ficou em "—".
 
-## Timeline do cliente — `TL-1` (READY FOR OWNER VALIDATION)
+## Timeline do cliente — `TL-1` (APPROVED · FROZEN)
+
+**Customer Timeline V1 — `FROZEN` / `APPROVED` (13/09/2026).** Validada pelo dono na interface real. Só reabre por defeito crítico, vazamento de tenancy, problema de segurança, perda de histórico ou decisão explícita do dono; tipo de evento novo é backlog (PRD §393). O conjunto de tipos aprovado é exatamente o da PRD §381 — não acrescentar nem tirar sem fase própria.
 
 **Carregar:** PRD **§381** (contrato congelado e as quatro decisões do dono) e `docs/MASTER-PLAN.md` §5. Não há documento de módulo: o contrato é a PRD e o cabeçalho de `src/lib/customer-timeline.ts`.
 **Quando:** a tarefa toca a seção "Histórico do cliente" de `/clientes/[id]/editar`, acrescenta ou tira um tipo de item, ou muda o que um escritor grava numa das fontes abaixo (principalmente `customer-locations.ts` e `cto-connections.ts`).
 **Quando NÃO:** a timeline POR OS (`/ordens/[id]`, `ServiceOrderEvent` em ordem crescente) — é outra tela, pré-existente, fora da `TL-1`. E `AuditLog`, que é trilha técnica e não é fonte.
+
+**Customer Timeline ≠ Service Order Timeline — não confundir.** A `TL-1` congela a do **cliente**, que tem apresentação própria (`customer-timeline-presentation.ts`) e nunca mostra código cru. A da **OS** (`EVENT_LABELS` em `src/app/(app)/ordens/[id]/page.tsx`) rotula só 7 códigos e imprime os demais crus — `PRIORITY_CHANGED`, visto pelo dono na validação, e também `CHECKED_IN`, `CTO_PORT_*`, `EQUIPMENT_INSTALLED`, `LOCATION_*`, `SIGNATURE_CAPTURED` e outros. É débito de UX **da tela da OS**, para release hardening (`docs/MASTER-PLAN.md` §12), e corrigi-lo **não** reabre a `TL-1`.
 
 **A regra que não se desfaz: uma fonte por fato, e nada escrito.** A timeline é visão derivada; não existe tabela, e acrescentar um tipo é acrescentar uma LEITURA da tabela que já é a autoridade dele — nunca uma segunda gravação. Os códigos de `ServiceOrderEvent` que repetem o fato de tabela própria (`CHECKED_IN`, `EQUIPMENT_INSTALLED`, `SIGNATURE_CAPTURED`, `CTO_PORT_*`, `LOCATION_*`…) ficam fora de propósito: o equipamento removido no atendimento apaga a linha e deixa o evento.
 

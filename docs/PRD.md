@@ -13184,10 +13184,25 @@ regra que faz `CustomerNetworkConnection` fechar e abrir vínculo em vez de dar
 existe leitura consolidada **por cliente**. A matéria-prima está toda gravada;
 falta a visão.
 
-**`TL-1` — `READY FOR OWNER VALIDATION`.** A visão existe: seção **"Histórico
-do cliente"** no fim da tela do cliente (`/clientes/[id]/editar`). Zero
-migration, zero schema, zero rota de API, zero Dart — nenhuma tabela, nada
-escrito: cada item é lido da tabela que **já é** a autoridade daquele fato.
+**`TL-1` — `APPROVED`. Timeline do Cliente V1 — `FROZEN` (13/09/2026).** O dono
+validou na interface real: ordem do mais recente ao mais antigo, agrupamento por
+dia, eventos de OS, localização, equipamento, medições, assinatura, entrada e
+saída de CTO/porta, links para a OS e "Abrir CTO", o `ADMIN` com os itens de
+rede, o `DISPATCHER` sem eles e o técnico fora da ficha do cliente — sem
+regressão visual. A visão fica na seção **"Histórico do cliente"** no fim da
+tela do cliente (`/clientes/[id]/editar`). Zero migration, zero schema, zero
+rota de API, zero Dart — nenhuma tabela, nada escrito: cada item é lido da
+tabela que **já é** a autoridade daquele fato.
+
+**Congelada.** Só reabre por defeito crítico, vazamento de tenancy, problema de
+segurança, perda de histórico ou decisão explícita do dono. **Tipo de evento
+novo é backlog** (§393), não reabertura.
+
+**Timeline do cliente ≠ timeline da OS.** Esta seção congela a do **cliente**.
+A timeline **da OS** (`/ordens/[id]`) é outra tela, anterior à `TL-1`, e continua
+mostrando código cru para os eventos que ela não rotula — o dono viu
+`PRIORITY_CHANGED` na validação. É débito de UX da tela da OS, registrado para
+release hardening (`docs/MASTER-PLAN.md` §12), e **não** reabre a `TL-1`.
 
 **Decidido pelo dono na abertura da `TL-1`** — as quatro leituras que a lista
 acima não fechava:
@@ -13358,7 +13373,7 @@ O que precisa estar de pé para o primeiro lançamento.
 | Checklist por tipo de OS | **implementado** (v0.10) — verificar cobertura |
 | Equipamentos e estoque | **implementado** no estado atual |
 | Dashboard operacional acionável | **implementado** (`DASH-1` · `DASH-1a`) — aprovado pelo dono, `FROZEN` (§380) |
-| Timeline do cliente | **implementado** (`TL-1`) — `READY FOR OWNER VALIDATION` (§381) |
+| Timeline do cliente | **implementado** (`TL-1`) — aprovado pelo dono, `FROZEN` (§381) |
 | Pacote técnico de evidências | **falta a reunião** — as peças existem |
 | Busca global do AlfaOS | **falta** |
 
