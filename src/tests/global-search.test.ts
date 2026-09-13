@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { AccessProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
@@ -111,6 +113,9 @@ describe("GS-DOM — tenancy", () => {
     expect(ids(await searchGlobal(adminA(), String(osA.number)), "SERVICE_ORDER")).toContain(osA.id);
     expect(ids(await searchGlobal(adminA(), String(osA.number)), "SERVICE_ORDER")).not.toContain(osB.id);
     expect(ids(await searchGlobal(adminB(), String(osB.number)), "SERVICE_ORDER")).toContain(osB.id);
+    // OS pelo TEXTO (a descrição "QA GS" é das duas): cada uma só a própria.
+    expect(ids(await searchGlobal(adminA(), "QA GS"), "SERVICE_ORDER")).toEqual([osA.id]);
+    expect(ids(await searchGlobal(adminB(), "QA GS"), "SERVICE_ORDER")).toEqual([osB.id]);
     expect(ids(await searchGlobal(adminA(), "Técnico Gêmeo"), "TECHNICIAN")).toEqual([tecA.id]);
     expect(ids(await searchGlobal(adminB(), "Técnico Gêmeo"), "TECHNICIAN")).toEqual([tecB.id]);
     expect(ids(await searchGlobal(adminA(), "Caixa Gêmea"), "CTO")).toEqual([ctoA.id]);
@@ -371,17 +376,38 @@ describe("GS-ERR / GS-PERF", () => {
     }
     const lote = vi.spyOn(prisma, "$transaction");
     const caixas = vi.spyOn(prisma.cTO, "findMany");
+    const clientes = vi.spyOn(prisma.customer, "findMany");
+    const ordens = vi.spyOn(prisma.serviceOrder, "findMany");
+    const tecnicos = vi.spyOn(prisma.technician, "findMany");
     await searchGlobal(adminA(), "QA GS Custo");
     expect(lote).toHaveBeenCalledTimes(1);
     expect(caixas).toHaveBeenCalledTimes(1);
-    // Cinco consultas no lote, e todas com teto.
     const consultas = lote.mock.calls[0][0] as unknown as unknown[];
     expect(consultas).toHaveLength(5);
+    // Toda lista tem teto NA CONSULTA — o corte em memória depois esconderia uma
+    // consulta sem `take` de qualquer teste de resultado.
+    for (const espiao of [clientes, ordens, tecnicos, caixas]) {
+      for (const [args] of espiao.mock.calls) {
+        expect((args as { take?: unknown }).take).toEqual(expect.any(Number));
+        expect((args as { take: number }).take).toBeLessThanOrEqual(11);
+      }
+    }
 
     lote.mockClear();
     caixas.mockClear();
     await searchGlobal(despachoA(), "QA GS Custo");
     expect(lote).toHaveBeenCalledTimes(1);
     expect(caixas).not.toHaveBeenCalled();
+  });
+
+  it("GS-STRUCT-01 — a busca lê o banco do AlfaOS e só: nenhum ERP, provider ou rede", () => {
+    for (const arquivo of ["src/lib/global-search.ts", "src/lib/global-search-rules.ts"]) {
+      const fonte = readFileSync(path.resolve(process.cwd(), arquivo), "utf8");
+      const imports = fonte.match(/^import .* from ".*";$/gm) ?? [];
+      for (const linha of imports) {
+        expect(linha, arquivo).not.toMatch(/integrations|erp|receitanet|sgp|provider|diagnostic/i);
+      }
+      expect(fonte, arquivo).not.toMatch(/\bfetch\(/);
+    }
   });
 });
