@@ -226,6 +226,9 @@ describe("EV-UI — a tela", () => {
     const visivel = html.replace(/<[^>]+>/g, " ");
     expect(visivel).not.toMatch(CODIGO_CRU);
     expect(html).not.toMatch(/latitude|longitude|storageKey|contentHash/);
+    // A volta é para a OS de onde o pacote veio, não para a listagem.
+    const volta = html.match(/<a [^>]*data-testid="evidence-package-back"[^>]*>/)?.[0] ?? "";
+    expect(volta).toContain('href="/ordens/os_1"');
   });
 
   it("EV-UI-04 — status não depende só de cor: glifo e texto; divergência vira alerta", () => {

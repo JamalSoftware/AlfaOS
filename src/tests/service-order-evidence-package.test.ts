@@ -95,8 +95,12 @@ async function ok(response: Response, step: string) {
 interface OpcoesJornada {
   techUserId?: string;
   nomeCliente?: string;
+  /** Atende um cliente que já existe — para duas OS do MESMO cliente. */
+  clienteId?: string;
   checklist?: boolean;
   corrigirPonto?: boolean;
+  /** O ponto gravado pela correção em campo. */
+  ponto?: { latitude: number; longitude: number };
   fotos?: { category: EvidenceCategory; arquivo?: Buffer; mime?: string; legenda?: string }[];
   equipamento?: boolean;
   equipamentoRemovido?: boolean;
@@ -171,17 +175,19 @@ async function jornada(opcoes: OpcoesJornada = {}): Promise<Jornada> {
     });
   }
 
-  const customer = await prisma.customer.create({
-    data: {
-      companyId,
-      name: opcoes.nomeCliente ?? "QA EV Cliente",
-      document: "123.456.789-09",
-      address: "Rua das Fibras",
-      number: "100",
-      city: "Manaus",
-      state: "AM",
-    },
-  });
+  const customer = opcoes.clienteId
+    ? await prisma.customer.findUniqueOrThrow({ where: { id: opcoes.clienteId } })
+    : await prisma.customer.create({
+        data: {
+          companyId,
+          name: opcoes.nomeCliente ?? "QA EV Cliente",
+          document: "123.456.789-09",
+          address: "Rua das Fibras",
+          number: "100",
+          city: "Manaus",
+          state: "AM",
+        },
+      });
   const order = await prisma.serviceOrder.create({
     data: {
       companyId,
@@ -226,6 +232,11 @@ async function jornada(opcoes: OpcoesJornada = {}): Promise<Jornada> {
   await reler();
 
   if (opcoes.corrigirPonto !== false) {
+    // O CAS da localização: `null` só vale para cliente ainda sem ponto.
+    const atual = await prisma.customerLocation.findUnique({
+      where: { customerId: customer.id },
+      select: { version: true },
+    });
     await ok(
       await correctLocation(
         fieldRequest(`/api/field/v1/service-orders/${order.id}/location/correct`, {
@@ -233,10 +244,10 @@ async function jornada(opcoes: OpcoesJornada = {}): Promise<Jornada> {
           token,
           idempotencyKey: key("ponto"),
           body: {
-            expectedVersion: null,
+            expectedVersion: atual?.version ?? null,
             reason: "INCOMPLETE_REGISTRATION",
-            latitude: -3.119,
-            longitude: -60.0217,
+            latitude: opcoes.ponto?.latitude ?? -3.119,
+            longitude: opcoes.ponto?.longitude ?? -60.0217,
             accuracyMeters: 8,
             source: "TECHNICIAN_GPS",
           },
@@ -526,6 +537,31 @@ describe("EV-DOM — o que entra, o que não entra", () => {
     expect(deB).toEqual({ state: "not-found" });
   });
 
+  it("EV-DOM-03b — linha filha com a empresa errada não entra, mesmo apontando para a OS certa", async () => {
+    const j = await jornada({ fotos: [{ category: "CTO" }] });
+    // O banco aceita: `serviceOrderId` é FK simples, sem `(companyId, serviceOrderId)` —
+    // o mesmo vetor da DQ-7.1. Nenhum escritor grava isso; o filtro de empresa é o
+    // que impede uma linha corrompida de virar evidência de outro tenant.
+    const intrusa = await prisma.serviceOrderEvidence.create({
+      data: {
+        companyId: fixture.companyB.id,
+        serviceOrderId: j.orderId,
+        category: "ROUTER",
+        status: "COMMITTED",
+        storageKey: `qa-ev1/${fixture.companyB.id}/${j.orderId}/intrusa.png`,
+        originalName: "intrusa.png",
+        mimeType: "image/png",
+        sizeBytes: 10,
+      },
+    });
+
+    const p = await pacote(j.orderId);
+    expect(JSON.stringify(p)).not.toContain(intrusa.id);
+    expect(p.photos.map((f) => f.category)).toEqual(["CTO"]);
+    // O hash do fechamento também filtra a empresa: a linha não o altera.
+    expect(p.integrity).toBe("VERIFIED");
+  });
+
   it("EV-DOM-04 — outra OS e outro cliente não vazam para o pacote", async () => {
     const um = await jornada({ fotos: [{ category: "CTO" }], nomeCliente: "QA EV Um" });
     const dois = await jornada({ fotos: [{ category: "ROUTER" }], nomeCliente: "QA EV Dois" });
@@ -691,6 +727,21 @@ describe("EV-CONT — conteúdo de cada seção", () => {
     ]);
   });
 
+  it("EV-CONT-02b — a mudança de ponto de OUTRA OS do mesmo cliente não entra", async () => {
+    const um = await jornada({});
+    const dois = await jornada({ clienteId: um.customerId, ponto: { latitude: -3.1201, longitude: -60.0229 } });
+    // Controle: o cliente tem as duas mudanças, uma por OS, pelo escritor real.
+    const linhas = await prisma.customerLocationHistory.findMany({
+      where: { customerId: um.customerId },
+      select: { id: true, serviceOrderId: true },
+    });
+    expect(linhas.map((l) => l.serviceOrderId).sort()).toEqual([um.orderId, dois.orderId].sort());
+    const daOs = (orderId: string) => linhas.filter((l) => l.serviceOrderId === orderId).map((l) => l.id);
+
+    expect((await pacote(um.orderId)).locationChanges.map((c) => c.id)).toEqual(daOs(um.orderId));
+    expect((await pacote(dois.orderId)).locationChanges.map((c) => c.id)).toEqual(daOs(dois.orderId));
+  });
+
   it("EV-CONT-03 — relatório, materiais, assinatura e cabeçalho vêm das fontes", async () => {
     const j = await jornada({ material: true });
     const p = await pacote(j.orderId);
@@ -725,6 +776,14 @@ describe("EV-CONT — conteúdo de cada seção", () => {
     expect(texto).not.toMatch(/-3\.11|-60\.02|latitude|longitude/);
     expect(texto).not.toContain("123.456.789-09");
     expect(texto).not.toMatch(/storageKey|contentHash|signedContentHash/);
+  });
+
+  it("EV-CONT-05 — o fuso do pacote é o da EMPRESA, não o padrão", async () => {
+    // A fixture nasce no fuso padrão; com ele, "fuso da empresa" e "fuso padrão"
+    // dariam o mesmo texto e nada se provaria.
+    await prisma.company.update({ where: { id: fixture.companyA.id }, data: { timezone: "Asia/Tokyo" } });
+    const j = await jornada({});
+    expect((await pacote(j.orderId)).timezone).toBe("Asia/Tokyo");
   });
 });
 
@@ -840,5 +899,60 @@ describe("EV-ERR / EV-PERF", () => {
     expect(comNove).toEqual(comUma);
     expect(comUma.transacoes).toBe(1);
     expect(comUma.consultas).toBeLessThanOrEqual(16);
+  });
+
+  it("EV-PERF-02 — toda lista que o pacote lê tem teto, e a leitura é um instante só", async () => {
+    // O teto de fotos (100) fica acima do limite de 10 imagens por OS do fechamento:
+    // nenhum escritor real o alcança, então nenhum teste de RESULTADO o veria cair.
+    // A afirmação é sobre os argumentos da consulta, como na TL-1.
+    const j = await jornada({ fotos: [{ category: "CTO" }], material: true, checklist: true });
+    const listas: { fonte: string; take: unknown }[] = [];
+    const original = prisma.$transaction.bind(prisma) as (...args: unknown[]) => Promise<unknown>;
+    const espiao = vi.spyOn(prisma, "$transaction").mockImplementation(((arg: unknown, opts: unknown) => {
+      if (typeof arg !== "function") return original(arg, opts);
+      return original(
+        (tx: Record<string, unknown>) =>
+          (arg as (t: unknown) => unknown)(
+            new Proxy(tx, {
+              get(alvo, fonte) {
+                const delegado = alvo[fonte as string];
+                if (!delegado || typeof delegado !== "object") return delegado;
+                return new Proxy(delegado as Record<string, unknown>, {
+                  get(d, metodo) {
+                    const f = d[metodo as string];
+                    if (typeof f !== "function" || metodo !== "findMany") return f;
+                    return (...a: unknown[]) => {
+                      // O hash do fechamento lê TUDO de propósito — teto ali mudaria o
+                      // hash. O teto é do que o PACOTE lista: conta só quando ele chama.
+                      const chamador =
+                        (new Error().stack ?? "").split("\n").find((l) => /src[\\/]lib[\\/]/.test(l)) ?? "";
+                      if (chamador.includes("service-order-evidence-package")) {
+                        listas.push({ fonte: String(fonte), take: (a[0] as { take?: unknown } | undefined)?.take });
+                      }
+                      return (f as (...x: unknown[]) => unknown).apply(d, a);
+                    };
+                  },
+                });
+              },
+            }),
+          ),
+        opts,
+      );
+    }) as never);
+
+    await pacote(j.orderId);
+    // Controle positivo: as cinco listas do pacote foram vistas.
+    expect(listas.map((l) => l.fonte).sort()).toEqual([
+      "customerLocationHistory",
+      "serviceOrderChecklistItem",
+      "serviceOrderEquipment",
+      "serviceOrderEvidence",
+      "serviceOrderMaterialUsage",
+    ]);
+    for (const l of listas) expect(l.take, l.fonte).toEqual(expect.any(Number));
+    expect(espiao).toHaveBeenCalledTimes(1);
+    expect((espiao.mock.calls[0][1] as { isolationLevel?: string } | undefined)?.isolationLevel).toBe(
+      "RepeatableRead",
+    );
   });
 });
