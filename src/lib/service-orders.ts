@@ -40,7 +40,7 @@ import {
   technicianAssignmentIssue,
   technicianExecutionIssue,
 } from "./technicians";
-import { DEFAULT_TIMEZONE } from "./workday";
+import { DEFAULT_TIMEZONE, civilDayBoundsIn } from "./workday";
 
 // ---------------------------------------------------------------------------
 // Centralized labels (single source of truth for the UI).
@@ -1432,6 +1432,7 @@ export async function getTechnicianByUserId(
 export async function listServiceOrdersForTechnician(
   companyId: string,
   technicianId: string,
+  now: Date = new Date(),
 ): Promise<TechnicianWorkQueue> {
   const where = {
     companyId,
@@ -1439,19 +1440,26 @@ export async function listServiceOrdersForTechnician(
     status: { in: ["ASSIGNED", "IN_PROGRESS"] as ServiceOrderStatus[] },
   };
 
-  const orders = await prisma.serviceOrder.findMany({
-    where,
-    include: ORDER_INCLUDE,
-    orderBy: [{ priority: "desc" }, { scheduledAt: "asc" }],
-  });
+  /*
+    "Hoje" é o dia civil da EMPRESA (HOTFIX-FIELD-01) — a mesma autoridade do
+    cartão "OS de hoje" do painel: `companySliceClock` lê `Company.timezone`
+    pelo `resolveTimezone`, e `civilDayBoundsIn` devolve [início do dia, início
+    do dia seguinte), com dia de 23 ou 25 horas onde há horário de verão.
 
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const endOfDay = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() + 1,
-  );
+    Antes, `new Date(ano, mês, dia)` montava o dia no fuso do PROCESSO — em
+    produção, UTC —, e uma OS agendada às 22h de hoje em São Paulo aparecia em
+    "Próximas", não em "Hoje". A leitura do fuso corre em paralelo com a da
+    fila: uma consulta por chave primária, sem esperar uma pela outra.
+  */
+  const [orders, clock] = await Promise.all([
+    prisma.serviceOrder.findMany({
+      where,
+      include: ORDER_INCLUDE,
+      orderBy: [{ priority: "desc" }, { scheduledAt: "asc" }],
+    }),
+    companySliceClock(companyId, now),
+  ]);
+  const day = civilDayBoundsIn(clock.now, clock.timezone);
 
   const inProgress: typeof orders = [];
   const today: typeof orders = [];
@@ -1467,7 +1475,7 @@ export async function listServiceOrdersForTechnician(
     const scheduled = order.scheduledAt
       ? new Date(order.scheduledAt)
       : null;
-    if (scheduled && scheduled >= startOfDay && scheduled < endOfDay) {
+    if (scheduled && scheduled >= day.start && scheduled < day.end) {
       today.push(order);
     } else {
       upcoming.push(order);
