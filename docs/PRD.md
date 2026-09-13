@@ -13184,6 +13184,64 @@ regra que faz `CustomerNetworkConnection` fechar e abrir vínculo em vez de dar
 existe leitura consolidada **por cliente**. A matéria-prima está toda gravada;
 falta a visão.
 
+**`TL-1` — `READY FOR OWNER VALIDATION`.** A visão existe: seção **"Histórico
+do cliente"** no fim da tela do cliente (`/clientes/[id]/editar`). Zero
+migration, zero schema, zero rota de API, zero Dart — nenhuma tabela, nada
+escrito: cada item é lido da tabela que **já é** a autoridade daquele fato.
+
+**Decidido pelo dono na abertura da `TL-1`** — as quatro leituras que a lista
+acima não fechava:
+
+```text
+"eventos operacionais relevantes"  tentativas de contato e impedimentos
+                                   FORA: mudança de prioridade, material, checklist
+localização                        entra, pelo histórico de localização — sem coordenada
+fotos                              UM item por OS ("N fotos do atendimento", por
+                                   categoria, no instante da última); teste de
+                                   velocidade e leitura óptica ficam itens próprios
+ordem e volume                     mais recente primeiro · 50 por vez ·
+                                   "Ver eventos anteriores" +50, até 500
+```
+
+**Uma fonte por fato**, e o instante é o do FATO, não o de gravação:
+
+```text
+OS criada · importada · técnico atribuído/alterado · iniciada · concluída
+                          ServiceOrderEvent (só esses seis códigos)
+observações               observações da execução, no item "concluída"
+visita                    check-in (checkedInAt)
+contato · impedimento     tabelas próprias (attemptedAt · reportedAt) — sem a nota
+fotos · medições          evidências CONFIRMADAS; temporária não entra
+assinatura                signedAt — o nome de quem assinou
+equipamento               a linha do equipamento (createdAt); removido no
+                          atendimento é correção de cadastro e não aparece
+CTO e porta               o vínculo: entrada e saída de cada linha; sair e
+                          VOLTAR à mesma porta são itens distintos
+localização               confirmação e correção em campo, atualização e
+                          divergência vindas da integração
+```
+
+Três leituras que não se desfazem: **"instalação" é o tipo da OS como foi
+gravado** (o tipo é catálogo por empresa, §124 — a timeline não adivinha quais
+tipos "são" instalação); **teste de velocidade e leitura óptica são FOTOS** — o
+modelo não guarda valor medido, e nenhum é inventado; e os códigos de
+`ServiceOrderEvent` que repetem o fato de uma tabela própria (check-in,
+equipamento, assinatura, porta, localização) ficam **fora**, porque lidos do
+evento mostrariam, por exemplo, um equipamento que foi removido no próprio
+atendimento. `AuditLog` não é fonte (§322).
+
+**Quem vê:** `ADMIN` e `DISPATCHER` — os perfis da tela do cliente; o técnico
+não tem tela de cliente. **CTO e porta só para o `ADMIN` com a rede ligada**, como
+o histórico de vínculo já era — a timeline não é o atalho que o estende. Data e
+hora no fuso da **empresa**, agrupadas pelo dia civil dela. Falha de leitura é
+**aviso de erro**, nunca "nenhum registro". Nada de coordenada, CPF, credencial,
+chave de arquivo, nota livre de contato ou de impedimento, nem dado de outro
+cliente; as observações da execução entram truncadas, com a íntegra na OS.
+
+**Fora, e continua fora:** eventos financeiros, retenção/recuperação, mudanças
+de cadastro (são trilha técnica), leituras de conectividade, resumo por IA, e
+qualquer alteração no aplicativo do técnico.
+
 ---
 
 # 382. CHECKLIST POR TIPO DE OS — JÁ IMPLEMENTADO
@@ -13300,7 +13358,7 @@ O que precisa estar de pé para o primeiro lançamento.
 | Checklist por tipo de OS | **implementado** (v0.10) — verificar cobertura |
 | Equipamentos e estoque | **implementado** no estado atual |
 | Dashboard operacional acionável | **implementado** (`DASH-1` · `DASH-1a`) — aprovado pelo dono, `FROZEN` (§380) |
-| Timeline do cliente | **falta** |
+| Timeline do cliente | **implementado** (`TL-1`) — `READY FOR OWNER VALIDATION` (§381) |
 | Pacote técnico de evidências | **falta a reunião** — as peças existem |
 | Busca global do AlfaOS | **falta** |
 

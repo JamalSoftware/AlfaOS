@@ -1094,7 +1094,17 @@ Quatro coisas que não se redescobrem: o **"hoje" é `civilDayBoundsIn`** em `wo
 
 **Estado congelado:** Mapa Operacional V1 `FROZEN`/`APPROVED` (PRD §392), Dashboard Operacional V1 `FROZEN`/`APPROVED` (PRD §380) — os dois só reabrem por correção crítica de defeito. Os módulos SaaS futuros continuam backlog (`docs/MASTER-PLAN.md` §11).
 
-**Próxima execução: `TL-1` — Timeline do cliente — a próxima fatia ativa do Core V1**, pelo `docs/MASTER-PLAN.md` §5 e a PRD §381: discovery → contract lock → implementação. Depois, `EV-1` e `GS-1`. **Nenhuma delas iniciada.**
+**`TL-1` — Timeline do cliente — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** Seção **"Histórico do cliente"** no fim de `/clientes/[id]/editar`: a vida operacional do cliente numa leitura só, mais recente primeiro, 50 por vez e "Ver eventos anteriores" até 500. **Zero migration, zero schema, zero rota de API, zero Dart** — visão DERIVADA, nada escrito: cada item vem da tabela que já é a autoridade do fato (ciclo da OS em `ServiceOrderEvent`, check-in, contato, impedimento, evidências confirmadas, assinatura, equipamento, `CustomerNetworkConnection`, `CustomerLocationHistory`). Contrato e as quatro decisões do dono na PRD **§381**; mapa do código em `docs/CONTEXT-MAP.md`.
+
+Três coisas que não se redescobrem: **os códigos de `ServiceOrderEvent` que repetem fato de tabela própria ficam FORA** — o equipamento removido no atendimento apaga a linha e deixa o evento, e o vínculo de porta feito pelo painel nem gera evento; **tenant em toda fonte, inclusive o da OS** (`ServiceOrder.customerId` é FK simples, vetor da `DQ-7.1`), e CTO/porta só para `ADMIN` com `ctoNetworkEnabled`, pelo perfil da sessão; e **a localização é classificada pela assinatura de cada um dos quatro escritores** — a divergência vinda da integração grava o ponto do PROVEDOR como "novo" sem aplicá-lo, e a primeira versão do classificador, que comparava coordenadas, a lia como atualização. Foi corrigido antes de qualquer teste, lendo os escritores, e `TL-SRC-06` passa por eles.
+
+**Uma falha intermitente foi investigada, não chamada de flaky.** O `TL-AUTH-03` caía cerca de 1 vez em 15 execuções, e o log mostrou `P1001` ("Can't reach database server") no meio da leitura: o módulo disparava treze consultas com `Promise.all`, e com o pool frio isso abria treze conexões NOVAS de uma vez pelo proxy do Docker Desktop. A leitura passou a ser em lotes `$transaction([...])` numa conexão só — o principal num instante só (`RepeatableRead`) —, e 25 de 25 execuções saíram limpas. **Uma visita não abre uma conexão por fonte.**
+
+E um defeito de texto que só o dado real mostrou: toda caixa batizada "CTO …" aparecia como **"Conectado à CTO CTO QA FIELD 01"** — e o meu próprio teste de apresentação afirmava a frase duplicada. O prefixo agora só entra quando o nome não começa pela palavra.
+
+Gates: **2526 Vitest** (era 2484; 115 arquivos), **308 Playwright** (era 300), lint, tsc, build, `build:worker`, `prisma validate`, **27 migrations** — nenhuma nova. **23 sabotagens, 23 detectadas**; quatro delas (ordem, fuso, código cru, perfil) também pelo navegador, no passo exato do fluxo do dono. **Achado fora da fase, registrado e não corrigido:** o E2E congelado `MAPEDIT-05/06/07` do Mapa Operacional falha de forma intermitente (2 de 6 isolado; uma rodada da suíte com 1 falha, a seguinte 308/308) com o código do mapa idêntico ao de antes da `TL-1` — `docs/MASTER-PLAN.md` §12.
+
+**Próxima execução: validação da `TL-1` pelo dono.** Depois dela, `EV-1` e `GS-1`, pelo `docs/MASTER-PLAN.md` — **nenhuma iniciada.**
 
 ## Princípios
 

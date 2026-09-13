@@ -36,6 +36,7 @@ MAPA OPERACIONAL V1     CTO-3.1 → CTO-3.2.2e                          APPROVED
 DASHBOARD V1            DASH-1 → DASH-1a                              APPROVED · FROZEN
                         oito cartões acionáveis · contexto por recorte
 HOTFIX-FIELD-01         "Hoje" de /minhas-os no fuso da empresa       APPROVED
+TL-1                    timeline do cliente                           READY FOR OWNER VALIDATION
 ```
 
 O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e a lista
@@ -61,7 +62,7 @@ MAPA OPERACIONAL V1 — FROZEN (PRD §392)                             ← 2026-
 DASH-1 · DASH-1a               dashboard acionável       ← APPROVED · FROZEN (2026-09-12)
 HOTFIX-FIELD-01                "Hoje" de /minhas-os      ← APPROVED (2026-09-13)
    ↓
-TL-1                           timeline do cliente       ← PRÓXIMA FATIA ATIVA · não iniciada
+TL-1                           timeline do cliente       ← READY FOR OWNER VALIDATION
 EV-1 · GS-1                    depois da TL-1            ← não iniciadas
    ↓
 LANÇAMENTO V1
@@ -72,10 +73,10 @@ V2 (PRD §388)  →  V3 (PRD §389)
 **A ordem das fatias foi decidida pelo dono, fatia a fatia, como este plano
 previa.** Elas continuam independentes entre si e todas dependem apenas do que
 já existe. **`DASH-1` veio primeiro** e foi aprovada com a `DASH-1a`; o
-**`HOTFIX-FIELD-01`** fechou um defeito conhecido do técnico; e a **próxima
-fatia ativa do Core V1 é a `TL-1`**, seguida de **`EV-1`** e **`GS-1`**. Nenhuma
-das três foi iniciada. A próxima execução é `TL-1` — discovery, contract lock e
-implementação — sobre o que o §5 e a PRD §381 já definem.
+**`HOTFIX-FIELD-01`** fechou um defeito conhecido do técnico; e a **`TL-1`** foi
+implementada e **aguarda a validação do dono** (§5, PRD §381). **`EV-1`** e
+**`GS-1`** continuam não iniciadas, e nenhuma delas começa antes dessa
+validação.
 
 ---
 
@@ -158,9 +159,20 @@ implementar contagem própria em vez de consumir as leituras existentes.
 
 ## 5. `TL-1` — Timeline do cliente
 
-> **Estado: PRÓXIMA FATIA ATIVA — não iniciada.** O que segue é o plano como
-> foi escrito; a execução começa por discovery e contract lock, e nada abaixo
-> vira contrato antes deles.
+> **Estado: `READY FOR OWNER VALIDATION`.** Commits locais, sem tag e sem push.
+> Zero migration, zero schema, zero rota de API, zero Dart. O contrato congelado
+> — as quatro decisões do dono, a fonte de cada fato e o que ficou fora — está na
+> PRD §381; o mapa do código, em `docs/CONTEXT-MAP.md`. O que segue é o plano
+> como foi escrito.
+>
+> Três coisas que o plano não previa e a implementação encontrou: o vínculo de
+> porta feito pelo **painel** não grava `ServiceOrderEvent` — só a linha de
+> `CustomerNetworkConnection` o conta, então a fonte é ela; a **divergência**
+> de localização vinda da integração grava o ponto do PROVEDOR como "novo" sem
+> aplicá-lo, então comparar coordenadas a confundiria com uma atualização — o
+> que as separa é o motivo que cada escritor grava; e ler as fontes em
+> **paralelo** abria uma conexão por fonte, o que no Docker Desktop derrubava a
+> seção de forma intermitente — a leitura passou a ser em lotes numa conexão só.
 
 **Objetivo.** Uma leitura consolidada da vida operacional do cliente:
 instalação, OS, visitas, fotos, assinaturas, medições, CTO e porta, mudanças de
@@ -398,6 +410,15 @@ Datas gerais no fuso do servidor
   o quê    "Criada em", "Vinculado em" e o "Agendada:" dos cartões de /minhas-os
   apoio    o helper do fuso da empresa já existe (src/lib/company-datetime.ts)
   fase     release hardening
+
+E2E do mapa — MAPEDIT-05/06/07 intermitente (achado na TL-1, 13/09/2026)
+  o quê    o arrasto registra no painel, e a medição do marcador dá desvio 0;
+           isolado, falhou 2 de 6; no grupo MAPEDIT, 10 de 10; na suíte inteira,
+           1 falha numa rodada e 308/308 na seguinte
+  alcance  código do mapa idêntico ao de antes da TL-1 — nenhum arquivo do
+           caminho de /mapa mudou
+  aberto   se é corrida da medição ou o marcador voltando ao ponto gravado
+  fase     investigação própria; o mapa está FROZEN e só reabre por defeito provado
 ```
 
 O `HOTFIX-FIELD-01` corrigiu **só** o fuso de "Hoje" em `/minhas-os`; a

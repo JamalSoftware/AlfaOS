@@ -159,6 +159,26 @@ Cinco coisas que não se redescobrem:
 
 **Seção que falha é `error`, nunca `0`**, e a tela a mostra como "—". A falha transitória `P1001` do Docker Desktop (seção acima) já apareceu assim no painel, na primeira leitura depois de subir o servidor: só a seção afetada ficou em "—".
 
+## Timeline do cliente — `TL-1` (READY FOR OWNER VALIDATION)
+
+**Carregar:** PRD **§381** (contrato congelado e as quatro decisões do dono) e `docs/MASTER-PLAN.md` §5. Não há documento de módulo: o contrato é a PRD e o cabeçalho de `src/lib/customer-timeline.ts`.
+**Quando:** a tarefa toca a seção "Histórico do cliente" de `/clientes/[id]/editar`, acrescenta ou tira um tipo de item, ou muda o que um escritor grava numa das fontes abaixo (principalmente `customer-locations.ts` e `cto-connections.ts`).
+**Quando NÃO:** a timeline POR OS (`/ordens/[id]`, `ServiceOrderEvent` em ordem crescente) — é outra tela, pré-existente, fora da `TL-1`. E `AuditLog`, que é trilha técnica e não é fonte.
+
+**A regra que não se desfaz: uma fonte por fato, e nada escrito.** A timeline é visão derivada; não existe tabela, e acrescentar um tipo é acrescentar uma LEITURA da tabela que já é a autoridade dele — nunca uma segunda gravação. Os códigos de `ServiceOrderEvent` que repetem o fato de tabela própria (`CHECKED_IN`, `EQUIPMENT_INSTALLED`, `SIGNATURE_CAPTURED`, `CTO_PORT_*`, `LOCATION_*`…) ficam fora de propósito: o equipamento removido no atendimento apaga a linha e deixa o evento.
+
+**Código:** `src/lib/customer-timeline.ts` (leitura em lotes `$transaction([...])` numa conexão só — empresa+cliente, as fontes num instante só com `RepeatableRead`, cada uma com `take = limit + 1`, e a segunda leva só pelos ids da primeira: observações das concluídas, categorias e OS das fotos; união ordenada por instante desc e `id` desc, corte em `limit`; `loadCustomerTimeline` converte falha em `error`), `src/lib/customer-timeline-presentation.ts` (pura: item → categoria, título e descrição; rótulos = os do Field, cobrados por teste que lê o Dart), `src/components/CustomerTimelineSection.tsx` (servidor: erro · vazio · lista por dia civil da empresa), `src/app/(app)/clientes/[id]/editar/page.tsx` (`?historico=` e o link "Ver eventos anteriores", que remonta `returnTo` e a vista do mapa dos valores validados), `src/lib/company-datetime.ts` (`formatCompanyLongDate`). Testes: `src/tests/customer-timeline.test.ts`, `customer-timeline-presentation.test.ts`, `customer-timeline-page.test.ts`, `e2e/customer-timeline.spec.ts`.
+
+Cinco coisas que não se redescobrem:
+
+* **Uma conexão por visita — nunca `Promise.all` de fontes.** A primeira versão abria treze consultas em paralelo: mais que o pool padrão, e, com o pool frio, treze conexões NOVAS de uma vez. Pelo Docker Desktop isso deu `P1001` intermitente (a seção caía em erro, e o `TL-AUTH-03` falhava cerca de 1 vez em 15 execuções); em lotes sequenciais, 25 de 25 limpas. `TL-CONN-01` fixa o formato dos lotes e `TL-CONN-02` mantém `Promise.all` fora do módulo.
+* **Tenant em toda fonte, e o da OS também**: `{ companyId, serviceOrder: { companyId, customerId } }`. `ServiceOrder.customerId` é FK simples — uma OS da empresa B pode apontar para o cliente de A (vetor da `DQ-7.1`) —, e o teste `TL-DOM-03` monta exatamente isso. Cliente fora do tenant devolve histórico vazio mesmo com linhas corrompidas apontando para ele.
+* **CTO e porta só para `ADMIN` com `ctoNetworkEnabled`** — o histórico de vínculo (`GET /api/cto-connections`) já era `ADMIN`; sem permissão, a consulta nem é feita. O perfil vem da SESSÃO, na página.
+* **A localização é classificada pela assinatura de cada um dos quatro escritores** de `CustomerLocationHistory`, nunca pelo texto da nota: a divergência vinda da integração grava o ponto do PROVEDOR em `new*` sem aplicá-lo, e só o motivo (`OTHER` × `INCOMPLETE_REGISTRATION`) a separa da atualização. `TL-SRC-06` passa pelos escritores reais — mudar o motivo lá quebra aqui.
+* **Contagem de consultas é constante** (≤ 16 por visita, igual para 2 ou 32 itens — `TL-PAGE-05`), e o teto por fonte é afirmado sobre os argumentos da consulta (`TL-PAGE-04`), porque o corte depois da união esconderia uma fonte sem `take` de qualquer teste de resultado.
+
+**Limite declarado:** uma correção em campo para o MESMO ponto, com a MESMA origem, sobre localização não verificada e com motivo `OTHER` tem a mesma assinatura de uma confirmação, e aparece como "Localização confirmada em campo" — o efeito gravado é idêntico ao da confirmação.
+
 ## Auditorias
 
 **Carregar:** somente a auditoria da versão relevante à tarefa atual — não releia o histórico completo de auditorias.
