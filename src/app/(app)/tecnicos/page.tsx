@@ -3,6 +3,8 @@ import Link from "next/link";
 import { AccessProfile } from "@prisma/client";
 import { requirePageProfile } from "@/lib/guards";
 import { listCompanyTechnicians } from "@/lib/technicians";
+import { sliceEmptyState } from "@/lib/dashboard-slice-copy";
+import { BackToDashboardLink } from "@/components/BackToDashboardLink";
 import { EmptyState } from "@/components/EmptyState";
 import { ListSliceBanner } from "@/components/ListSliceBanner";
 import { Pagination } from "@/components/Pagination";
@@ -54,8 +56,18 @@ export default async function TechniciansPage({ searchParams }: PageProps) {
     return qs ? `/tecnicos?${qs}` : "/tecnicos";
   }
 
+  const empty = inService
+    ? sliceEmptyState("tecnicos-em-atendimento", Boolean(search || activeRaw))
+    : {
+        title: "Nenhum técnico encontrado",
+        description:
+          "Vincule um usuário com perfil Técnico para começar a atribuir OS.",
+      };
+  const inServiceCounts = result.inServiceCounts;
+
   return (
     <div>
+      {inService && <BackToDashboardLink />}
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-fg">Técnicos</h1>
@@ -75,10 +87,8 @@ export default async function TechniciansPage({ searchParams }: PageProps) {
 
       {inService && (
         <ListSliceBanner
-          label="Técnicos em atendimento"
+          sliceKey="tecnicos-em-atendimento"
           total={result.total}
-          singular="técnico"
-          plural="técnicos"
           clearHref={buildHref(1, true)}
         />
       )}
@@ -114,19 +124,28 @@ export default async function TechniciansPage({ searchParams }: PageProps) {
 
       <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
         {result.technicians.length === 0 ? (
-          <EmptyState
-            title="Nenhum técnico encontrado"
-            description="Vincule um usuário com perfil Técnico para começar a atribuir OS."
-          />
+          <EmptyState title={empty.title} description={empty.description} />
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-border text-sm">
               <thead className="bg-surface-subtle">
                 <tr>
                   <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Nome</th>
+                  {/*
+                    No recorte, a razão de o técnico estar na lista vem logo
+                    depois do nome. O status cadastral (Ativo/Inativo) continua
+                    na sua coluna: um técnico inativo com OS iniciada antes da
+                    desativação ainda está em atendimento, e a lista diz as duas
+                    coisas sem misturá-las.
+                  */}
+                  {inServiceCounts && (
+                    <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Em atendimento</th>
+                  )}
                   <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">E-mail</th>
                   <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Telefone</th>
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Status</th>
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">
+                    {inServiceCounts ? "Status cadastral" : "Status"}
+                  </th>
                   <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Vinculado em</th>
                 </tr>
               </thead>
@@ -134,6 +153,12 @@ export default async function TechniciansPage({ searchParams }: PageProps) {
                 {result.technicians.map((tech) => (
                   <tr key={tech.id} className="hover:bg-surface-subtle">
                     <td className="px-5 py-3 font-medium text-fg">{tech.name}</td>
+                    {inServiceCounts && (
+                      <td className="px-5 py-3 text-fg" data-testid="tech-in-service">
+                        <span className="font-semibold tabular-nums">{inServiceCounts[tech.id] ?? 0}</span>{" "}
+                        OS em atendimento
+                      </td>
+                    )}
                     <td className="px-5 py-3 text-fg-secondary">{tech.email}</td>
                     <td className="px-5 py-3 text-fg-secondary">{tech.phone ?? "—"}</td>
                     <td className="px-5 py-3">

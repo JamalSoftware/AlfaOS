@@ -2,7 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { AccessProfile } from "@prisma/client";
 import { requirePageProfile } from "@/lib/guards";
-import { listCompanyCustomers } from "@/lib/customers";
+import {
+  listCompanyCustomers,
+  type CustomerListConnectivity,
+} from "@/lib/customers";
+import {
+  CONNECTIVITY_PRESENTATION,
+  connectivityAge,
+} from "@/lib/connectivity-presentation";
+import { sliceEmptyState } from "@/lib/dashboard-slice-copy";
+import { BackToDashboardLink } from "@/components/BackToDashboardLink";
 import { EmptyState } from "@/components/EmptyState";
 import { ListSliceBanner } from "@/components/ListSliceBanner";
 import { Pagination } from "@/components/Pagination";
@@ -13,6 +22,47 @@ export const metadata: Metadata = {
 
 interface PageProps {
   searchParams: { [key: string]: string | string[] | undefined };
+}
+
+const CONNECTIVITY_BADGE_CLASS = {
+  danger: "border-danger-border bg-danger-bg text-danger-fg",
+  success: "border-success-border bg-success-bg text-success-fg",
+  neutral: "border-border bg-surface-muted text-fg-secondary",
+} as const;
+
+/**
+ * A leitura que pôs o cliente no recorte: o estado, com glifo e rótulo da
+ * tabela de apresentação da §370 (a mesma do mapa e da OS), e a idade dela.
+ * O estado vem do dado, não é presumido pela URL — se um dia a leitura
+ * divergisse do recorte, a célula diria a verdade.
+ */
+function ConnectivityCell({
+  reading,
+  now,
+}: {
+  reading: CustomerListConnectivity | undefined;
+  now: Date;
+}) {
+  if (!reading) {
+    return <td className="px-5 py-3 text-fg-muted" data-testid="customer-connectivity">—</td>;
+  }
+  const apresentacao = CONNECTIVITY_PRESENTATION[reading.status];
+  const idade = connectivityAge(reading.observedAt.toISOString(), now);
+  return (
+    <td className="px-5 py-3" data-testid="customer-connectivity">
+      <span
+        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${CONNECTIVITY_BADGE_CLASS[apresentacao.tone]}`}
+      >
+        <span aria-hidden="true">{apresentacao.glyph}</span>
+        {apresentacao.label}
+      </span>
+      {idade && (
+        <span className="ml-2 whitespace-nowrap text-xs text-fg-muted" data-testid="customer-connectivity-age">
+          {`Leitura ${idade}`}
+        </span>
+      )}
+    </td>
+  );
 }
 
 export default async function CustomersPage({ searchParams }: PageProps) {
@@ -53,8 +103,27 @@ export default async function CustomersPage({ searchParams }: PageProps) {
     return qs ? `/clientes?${qs}` : "/clientes";
   }
 
+  /*
+    O cartão abre com `active=true` — o recorte é de clientes ativos. Esse
+    `active` veio do painel, não de um filtro escolhido; só conta como "outro
+    filtro" para o estado vazio quando destoa disso ou há busca.
+  */
+  const empty = offlineOnly
+    ? sliceEmptyState(
+        "clientes-offline",
+        Boolean(search) || (activeRaw !== "" && activeRaw !== "true"),
+      )
+    : {
+        title: "Nenhum cliente encontrado",
+        description:
+          "Crie um cliente manualmente ou importe OS do Mock ERP para gerar clientes automaticamente.",
+      };
+  const connectivity = result.connectivity;
+  const now = new Date();
+
   return (
     <div>
+      {offlineOnly && <BackToDashboardLink />}
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-fg">Clientes</h1>
@@ -72,10 +141,8 @@ export default async function CustomersPage({ searchParams }: PageProps) {
 
       {offlineOnly && (
         <ListSliceBanner
-          label="Clientes offline (última leitura)"
+          sliceKey="clientes-offline"
           total={result.total}
-          singular="cliente"
-          plural="clientes"
           clearHref={buildHref(1, true)}
         />
       )}
@@ -111,20 +178,28 @@ export default async function CustomersPage({ searchParams }: PageProps) {
 
       <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
         {result.customers.length === 0 ? (
-          <EmptyState
-            title="Nenhum cliente encontrado"
-            description="Crie um cliente manualmente ou importe OS do Mock ERP para gerar clientes automaticamente."
-          />
+          <EmptyState title={empty.title} description={empty.description} />
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-border text-sm">
               <thead className="bg-surface-subtle">
                 <tr>
                   <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Nome</th>
+                  {/*
+                    Conectividade e status cadastral são perguntas diferentes:
+                    "a última leitura diz que o cliente está fora do ar" e "o
+                    cadastro está ativo". No recorte as duas aparecem, cada uma
+                    com o seu nome — nunca um "Offline" no lugar de "Ativo".
+                  */}
+                  {connectivity && (
+                    <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Conectividade</th>
+                  )}
                   <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Documento</th>
                   <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Telefone</th>
                   <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Cidade</th>
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Status</th>
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">
+                    {connectivity ? "Status cadastral" : "Status"}
+                  </th>
                   <th scope="col" className="px-5 py-3 text-right font-semibold text-fg-secondary">Ações</th>
                 </tr>
               </thead>
@@ -132,6 +207,9 @@ export default async function CustomersPage({ searchParams }: PageProps) {
                 {result.customers.map((customer) => (
                   <tr key={customer.id} className="hover:bg-surface-subtle">
                     <td className="px-5 py-3 font-medium text-fg">{customer.name}</td>
+                    {connectivity && (
+                      <ConnectivityCell reading={connectivity[customer.id]} now={now} />
+                    )}
                     <td className="px-5 py-3 text-fg-secondary">{customer.document ?? "—"}</td>
                     <td className="px-5 py-3 text-fg-secondary">{customer.phone ?? "—"}</td>
                     <td className="px-5 py-3 text-fg-secondary">

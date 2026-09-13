@@ -44,11 +44,6 @@ import { prisma } from "./prisma";
 export const CTO_ATTENTION_FILTERS = ["defeito", "com-os-abertas"] as const;
 export type CtoAttentionFilter = (typeof CTO_ATTENTION_FILTERS)[number];
 
-export const CTO_ATTENTION_LABELS: Record<CtoAttentionFilter, string> = {
-  defeito: "CTOs com defeito",
-  "com-os-abertas": "CTOs com OS abertas",
-};
-
 export function parseCtoAttentionFilter(raw: unknown): CtoAttentionFilter | null {
   return typeof raw === "string" &&
     (CTO_ATTENTION_FILTERS as readonly string[]).includes(raw)
@@ -59,6 +54,13 @@ export function parseCtoAttentionFilter(raw: unknown): CtoAttentionFilter | null
 export interface CtoOperationalState {
   status: CtoMapStatus;
   openServiceOrderCount: number;
+  /**
+   * Portas `DAMAGED` dentro da capacidade — o `damaged` do MESMO
+   * `summarizePortCounts` que decidiu o estado, então uma caixa DAMAGED tem
+   * sempre ao menos uma. A listagem mostra o número para dizer por que a caixa
+   * está no recorte (DASH-1a); ele não decide nada.
+   */
+  damagedPortCount: number;
 }
 
 export function matchesCtoAttention(
@@ -123,6 +125,7 @@ export async function getCompanyCtoStates(
       status: deriveCtoMapStatus(cto.active, summary),
       openServiceOrderCount:
         operacional.summaries.get(cto.id)?.openServiceOrderCount ?? 0,
+      damagedPortCount: summary.damaged,
     });
   }
 

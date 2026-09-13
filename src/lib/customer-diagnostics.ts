@@ -182,14 +182,24 @@ function latestPerCustomer<T extends { customerId: string }>(
  *   obrigado a não confundir "não sabemos" com "está fora do ar" (§370);
  * - só traz os três campos que uma contagem precisa.
  *
+ * Devolve o `observedAt` junto do estado (DASH-1a): a listagem do recorte
+ * "Clientes offline" mostra a idade da leitura de cada linha, e ela já vem
+ * nesta mesma consulta — lê-la de novo por cliente seria o `N+1` que o lote
+ * existe para evitar.
+ *
  * O `companyId` também dentro da relação: o snapshot é gravado com o tenant do
  * cliente, e conferir de novo custa nada — a mesma lição da `DQ-7.1`, onde uma
  * FK simples atravessava empresas.
  */
+export interface CompanyConnectivityReading {
+  status: ConnectivityStatus;
+  observedAt: Date;
+}
+
 export async function getCompanyConnectivityStatuses(
   companyId: string,
   options: { activeCustomersOnly?: boolean } = {},
-): Promise<Map<string, ConnectivityStatus>> {
+): Promise<Map<string, CompanyConnectivityReading>> {
   const linhas = await prisma.customerDiagnosticSnapshot.findMany({
     where: {
       companyId,
@@ -201,9 +211,12 @@ export async function getCompanyConnectivityStatuses(
     orderBy: { observedAt: "desc" },
   });
 
-  const estados = new Map<string, ConnectivityStatus>();
+  const estados = new Map<string, CompanyConnectivityReading>();
   for (const [customerId, linha] of Array.from(latestPerCustomer(linhas))) {
-    estados.set(customerId, linha.connectivityStatus);
+    estados.set(customerId, {
+      status: linha.connectivityStatus,
+      observedAt: linha.observedAt,
+    });
   }
   return estados;
 }

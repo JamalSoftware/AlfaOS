@@ -395,7 +395,9 @@ describe("DASH-CLI — clientes offline pela autoridade da §370", () => {
     const empresa = await getCompanyConnectivityStatuses(fixture.companyA.id);
     const lote = await getConnectivityForCustomers(fixture.companyA.id, [voltou.id, caiu.id]);
     for (const id of [voltou.id, caiu.id]) {
-      expect(empresa.get(id)).toBe(lote.get(id)?.connectivityStatus);
+      expect(empresa.get(id)?.status).toBe(lote.get(id)?.connectivityStatus);
+      // A idade exibida na listagem (DASH-1a) é a da MESMA leitura vencedora.
+      expect(empresa.get(id)?.observedAt).toEqual(lote.get(id)?.observedAt);
     }
   });
 
@@ -481,6 +483,9 @@ describe("DASH-CTO — o estado da caixa é o do mapa", () => {
       expect(estados.get(marcador.id), marcador.name).toEqual({
         status: marcador.status,
         openServiceOrderCount: marcador.operational.openServiceOrderCount,
+        // DASH-1a: as portas danificadas que a listagem mostra são o `damaged`
+        // do mesmo resumo que o marcador carrega.
+        damagedPortCount: marcador.summary.damaged,
       });
     }
     expect(new Set(mapa.markers.map((m) => m.status))).toEqual(

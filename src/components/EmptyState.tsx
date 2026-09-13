@@ -5,7 +5,10 @@ interface EmptyStateProps {
 
 export function EmptyState({ title, description }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+    <div
+      data-testid="empty-state"
+      className="flex flex-col items-center justify-center px-6 py-16 text-center"
+    >
       <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-muted text-fg-muted">
         <svg
           viewBox="0 0 24 24"

@@ -26,7 +26,7 @@ import { resolveTimezone } from "./workday";
  * OS abertas            countCompanyServiceOrders({ slice: "abertas" })
  * OS atrasadas          countCompanyServiceOrders({ slice: "atrasadas" })
  * OS de hoje            countCompanyServiceOrders({ slice: "hoje" })
- * OS pendentes          countCompanyServiceOrders({ status: "PENDING" })
+ * OS pendentes          countCompanyServiceOrders({ slice: "pendentes" })
  * Técnicos em atend.    countCompanyTechnicians({ inService: true })
  * Clientes offline      countCompanyCustomers({ active, connectivity: OFFLINE })
  * CTOs com defeito      getCompanyCtoStates → estado DAMAGED
@@ -184,7 +184,7 @@ export async function getOperationalDashboard(
           countCompanyServiceOrders(companyId, { slice: "abertas", clock }),
           countCompanyServiceOrders(companyId, { slice: "atrasadas", clock }),
           countCompanyServiceOrders(companyId, { slice: "hoje", clock }),
-          countCompanyServiceOrders(companyId, { status: "PENDING" }),
+          countCompanyServiceOrders(companyId, { slice: "pendentes" }),
         ]);
         return { abertas, atrasadas, hoje, pendentes };
       }),
@@ -208,7 +208,7 @@ export async function getOperationalDashboard(
               prisma.customer.count({ where: { companyId, active: true } }),
             ]);
             let comLeitura = 0;
-            for (const status of Array.from(estados.values())) {
+            for (const { status } of Array.from(estados.values())) {
               if (status === "ONLINE" || status === "OFFLINE") comLeitura += 1;
             }
             return { offline, comLeitura, ativos };

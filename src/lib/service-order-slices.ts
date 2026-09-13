@@ -40,14 +40,24 @@ import { civilDayBoundsIn, resolveTimezone } from "./workday";
  * ser UTC.
  */
 
-export const SERVICE_ORDER_SLICES = ["abertas", "atrasadas", "hoje"] as const;
+/*
+  "pendentes" entrou na DASH-1a. O cartão abria `/ordens?status=PENDING` — o
+  filtro comum da tela —, e por isso a listagem não tinha como saber que a
+  pessoa viera do painel: nem faixa de recorte, nem "Voltar ao Dashboard". Um
+  filtro que a pessoa escolhe e um recorte que o painel abre são coisas
+  diferentes, e cada um tem o seu parâmetro. O predicado é o mesmo status.
+*/
+export const SERVICE_ORDER_SLICES = [
+  "abertas",
+  "atrasadas",
+  "hoje",
+  "pendentes",
+] as const;
 export type ServiceOrderSlice = (typeof SERVICE_ORDER_SLICES)[number];
 
-export const SERVICE_ORDER_SLICE_LABELS: Record<ServiceOrderSlice, string> = {
-  abertas: "OS abertas",
-  atrasadas: "OS atrasadas",
-  hoje: "OS de hoje",
-};
+/** Os recortes cuja resposta depende do relógio e do fuso da empresa. */
+export const TIME_DEPENDENT_SLICES: ReadonlySet<ServiceOrderSlice> =
+  new Set<ServiceOrderSlice>(["atrasadas", "hoje"]);
 
 /**
  * Aberta e ainda não iniciada: o conjunto aberto, menos a OS em atendimento.
@@ -99,6 +109,9 @@ export function serviceOrderSliceWhere(
         scheduledAt: { gte: dia.start, lt: dia.end },
       };
     }
+    case "pendentes":
+      // Sem técnico: exatamente o status PENDING, o mesmo do filtro da tela.
+      return { status: { in: ["PENDING"] } };
   }
 }
 

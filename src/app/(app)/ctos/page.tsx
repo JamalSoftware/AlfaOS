@@ -1,16 +1,26 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { BackToDashboardLink } from "@/components/BackToDashboardLink";
 import { EmptyState } from "@/components/EmptyState";
 import { ListSliceBanner } from "@/components/ListSliceBanner";
 import { isCtoNetworkEnabled, listCompanyCtos } from "@/lib/cto";
 import {
-  CTO_ATTENTION_LABELS,
   getCompanyCtoStates,
   matchesCtoAttention,
   parseCtoAttentionFilter,
+  type CtoAttentionFilter,
 } from "@/lib/cto-attention";
+import {
+  sliceEmptyState,
+  type DashboardSliceKey,
+} from "@/lib/dashboard-slice-copy";
 import { requirePageProfile } from "@/lib/guards";
-import { CtoListManager } from "./CtoListManager";
+import { CtoListManager, type CtoSliceContext } from "./CtoListManager";
+
+const SLICE_KEY: Record<CtoAttentionFilter, DashboardSliceKey> = {
+  defeito: "ctos-com-defeito",
+  "com-os-abertas": "ctos-com-os-abertas",
+};
 
 export const metadata: Metadata = {
   title: "CTOs",
@@ -58,8 +68,32 @@ export default async function CtosPage({ searchParams }: PageProps) {
         })
       : todas;
 
+  /*
+    A razão de cada caixa estar no recorte, só das caixas listadas: estado
+    operacional, portas danificadas e OS abertas — os números da mesma leitura
+    que filtrou, então a coluna nunca discorda do recorte.
+  */
+  let sliceContext: CtoSliceContext | null = null;
+  if (situacao && estados) {
+    const byCto: CtoSliceContext["byCto"] = {};
+    for (const cto of ctos) {
+      const estado = estados.get(cto.id);
+      if (estado) {
+        byCto[cto.id] = {
+          status: estado.status,
+          damagedPortCount: estado.damagedPortCount,
+          openServiceOrderCount: estado.openServiceOrderCount,
+        };
+      }
+    }
+    sliceContext = { filter: situacao, byCto };
+  }
+  const sliceKey = situacao ? SLICE_KEY[situacao] : null;
+  const sliceEmpty = sliceKey ? sliceEmptyState(sliceKey, false) : null;
+
   return (
     <div>
+      {sliceKey && <BackToDashboardLink />}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-fg">CTOs</h1>
         <p className="mt-1 text-sm text-fg-muted">
@@ -68,17 +102,11 @@ export default async function CtosPage({ searchParams }: PageProps) {
         </p>
       </div>
 
-      {situacao && (
-        <ListSliceBanner
-          label={CTO_ATTENTION_LABELS[situacao]}
-          total={ctos.length}
-          singular="CTO"
-          plural="CTOs"
-          clearHref="/ctos"
-        />
+      {sliceKey && (
+        <ListSliceBanner sliceKey={sliceKey} total={ctos.length} clearHref="/ctos" />
       )}
 
-      {todas.length === 0 && (
+      {!sliceKey && todas.length === 0 && (
         <div className="mb-6 rounded-2xl border border-border bg-surface shadow-sm">
           <EmptyState
             title="Nenhuma CTO cadastrada"
@@ -87,16 +115,13 @@ export default async function CtosPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      {situacao && todas.length > 0 && ctos.length === 0 && (
+      {sliceEmpty && ctos.length === 0 && (
         <div className="mb-6 rounded-2xl border border-border bg-surface shadow-sm">
-          <EmptyState
-            title="Nenhuma CTO neste recorte"
-            description="Nenhuma caixa se encaixa neste recorte agora."
-          />
+          <EmptyState title={sliceEmpty.title} description={sliceEmpty.description} />
         </div>
       )}
 
-      <CtoListManager ctos={ctos} />
+      <CtoListManager ctos={ctos} slice={sliceContext} />
     </div>
   );
 }

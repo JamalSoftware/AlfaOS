@@ -29,6 +29,7 @@ import {
 import { snapshotChecklistForOrder } from "./checklists";
 import { allocateServiceOrderNumber } from "./service-order-number";
 import {
+  TIME_DEPENDENT_SLICES,
   companySliceClock,
   serviceOrderSliceWhere,
   type ServiceOrderSlice,
@@ -775,12 +776,12 @@ async function buildServiceOrderListWhere(
 ): Promise<Record<string, unknown>> {
   const where: Record<string, unknown> = { companyId };
   if (params.slice) {
-    // "abertas" não depende de tempo: não vale uma leitura do fuso da empresa.
+    // Recorte que não depende de tempo não vale uma leitura do fuso da empresa.
     const clock =
       params.clock ??
-      (params.slice === "abertas"
-        ? { now: new Date(), timezone: DEFAULT_TIMEZONE }
-        : await companySliceClock(companyId));
+      (TIME_DEPENDENT_SLICES.has(params.slice)
+        ? await companySliceClock(companyId)
+        : { now: new Date(), timezone: DEFAULT_TIMEZONE });
     where.AND = [serviceOrderSliceWhere(params.slice, clock)];
   }
   if (params.status) where.status = params.status;

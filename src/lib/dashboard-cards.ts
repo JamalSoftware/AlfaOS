@@ -1,4 +1,8 @@
 import type { DashboardSection, OperationalDashboard } from "./dashboard";
+import {
+  DASHBOARD_SLICE_COPY,
+  type DashboardSliceKey,
+} from "./dashboard-slice-copy";
 
 /**
  * # Os cartões do painel — da leitura ao que a tela mostra (DASH-1)
@@ -21,7 +25,7 @@ import type { DashboardSection, OperationalDashboard } from "./dashboard";
 export type DashboardCardTone = "neutro" | "atencao" | "alerta";
 
 export interface DashboardCard {
-  key: string;
+  key: DashboardSliceKey;
   label: string;
   href: string;
   /** O que o número conta — ou por que não há número. */
@@ -39,14 +43,28 @@ export interface DashboardCardGroups {
 
 export const DASHBOARD_ERROR_HINT = "Não foi possível contar agora.";
 
+/*
+  O rótulo vem de `DASHBOARD_SLICE_COPY` pela chave (DASH-1a): o cartão e a
+  faixa da listagem que ele abre dizem o mesmo nome, porque leem a mesma linha.
+*/
 function card<T>(
-  base: Pick<DashboardCard, "key" | "label" | "href" | "tone">,
+  base: Pick<DashboardCard, "href" | "tone"> & { key: DashboardSliceKey },
   section: DashboardSection<T>,
   read: (data: T) => number,
   hint: string,
 ): DashboardCard {
-  if (section.state === "ok") return { ...base, value: read(section.data), hint };
-  return { ...base, value: null, placeholder: "—", hint: DASHBOARD_ERROR_HINT };
+  const label = DASHBOARD_SLICE_COPY[base.key].label;
+  if (section.state === "ok") {
+    return { ...base, label, value: read(section.data), hint };
+  }
+  return { ...base, label, value: null, placeholder: "—", hint: DASHBOARD_ERROR_HINT };
+}
+
+/** "Entre 12 clientes com leitura disponível." — e o singular, sem "entre". */
+export function customersWithReadingHint(comLeitura: number): string {
+  return comLeitura === 1
+    ? "De 1 cliente com leitura disponível."
+    : `Entre ${comLeitura} clientes com leitura disponível.`;
 }
 
 /** Cor do número: só sinal de atenção, e só acima de zero. */
@@ -61,25 +79,31 @@ export function buildDashboardCards(
   const os = painel.serviceOrders;
   const serviceOrders: DashboardCard[] = [
     card(
-      { key: "abertas", label: "OS abertas", href: "/ordens?recorte=abertas", tone: "neutro" },
+      { key: "abertas", href: "/ordens?recorte=abertas", tone: "neutro" },
       os,
       (d) => d.abertas,
       "Ainda não concluídas nem canceladas.",
     ),
     card(
-      { key: "atrasadas", label: "OS atrasadas", href: "/ordens?recorte=atrasadas", tone: "alerta" },
+      { key: "atrasadas", href: "/ordens?recorte=atrasadas", tone: "alerta" },
       os,
       (d) => d.atrasadas,
-      "Agendamento vencido e ainda não iniciadas.",
+      "Agendamento vencido e atendimento ainda não iniciado.",
     ),
     card(
-      { key: "hoje", label: "OS de hoje", href: "/ordens?recorte=hoje", tone: "neutro" },
+      { key: "hoje", href: "/ordens?recorte=hoje", tone: "neutro" },
       os,
       (d) => d.hoje,
       "Agendadas para hoje e ainda abertas.",
     ),
+    /*
+      `recorte=pendentes`, e não `status=PENDING` (DASH-1a): com o filtro comum
+      da tela, a listagem não sabia que a pessoa viera do painel — sem faixa de
+      recorte e sem "Voltar ao Dashboard", ao contrário dos outros sete cartões.
+      O predicado é o mesmo status; muda só quem o carrega.
+    */
     card(
-      { key: "pendentes", label: "OS pendentes", href: "/ordens?status=PENDING", tone: "atencao" },
+      { key: "pendentes", href: "/ordens?recorte=pendentes", tone: "atencao" },
       os,
       (d) => d.pendentes,
       "Sem técnico atribuído.",
@@ -90,27 +114,26 @@ export function buildDashboardCards(
     card(
       {
         key: "tecnicos-em-atendimento",
-        label: "Técnicos em atendimento",
         href: "/tecnicos?emAtendimento=true",
         tone: "neutro",
       },
       painel.team,
       (d) => d.emAtendimento,
-      "Com uma OS iniciada agora.",
+      "Com pelo menos uma OS em atendimento.",
     ),
   ];
 
   const clientes = painel.customers;
   if (clientes.state !== "hidden") {
     const base = {
-      key: "clientes-offline",
-      label: "Clientes offline",
+      key: "clientes-offline" as const,
       href: "/clientes?active=true&conectividade=OFFLINE",
       tone: "alerta" as const,
     };
     if (clientes.state === "ok" && clientes.data.comLeitura === 0) {
       teamAndNetwork.push({
         ...base,
+        label: DASHBOARD_SLICE_COPY[base.key].label,
         value: null,
         placeholder: "Sem leitura",
         hint: "Nenhum cliente ativo tem leitura de conectividade ainda.",
@@ -122,7 +145,7 @@ export function buildDashboardCards(
           clientes,
           (d) => d.offline,
           clientes.state === "ok"
-            ? `Pela última leitura, de ${clientes.data.comLeitura} com leitura.`
+            ? customersWithReadingHint(clientes.data.comLeitura)
             : DASHBOARD_ERROR_HINT,
         ),
       );
@@ -132,7 +155,7 @@ export function buildDashboardCards(
   if (painel.ctos.state !== "hidden") {
     teamAndNetwork.push(
       card(
-        { key: "ctos-com-defeito", label: "CTOs com defeito", href: "/ctos?situacao=defeito", tone: "alerta" },
+        { key: "ctos-com-defeito", href: "/ctos?situacao=defeito", tone: "alerta" },
         painel.ctos,
         (d) => d.comDefeito,
         "Ativas, com porta danificada.",
@@ -140,13 +163,12 @@ export function buildDashboardCards(
       card(
         {
           key: "ctos-com-os-abertas",
-          label: "CTOs com OS abertas",
           href: "/ctos?situacao=com-os-abertas",
           tone: "neutro",
         },
         painel.ctos,
         (d) => d.comOsAbertas,
-        "Clientes da caixa com OS aberta.",
+        "Com ao menos um cliente vinculado com OS aberta.",
       ),
     );
   }

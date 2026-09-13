@@ -8,11 +8,15 @@ import {
   SERVICE_ORDER_STATUS_LABELS,
 } from "@/lib/service-orders";
 import {
-  SERVICE_ORDER_SLICE_LABELS,
+  TIME_DEPENDENT_SLICES,
+  companySliceClock,
   parseServiceOrderSlice,
 } from "@/lib/service-order-slices";
+import { formatCompanyDateTime } from "@/lib/company-datetime";
+import { sliceEmptyState } from "@/lib/dashboard-slice-copy";
 import { listActiveTechnicianOptions } from "@/lib/technicians";
 import { PriorityBadge, StatusBadge } from "@/components/OrderBadges";
+import { BackToDashboardLink } from "@/components/BackToDashboardLink";
 import { EmptyState } from "@/components/EmptyState";
 import { ListSliceBanner } from "@/components/ListSliceBanner";
 import { Pagination } from "@/components/Pagination";
@@ -46,13 +50,26 @@ export default async function OrdersPage({ searchParams }: PageProps) {
   const priority = typeof searchParams.priority === "string" ? searchParams.priority : "";
   const technicianId = typeof searchParams.technicianId === "string" ? searchParams.technicianId : "";
   /*
-    Recorte do painel operacional (DASH-1): "abertas", "atrasadas", "hoje".
-    Valor fora da lista é descartado, e a listagem abre sem recorte — nunca um
-    recorte adivinhado a partir do que o cliente escreveu.
+    Recorte do painel operacional (DASH-1): "abertas", "atrasadas", "hoje" e,
+    desde a DASH-1a, "pendentes". Valor fora da lista é descartado, e a listagem
+    abre sem recorte — nunca um recorte adivinhado a partir do que o cliente
+    escreveu.
   */
   const slice = parseServiceOrderSlice(searchParams.recorte);
   const page = Math.max(1, Number(searchParams.page ?? 1) || 1);
   const pageSize = 20;
+
+  /*
+    Nos recortes que dependem do relógio, a página lê o relógio da empresa UMA
+    vez e o usa para as duas coisas: filtrar e mostrar "Agendada para". Se a
+    listagem lesse o fuso por conta própria, o filtro e a hora na tela seriam
+    duas leituras que poderiam discordar.
+  */
+  const clock =
+    slice && TIME_DEPENDENT_SLICES.has(slice)
+      ? await companySliceClock(session.companyId)
+      : null;
+  const showScheduledAt = clock !== null;
 
   const [result, technicians] = await Promise.all([
     listCompanyServiceOrders(session.companyId, {
@@ -61,11 +78,21 @@ export default async function OrdersPage({ searchParams }: PageProps) {
       priority: (["LOW", "NORMAL", "HIGH", "URGENT"] as const).includes(priority as never) ? (priority as "NORMAL") : undefined,
       technicianId: technicianId || undefined,
       slice: slice ?? undefined,
+      clock: clock ?? undefined,
       page,
       pageSize,
     }),
     listActiveTechnicianOptions(session.companyId),
   ]);
+
+  const hasOtherFilters = Boolean(search || status || priority || technicianId);
+  const empty = slice
+    ? sliceEmptyState(slice, hasOtherFilters)
+    : {
+        title: "Nenhuma OS encontrada",
+        description:
+          "Crie uma OS manualmente ou sincronize o Mock ERP para importar OS pendentes.",
+      };
 
   function buildHref(p: number, semRecorte = false): string {
     const params = new URLSearchParams();
@@ -84,6 +111,7 @@ export default async function OrdersPage({ searchParams }: PageProps) {
 
   return (
     <div>
+      {slice && <BackToDashboardLink />}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-fg">Ordens de Serviço</h1>
@@ -104,10 +132,8 @@ export default async function OrdersPage({ searchParams }: PageProps) {
 
       {slice && (
         <ListSliceBanner
-          label={SERVICE_ORDER_SLICE_LABELS[slice]}
+          sliceKey={slice}
           total={result.total}
-          singular="OS"
-          plural="OS"
           clearHref={buildHref(1, true)}
         />
       )}
@@ -153,10 +179,7 @@ export default async function OrdersPage({ searchParams }: PageProps) {
 
       <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
         {result.serviceOrders.length === 0 ? (
-          <EmptyState
-            title="Nenhuma OS encontrada"
-            description="Crie uma OS manualmente ou sincronize o Mock ERP para importar OS pendentes."
-          />
+          <EmptyState title={empty.title} description={empty.description} />
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-border text-sm">
@@ -173,7 +196,14 @@ export default async function OrdersPage({ searchParams }: PageProps) {
                   <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Prioridade</th>
                   <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Status</th>
                   <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Técnico</th>
-                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">Criada em</th>
+                  {/*
+                    Em "atrasadas" e "de hoje" a razão de a OS estar na lista é
+                    o agendamento, então é ele que a coluna mostra — no fuso da
+                    empresa, o mesmo relógio que decidiu o recorte.
+                  */}
+                  <th scope="col" className="px-5 py-3 text-left font-semibold text-fg-secondary">
+                    {showScheduledAt ? "Agendada para" : "Criada em"}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-subtle">
@@ -195,7 +225,15 @@ export default async function OrdersPage({ searchParams }: PageProps) {
                     <td className="px-5 py-3"><PriorityBadge priority={order.priority} /></td>
                     <td className="px-5 py-3"><StatusBadge status={order.status} /></td>
                     <td className="px-5 py-3 text-fg-secondary">{order.technician?.name ?? "—"}</td>
-                    <td className="px-5 py-3 text-fg-muted">{formatDate(order.createdAt)}</td>
+                    {clock ? (
+                      <td className="px-5 py-3 text-fg-secondary tabular-nums" data-testid="order-scheduled-at">
+                        {order.scheduledAt
+                          ? formatCompanyDateTime(order.scheduledAt, clock.timezone)
+                          : "—"}
+                      </td>
+                    ) : (
+                      <td className="px-5 py-3 text-fg-muted">{formatDate(order.createdAt)}</td>
+                    )}
                   </tr>
                 ))}
               </tbody>

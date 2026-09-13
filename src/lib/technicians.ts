@@ -19,6 +19,11 @@ export interface TechnicianListResult {
   total: number;
   page: number;
   pageSize: number;
+  /**
+   * Só com o recorte "em atendimento" ativo: quantas OS `IN_PROGRESS` cada
+   * técnico DA PÁGINA tem, por id — a razão de ele estar no recorte (DASH-1a).
+   */
+  inServiceCounts?: Record<string, number>;
 }
 
 export interface ListTechniciansParams {
@@ -109,12 +114,48 @@ export async function listCompanyTechnicians(
     prisma.technician.count({ where }),
   ]);
 
-  return {
+  const result: TechnicianListResult = {
     technicians: technicians.map(toPublicTechnician),
     total,
     page,
     pageSize,
   };
+  if (params.inService) {
+    result.inServiceCounts = await countInServiceOrdersByTechnician(
+      companyId,
+      technicians.map((t) => t.id),
+    );
+  }
+  return result;
+}
+
+/**
+ * Quantas OS em atendimento cada técnico tem — UMA consulta agrupada para a
+ * página inteira, nunca uma por linha.
+ *
+ * O predicado é o de `technicianInServiceWhere` visto do lado da OS: mesma
+ * empresa, mesmo status. É por isso que um técnico listado no recorte tem
+ * sempre contagem ≥ 1 — as duas perguntas não têm como discordar.
+ */
+export async function countInServiceOrdersByTechnician(
+  companyId: string,
+  technicianIds: readonly string[],
+): Promise<Record<string, number>> {
+  const contagens: Record<string, number> = {};
+  if (technicianIds.length === 0) return contagens;
+  const grupos = await prisma.serviceOrder.groupBy({
+    by: ["technicianId"],
+    where: {
+      companyId,
+      status: "IN_PROGRESS",
+      technicianId: { in: [...technicianIds] },
+    },
+    _count: { _all: true },
+  });
+  for (const grupo of grupos) {
+    if (grupo.technicianId) contagens[grupo.technicianId] = grupo._count._all;
+  }
+  return contagens;
 }
 
 /**

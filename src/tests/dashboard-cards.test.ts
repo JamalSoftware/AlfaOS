@@ -39,7 +39,8 @@ describe("DASH-UI — cartões", () => {
       abertas: "/ordens?recorte=abertas",
       atrasadas: "/ordens?recorte=atrasadas",
       hoje: "/ordens?recorte=hoje",
-      pendentes: "/ordens?status=PENDING",
+      // DASH-1a: recorte próprio, para a listagem mostrar a faixa e a volta.
+      pendentes: "/ordens?recorte=pendentes",
       "tecnicos-em-atendimento": "/tecnicos?emAtendimento=true",
       "clientes-offline": "/clientes?active=true&conectividade=OFFLINE",
       "ctos-com-defeito": "/ctos?situacao=defeito",
@@ -75,7 +76,7 @@ describe("DASH-UI — cartões", () => {
     ).find((x) => x.key === "clientes-offline")!;
     expect(c.value).toBe(0);
     expect(c.placeholder).toBeUndefined();
-    expect(c.hint).toContain("de 12 com leitura");
+    expect(c.hint).toBe("Entre 12 clientes com leitura disponível.");
   });
 
   it("DASH-UI-05 · seção oculta não gera cartão — nem zerado", () => {

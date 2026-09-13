@@ -1,4 +1,4 @@
-import type { Customer } from "@prisma/client";
+import type { ConnectivityStatus, Customer } from "@prisma/client";
 import { logAudit } from "./audit";
 import {
   badRequest,
@@ -6,7 +6,10 @@ import {
   isUniqueConstraintError,
   notFound,
 } from "./errors";
-import { getCompanyConnectivityStatuses } from "./customer-diagnostics";
+import {
+  getCompanyConnectivityStatuses,
+  type CompanyConnectivityReading,
+} from "./customer-diagnostics";
 import { prisma } from "./prisma";
 
 export const EXTERNAL_ID_MAX_LENGTH = 64;
@@ -100,11 +103,23 @@ export function toPublicCustomer(customer: Customer): PublicCustomer {
   };
 }
 
+/** A leitura que colocou o cliente no recorte "Clientes offline". */
+export interface CustomerListConnectivity {
+  status: ConnectivityStatus;
+  observedAt: Date;
+}
+
 export interface CustomerListResult {
   customers: PublicCustomer[];
   total: number;
   page: number;
   pageSize: number;
+  /**
+   * Só com o recorte de conectividade ativo: a leitura de cada cliente DA
+   * PÁGINA, por id. Vem do mesmo lote que decidiu quem entra no recorte — a
+   * tela explica por que a linha está ali sem nenhuma consulta a mais.
+   */
+  connectivity?: Record<string, CustomerListConnectivity>;
 }
 
 export interface ListCustomersParams {
@@ -128,16 +143,20 @@ export interface ListCustomersParams {
  * OS (§370), e filtra pelos ids que ela devolve como `OFFLINE`. Cliente sem
  * leitura nunca entra: "sem leitura" não é "offline".
  */
-async function buildCustomerListWhere(
+async function buildCustomerListQuery(
   companyId: string,
   params: ListCustomersParams,
-): Promise<Record<string, unknown>> {
+): Promise<{
+  where: Record<string, unknown>;
+  readings: Map<string, CompanyConnectivityReading> | null;
+}> {
   const where: Record<string, unknown> = { companyId };
+  let readings: Map<string, CompanyConnectivityReading> | null = null;
   if (params.connectivity === "OFFLINE") {
-    const estados = await getCompanyConnectivityStatuses(companyId);
+    readings = await getCompanyConnectivityStatuses(companyId);
     where.id = {
-      in: Array.from(estados)
-        .filter(([, status]) => status === "OFFLINE")
+      in: Array.from(readings)
+        .filter(([, leitura]) => leitura.status === "OFFLINE")
         .map(([customerId]) => customerId),
     };
   }
@@ -151,7 +170,7 @@ async function buildCustomerListWhere(
       { city: { contains: params.search, mode: "insensitive" } },
     ];
   }
-  return where;
+  return { where, readings };
 }
 
 export async function listCompanyCustomers(
@@ -160,7 +179,7 @@ export async function listCompanyCustomers(
 ): Promise<CustomerListResult> {
   const page = Math.max(1, params.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
-  const where = await buildCustomerListWhere(companyId, params);
+  const { where, readings } = await buildCustomerListQuery(companyId, params);
 
   const [customers, total] = await Promise.all([
     prisma.customer.findMany({
@@ -172,12 +191,21 @@ export async function listCompanyCustomers(
     prisma.customer.count({ where }),
   ]);
 
-  return {
+  const result: CustomerListResult = {
     customers: customers.map(toPublicCustomer),
     total,
     page,
     pageSize,
   };
+  if (readings) {
+    // Só as linhas desta página: o mapa inteiro da empresa não sai daqui.
+    result.connectivity = {};
+    for (const customer of customers) {
+      const leitura = readings.get(customer.id);
+      if (leitura) result.connectivity[customer.id] = leitura;
+    }
+  }
+  return result;
 }
 
 /** Quantos clientes a listagem mostraria — pelo MESMO `where` da tela. */
@@ -185,9 +213,8 @@ export async function countCompanyCustomers(
   companyId: string,
   params: Omit<ListCustomersParams, "page" | "pageSize"> = {},
 ): Promise<number> {
-  return prisma.customer.count({
-    where: await buildCustomerListWhere(companyId, params),
-  });
+  const { where } = await buildCustomerListQuery(companyId, params);
+  return prisma.customer.count({ where });
 }
 
 export async function getCompanyCustomer(
