@@ -10,7 +10,14 @@ import { listCustomerConnections } from "@/lib/customer-connections";
 import { CustomerForm } from "@/components/CustomerForm";
 import { CustomerConnectionsPanel } from "@/components/CustomerConnectionsPanel";
 import { ReceitanetOrderSyncPanel } from "@/components/ReceitanetOrderSyncPanel";
-import { OPERATIONAL_MAP_PATH, parseReturnTo } from "@/lib/return-to";
+import { CustomerTimelineSection } from "@/components/CustomerTimelineSection";
+import {
+  CUSTOMER_TIMELINE_MAX,
+  CUSTOMER_TIMELINE_PAGE_SIZE,
+  loadCustomerTimeline,
+  parseTimelineLimit,
+} from "@/lib/customer-timeline";
+import { OPERATIONAL_MAP_PATH, buildReturnTo, parseReturnTo } from "@/lib/return-to";
 import { buildMapViewQuery, parseMapViewParams } from "@/lib/map-view-params";
 import { notFound } from "next/navigation";
 
@@ -89,6 +96,33 @@ async function resolverVolta(
   };
 }
 
+/**
+ * "Ver eventos anteriores" é esta mesma tela com um limite maior — TL-1.
+ *
+ * A origem da navegação sobrevive ao clique, e pelo mesmo desenho do botão de
+ * voltar: o `returnTo` é REMONTADO a partir do destino já validado, e a vista
+ * do mapa a partir dos parâmetros já conferidos. Nada do que veio na query é
+ * ecoado — um `returnTo` que a allowlist recusou simplesmente não segue.
+ */
+function linkVerMais(
+  customerId: string,
+  todos: Record<string, string | string[] | undefined> | undefined,
+  limit: number,
+): string | null {
+  if (limit >= CUSTOMER_TIMELINE_MAX) return null;
+  const bruto = todos?.returnTo;
+  const destino = parseReturnTo(Array.isArray(bruto) ? bruto[0] : bruto);
+  const query = new URLSearchParams();
+  if (destino) query.set("returnTo", buildReturnTo(destino));
+  if (destino?.kind === "operational-map") {
+    new URLSearchParams(buildMapViewQuery(parseMapViewParams(todos))).forEach((valor, chave) =>
+      query.set(chave, valor),
+    );
+  }
+  query.set("historico", String(limit + CUSTOMER_TIMELINE_PAGE_SIZE));
+  return `/clientes/${encodeURIComponent(customerId)}/editar?${query.toString()}#historico`;
+}
+
 export default async function EditCustomerPage({
   params,
   searchParams,
@@ -111,6 +145,18 @@ export default async function EditCustomerPage({
   const connections = isAdmin
     ? await listCustomerConnections(session.companyId, params.id)
     : [];
+
+  // O histórico lê com a empresa e o perfil da SESSÃO: é o perfil que decide
+  // se CTO e porta entram, e nunca um parâmetro da tela.
+  const historicoBruto = searchParams?.historico;
+  const limiteHistorico = parseTimelineLimit(
+    Array.isArray(historicoBruto) ? historicoBruto[0] : historicoBruto,
+  );
+  const historico = await loadCustomerTimeline(
+    { companyId: session.companyId, profile: session.profile },
+    customer.id,
+    limiteHistorico,
+  );
 
   return (
     <div>
@@ -160,6 +206,11 @@ export default async function EditCustomerPage({
             connections={connections}
           />
         )}
+
+        <CustomerTimelineSection
+          section={historico}
+          loadMoreHref={linkVerMais(customer.id, searchParams, limiteHistorico)}
+        />
       </div>
     </div>
   );
