@@ -66,12 +66,24 @@ function buildTechnicianListWhere(
   const where: Record<string, unknown> = { companyId };
   if (params.active !== undefined) where.active = params.active;
   if (params.inService) Object.assign(where, technicianInServiceWhere(companyId));
-  if (params.search) {
-    where.user = {
-      name: { contains: params.search, mode: "insensitive" },
-    };
-  }
+  if (params.search) Object.assign(where, technicianSearchFilter(companyId, params.search));
   return where;
+}
+
+/**
+ * O predicado da busca de técnico — o da listagem `/tecnicos` e o da busca
+ * global (GS-1, PRD §384): pelo nome da pessoa, e só.
+ *
+ * `companyId` também dentro da relação com o usuário: o vínculo é criado na
+ * mesma empresa, mas o predicado não depende de ninguém ter lembrado disso.
+ */
+export function technicianSearchFilter(
+  companyId: string,
+  search: string,
+): { user: Record<string, unknown> } {
+  return {
+    user: { companyId, name: { contains: search, mode: "insensitive" } },
+  };
 }
 
 function toPublicTechnician(technician: {

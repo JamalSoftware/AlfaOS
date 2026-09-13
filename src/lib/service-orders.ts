@@ -787,33 +787,50 @@ async function buildServiceOrderListWhere(
   if (params.status) where.status = params.status;
   if (params.priority) where.priority = params.priority;
   if (params.technicianId) where.technicianId = params.technicianId;
-  if (params.search) {
-    /**
-     * Busca por número operacional.
-     *
-     * Só entra no OR quando o termo é um inteiro positivo que cabe em `int4`:
-     * `number` é coluna inteira, e mandar texto arbitrário para ela seria erro
-     * de tipo no Postgres, não "nenhum resultado". O `#` inicial é aceito
-     * porque é assim que a tela mostra o número.
-     */
-    const term = params.search.trim();
-    const numeric = /^#?[0-9]{1,9}$/.test(term)
-      ? Number.parseInt(term.replace(/^#/, ""), 10)
-      : null;
+  if (params.search) Object.assign(where, serviceOrderSearchFilter(companyId, params.search));
+  return where;
+}
 
-    where.OR = [
+/**
+ * O predicado da busca de OS — o da listagem `/ordens` e o da busca global
+ * (GS-1, PRD §384). Um só, pela mesma razão da busca de cliente (§201).
+ *
+ * O `companyId` entra DENTRO da relação com o cliente: `ServiceOrder.customerId`
+ * é FK simples, e uma OS apontando para o cliente de outra empresa (o vetor da
+ * `DQ-7.1`) casaria pelo nome dele. O tenant da própria OS continua sendo de
+ * quem chama, no mesmo `where`.
+ */
+export function serviceOrderSearchFilter(
+  companyId: string,
+  search: string,
+): { OR: Record<string, unknown>[] } {
+  /**
+   * Busca por número operacional.
+   *
+   * Só entra no OR quando o termo é um inteiro positivo que cabe em `int4`:
+   * `number` é coluna inteira, e mandar texto arbitrário para ela seria erro
+   * de tipo no Postgres, não "nenhum resultado". O `#` inicial é aceito
+   * porque é assim que a tela mostra o número.
+   */
+  const term = search.trim();
+  const numeric = /^#?[0-9]{1,9}$/.test(term)
+    ? Number.parseInt(term.replace(/^#/, ""), 10)
+    : null;
+
+  return {
+    OR: [
       ...(numeric !== null && numeric > 0 ? [{ number: numeric }] : []),
-      { externalNumber: { contains: params.search, mode: "insensitive" } },
-      { type: { contains: params.search, mode: "insensitive" } },
-      { description: { contains: params.search, mode: "insensitive" } },
+      { externalNumber: { contains: search, mode: "insensitive" } },
+      { type: { contains: search, mode: "insensitive" } },
+      { description: { contains: search, mode: "insensitive" } },
       {
         customer: {
-          name: { contains: params.search, mode: "insensitive" },
+          companyId,
+          name: { contains: search, mode: "insensitive" },
         },
       },
-    ];
-  }
-  return where;
+    ],
+  };
 }
 
 export async function listCompanyServiceOrders(

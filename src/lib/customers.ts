@@ -161,16 +161,63 @@ async function buildCustomerListQuery(
     };
   }
   if (params.active !== undefined) where.active = params.active;
-  if (params.search) {
-    where.OR = [
-      { name: { contains: params.search, mode: "insensitive" } },
-      { document: { contains: params.search, mode: "insensitive" } },
-      { email: { contains: params.search, mode: "insensitive" } },
-      { phone: { contains: params.search, mode: "insensitive" } },
-      { city: { contains: params.search, mode: "insensitive" } },
-    ];
-  }
+  if (params.search) Object.assign(where, customerSearchFilter(params.search));
   return { where, readings };
+}
+
+/**
+ * Os dígitos de um termo com cara de telefone ou documento — ou `null`.
+ *
+ * "Cara de" é: só dígitos e a pontuação que telefone e documento usam, com pelo
+ * menos quatro dígitos. Menos que isso casaria com quase todo telefone da base.
+ */
+export function phoneOrDocumentDigits(search: string): string | null {
+  const termo = search.trim();
+  if (!/^[\d\s().\-/+]+$/.test(termo)) return null;
+  const digitos = termo.replace(/\D/g, "");
+  return digitos.length >= 4 ? digitos : null;
+}
+
+const CUSTOMER_SEARCH_FIELDS = [
+  "name",
+  "document",
+  "email",
+  "phone",
+  "secondaryPhone",
+  "address",
+  "district",
+  "city",
+  "zipCode",
+] as const;
+
+/**
+ * O predicado da busca de cliente — o da listagem `/clientes` e o da busca
+ * global (GS-1, PRD §384).
+ *
+ * UM só, porque busca duplicada é autorização duplicada (§201): a segunda
+ * implementação esquece um campo ou uma checagem que a primeira tem. Com o
+ * mesmo `where`, o "ver todos" da busca global abre a listagem e mostra os
+ * mesmos clientes.
+ *
+ * Telefone e documento chegam gravados de dois jeitos: só dígitos (o ERP
+ * normaliza) e como foram digitados no cadastro manual. Um termo com cara de
+ * número também procura a versão só-dígitos, então "(92) 99999-1234" acha o
+ * telefone gravado como 92999991234. O inverso — gravado com máscara, digitado
+ * sem — não é coberto: exigiria normalizar a coluna, e isso é migration.
+ *
+ * O tenant NÃO está aqui: quem chama põe `companyId` no mesmo `where`.
+ */
+export function customerSearchFilter(search: string): { OR: Record<string, unknown>[] } {
+  const OR: Record<string, unknown>[] = CUSTOMER_SEARCH_FIELDS.map((field) => ({
+    [field]: { contains: search, mode: "insensitive" },
+  }));
+  const digitos = phoneOrDocumentDigits(search);
+  if (digitos !== null && digitos !== search) {
+    for (const field of ["phone", "secondaryPhone", "document"] as const) {
+      OR.push({ [field]: { contains: digitos } });
+    }
+  }
+  return { OR };
 }
 
 export async function listCompanyCustomers(
