@@ -329,6 +329,32 @@ de negócio do SGP**.
 
 Elas continuam sob a §119: estar no PRD não é autorização para implementar.
 
+**Atualização automática do diagnóstico na OS aberta — `DIAG-AUTO-01`,
+`DEFERRED BY PRD SCOPE` (sugestão do dono, 13/09/2026).** Hoje o
+"Atualizar diagnóstico" é um clique; a ideia é repetir a leitura sozinha,
+de tempos em tempos, enquanto a tela da OS estiver aberta. **Não entra na V1**:
+a PRD descreve o refresh como **sob demanda, com gatilho na OS**, e diz que
+atualizar "continua sendo ação explícita" (§337, §370); não está em §386 nem em
+§387, e pelo critério da §393 não é bloqueador da operação. Implementá-la seria
+mudar essa decisão, e isso é `DECISION UPDATED` do dono, nunca efeito colateral
+de uma tela. Nada foi escrito em código.
+
+```text
+se voltar         decisão explícita do dono, atualizando §337/§370 (§390)
+pesa na decisão   cada ciclo é uma chamada real ao provider (hoje, o ReceitaNet
+                  CallCenter; o SGP não tem a capability); o balde de 10/min
+                  é por (empresa, usuário, capability) no código e em
+                  SECURITY.md — a §337 diz "por empresa" —, então a carga no
+                  provider cresce com o número de telas abertas; e o frescor
+                  da conectividade é a decisão aberta C-03 (CTO-6)
+guarda-corpos     o MESMO POST do botão · só com a aba visível · sem chamada
+                  sobreposta · falha mantém a última leitura e nunca vira
+                  OFFLINE · sem STALE · nenhum evento de timeline · nenhum
+                  job, cron ou worker · o botão manual continua
+não é             NOC, monitoramento de rede, "offline há N dias" — V2 e
+                  Parte XVII
+```
+
 ---
 
 ## 10. Backlog futuro — Central de Retenção e Recuperação

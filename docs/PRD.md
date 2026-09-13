@@ -13781,6 +13781,8 @@ incidentes coletivos                      V2 (§388)
 FiberMap                                  V3 (§389)
 NOC                                       V2 (§388)
 IA de diagnóstico                         backlog, sem seção própria
+auto-atualização do diagnóstico na OS     backlog (DIAG-AUTO-01) — o refresh é
+                                          ação explícita (§337, §370)
 ```
 
 A §119 continua valendo para todos: estar descrito aqui não é autorização.

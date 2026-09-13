@@ -1118,6 +1118,8 @@ Quatro coisas que não se redescobrem: **o pacote só existe na OS `COMPLETED`**
 
 Medido no banco de dev (OS Nº 6): **15 consultas numa transação só**, `RepeatableRead`, 1,7 KB de payload, 76 ms de mediana. Gates: **2566 Vitest** (era 2526; 118 arquivos), **314 Playwright** (era 308) numa rodada só, lint, tsc, build, `build:worker`, `prisma validate`, **27 migrations** — nenhuma nova. **24 sabotagens, 24 detectadas** na segunda rodada — sete delas (arquivo de outro tenant, perfil, etiqueta repetida, fuso, hora da conclusão, "Voltar", botão da OS) também pelo navegador.
 
+**`DIAG-AUTO-01` — `DEFERRED BY PRD SCOPE` (13/09/2026), zero código.** O dono sugeriu que o diagnóstico de conectividade da OS se atualizasse sozinho, de tempos em tempos, com a tela aberta. A PRD descreve o refresh como **sob demanda, com gatilho na OS**, e diz que atualizar continua sendo **ação explícita** (§337, §370); a ideia não está em §386 nem em §387, e pelo critério da §393 não é bloqueador da operação V1. Implementá-la mudaria uma decisão aprovada — só com `DECISION UPDATED` do dono. Registrada como backlog em PRD §393 e `docs/MASTER-PLAN.md` §9, com o que pesa na decisão (cada ciclo é chamada real ao provider; o balde de 10/min é por empresa **e usuário** no código, enquanto a §337 diz "por empresa"; o frescor é a decisão aberta `C-03`) e os guarda-corpos para quando voltar.
+
 **Próxima fatia ativa do Core V1: `GS-1`** — **não iniciada.**
 
 ## Princípios
