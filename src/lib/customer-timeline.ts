@@ -440,6 +440,7 @@ export async function getCustomerTimeline(
   // Segunda leva, dependente da primeira e limitada pelos ids dela.
   const concluidas = eventos.filter((e) => e.event === "OS_COMPLETED").map((e) => e.serviceOrder.id);
   const osDasFotos = gruposDeFotos.map((g) => g.serviceOrderId);
+  // Função, e não lista: sem OS concluída nem foto, a segunda leva nem é montada.
   const segunda = () =>
     [
       prisma.serviceOrderExecution.findMany({
