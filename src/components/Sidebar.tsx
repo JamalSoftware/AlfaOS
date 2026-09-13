@@ -4,7 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { AccessProfile } from "@prisma/client";
-import { navigationFor, PROFILE_LABELS, type CompanyFeatures } from "@/lib/navigation";
+import {
+  canUseGlobalSearch,
+  navigationFor,
+  PROFILE_LABELS,
+  type CompanyFeatures,
+} from "@/lib/navigation";
+import { GLOBAL_SEARCH_MAX_QUERY } from "@/lib/global-search-rules";
 import { Icon } from "./icons";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -50,6 +56,37 @@ function NavList({
         );
       })}
     </nav>
+  );
+}
+
+/**
+ * O campo da busca global (GS-1). Um `GET` comum para `/busca?q=`, como os
+ * formulários das listagens: Enter leva à página de resultados, sem requisição
+ * por tecla. Só aparece para quem tem a busca — e quem barra é o servidor.
+ */
+function GlobalSearchField({ id }: { id: string }) {
+  return (
+    <form
+      method="get"
+      action="/busca"
+      role="search"
+      aria-label="Busca global"
+      data-testid="sidebar-search"
+      className="px-3 pt-3"
+    >
+      <label htmlFor={id} className="sr-only">
+        Buscar
+      </label>
+      <input
+        id={id}
+        type="search"
+        name="q"
+        maxLength={GLOBAL_SEARCH_MAX_QUERY}
+        autoComplete="off"
+        placeholder="Buscar cliente, OS, técnico…"
+        className="w-full rounded-lg border border-input-border bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
+      />
+    </form>
   );
 }
 
@@ -164,6 +201,7 @@ export function Sidebar({ profile, userName, companyName, features }: SidebarPro
                 </svg>
               </button>
             </div>
+            {canUseGlobalSearch(profile) && <GlobalSearchField id="global-search-mobile" />}
             <NavList
               profile={profile}
               features={features}
@@ -178,6 +216,7 @@ export function Sidebar({ profile, userName, companyName, features }: SidebarPro
       {/* Desktop sidebar */}
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-surface md:flex">
         <Brand companyName={companyName} />
+        {canUseGlobalSearch(profile) && <GlobalSearchField id="global-search-desktop" />}
         <NavList profile={profile} features={features} pathname={pathname} />
         <UserFooter profile={profile} userName={userName} />
       </aside>

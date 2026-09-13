@@ -172,6 +172,24 @@ export function navigationFor(
   });
 }
 
+/**
+ * Quem tem a busca global (GS-1, PRD §384).
+ *
+ * Os perfis que têm as listagens que ela resume — clientes, OS, técnicos. O
+ * TECHNICIAN não tem nenhuma listagem na web (decisão do dono na abertura da
+ * GS-1): o campo não aparece para ele e `/busca` o manda para a tela dele. É a
+ * mesma lista que a página e o domínio conferem; esconder o campo é
+ * conveniência, e quem barra é o servidor.
+ */
+export const GLOBAL_SEARCH_PROFILES: readonly AccessProfile[] = [
+  AccessProfile.ADMIN,
+  AccessProfile.DISPATCHER,
+];
+
+export function canUseGlobalSearch(profile: AccessProfile): boolean {
+  return GLOBAL_SEARCH_PROFILES.includes(profile);
+}
+
 export const PROFILE_LABELS: Record<AccessProfile, string> = {
   ADMIN: "Administrador",
   DISPATCHER: "Despachante",
