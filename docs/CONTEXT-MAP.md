@@ -126,7 +126,7 @@ A fronteira: **Core** é tudo o que a PRD §386 lista como V1 MUST HAVE — nada
 **Quando:** qualquer tarefa que toque Ordem de Serviço, atribuição de técnico, máquina de estados da OS, ou a experiência do técnico em campo.
 **Quando NÃO:** tarefas de outros módulos sem relação com OS (ex.: só cadastro de cliente, configurações da empresa). Não carregue os três documentos de uma vez — execução e fechamento são fases distintas.
 
-## Dashboard operacional — `DASH-1` + `DASH-1a` (READY FOR OWNER VALIDATION)
+## Dashboard operacional — `DASH-1` + `DASH-1a` (APPROVED · FROZEN)
 
 **Carregar:** PRD **§380** (contrato e as decisões do dono) e `docs/MASTER-PLAN.md` §4. Não há documento de módulo: o contrato é curto e está nos comentários do código abaixo.
 **Quando:** a tarefa toca `/dashboard`, um cartão do painel, ou um dos filtros de destino (`/ordens?recorte=`, `/tecnicos?emAtendimento=`, `/clientes?conectividade=`, `/ctos?situacao=`).
@@ -147,7 +147,7 @@ A fronteira: **Core** é tudo o que a PRD §386 lista como V1 MUST HAVE — nada
 
 Cinco coisas que não se redescobrem:
 
-* **"Hoje" é o da EMPRESA**: `civilDayBoundsIn` em `src/lib/workday.ts` (a autoridade de fuso, junto de `civilDateIn`), com dia de 23/25 h e meia-noite pulada. `new Date(ano, mês, dia)` usa o fuso do processo — é o defeito que o antigo "Concluídas hoje" tinha e que `/minhas-os` ainda tem.
+* **"Hoje" é o da EMPRESA**: `civilDayBoundsIn` em `src/lib/workday.ts` (a autoridade de fuso, junto de `civilDateIn`), com dia de 23/25 h e meia-noite pulada. `new Date(ano, mês, dia)` usa o fuso do processo — é o defeito que o antigo "Concluídas hoje" tinha e que `/minhas-os` teve até o `HOTFIX-FIELD-01`, quando `listServiceOrdersForTechnician` passou a usar a mesma autoridade (`companySliceClock` + `civilDayBoundsIn`; teste: `src/tests/minhas-os-today.test.ts`).
 * **Atrasada exclui a OS em atendimento, e OS sem agendamento nunca é atrasada** (decisão do dono). `NOT_STARTED_SERVICE_ORDER_STATUSES` é derivado de `OPEN_SERVICE_ORDER_STATUSES`, nunca listado.
 * **O recorte entra por `AND`** no `where` da listagem: juntar as chaves deixaria o filtro de status da tela sobrescrever o do recorte em silêncio.
 * **"Em atendimento" põe `companyId` DENTRO da relação** técnico → OS: `ServiceOrder.technicianId` é FK simples, e uma OS de outra empresa poderia pôr um técnico nosso "em atendimento" (vetor da `DQ-7.1`).

@@ -222,7 +222,8 @@ auditoria (evita ruído), embora ainda incremente a versão.
 ### `/minhas-os`
 
 Ordem de prioridade visual: **"Em atendimento"** (`IN_PROGRESS`) → **"Hoje"**
-(`ASSIGNED` agendada para hoje) → **"Próximas"**. A seção "Em atendimento" só
+(`ASSIGNED` agendada para o dia civil de hoje **da empresa** — `Company.timezone`,
+nunca o fuso do servidor; `HOTFIX-FIELD-01`) → **"Próximas"**. A seção "Em atendimento" só
 aparece quando há algo nela, e vem primeiro porque é a OS que o técnico está
 fisicamente executando; todo o resto é planejamento.
 

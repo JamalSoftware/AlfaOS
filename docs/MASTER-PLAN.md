@@ -55,7 +55,7 @@ CTO-3.2.2b · c · d · e   estabilização e acabamento de UX           ← con
    ↓  validação do dono — CTO-3.2.2e APPROVED
 MAPA OPERACIONAL V1 — FROZEN (PRD §392)                             ← 2026-09-12
    ↓
-DASH-1 · DASH-1a               dashboard acionável       ← READY FOR OWNER VALIDATION
+DASH-1 · DASH-1a               dashboard acionável       ← APPROVED · FROZEN (2026-09-12)
 TL-1 · EV-1 · GS-1             (ordem entre si: decisão do dono)
    ↓
 LANÇAMENTO V1
@@ -66,8 +66,8 @@ V2 (PRD §388)  →  V3 (PRD §389)
 **A ordem entre `DASH-1`, `TL-1`, `EV-1` e `GS-1` não está congelada.** Elas são
 independentes entre si e todas dependem apenas do que já existe. Congelar a
 ordem agora seria decidir por antecipação algo que o uso real vai informar
-melhor. **O dono escolheu a `DASH-1` primeiro**, e ela aguarda validação;
-`TL-1`, `EV-1` e `GS-1` não foram iniciadas.
+melhor. **O dono escolheu a `DASH-1` primeiro**, e ela foi aprovada com a
+`DASH-1a`; `TL-1`, `EV-1` e `GS-1` não foram iniciadas.
 
 ---
 
@@ -107,18 +107,21 @@ técnica).
 
 ## 4. `DASH-1` — Dashboard operacional acionável
 
-> **Estado: ENTREGUE — `READY FOR OWNER VALIDATION`.** Commits locais, sem tag
+> **Estado: ENTREGUE — `APPROVED` (com a `DASH-1a`).** Commits locais, sem tag
 > e sem push. Zero migration, zero schema, zero dependência, zero Dart, zero
 > rota de API. As definições que o PRD não trazia — "OS atrasada", "OS de
 > hoje" e o conjunto de cartões — foram decididas pelo dono e registradas na
 > PRD §380; o mapa do código está em `docs/CONTEXT-MAP.md`. O que segue é o
 > plano como foi escrito.
 >
-> **`DASH-1a` — refinamento de UX, também `READY FOR OWNER VALIDATION`.** O dono
-> validou a `DASH-1` funcionalmente; a microfase fez cada listagem aberta pelo
-> cartão explicar por que a linha está no recorte (volta ao painel, faixa nos
-> oito recortes, contexto por linha, vazio contextual, atividade humanizada).
-> Sem indicador novo, sem migration — decisões na PRD §380.
+> **`DASH-1a` — refinamento de UX.** O dono validou a `DASH-1` funcionalmente;
+> a microfase fez cada listagem aberta pelo cartão explicar por que a linha está
+> no recorte (volta ao painel, faixa nos oito recortes, contexto por linha,
+> vazio contextual, atividade humanizada). Sem indicador novo, sem migration —
+> decisões na PRD §380.
+>
+> **`DASH-1a` — `APPROVED`. Dashboard Operacional V1 — `FROZEN` (2026-09-12).**
+> Fora da lista de trabalho ativo.
 
 **Objetivo.** Transformar os cartões de contagem que já existem em indicadores
 que levam a algum lugar, e acrescentar os que faltam.

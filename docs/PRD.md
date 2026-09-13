@@ -13160,7 +13160,8 @@ atividade         códigos de auditoria traduzidos na tela; o registro não muda
 ```
 
 O contexto de cada linha vem da MESMA leitura que decidiu o recorte, em lote —
-nenhuma consulta por linha. **`DASH-1a` — `READY FOR OWNER VALIDATION`.**
+nenhuma consulta por linha. **`DASH-1a` — `APPROVED`. Dashboard Operacional V1 —
+`FROZEN` (2026-09-12).**
 
 ---
 
@@ -13298,7 +13299,7 @@ O que precisa estar de pé para o primeiro lançamento.
 | Busca operacional do mapa (CTO · cliente · OS) | **implementado** (`CTO-3.2.2`) — endereço é da busca global (§374, §384) |
 | Checklist por tipo de OS | **implementado** (v0.10) — verificar cobertura |
 | Equipamentos e estoque | **implementado** no estado atual |
-| Dashboard operacional acionável | **implementado** (`DASH-1`) — aguarda validação do dono (§380) |
+| Dashboard operacional acionável | **implementado** (`DASH-1` · `DASH-1a`) — aprovado pelo dono, `FROZEN` (§380) |
 | Timeline do cliente | **falta** |
 | Pacote técnico de evidências | **falta a reunião** — as peças existem |
 | Busca global do AlfaOS | **falta** |
