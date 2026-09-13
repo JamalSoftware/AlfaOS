@@ -13296,6 +13296,67 @@ pacote conferível.
 já tem sequência própria para geração de documento, e antecipá-la aqui
 duplicaria o mecanismo.
 
+**`EV-1` — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** A
+reunião existe: página **"Pacote técnico"** (`/ordens/[id]/pacote`), aberta pelo
+botão **"Ver pacote técnico"** na faixa verde da OS concluída. Visão **DERIVADA**:
+zero migration, zero schema, zero rota de API, zero Dart — nada é escrito, e
+cada item é lido da tabela que já é a autoridade dele.
+
+**Decidido pelo dono na abertura da `EV-1`:**
+
+```text
+superfície      página própria da OS concluída, com botão na faixa de conclusão
+quem vê         quem já vê a OS concluída: ADMIN, DISPATCHER e o técnico DONO
+conteúdo        a lista acima + MATERIAIS (fazem parte do conteúdo assinado);
+                CTO e porta FORA
+localização     check-in (hora, com/sem GPS, distância ao ponto cadastrado no
+                momento do check-in, precisão) + confirmação/correção do ponto
+                feita NESTA OS — sem coordenada
+```
+
+**Uma fonte por item, só o confirmado:**
+
+```text
+horário        ServiceOrder.startedAt/completedAt · check-in (checkedInAt)
+localização    ServiceOrderCheckIn · CustomerLocationHistory desta OS e deste cliente
+fotos          evidências CONFIRMADAS — temporária não prova nada; medição e
+               etiqueta de equipamento não repetem na galeria
+medições       as fotos de teste de velocidade e de leitura óptica — o modelo não
+               guarda valor medido, e nenhum é inventado
+equipamentos   a linha do equipamento, com a foto da etiqueta; o removido no
+               atendimento foi apagado e não aparece
+materiais      ServiceOrderMaterialUsage
+observações    diagnóstico, serviço realizado e observações, na íntegra
+checklist      o snapshot da OS; item de foto satisfeito por evidência confirmada
+               da categoria — a mesma regra da conclusão
+assinatura     quem assinou, quando, e quem coletou
+```
+
+**O pacote só existe na OS `COMPLETED`.** Antes disso a página diz que o
+atendimento ainda não foi concluído, sem item nenhum: nada parcial é chamado de
+evidência enquanto ainda pode mudar. Técnico que não é o dono, outra empresa e id
+desconhecido recebem **404**, como na tela da OS. As imagens passam pelas rotas
+autorizadas que já existiam (mesma empresa, ou o técnico dono; `attachment`,
+`nosniff`, `no-store`) — nenhuma chave de arquivo sai para a tela.
+
+**Conferência com o que já existe, sem promessa de imutabilidade.** O pacote
+**deriva o estado atual**; o que o torna conferível é o **hash do fechamento**
+(`ServiceOrderCompletion.contentHash`) comparado ao conteúdo de agora —
+*conferido*, *divergente* ou *sem registro de fechamento* (OS anterior à v0.10) —
+e a assinatura comparada ao conteúdo que ela assinou — *vinculada*, *divergente*,
+*anterior à regra de vínculo* ou *sem assinatura*. Divergência é **aviso**, com
+glifo e texto além da cor. **Nenhum selo de completude** é mostrado: a política de
+conclusão é mutável e não foi gravada junto do fechamento, então medir o pacote
+contra a política de hoje seria julgar o passado por uma regra que ele não
+conhecia.
+
+Falha de leitura é **aviso de erro**, nunca "sem evidência". Datas e horas no fuso
+da **empresa**. **Fora, e continua fora:** PDF, ZIP, download, compartilhamento,
+WhatsApp, e-mail, CTO/porta, impedimentos e tentativas de contato, `AuditLog`,
+coordenadas, CPF, credencial PPPoE, identificadores de ERP, hashes crus, resumo
+por IA e qualquer mudança no aplicativo do técnico. Mapa do código em
+`docs/CONTEXT-MAP.md`.
+
 ---
 
 # 384. BUSCA GLOBAL DO ALFAOS
@@ -13374,7 +13435,7 @@ O que precisa estar de pé para o primeiro lançamento.
 | Equipamentos e estoque | **implementado** no estado atual |
 | Dashboard operacional acionável | **implementado** (`DASH-1` · `DASH-1a`) — aprovado pelo dono, `FROZEN` (§380) |
 | Timeline do cliente | **implementado** (`TL-1`) — aprovado pelo dono, `FROZEN` (§381) |
-| Pacote técnico de evidências | **falta a reunião** — as peças existem |
+| Pacote técnico de evidências | **implementado** (`EV-1`) — `READY FOR OWNER VALIDATION` (§383) |
 | Busca global do AlfaOS | **falta** |
 
 ---

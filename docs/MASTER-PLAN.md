@@ -38,6 +38,8 @@ DASHBOARD V1            DASH-1 → DASH-1a                              APPROVED
 HOTFIX-FIELD-01         "Hoje" de /minhas-os no fuso da empresa       APPROVED
 TIMELINE DO CLIENTE V1  TL-1                                          APPROVED · FROZEN
                         histórico na ficha do cliente · 50 por vez até 500
+PACOTE TÉCNICO V1       EV-1                                          READY FOR OWNER VALIDATION
+                        página da OS concluída · conferência pelo hash
 ```
 
 O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e a lista
@@ -65,7 +67,7 @@ HOTFIX-FIELD-01                "Hoje" de /minhas-os      ← APPROVED (2026-09-1
    ↓
 TL-1                           timeline do cliente       ← APPROVED · FROZEN (2026-09-13)
    ↓
-EV-1                           pacote de evidências      ← PRÓXIMA FATIA ATIVA · não iniciada
+EV-1                           pacote de evidências      ← READY FOR OWNER VALIDATION
 GS-1                           busca global              ← depois da EV-1 · não iniciada
    ↓
 LANÇAMENTO V1
@@ -77,10 +79,9 @@ V2 (PRD §388)  →  V3 (PRD §389)
 previa.** Elas continuam independentes entre si e todas dependem apenas do que
 já existe. **`DASH-1` veio primeiro** e foi aprovada com a `DASH-1a`; o
 **`HOTFIX-FIELD-01`** fechou um defeito conhecido do técnico; e a **`TL-1`** foi
-aprovada pelo dono e congelada (§5, PRD §381). **A próxima fatia ativa do Core
-V1 é a `EV-1`**, seguida da **`GS-1`** — nenhuma das duas iniciada. A próxima
-execução é `EV-1` — discovery, contract lock e implementação — sobre o que o §6
-e a PRD §383 já definem.
+aprovada pelo dono e congelada (§5, PRD §381). **A `EV-1` foi implementada e
+aguarda a validação do dono** (§6, PRD §383). A **`GS-1`** vem depois dela e
+**não foi iniciada** — ela só começa depois da validação da `EV-1`.
 
 ---
 
@@ -211,9 +212,11 @@ evento" indefinidamente. A lista de tipos fica congelada no início da fatia.
 
 ## 6. `EV-1` — Pacote técnico de evidências
 
-> **Estado: PRÓXIMA FATIA ATIVA — não iniciada.** O que segue é o plano como
-> foi escrito; a execução começa por discovery e contract lock, e nada abaixo
-> vira contrato antes deles.
+> **Estado: `READY FOR OWNER VALIDATION` — commits locais, sem tag e sem push.**
+> Contrato, decisões do dono e o que ficou fora: PRD §383. Mapa do código:
+> `docs/CONTEXT-MAP.md`, seção *Pacote técnico de evidências*. O plano abaixo é o
+> registro de como a fatia foi escrita; ele se cumpriu sem migration, sem rota de
+> API e sem Dart — e os quatro testes que ele pedia existem.
 
 **Objetivo.** Reunir num lugar conferível tudo o que a conclusão de uma OS
 produziu.
@@ -389,9 +392,10 @@ ACS / Wi-Fi                     gerência remota do CPE           PRD §410 · �
 Analytics                       indicadores de negócio           PRD §410
 ```
 
-**As fatias V1 não mudam.** Com a `DASH-1` e a `TL-1` concluídas, `EV-1 → GS-1`
-continuam sendo o próximo trabalho do Core V1, e **nenhum módulo entra dentro
-delas** — nem como "já que estamos mexendo aqui" (PRD §393).
+**As fatias V1 não mudam.** Com a `DASH-1` e a `TL-1` concluídas e a `EV-1`
+aguardando validação, `EV-1 → GS-1` continuam sendo o trabalho do Core V1, e
+**nenhum módulo entra dentro delas** — nem como "já que estamos mexendo aqui"
+(PRD §393).
 
 **O que um módulo precisa antes de virar fatia**, além da decisão do dono: a
 camada central de acesso — Module Registry, entitlement por tenant e capability
@@ -442,6 +446,21 @@ E2E do mapa — MAPEDIT-05/06/07 intermitente (achado na TL-1, 13/09/2026)
            caminho de /mapa mudou
   aberto   se é corrida da medição ou o marcador voltando ao ponto gravado
   fase     investigação própria; o mapa está FROZEN e só reabre por defeito provado
+
+Fotos gravadas antes do PC-1 com GPS no arquivo (achado na EV-1, 13/09/2026)
+  o quê    a limpeza de EXIF (PC-1, 06/09) roda no UPLOAD; a foto gravada antes
+           dela continua com os bytes originais. No banco de dev: 1 de 1 foto
+           confirmada de OS concluída — a do piloto da OS Nº 6, de 28/08 — ainda
+           tem IFD de GPS
+  alcance  pré-existente: a mesma rota autorizada já servia esse arquivo na OS
+           concluída (ServiceOrderClosingReadOnly); o pacote não amplia quem vê
+  fase     release hardening — re-sanitizar o storage legado, sem mexer no hash
+           do fechamento (ele não inclui os bytes)
+
+PRD — menções antigas a comprovante em PDF (achado na EV-1)
+  o quê    §34, §38 e §117 citam PDF/comprovante sem marca de superado; a §383
+           (escopo V1, posterior) diz que PDF não é obrigatório na V1
+  fase     higiene documental — marcar na §390, sem mudar decisão
 ```
 
 O `HOTFIX-FIELD-01` corrigiu **só** o fuso de "Hoje" em `/minhas-os`; a

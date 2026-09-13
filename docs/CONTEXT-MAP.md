@@ -85,7 +85,7 @@ concluir pela ausência** é como um contêiner de 43 horas de uptime vira
 
 Quatro coisas dessa Parte que não se redescobrem: **`STALE` não existe** no AlfaOS — a conectividade tem três estados e o que viaja junto é a **idade** da leitura (§370); **o checklist por tipo de OS já está implementado** desde a v0.10, e foi apresentado como escopo novo por engano (§382); **a máquina de estados da OS tem cinco valores**, e *agendada*, *em deslocamento* e *pausada* **não são estados** — os gaps estão registrados em §385 sem inventar enum; e **`CANCELLED` é declarado e inalcançável**.
 
-**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias V1, cada uma com dependências, entregas, testes, segurança e risco. Concluídos: Mapa Operacional V1, `DASH-1` + `DASH-1a` e `HOTFIX-FIELD-01`. **Próxima fatia ativa do Core V1: `TL-1`**, depois `EV-1` e `GS-1` — nenhuma iniciada. Os débitos conhecidos fora das fatias estão no §12 dele. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
+**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias V1, cada uma com dependências, entregas, testes, segurança e risco. Concluídos: Mapa Operacional V1, `DASH-1` + `DASH-1a`, `HOTFIX-FIELD-01` e `TL-1`. **`EV-1` implementada, aguardando a validação do dono**; `GS-1` vem depois dela e não foi iniciada. Os débitos conhecidos fora das fatias estão no §12 dele. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
 
 **O DASHBOARD OPERACIONAL V1 TAMBÉM ESTÁ CONGELADO** (`DASH-1a` `APPROVED`, 2026-09-12): nenhuma feature nova entra nele, salvo correção crítica de defeito.
 
@@ -130,7 +130,7 @@ A fronteira: **Core** é tudo o que a PRD §386 lista como V1 MUST HAVE — nada
 
 **`/minhas-os` — "Hoje" é o dia civil da EMPRESA** (`HOTFIX-FIELD-01` `APPROVED`): `Company.timezone` → `resolveTimezone` → `civilDayBoundsIn`, intervalo `[início, início do dia seguinte)`. O defeito antigo — `new Date(ano, mês, dia)`, o fuso do processo — está resolvido; contrato em `docs/TECHNICIAN-EXECUTION.md` §9. **Débito registrado e não corrigido:** a seção "Próximas" também contém OS sem agendamento e OS com agendamento vencido, então o nome é impreciso. As opções estão no mesmo §9 e **nenhuma foi escolhida** — não renomear, não reagrupar e não mexer na query fora da fase do fluxo do técnico.
 
-**Fixture de QA que grava OS direto no banco usa `allocateServiceOrderNumber`, nunca número próprio.** O contador por empresa (`service_order_counters`) e a unique `(companyId, number)` não se reconciliam sozinhos: número gravado por fora deixa o contador para trás, e a próxima OS criada pela aplicação colide e falha — sempre, porque a falha desfaz o próprio incremento. Estado medido no banco de **dev** em 13/09/2026: contador da Alfa Telecom em 11 e OS até a Nº 13 (fixtures do mapa, `CTO-3.2.2`), então criar OS pela aplicação nessa empresa falha até o contador ser acertado — ajuste de dado que é decisão do dono, não da fase.
+**Fixture de QA que grava OS direto no banco usa `allocateServiceOrderNumber`, nunca número próprio.** O contador por empresa (`service_order_counters`) e a unique `(companyId, number)` não se reconciliam sozinhos: número gravado por fora deixa o contador para trás, e a próxima OS criada pela aplicação colide e falha — sempre, porque a falha desfaz o próprio incremento. O banco de **dev** chegou a ter isso (13/09/2026: contador da Alfa Telecom em 11 com OS até a Nº 13, fixtures do mapa da `CTO-3.2.2`). **DEV-DATA-01 resolveu: Alfa Telecom counter = 13, MAX OS = 13, next = 14** — ajuste só de dado, só dessa empresa, com dry-run antes; nenhum código mudou, e as outras empresas foram só lidas. Fixture nova que grave OS direto no banco continua obrigada a usar `allocateServiceOrderNumber` (como `e2e/evidence-package.spec.ts` faz), senão o descompasso volta.
 
 ## Dashboard operacional — `DASH-1` + `DASH-1a` (APPROVED · FROZEN)
 
@@ -184,6 +184,23 @@ Cinco coisas que não se redescobrem:
 * **Contagem de consultas é constante** (≤ 16 por visita, igual para 2 ou 32 itens — `TL-PAGE-05`), e o teto por fonte é afirmado sobre os argumentos da consulta (`TL-PAGE-04`), porque o corte depois da união esconderia uma fonte sem `take` de qualquer teste de resultado.
 
 **Limite declarado:** uma correção em campo para o MESMO ponto, com a MESMA origem, sobre localização não verificada e com motivo `OTHER` tem a mesma assinatura de uma confirmação, e aparece como "Localização confirmada em campo" — o efeito gravado é idêntico ao da confirmação.
+
+## Pacote técnico de evidências — `EV-1` (READY FOR OWNER VALIDATION)
+
+**Carregar:** PRD **§383** (contrato e as quatro decisões do dono) e `docs/MASTER-PLAN.md` §6; `docs/SERVICE-ORDER-CLOSING.md` se a tarefa mexer no que o fechamento grava (hash, evidência, assinatura). Não há documento de módulo: o contrato é a PRD e o cabeçalho de `src/lib/service-order-evidence-package.ts`.
+**Quando:** a tarefa toca `/ordens/[id]/pacote`, o botão "Ver pacote técnico" da OS concluída, ou muda o que o fechamento grava numa das fontes do pacote.
+**Quando NÃO:** PDF, ZIP, download ou compartilhamento — fora da V1 (PRD §383, §387); a timeline da OS (`/ordens/[id]`); a timeline do cliente (`TL-1`, FROZEN).
+
+**A regra que não se desfaz: o pacote é derivado e só existe na OS `COMPLETED`.** Nada é escrito; cada item vem da tabela que é a autoridade dele, e só o CONFIRMADO entra (`COMMITTED_EVIDENCE`, o mesmo filtro do fechamento). A conferência não promete imutabilidade — ela compara o hash gravado no fechamento (`ServiceOrderCompletion.contentHash`) com `closingContentHash` de agora, e a assinatura com o conteúdo que ela assinou. Não existe selo de completude: a política de conclusão é mutável e não é gravada com o fechamento.
+
+**Código:** `src/lib/service-order-evidence-package.ts` (leitura: portão de perfil e posse ANTES da consulta; uma transação interativa `RepeatableRead` numa conexão só; `take` em toda lista; `loadServiceOrderEvidencePackage` converte falha em `error` e loga só o tipo do erro), `src/lib/service-order-evidence-package-presentation.ts` (pura: frases da conferência, do check-in — as MESMAS do Field — e da mudança de ponto — `presentTimelineItem` da `TL-1`, reutilizado sem mudar contrato), `src/components/ServiceOrderEvidencePackageView.tsx` (servidor: erro · não concluída · pacote), `src/app/(app)/ordens/[id]/pacote/page.tsx` (os perfis da OS; `not-found` → 404), e o botão em `src/app/(app)/ordens/[id]/page.tsx`. As imagens usam as rotas que já existiam: `/api/service-orders/:id/evidence/:eid/content` e `/api/service-orders/:id/signature`. Testes: `src/tests/service-order-evidence-package.test.ts` (atendimento inteiro pelas rotas reais do Field), `service-order-evidence-package-presentation.test.ts`, `service-order-evidence-package-page.test.ts`, `e2e/evidence-package.spec.ts`.
+
+Quatro coisas que não se redescobrem:
+
+* **Medição é FOTO.** Teste de velocidade e leitura óptica não têm valor estruturado no modelo; o pacote mostra a foto do resultado e diz isso. Nenhum número é digitado, calculado ou extraído.
+* **Etiqueta aparece uma vez, junto do equipamento.** A foto `EQUIPMENT_LABEL` ligada a um equipamento sai da galeria; a do equipamento REMOVIDO volta a `TEMPORARY` (a remoção apaga a linha) e por isso não entra em lugar nenhum. Item de foto do checklist é satisfeito pela categoria confirmada — a mesma regra de `pendingChecklistItems`.
+* **Localização sem coordenada.** O check-in entra como hora, com/sem GPS, distância ao ponto cadastrado (congelada no check-in) e precisão; a mudança de ponto entra só se feita NESTA OS e para ESTE cliente. Latitude e longitude não são nem selecionadas.
+* **A série e o MAC saem como o domínio gravou** (`normalizeHardwareId`), não como foram digitados — é o que o Field mostra também.
 
 ## Auditorias
 
