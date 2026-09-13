@@ -7,6 +7,8 @@ import {
   dashboardCardNumberTone,
   type DashboardCard,
 } from "@/lib/dashboard-cards";
+import { auditActionLabel, auditEntityLabel } from "@/lib/audit-presentation";
+import { formatCompanyDateTime, formatCompanyTime } from "@/lib/company-datetime";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -66,24 +68,6 @@ function CartaoDoPainel({ cartao }: { cartao: DashboardCard }) {
   );
 }
 
-function formatarHora(data: Date, timezone: string): string {
-  return new Intl.DateTimeFormat("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: timezone,
-  }).format(data);
-}
-
-function formatarDataHora(data: Date, timezone: string): string {
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: timezone,
-  }).format(data);
-}
 
 export default async function DashboardPage() {
   const session = await requirePageProfile(["ADMIN", "DISPATCHER"]);
@@ -103,7 +87,7 @@ export default async function DashboardPage() {
           </p>
         </div>
         <p className="text-xs text-fg-muted" data-testid="dash-generated-at">
-          Situação às {formatarHora(painel.generatedAt, painel.timezone)} ·{" "}
+          Situação às {formatCompanyTime(painel.generatedAt, painel.timezone)} ·{" "}
           <Link
             href="/dashboard"
             className="font-semibold text-primary-text hover:text-primary-text-hover"
@@ -154,25 +138,40 @@ export default async function DashboardPage() {
             Nenhuma atividade registrada ainda.
           </p>
         ) : (
-          <ul className="divide-y divide-border-subtle">
+          /*
+            Frase para gente, código para a trilha (DASH-1a): a ação e o
+            registro são traduzidos na tela por `audit-presentation.ts`, e o
+            código gravado continua no `title` — quem investiga ainda o lê sem
+            abrir o banco. Nada do `AuditLog` muda.
+          */
+          <ul className="divide-y divide-border-subtle" data-testid="dash-activity">
             {painel.recentActivity.data.map((item) => (
               <li
                 key={item.id}
                 className="flex items-center justify-between py-3"
+                data-testid="dash-activity-item"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-fg">
-                    {item.action}
+                  <p
+                    className="truncate text-sm font-medium text-fg"
+                    title={item.action}
+                    data-testid="dash-activity-action"
+                  >
+                    {auditActionLabel(item.action)}
                   </p>
-                  {item.entity && (
-                    <p className="truncate text-xs text-fg-muted">
-                      {item.entity}
-                      {item.userName ? ` · ${item.userName}` : ""}
+                  {(item.entity || item.userName) && (
+                    <p className="truncate text-xs text-fg-muted" data-testid="dash-activity-meta">
+                      {[
+                        item.entity ? auditEntityLabel(item.entity) : null,
+                        item.userName,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </p>
                   )}
                 </div>
                 <span className="ml-4 shrink-0 text-xs text-fg-muted">
-                  {formatarDataHora(item.createdAt, painel.timezone)}
+                  {formatCompanyDateTime(item.createdAt, painel.timezone)}
                 </span>
               </li>
             ))}
