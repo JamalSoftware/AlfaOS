@@ -1116,6 +1116,8 @@ Quatro coisas que não se redescobrem: **o pacote só existe na OS `COMPLETED`**
 
 **Risco pré-existente, registrado e não corrigido:** foto gravada antes do `PC-1` (06/09) continua com o GPS no arquivo — no banco de dev, a do piloto da OS Nº 6 —, e a mesma rota autorizada já a servia na OS concluída; o pacote não amplia quem vê (`docs/MASTER-PLAN.md` §12).
 
+Medido no banco de dev (OS Nº 6): **15 consultas numa transação só**, `RepeatableRead`, 1,7 KB de payload, 76 ms de mediana. Gates: **2566 Vitest** (era 2526; 118 arquivos), **314 Playwright** (era 308) numa rodada só, lint, tsc, build, `build:worker`, `prisma validate`, **27 migrations** — nenhuma nova. **24 sabotagens, 24 detectadas** na segunda rodada — sete delas (arquivo de outro tenant, perfil, etiqueta repetida, fuso, hora da conclusão, "Voltar", botão da OS) também pelo navegador.
+
 **Próxima execução: validação da `EV-1` pelo dono.** Depois dela, `GS-1` — **não iniciada.**
 
 ## Princípios

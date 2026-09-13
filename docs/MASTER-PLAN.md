@@ -441,7 +441,8 @@ Timeline DA OS — código cru (validação da TL-1, 13/09/2026)
 E2E do mapa — MAPEDIT-05/06/07 intermitente (achado na TL-1, 13/09/2026)
   o quê    o arrasto registra no painel, e a medição do marcador dá desvio 0;
            isolado, falhou 2 de 6; no grupo MAPEDIT, 10 de 10; na suíte inteira,
-           1 falha numa rodada e 308/308 na seguinte
+           1 falha numa rodada e 308/308 na seguinte; nos gates da EV-1,
+           314/314 numa rodada só
   alcance  código do mapa idêntico ao de antes da TL-1 — nenhum arquivo do
            caminho de /mapa mudou
   aberto   se é corrida da medição ou o marcador voltando ao ponto gravado
