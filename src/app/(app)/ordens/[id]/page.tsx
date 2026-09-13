@@ -520,6 +520,17 @@ export default async function OrderDetailPage({
             {formatTime(order.startedAt)} → {formatTime(order.completedAt)}
             {durationLabel ? ` · ${durationLabel}` : ""}
           </p>
+          {/*
+            EV-1: o que comprova o atendimento, reunido numa página própria.
+            Só na OS concluída — antes disso não existe pacote.
+          */}
+          <Link
+            href={`/ordens/${order.id}/pacote`}
+            data-testid="evidence-package-link"
+            className="mt-3 inline-flex min-h-[2.5rem] items-center rounded-lg border border-success-border bg-surface px-4 text-sm font-semibold text-fg transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          >
+            Ver pacote técnico
+          </Link>
         </div>
       )}
 
