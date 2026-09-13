@@ -136,6 +136,14 @@ export function timelineOrderLabel(order: {
   return [`OS Nº ${order.number}`, order.type, order.subtype].filter(Boolean).join(" · ");
 }
 
+/**
+ * "CTO Centro 01" — e "CTO QA FIELD 01" quando o nome já começa pela palavra.
+ * Caixas costumam ser batizadas "CTO …"; prefixar sempre escreveria "CTO CTO".
+ */
+export function timelineCtoLabel(nome: string): string {
+  return /^cto\b/i.test(nome.trim()) ? nome : `CTO ${nome}`;
+}
+
 function juntar(...partes: (string | null | undefined)[]): string | null {
   const texto = partes.filter((p): p is string => Boolean(p && p.trim())).join(" · ");
   return texto || null;
@@ -252,14 +260,14 @@ export function presentTimelineItem(item: CustomerTimelineItem): TimelineItemPre
     case "NETWORK_CONNECTED":
       return {
         category,
-        title: `Conectado à CTO ${item.cto.name} · porta ${item.portNumber}`,
+        title: `Conectado à ${timelineCtoLabel(item.cto.name)} · porta ${item.portNumber}`,
         description: item.source === "FIELD" ? "Em campo" : "Pelo painel",
         actorLabel,
       };
     case "NETWORK_DISCONNECTED":
       return {
         category,
-        title: `Desconectado da CTO ${item.cto.name} · porta ${item.portNumber}`,
+        title: `Desconectado da ${timelineCtoLabel(item.cto.name)} · porta ${item.portNumber}`,
         description: juntar(
           item.source === "FIELD" ? "Em campo" : "Pelo painel",
           item.reason ? `Motivo: ${item.reason}` : null,

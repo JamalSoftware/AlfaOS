@@ -18,6 +18,7 @@ import {
   LOCATION_REASON_LABELS,
   TIMELINE_KIND_CATEGORY,
   presentTimelineItem,
+  timelineCtoLabel,
   timelineOrderLabel,
 } from "@/lib/customer-timeline-presentation";
 
@@ -232,10 +233,25 @@ describe("TL-PRES — nenhum código cru, nada inventado", () => {
     ).toBe("1 foto do atendimento");
     expect(p("SIGNATURE").description).toBe("Assinado por Dona Maria");
     expect(p("EQUIPMENT_INSTALLED").description).toBe("ONU · Huawei HG8245 · série S123");
+    // O nome da caixa já começa por "CTO": nada de "CTO CTO".
     expect(p("NETWORK_CONNECTED")).toMatchObject({
-      title: "Conectado à CTO CTO Centro 01 · porta 4",
+      title: "Conectado à CTO Centro 01 · porta 4",
       description: "Em campo",
     });
+    const semPrefixo: CustomerTimelineItem = {
+      id: "p2",
+      kind: "NETWORK_DISCONNECTED",
+      occurredAt: INSTANTE,
+      actorName: null,
+      order: null,
+      cto: { id: "cto_2", name: "Centro 02" },
+      portNumber: 4,
+      source: "WEB",
+      reason: null,
+    };
+    expect(presentTimelineItem(semPrefixo).title).toBe("Desconectado da CTO Centro 02 · porta 4");
+    expect(timelineCtoLabel("cto-12 norte")).toBe("cto-12 norte");
+    expect(timelineCtoLabel("CTOX 1")).toBe("CTO CTOX 1");
     expect(p("NETWORK_DISCONNECTED").description).toBe("Pelo painel · Motivo: Cliente suspenso");
     expect(p("LOCATION_CORRECTED").description).toBe("Localização incorreta");
     expect(p("LOCATION_DIVERGENCE_FROM_INTEGRATION")).toMatchObject({
