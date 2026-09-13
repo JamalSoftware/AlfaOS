@@ -126,7 +126,7 @@ A fronteira: **Core** é tudo o que a PRD §386 lista como V1 MUST HAVE — nada
 **Quando:** qualquer tarefa que toque Ordem de Serviço, atribuição de técnico, máquina de estados da OS, ou a experiência do técnico em campo.
 **Quando NÃO:** tarefas de outros módulos sem relação com OS (ex.: só cadastro de cliente, configurações da empresa). Não carregue os três documentos de uma vez — execução e fechamento são fases distintas.
 
-## Dashboard operacional — `DASH-1` (READY FOR OWNER VALIDATION)
+## Dashboard operacional — `DASH-1` + `DASH-1a` (READY FOR OWNER VALIDATION)
 
 **Carregar:** PRD **§380** (contrato e as decisões do dono) e `docs/MASTER-PLAN.md` §4. Não há documento de módulo: o contrato é curto e está nos comentários do código abaixo.
 **Quando:** a tarefa toca `/dashboard`, um cartão do painel, ou um dos filtros de destino (`/ordens?recorte=`, `/tecnicos?emAtendimento=`, `/clientes?conectividade=`, `/ctos?situacao=`).
@@ -136,13 +136,14 @@ A fronteira: **Core** é tudo o que a PRD §386 lista como V1 MUST HAVE — nada
 
 | Cartão | Contagem (= destino) | Destino |
 |---|---|---|
-| OS abertas / atrasadas / de hoje | `countCompanyServiceOrders({ slice })` — `src/lib/service-order-slices.ts` | `/ordens?recorte=abertas\|atrasadas\|hoje` |
-| OS pendentes | `countCompanyServiceOrders({ status: "PENDING" })` | `/ordens?status=PENDING` |
+| OS abertas / atrasadas / de hoje / pendentes | `countCompanyServiceOrders({ slice })` — `src/lib/service-order-slices.ts` | `/ordens?recorte=abertas\|atrasadas\|hoje\|pendentes` |
 | Técnicos em atendimento | `countCompanyTechnicians({ inService })` — `technicianInServiceWhere` | `/tecnicos?emAtendimento=true` |
 | Clientes offline (`ADMIN`) | `countCompanyCustomers({ active, connectivity: "OFFLINE" })` → `getCompanyConnectivityStatuses` | `/clientes?active=true&conectividade=OFFLINE` |
 | CTOs com defeito / com OS abertas (`ADMIN` + capability) | `getCompanyCtoStates` + `matchesCtoAttention` — `src/lib/cto-attention.ts` | `/ctos?situacao=defeito\|com-os-abertas` |
 
-**Código:** `src/lib/dashboard.ts` (leitura, uma por visita, seções independentes), `src/lib/dashboard-cards.ts` (apresentação pura: erro → "—", "Sem leitura", cor, destino), `src/app/(app)/dashboard/page.tsx` (só desenha), `src/components/ListSliceBanner.tsx` (a faixa do recorte nas listas). Testes: `src/tests/dashboard.test.ts`, `dashboard-cards.test.ts`, `service-order-slices.test.ts`, `civil-day-bounds.test.ts`, `e2e/dashboard.spec.ts`.
+**Código:** `src/lib/dashboard.ts` (leitura, uma por visita, seções independentes), `src/lib/dashboard-cards.ts` (apresentação pura: erro → "—", "Sem leitura", cor, destino), `src/app/(app)/dashboard/page.tsx` (só desenha), `src/components/ListSliceBanner.tsx` (a faixa do recorte nas listas). **`DASH-1a`:** `src/lib/dashboard-slice-copy.ts` (nome, singular/plural e estado vazio dos oito recortes — cartão, faixa e vazio leem a mesma linha), `src/components/BackToDashboardLink.tsx` (a volta: `Link` para `/dashboard`, nunca histórico), `src/lib/audit-presentation.ts` (códigos de auditoria → frase; o código gravado não muda), `src/lib/company-datetime.ts` (data/hora no fuso da empresa). Testes: `src/tests/dashboard.test.ts`, `dashboard-cards.test.ts`, `dashboard-context.test.ts`, `service-order-slices.test.ts`, `civil-day-bounds.test.ts`, `e2e/dashboard.spec.ts`.
+
+**`DASH-1a` — a linha explica o recorte, pela MESMA leitura que o decidiu.** O contexto por linha é extra do resultado da listagem, só com o recorte ativo e só para as linhas da página: `CustomerListResult.connectivity` (a leitura vencedora, do mesmo lote que filtrou — `getCompanyConnectivityStatuses` devolve `{ status, observedAt }`), `TechnicianListResult.inServiceCounts` (UM `groupBy` sobre os ids da página, tenant no `where`) e `CtoOperationalState.damagedPortCount` (o `damaged` do mesmo `summarizePortCounts` que decidiu o estado). "Agendada para" usa o relógio que a página já leu para filtrar (`companySliceClock`, uma vez). Um teste varre o fonte e cobra rótulo para todo código de auditoria gravado em produção.
 
 Cinco coisas que não se redescobrem:
 

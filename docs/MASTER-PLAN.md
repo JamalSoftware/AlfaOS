@@ -55,7 +55,7 @@ CTO-3.2.2b · c · d · e   estabilização e acabamento de UX           ← con
    ↓  validação do dono — CTO-3.2.2e APPROVED
 MAPA OPERACIONAL V1 — FROZEN (PRD §392)                             ← 2026-09-12
    ↓
-DASH-1                         dashboard acionável       ← READY FOR OWNER VALIDATION
+DASH-1 · DASH-1a               dashboard acionável       ← READY FOR OWNER VALIDATION
 TL-1 · EV-1 · GS-1             (ordem entre si: decisão do dono)
    ↓
 LANÇAMENTO V1
@@ -113,6 +113,12 @@ técnica).
 > hoje" e o conjunto de cartões — foram decididas pelo dono e registradas na
 > PRD §380; o mapa do código está em `docs/CONTEXT-MAP.md`. O que segue é o
 > plano como foi escrito.
+>
+> **`DASH-1a` — refinamento de UX, também `READY FOR OWNER VALIDATION`.** O dono
+> validou a `DASH-1` funcionalmente; a microfase fez cada listagem aberta pelo
+> cartão explicar por que a linha está no recorte (volta ao painel, faixa nos
+> oito recortes, contexto por linha, vazio contextual, atividade humanizada).
+> Sem indicador novo, sem migration — decisões na PRD §380.
 
 **Objetivo.** Transformar os cartões de contagem que já existem em indicadores
 que levam a algum lugar, e acrescentar os que faltam.

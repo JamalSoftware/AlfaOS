@@ -13135,8 +13135,32 @@ capability de rede ligada, porque o destino é `/ctos`. Seção que falha aparec
 como falha, nunca como zero; e sem nenhum cliente ativo com leitura, o cartão
 diz **"Sem leitura"**, não "0 offline".
 
-**Implementado na `DASH-1`** — `READY FOR OWNER VALIDATION`. Os detalhes de
-implementação estão em `docs/CONTEXT-MAP.md`.
+**Implementado na `DASH-1`** — validado funcionalmente pelo dono. Os detalhes
+de implementação estão em `docs/CONTEXT-MAP.md`.
+
+## Refinado na `DASH-1a` — a listagem explica o recorte
+
+A validação da `DASH-1` aprovou números, destinos e permissões, e mostrou que a
+listagem aberta pelo cartão não dizia **por que** cada registro estava ali:
+"Clientes offline" abria linhas com "Ativo", "OS atrasadas" mostrava a data de
+criação, "Técnicos em atendimento" mostrava só o cadastro. Decisões de UX desta
+fase, **sem indicador novo, sem regra de domínio nova**:
+
+```text
+retorno           "← Voltar ao Dashboard", destino fixo /dashboard, só com
+                  recorte válido; não é "Limpar recorte", e os dois convivem
+recorte           os oito cartões abrem com a mesma faixa ("Recorte do painel:
+                  <nome> · <quantidade>"); "OS pendentes" ganhou recorte próprio
+contexto por      offline → Conectividade + idade da leitura, ao lado do status
+recorte           cadastral · atrasadas e de hoje → "Agendada para", no fuso da
+                  empresa · técnicos → "N OS em atendimento" · CTO com defeito →
+                  estado operacional + portas danificadas · CTO com OS → OS abertas
+vazio             diz que não há item NESTE recorte e não sugere ação alheia
+atividade         códigos de auditoria traduzidos na tela; o registro não muda
+```
+
+O contexto de cada linha vem da MESMA leitura que decidiu o recorte, em lote —
+nenhuma consulta por linha. **`DASH-1a` — `READY FOR OWNER VALIDATION`.**
 
 ---
 
