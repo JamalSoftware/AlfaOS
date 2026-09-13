@@ -483,12 +483,22 @@ test.describe("EV-1 — pacote técnico", () => {
       where: { id: concluidaId },
       select: { completedAt: true },
     });
-    const horaEmpresa = new Intl.DateTimeFormat("pt-BR", {
-      timeZone: FUSO_EMPRESA,
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(os.completedAt!);
-    await expect(page.getByTestId("package-times")).toContainText(horaEmpresa);
+    const noFuso = (timeZone: string, comData: boolean) =>
+      new Intl.DateTimeFormat("pt-BR", {
+        timeZone,
+        ...(comData ? { day: "2-digit", month: "2-digit", year: "numeric" } : {}),
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(os.completedAt!);
+    const fusoServidor = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // Pré-requisito: os dois fusos dão horas diferentes, senão nada se prova.
+    expect(noFuso(FUSO_EMPRESA, false)).not.toBe(noFuso(fusoServidor, false));
+    await expect(page.getByTestId("package-completed-at").locator("dd")).toHaveText(noFuso(FUSO_EMPRESA, true));
+    const conclusao = page
+      .getByTestId("package-times")
+      .locator("div", { has: page.locator("dt", { hasText: /^Conclusão$/ }) })
+      .locator("dd");
+    await expect(conclusao).toHaveText(noFuso(FUSO_EMPRESA, false));
 
     // Check-in com contexto humano, sem coordenada.
     const checkin = page.getByTestId("package-checkin");
