@@ -28,7 +28,7 @@ import { buildDashboardCards } from "@/lib/dashboard-cards";
 import {
   DASHBOARD_SLICE_COPY,
   DASHBOARD_SLICE_KEYS,
-  countWithNoun,
+  nounFor,
   sliceEmptyState,
 } from "@/lib/dashboard-slice-copy";
 import {
@@ -274,6 +274,9 @@ describe("DASHCTX-SLICE — um nome, um singular, um plural por recorte", () => 
 
   it("DASHCTX-SLICE-01b · singular e plural: 1 OS, 2 OS, 1 CTO, 2 CTOs, 1 técnico, 2 técnicos, 1 cliente, 2 clientes", () => {
     const c = DASHBOARD_SLICE_COPY;
+    // Como a faixa monta o texto: o número e o substantivo de `nounFor`.
+    const countWithNoun = (n: number, copy: (typeof c)[keyof typeof c]) =>
+      `${n} ${nounFor(n, copy)}`;
     expect([0, 1, 2].map((n) => countWithNoun(n, c.pendentes))).toEqual(["0 OS", "1 OS", "2 OS"]);
     expect([1, 2].map((n) => countWithNoun(n, c["ctos-com-defeito"]))).toEqual(["1 CTO", "2 CTOs"]);
     expect([1, 2].map((n) => countWithNoun(n, c["tecnicos-em-atendimento"]))).toEqual([

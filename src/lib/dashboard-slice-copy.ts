@@ -96,20 +96,15 @@ export const DASHBOARD_SLICE_COPY: Record<DashboardSliceKey, DashboardSliceCopy>
   },
 };
 
-/** O substantivo que acompanha o número: singular só para exatamente 1. */
+/**
+ * O substantivo que acompanha o número — "1 OS", "2 técnicos", "1 CTO", nunca
+ * "1 clientes". Singular só para exatamente 1: "0 clientes", não "0 cliente".
+ */
 export function nounFor(
   total: number,
   copy: Pick<DashboardSliceCopy, "singular" | "plural">,
 ): string {
   return total === 1 ? copy.singular : copy.plural;
-}
-
-/** "1 OS", "2 técnicos", "1 CTO" — nunca "1 clientes". */
-export function countWithNoun(
-  total: number,
-  copy: Pick<DashboardSliceCopy, "singular" | "plural">,
-): string {
-  return `${total} ${nounFor(total, copy)}`;
 }
 
 /**

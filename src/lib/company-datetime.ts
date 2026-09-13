@@ -12,7 +12,7 @@
  * não lê banco: ela só formata.
  */
 
-/** "12/09/2026 14:30" no fuso informado. */
+/** "12/09/2026, 14:30" no fuso informado. */
 export function formatCompanyDateTime(date: Date, timezone: string): string {
   return new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",
