@@ -141,6 +141,41 @@ describe("GS-DOM — tenancy", () => {
   });
 });
 
+describe("GS-DOM — tenancy, defesa em profundidade", () => {
+  it("GS-DOM-02b — técnico com vínculo cruzando empresas não aparece, nos dois sentidos", async () => {
+    // O banco aceita os dois: Technician.userId é FK simples, sem (companyId, userId).
+    const userDeB = await prisma.user.create({
+      data: {
+        companyId: fixture.companyB.id,
+        name: "QA GS Cruzado Um",
+        email: `qa.gs.cruzado.um.${Date.now()}@sintetico.local`,
+        profile: AccessProfile.TECHNICIAN,
+        passwordHash: "x",
+      },
+    });
+    const userDeA = await prisma.user.create({
+      data: {
+        companyId: fixture.companyA.id,
+        name: "QA GS Cruzado Dois",
+        email: `qa.gs.cruzado.dois.${Date.now()}@sintetico.local`,
+        profile: AccessProfile.TECHNICIAN,
+        passwordHash: "x",
+      },
+    });
+    // Técnico de A com a pessoa de B — barrado pelo companyId DENTRO da relação.
+    const umId = (await prisma.technician.create({ data: { companyId: fixture.companyA.id, userId: userDeB.id } })).id;
+    // Técnico de B com a pessoa de A — barrado pelo companyId do próprio técnico.
+    const doisId = (await prisma.technician.create({ data: { companyId: fixture.companyB.id, userId: userDeA.id } })).id;
+    const legitimo = await tecnico(fixture.companyA.id, "QA GS Cruzado Legítimo");
+
+    const r = await searchGlobal(adminA(), "QA GS Cruzado");
+    // Controle positivo: o técnico legítimo de A aparece.
+    expect(ids(r, "TECHNICIAN")).toEqual([legitimo.id]);
+    expect(ids(r, "TECHNICIAN")).not.toContain(umId);
+    expect(ids(r, "TECHNICIAN")).not.toContain(doisId);
+  });
+});
+
 describe("GS-DOM — perfis", () => {
   it("GS-DOM-03 — ADMIN com a rede ligada recebe os quatro tipos; sem a rede, sem CTO", async () => {
     const c = await cliente(fixture.companyA.id, { name: "QA GS Perfil Único" });
@@ -400,14 +435,29 @@ describe("GS-ERR / GS-PERF", () => {
     expect(caixas).not.toHaveBeenCalled();
   });
 
-  it("GS-STRUCT-01 — a busca lê o banco do AlfaOS e só: nenhum ERP, provider ou rede", () => {
+  it("GS-STRUCT-01 — a busca não importa ERP, provider nem rede — de nenhuma forma de import", () => {
     for (const arquivo of ["src/lib/global-search.ts", "src/lib/global-search-rules.ts"]) {
       const fonte = readFileSync(path.resolve(process.cwd(), arquivo), "utf8");
-      const imports = fonte.match(/^import .* from ".*";$/gm) ?? [];
-      for (const linha of imports) {
-        expect(linha, arquivo).not.toMatch(/integrations|erp|receitanet|sgp|provider|diagnostic/i);
+      // `import x from "m"`, `import "m"` (efeito colateral), `import("m")` e `require("m")`.
+      const modulos = Array.from(
+        fonte.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)["']([^"']+)["']/g),
+        (m) => m[1],
+      );
+      expect(modulos.length, arquivo).toBeGreaterThan(0); // controle: a regex acha os imports
+      for (const modulo of modulos) {
+        expect(modulo, arquivo).not.toMatch(/integrations|erp|receitanet|sgp|provider|diagnostic/i);
       }
-      expect(fonte, arquivo).not.toMatch(/\bfetch\(/);
+      expect(fonte, arquivo).not.toMatch(/\bfetch\s*\(/);
     }
+  });
+
+  it("GS-STRUCT-02 — uma busca inteira não faz nenhuma chamada de rede", async () => {
+    await ligarRede(fixture.companyA.id);
+    const c = await cliente(fixture.companyA.id, { name: "QA GS Sem Rede" });
+    await ordem(fixture.companyA.id, c.id);
+    const rede = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("rede proibida na busca"));
+    const r = ok(await searchGlobal(adminA(), "QA GS Sem Rede"));
+    expect(r.groups.length).toBeGreaterThan(0); // controle: a busca rodou de verdade
+    expect(rede).not.toHaveBeenCalled();
   });
 });
