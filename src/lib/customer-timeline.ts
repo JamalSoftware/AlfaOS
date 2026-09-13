@@ -6,7 +6,7 @@ import {
   type EvidenceCategory,
   type ImpedimentReason,
   type LocationChangeReason,
-  type Prisma,
+  Prisma,
 } from "@prisma/client";
 import { prisma } from "./prisma";
 import { resolveTimezone } from "./workday";
@@ -234,7 +234,20 @@ export async function getCustomerTimeline(
   const { companyId } = viewer;
   const take = limit + 1;
 
-  const [empresa, doTenant] = await Promise.all([
+  /*
+    UMA conexão por visita, não uma por fonte.
+
+    As leituras vão em lotes (`$transaction([...])`), que o Prisma executa em
+    sequência numa conexão só. Com `Promise.all`, uma visita pedia treze
+    conexões de uma vez: mais que o pool padrão inteiro, tirando-o das outras
+    requisições, e — com o pool frio — treze conexões NOVAS abertas juntas. No
+    Docker Desktop isso reproduziu `P1001` ("Can't reach database server") de
+    forma intermitente, e a seção caía em erro sem defeito nenhum de dado.
+
+    O lote principal lê num único instante (`RepeatableRead`): uma troca de
+    porta, que fecha e abre na mesma transação, nunca aparece pela metade.
+  */
+  const [empresa, doTenant] = await prisma.$transaction([
     prisma.company.findUnique({
       where: { id: companyId },
       select: { timezone: true, ctoNetworkEnabled: true },
@@ -257,19 +270,10 @@ export async function getCustomerTimeline(
   // O cliente pela OS: o tenant da linha E o da OS, e o cliente da OS.
   const daOs = { companyId, serviceOrder: { companyId, customerId } };
 
-  const [
-    eventos,
-    visitas,
-    contatos,
-    impedimentos,
-    gruposDeFotos,
-    medicoes,
-    assinaturas,
-    equipamentos,
-    conexoes,
-    desconexoes,
-    localizacoes,
-  ] = await Promise.all([
+  const umInstante = { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead };
+
+  // As consultas do Prisma são preguiçosas: nada aqui executa até entrar no lote.
+  const fontes = [
     prisma.serviceOrderEvent.findMany({
       where: { ...daOs, event: { in: [...TIMELINE_OS_EVENTS] } },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -373,22 +377,6 @@ export async function getCustomerTimeline(
         serviceOrder: ORDER_REF,
       },
     }),
-    verRede
-      ? prisma.customerNetworkConnection.findMany({
-          where: { companyId, customerId },
-          orderBy: [{ connectedAt: "desc" }, { id: "desc" }],
-          take,
-          select: CONNECTION_SELECT,
-        })
-      : Promise.resolve([]),
-    verRede
-      ? prisma.customerNetworkConnection.findMany({
-          where: { companyId, customerId, disconnectedAt: { not: null } },
-          orderBy: [{ disconnectedAt: "desc" }, { id: "desc" }],
-          take,
-          select: CONNECTION_SELECT,
-        })
-      : Promise.resolve([]),
     prisma.customerLocationHistory.findMany({
       where: { companyId, customerId },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -411,37 +399,73 @@ export async function getCustomerTimeline(
         serviceOrder: { select: { ...ORDER_REF.select, companyId: true } },
       },
     }),
-  ]);
+  ] as const;
 
-  // Segunda leva, dependente da primeira e limitada por ela.
+  // CTO e porta entram no MESMO lote, e só para quem pode vê-las: para os
+  // outros perfis a consulta nem é montada.
+  const lote = verRede
+    ? await prisma.$transaction(
+        [
+          ...fontes,
+          prisma.customerNetworkConnection.findMany({
+            where: { companyId, customerId },
+            orderBy: [{ connectedAt: "desc" }, { id: "desc" }],
+            take,
+            select: CONNECTION_SELECT,
+          }),
+          prisma.customerNetworkConnection.findMany({
+            where: { companyId, customerId, disconnectedAt: { not: null } },
+            orderBy: [{ disconnectedAt: "desc" }, { id: "desc" }],
+            take,
+            select: CONNECTION_SELECT,
+          }),
+        ],
+        umInstante,
+      )
+    : ([...(await prisma.$transaction([...fontes], umInstante)), [], []] as const);
+  const [
+    eventos,
+    visitas,
+    contatos,
+    impedimentos,
+    gruposDeFotos,
+    medicoes,
+    assinaturas,
+    equipamentos,
+    localizacoes,
+    conexoes,
+    desconexoes,
+  ] = lote;
+
+  // Segunda leva, dependente da primeira e limitada pelos ids dela.
   const concluidas = eventos.filter((e) => e.event === "OS_COMPLETED").map((e) => e.serviceOrder.id);
   const osDasFotos = gruposDeFotos.map((g) => g.serviceOrderId);
-  const [execucoes, categoriasDasFotos, osRefsDasFotos] = await Promise.all([
-    concluidas.length > 0
-      ? prisma.serviceOrderExecution.findMany({
-          where: { companyId, serviceOrderId: { in: concluidas } },
-          select: { serviceOrderId: true, notes: true },
-        })
-      : Promise.resolve([]),
-    osDasFotos.length > 0
-      ? prisma.serviceOrderEvidence.groupBy({
-          by: ["serviceOrderId", "category"],
-          where: {
-            companyId,
-            serviceOrderId: { in: osDasFotos },
-            status: "COMMITTED",
-            category: { notIn: MEASUREMENT_CATEGORIES },
-          },
-          _count: { _all: true },
-        })
-      : Promise.resolve([]),
-    osDasFotos.length > 0
-      ? prisma.serviceOrder.findMany({
-          where: { companyId, customerId, id: { in: osDasFotos } },
-          select: ORDER_REF.select,
-        })
-      : Promise.resolve([]),
-  ]);
+  const segunda = () =>
+    [
+      prisma.serviceOrderExecution.findMany({
+        where: { companyId, serviceOrderId: { in: concluidas } },
+        select: { serviceOrderId: true, notes: true },
+      }),
+      prisma.serviceOrderEvidence.groupBy({
+        by: ["serviceOrderId", "category"],
+        where: {
+          companyId,
+          serviceOrderId: { in: osDasFotos },
+          status: "COMMITTED",
+          category: { notIn: MEASUREMENT_CATEGORIES },
+        },
+        _count: { _all: true },
+        orderBy: [{ serviceOrderId: "asc" }, { category: "asc" }],
+      }),
+      prisma.serviceOrder.findMany({
+        where: { companyId, customerId, id: { in: osDasFotos } },
+        select: ORDER_REF.select,
+      }),
+    ] as const;
+  const [execucoes, categoriasDasFotos, osRefsDasFotos] =
+    concluidas.length > 0 || osDasFotos.length > 0
+      ? await prisma.$transaction([...segunda()])
+      : ([[], [], []] as const);
 
   const notasPorOs = new Map(execucoes.map((e) => [e.serviceOrderId, e.notes]));
   const osPorId = new Map(osRefsDasFotos.map((o) => [o.id, o]));

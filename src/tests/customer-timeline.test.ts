@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   AccessProfile,
   type EvidenceCategory,
@@ -1052,20 +1054,49 @@ describe("TL-PAGE — 50 por vez, até 500, sem duplicar nem pular", () => {
   });
 });
 
+describe("TL-CONN — uma conexão por visita", () => {
+  it("TL-CONN-01 — as leituras vão em lotes sequenciais, e o principal num instante só", async () => {
+    const ordem = await os(clienteA.id, { status: "COMPLETED" });
+    await evento(ordem.id, "OS_COMPLETED", t(1));
+    await foto(ordem.id, "CTO", t(2));
+    const lotes = vi.spyOn(prisma, "$transaction");
+
+    await timeline(comoAdmin());
+
+    const chamadas = lotes.mock.calls as unknown as [unknown[], { isolationLevel?: string }?][];
+    // empresa+cliente · fontes (+ rede) · segunda leva
+    expect(chamadas.map(([consultas]) => consultas.length)).toEqual([2, 11, 3]);
+    expect(chamadas[1][1]?.isolationLevel).toBe("RepeatableRead");
+
+    lotes.mockClear();
+    await timeline(comoDespacho());
+    expect((lotes.mock.calls as unknown as [unknown[]][]).map(([c]) => c.length)).toEqual([2, 9, 3]);
+  });
+
+  it("TL-CONN-02 — o módulo não dispara leituras em paralelo (`Promise.all`)", () => {
+    const fonte = readFileSync(path.join(process.cwd(), "src/lib/customer-timeline.ts"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+    expect(fonte).not.toMatch(/Promise\.all/);
+  });
+});
+
 describe("TL-ERR — erro não vira histórico vazio", () => {
-  it("TL-ERR-01 — uma fonte que falha derruba a seção para `error`, e o log não leva a mensagem", async () => {
+  it("TL-ERR-01 — uma fonte que falha no banco derruba a seção para `error`, e o nosso log não leva a mensagem", async () => {
     const ordem = await os(clienteA.id);
     await evento(ordem.id, "SERVICE_ORDER_CREATED", t(1));
-    vi.spyOn(prisma.serviceOrderSignature, "findMany").mockRejectedValueOnce(
-      new Error("relation secreta não existe"),
+    // Uma falha REAL de SQL dentro do lote, no lugar da leitura de assinaturas.
+    vi.spyOn(prisma.serviceOrderSignature, "findMany").mockImplementationOnce(
+      () => prisma.$queryRawUnsafe("select * from tabela_secreta_tl1") as never,
     );
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const secao = await loadCustomerTimeline(comoAdmin(), clienteA.id, 50);
 
     expect(secao).toEqual({ state: "error" });
-    expect(log).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(log.mock.calls)).not.toContain("secreta");
+    const nossos = log.mock.calls.filter((c) => String(c[0]).startsWith("[customer-timeline]"));
+    expect(nossos).toHaveLength(1);
+    expect(JSON.stringify(nossos)).not.toContain("tabela_secreta");
   });
 
   it("TL-ERR-02 — sem falha, a mesma chamada devolve os itens (controle positivo)", async () => {
