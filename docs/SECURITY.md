@@ -797,6 +797,13 @@ acidente (loop de UI, clique repetido) e o AlfaOS roda em instância única;
 se a implantação virar multi-instância, o limite precisa migrar para
 armazenamento compartilhado antes de ser tratado como controle.
 
+**Sem teto agregado por empresa (INFO).** Como o balde é por usuário, a empresa
+não tem um teto único no AlfaOS: cinco usuários ativos podem, somados, pedir até
+5 × 10 atualizações de diagnóstico por minuto ao provider. É a contrapartida
+deliberada de um operador em loop não bloquear os colegas — decisão do dono em
+`DIAG-RATE-01` (PRD §370). Rever antes de qualquer atualização automática ou de
+escala multi-instância; nenhum segundo limite existe hoje.
+
 ### Risco residual aceito
 
 **Tamanho de resposta não é limitado.** `res.text()` lê o corpo inteiro. Um

@@ -336,12 +336,18 @@ recente não tenham snapshot nenhum**, o que é `UNKNOWN` legítimo.
 
 ```text
 ERP_CAPABILITIES.CUSTOMER_DIAGNOSTIC   sem limite próprio
-CAPABILITY_LIMIT (padrão)              10 por 60 s, POR EMPRESA
+CAPABILITY_LIMIT (padrão)              10 por 60 s, por USUÁRIO dentro da empresa
 ```
 
-Uma CTO de 8 portas consumiria **8 das 10** atualizações da empresa no minuto.
-Duas CTOs abertas em sequência estouram o limite e a segunda vem `UNKNOWN` —
-não por falha de rede, mas pela própria tela.
+> **Correção (13/09/2026, `DIAG-RATE-01`).** Na descoberta inicial isto foi
+> registrado como **"10 por 60 s, POR EMPRESA"** — leitura errada da chave do
+> balde. A implementação auditada (v0.7.x, RATE-01) e a decisão final do dono
+> usam `(companyId, userId, capability)`: um operador não consome a cota dos
+> colegas. As conclusões abaixo continuam valendo para a tela de quem atualiza.
+
+Uma CTO de 8 portas consumiria **8 das 10** atualizações de quem a abriu no
+minuto. Duas CTOs abertas em sequência estouram o limite dessa pessoa e a
+segunda vem `UNKNOWN` — não por falha de rede, mas pela própria tela.
 
 **3. Não existe consulta em lote no provider.** O diagnóstico é por cliente, e
 a §141 já registrou que o ReceitaNet não expõe listagem. Um lote seria N
@@ -617,8 +623,8 @@ C-12  foto da CTO                    FECHADA   §16
 **As duas que continuam abertas não bloqueiam `CTO-1` nem `CTO-2`**, e cada uma
 tem fase dona declarada em vez de ficar sem endereço:
 
-* **`C-03`** — o teto de 10 chamadas por minuto por empresa serve à CTO, ou a
-  capability precisa de limite próprio? A pergunta só ganha consequência quando
+* **`C-03`** — o teto de 10 chamadas por minuto (por usuário, dentro da
+  empresa) serve à CTO, ou a capability precisa de limite próprio? A pergunta só ganha consequência quando
   existir tela que agregue status (`CTO-5`) e sinal de falha coletiva
   (`CTO-6`). `CTO-1` e `CTO-2` não chamam o provider.
 * **`C-04`** — potência óptica entra em `ServiceOrderCompletionPolicy` (que já
@@ -4180,8 +4186,8 @@ deixou de viver só aqui: ela agora é contrato de produto na **Parte XVI do PRD
   chamada, e uma camada de mapa faria `N+1`. Ampliar a autoridade existente,
   nunca criar uma segunda.
 * **O mapa LÊ; ele não atualiza.** O refresh tem teto de 10 chamadas por minuto
-  por empresa (§337) — um mapa que atualizasse por marcador queimaria a cota da
-  OS num arrasto.
+  por usuário, dentro da empresa (§337, §370) — um mapa que atualizasse por
+  marcador queimaria, num arrasto, a cota de que a OS de quem arrastou precisa.
 * **Falha de integração nunca vira `OFFLINE`.** Já é invariante do código, e
   passa a ser invariante escrita do produto.
 * **Cliente da CTO vem do VÍNCULO**, nunca de endereço ou proximidade (§372).
@@ -4867,8 +4873,8 @@ devolvendo o mesmo DTO.
 O que tornou isso possível sem criar uma segunda semântica é um fato do código
 que precisa ficar registrado: **`getCustomerDiagnostic` é leitura pura de
 banco.** Ela não fala com provider nenhum. Se falasse, um lote seria um lote de
-chamadas externas, e o teto de 10 por minuto por empresa iria embora no
-primeiro arrasto.
+chamadas externas, e o teto de 10 por minuto de quem arrasta (por usuário,
+dentro da empresa) iria embora no primeiro arrasto.
 
 Três regras seguem valendo palavra por palavra, e cada uma tem detector:
 

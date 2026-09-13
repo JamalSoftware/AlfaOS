@@ -343,10 +343,12 @@ de uma tela. Nada foi escrito em código.
 se voltar         decisão explícita do dono, atualizando §337/§370 (§390)
 pesa na decisão   cada ciclo é uma chamada real ao provider (hoje, o ReceitaNet
                   CallCenter; o SGP não tem a capability); o balde de 10/min
-                  é por (empresa, usuário, capability) no código e em
-                  SECURITY.md — a §337 diz "por empresa" —, então a carga no
-                  provider cresce com o número de telas abertas; e o frescor
-                  da conectividade é a decisão aberta C-03 (CTO-6)
+                  é por (empresa, usuário, capability), e a empresa não tem
+                  teto agregado — a divergência com o texto antigo da §337
+                  foi resolvida em DIAG-RATE-01 (mantido por usuário, PRD
+                  §370) —, então a carga no provider cresce com o número de
+                  telas abertas; e o frescor da conectividade é a decisão
+                  aberta C-03 (CTO-6)
 guarda-corpos     o MESMO POST do botão · só com a aba visível · sem chamada
                   sobreposta · falha mantém a última leitura e nunca vira
                   OFFLINE · sem STALE · nenhum evento de timeline · nenhum

@@ -11468,9 +11468,11 @@ cliente. Numa CTO de 8 clientes é normal que as leituras estejam a meses de
 distância entre si, e que quem não teve OS recente **não tenha snapshot**.
 
 **2. O teto de chamadas inviabiliza "atualizar a CTO inteira".** A capability
-de diagnóstico usa o limite padrão: **10 por minuto, por empresa**. Uma CTO de
-8 portas consumiria 8 deles; duas CTOs em sequência estouram o teto, e a
-segunda vem `UNKNOWN` por causa da própria tela.
+de diagnóstico usa o limite padrão: **10 atualizações por minuto, por usuário,
+dentro da empresa** — a chave é `(empresa, usuário, capability)`, então um
+operador não consome a cota dos colegas (§370). Uma CTO de 8 portas consumiria
+8 das 10 de quem a abriu; duas CTOs em sequência estouram o teto dessa pessoa, e
+a segunda vem `UNKNOWN` por causa da própria tela.
 
 **3. Não existe consulta em lote.** O diagnóstico é por cliente, e a §141 já
 registrou que o provider não expõe listagem. Um lote seria N chamadas.
@@ -12497,10 +12499,10 @@ derivar conectividade de qualquer outro sinal.
 ## O mapa LÊ; ele não atualiza
 
 O refresh é sob demanda com gatilho na OS, e a capability usa o teto de **10
-chamadas por minuto por empresa** (§337). Um mapa que atualizasse por marcador
-queimaria o teto num único arrasto e deixaria a OS — que é o caso de uso real —
-sem cota. A camada de clientes apresenta o **último estado conhecido com a idade
-da leitura**, e nada mais.
+atualizações por minuto por usuário, dentro da empresa** (§337). Um mapa que
+atualizasse por marcador queimaria esse teto num único arrasto e deixaria a OS de
+quem arrastou — que é o caso de uso real — sem cota. A camada de clientes
+apresenta o **último estado conhecido com a idade da leitura**, e nada mais.
 
 O contrato congelado, em uma lista:
 
@@ -12513,6 +12515,33 @@ nunca chama ERP nem provider concreto            nem por marcador, nem por zoom,
 UNKNOWN é apresentado como "Sem leitura"         nunca como "Offline"
 falha de integração não vira OFFLINE             a última leitura continua valendo
 ```
+
+## O teto da atualização manual
+
+> **Corrigido em 13/09/2026 (`DIAG-RATE-01`).** Este texto e a §337 diziam
+> "por empresa" — leitura errada do código na descoberta da CTO. A chave sempre
+> foi `(empresa, usuário, capability)`, desenhada e auditada na v0.7.x (RATE-01),
+> e o dono decidiu mantê-la (§390).
+
+```text
+customer-diagnostic   10 atualizações por minuto, por usuário, dentro da empresa
+chave                 (companyId, userId, capability): cada usuário autorizado
+                      tem a própria cota, e um operador em loop não bloqueia os
+                      colegas; a empresa A nunca afeta a empresa B
+consome cota          só o refresh que chama o provider — o POST, na web e no
+                      Field, com o mesmo balde
+não consome           a leitura do snapshot (GET); acesso negado, OS alheia ou de
+                      outro tenant — a cota é consumida DEPOIS da autorização
+excesso               o contrato HTTP que já existe: 429 com retryAfterSeconds na
+                      web, RATE_LIMITED (429) no Field
+```
+
+Duas limitações declaradas, e nenhuma bloqueia a V1: o contador é **em memória
+do processo** (com mais de uma instância, cada processo tem o seu), e **não há
+teto agregado por empresa** — cinco usuários ativos podem, somados, pedir até
+5 × 10 atualizações por minuto ao provider. Rever isso é decisão futura,
+especialmente antes de qualquer atualização automática (`DIAG-AUTO-01`, §393).
+O detalhe técnico está em `docs/SECURITY.md`, *Rate limit de capability*.
 
 ---
 
@@ -13617,6 +13646,16 @@ Registrado em §370: a fonte atual não tem conceito de freshness, e o AlfaOS n�
 inventa um limiar para um provider cuja cadência ninguém mediu. O que viaja é a
 **idade** da leitura.
 
+## §337 e §370 — escopo do teto do diagnóstico, corrigido por medição
+
+As duas diziam que o teto de 10 atualizações por minuto era **por empresa**. O
+código conta **por usuário, dentro da empresa** — chave `(empresa, usuário,
+capability)`, a mesma de `docs/SECURITY.md` e da auditoria da v0.7.x. A frase
+veio de uma leitura errada do código na descoberta da CTO. Levantado em
+13/09/2026 (`DIAG-RATE-01`), o dono decidiu **manter por usuário**; nenhuma linha
+de código mudou, e as conclusões de produto da §337 e da §370 continuam valendo
+para a tela de quem atualiza.
+
 ## §202 — sem alteração
 
 Já superada pela §334 na Parte XIII. Nada nesta Parte a toca.
@@ -13948,7 +13987,7 @@ ausência de leitura confiável
 `OFFLINE` só existe quando um provider **afirmou** (§370), e `SEM LEITURA`
 nunca conta como offline. E o diagnóstico atual **não sustenta** "offline há N
 dias": o snapshot é atualizado sob demanda, com gatilho na OS, e com teto por
-empresa (§337). Um cliente que ninguém consultou há vinte dias tem **uma leitura
+usuário (§337, §370). Um cliente que ninguém consultou há vinte dias tem **uma leitura
 de vinte dias atrás**, não vinte dias de offline. Um motor de churn depende de
 uma estratégia de frescor que não existe — a mesma que bloqueia a `CTO-6`
 (§337, §341; decisão aberta `C-03` em `docs/CTO-NETWORK-DISTRIBUTION.md`) —, e é
