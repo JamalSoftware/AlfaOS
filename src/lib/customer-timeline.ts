@@ -697,7 +697,7 @@ function orderRef(o: TimelineOrderRef & { companyId?: string }): TimelineOrderRe
  *
  * Coordenada nenhuma sai daqui: a tela diz O QUE aconteceu, não ONDE.
  */
-function classificarLocalizacao(l: {
+export function classificarLocalizacao(l: {
   kind: "ADDRESS" | "COORDINATES" | "BOTH";
   reason: LocationChangeReason;
   previousLatitude: Prisma.Decimal | null;
