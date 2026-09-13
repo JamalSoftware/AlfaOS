@@ -32,3 +32,13 @@ export function formatCompanyTime(date: Date, timezone: string): string {
     timeZone: timezone,
   }).format(date);
 }
+
+/** "12 de setembro de 2026" no fuso informado — o cabeçalho de um dia. */
+export function formatCompanyLongDate(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: timezone,
+  }).format(date);
+}
