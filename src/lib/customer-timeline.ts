@@ -10,6 +10,10 @@ import {
 } from "@prisma/client";
 import { prisma } from "./prisma";
 import { resolveTimezone } from "./workday";
+import {
+  LOCATION_CONFIRM_MAX_DISTANCE_M,
+  isConfirmDistanceAllowed,
+} from "./customer-locations";
 
 /**
  * # A timeline do cliente — TL-1 (PRD §381, MASTER-PLAN §5)
@@ -145,7 +149,25 @@ export type CustomerTimelineItem =
         | "LOCATION_DIVERGENCE_FROM_INTEGRATION";
       order: TimelineOrderRef | null;
       reason: LocationChangeReason;
+      /**
+       * Só em `LOCATION_CONFIRMED`: a que distância do ponto se confirmou
+       * (RC-LOC-02). `null` nos demais tipos, e também numa confirmação sem
+       * registro do evento. Distância, nunca coordenada.
+       */
+      confirmation: TimelineConfirmationMeasure | null;
     });
+
+/**
+ * A medida de uma confirmação de localização.
+ *
+ * `measured: false` é a confirmação feita SEM a posição do aparelho — possível
+ * só antes da RC-1C, e existente no banco. `aboveLimit` é decidido aqui, pela
+ * regra do domínio, e não pela tela: uma confirmação antiga a 2,3 km precisa
+ * aparecer como o que ela é hoje.
+ */
+export type TimelineConfirmationMeasure =
+  | { measured: true; distanceMeters: number; limitMeters: number; aboveLimit: boolean }
+  | { measured: false };
 
 export type CustomerTimelineKind = CustomerTimelineItem["kind"];
 
@@ -440,6 +462,9 @@ export async function getCustomerTimeline(
   // Segunda leva, dependente da primeira e limitada pelos ids dela.
   const concluidas = eventos.filter((e) => e.event === "OS_COMPLETED").map((e) => e.serviceOrder.id);
   const osDasFotos = gruposDeFotos.map((g) => g.serviceOrderId);
+  const osDasConfirmacoes = localizacoes
+    .filter((l) => l.serviceOrder && classificarLocalizacao(l) === "LOCATION_CONFIRMED")
+    .map((l) => l.serviceOrder!.id);
   // Função, e não lista: sem OS concluída nem foto, a segunda leva nem é montada.
   const segunda = () =>
     [
@@ -463,10 +488,34 @@ export async function getCustomerTimeline(
         select: ORDER_REF.select,
       }),
     ] as const;
-  const [execucoes, categoriasDasFotos, osRefsDasFotos] =
-    concluidas.length > 0 || osDasFotos.length > 0
-      ? await prisma.$transaction([...segunda()])
-      : ([[], [], []] as const);
+  /*
+    A distância das confirmações (RC-LOC-02) mora no evento, gravado na MESMA
+    transação da linha de histórico — a linha não tem coluna para ela, e a nota
+    é frase, que a timeline não lê. Tenant da linha E da OS, e a OS deste
+    cliente: o mesmo predicado das outras fontes, com o mesmo teto.
+
+    Entra na segunda leva só quando há confirmação a medir: o orçamento de
+    consultas da TL-1 (lotes, teto, sem N+1) continua o mesmo para quem não
+    tem, e quem tem paga UMA leitura a mais, no mesmo lote.
+  */
+  const confirmacoes = () =>
+    prisma.serviceOrderEvent.findMany({
+      where: {
+        companyId,
+        event: "LOCATION_CONFIRMED",
+        serviceOrderId: { in: osDasConfirmacoes },
+        serviceOrder: { companyId, customerId },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take,
+      select: { serviceOrderId: true, createdAt: true, metadata: true },
+    });
+  const [execucoes, categoriasDasFotos, osRefsDasFotos, eventosDeConfirmacao] =
+    osDasConfirmacoes.length > 0
+      ? await prisma.$transaction([...segunda(), confirmacoes()])
+      : concluidas.length > 0 || osDasFotos.length > 0
+        ? ([...(await prisma.$transaction([...segunda()])), []] as const)
+        : ([[], [], [], []] as const);
 
   const notasPorOs = new Map(execucoes.map((e) => [e.serviceOrderId, e.notes]));
   const osPorId = new Map(osRefsDasFotos.map((o) => [o.id, o]));
@@ -636,6 +685,10 @@ export async function getCustomerTimeline(
       actorName: l.changedBy?.name ?? l.technician?.user.name ?? null,
       order: l.serviceOrder && l.serviceOrder.companyId === companyId ? orderRef(l.serviceOrder) : null,
       reason: l.reason,
+      confirmation:
+        kind === "LOCATION_CONFIRMED" && l.serviceOrder
+          ? medidaDaConfirmacao(l.createdAt, l.serviceOrder.id, eventosDeConfirmacao)
+          : null,
     });
   }
 
@@ -737,6 +790,50 @@ export function classificarLocalizacao(l: {
     return "LOCATION_CONFIRMED";
   }
   return "LOCATION_CORRECTED";
+}
+
+/** Um evento só é "o desta confirmação" se nasceu no mesmo commit — com folga. */
+const CONFIRMACAO_JANELA_MS = 60_000;
+
+/**
+ * A distância de UMA confirmação, lida do evento que o mesmo comando gravou.
+ *
+ * A linha de histórico e o evento nascem na mesma transação e apontam a mesma
+ * OS; o par é o de menor distância no tempo, dentro de uma janela curta. Uma
+ * confirmação por OS é o que o domínio permite hoje (`verified` não volta a
+ * `false`), mas a regra não depende disso: se um dia houver duas, cada linha
+ * fica com o SEU evento.
+ *
+ * Sem evento, `null`: não se inventa medida. Com evento e sem número, é a
+ * confirmação antiga, feita sem a posição do aparelho.
+ */
+function medidaDaConfirmacao(
+  instante: Date,
+  serviceOrderId: string,
+  eventos: readonly { serviceOrderId: string; createdAt: Date; metadata: Prisma.JsonValue }[],
+): TimelineConfirmationMeasure | null {
+  let melhor: { distancia: number; metadata: Prisma.JsonValue } | null = null;
+  for (const e of eventos) {
+    if (e.serviceOrderId !== serviceOrderId) continue;
+    const distancia = Math.abs(e.createdAt.getTime() - instante.getTime());
+    if (distancia > CONFIRMACAO_JANELA_MS) continue;
+    if (!melhor || distancia < melhor.distancia) melhor = { distancia, metadata: e.metadata };
+  }
+  if (!melhor) return null;
+  const metros = metadataNumber(melhor.metadata, "distanceMeters");
+  if (metros === null) return { measured: false };
+  return {
+    measured: true,
+    distanceMeters: metros,
+    limitMeters: LOCATION_CONFIRM_MAX_DISTANCE_M,
+    aboveLimit: !isConfirmDistanceAllowed(metros),
+  };
+}
+
+function metadataNumber(metadata: Prisma.JsonValue | null, key: string): number | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 export type CustomerTimelineSection =

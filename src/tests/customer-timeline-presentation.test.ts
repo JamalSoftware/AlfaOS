@@ -157,6 +157,7 @@ const AMOSTRAS: Record<CustomerTimelineKind, CustomerTimelineItem> = {
     actorName: "Bruno",
     order: ORDEM,
     reason: "OTHER",
+    confirmation: { measured: true, distanceMeters: 32, limitMeters: 100, aboveLimit: false },
   },
   LOCATION_CORRECTED: {
     id: "r",
@@ -165,6 +166,7 @@ const AMOSTRAS: Record<CustomerTimelineKind, CustomerTimelineItem> = {
     actorName: "Bruno",
     order: ORDEM,
     reason: "INCORRECT_LOCATION",
+    confirmation: null,
   },
   ADDRESS_CORRECTED: {
     id: "s",
@@ -173,6 +175,7 @@ const AMOSTRAS: Record<CustomerTimelineKind, CustomerTimelineItem> = {
     actorName: "Bruno",
     order: ORDEM,
     reason: "INCORRECT_ADDRESS",
+    confirmation: null,
   },
   LOCATION_AND_ADDRESS_CORRECTED: {
     id: "t",
@@ -181,6 +184,7 @@ const AMOSTRAS: Record<CustomerTimelineKind, CustomerTimelineItem> = {
     actorName: "Bruno",
     order: ORDEM,
     reason: "CUSTOMER_MOVED",
+    confirmation: null,
   },
   LOCATION_FROM_INTEGRATION: {
     id: "u",
@@ -189,6 +193,7 @@ const AMOSTRAS: Record<CustomerTimelineKind, CustomerTimelineItem> = {
     actorName: null,
     order: null,
     reason: "INCOMPLETE_REGISTRATION",
+    confirmation: null,
   },
   LOCATION_DIVERGENCE_FROM_INTEGRATION: {
     id: "v",
@@ -197,6 +202,7 @@ const AMOSTRAS: Record<CustomerTimelineKind, CustomerTimelineItem> = {
     actorName: null,
     order: null,
     reason: "OTHER",
+    confirmation: null,
   },
 };
 

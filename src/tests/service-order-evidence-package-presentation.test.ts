@@ -163,7 +163,7 @@ describe("EV-PRES — frases", () => {
   it("EV-PRES-05 — mudança de ponto com as MESMAS frases da timeline do cliente", () => {
     for (const kind of ["LOCATION_CONFIRMED", "LOCATION_CORRECTED", "ADDRESS_CORRECTED", "LOCATION_AND_ADDRESS_CORRECTED"] as const) {
       const nosso = locationChangeText({ kind, reason: "INCORRECT_LOCATION" });
-      const timeline = presentTimelineItem({ id: "x", kind, occurredAt: T0, actorName: null, order: null, reason: "INCORRECT_LOCATION" });
+      const timeline = presentTimelineItem({ id: "x", kind, occurredAt: T0, actorName: null, order: null, reason: "INCORRECT_LOCATION", confirmation: null });
       expect(nosso.title).toBe(timeline.title);
       expect(nosso.reason).toBe(timeline.description);
     }

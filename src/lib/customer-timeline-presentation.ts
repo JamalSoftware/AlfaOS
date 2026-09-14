@@ -8,7 +8,9 @@ import type {
 import type {
   CustomerTimelineItem,
   CustomerTimelineKind,
+  TimelineConfirmationMeasure,
 } from "./customer-timeline";
+import { formatDistanceMeters } from "./customer-location-presentation";
 
 /**
  * # Como a timeline do cliente fala com o operador — TL-1
@@ -149,6 +151,25 @@ function juntar(...partes: (string | null | undefined)[]): string | null {
   return texto || null;
 }
 
+/**
+ * "Confirmada a 32 m do ponto cadastrado." — RC-LOC-02.
+ *
+ * A distância, e nunca a coordenada: a timeline diz a que distância a pessoa
+ * estava quando afirmou que o ponto está certo. Uma confirmação antiga acima do
+ * limite de hoje é dita como tal — é justamente a discrepância que a linha
+ * escondia antes (o caso que originou a RC-1C foi confirmado a ~2,3 km).
+ */
+function descreverConfirmacao(
+  medida: TimelineConfirmationMeasure | null,
+): string | null {
+  if (!medida) return null;
+  if (!medida.measured) return "Confirmada sem a posição do aparelho.";
+  const distancia = formatDistanceMeters(medida.distanceMeters);
+  return medida.aboveLimit
+    ? `Confirmada a ${distancia} do ponto cadastrado, acima do limite de ${formatDistanceMeters(medida.limitMeters)}.`
+    : `Confirmada a ${distancia} do ponto cadastrado.`;
+}
+
 export function presentTimelineItem(item: CustomerTimelineItem): TimelineItemPresentation {
   const category = TIMELINE_KIND_CATEGORY[item.kind];
   const actorLabel = item.actorName;
@@ -275,7 +296,12 @@ export function presentTimelineItem(item: CustomerTimelineItem): TimelineItemPre
         actorLabel,
       };
     case "LOCATION_CONFIRMED":
-      return { category, title: "Localização confirmada em campo", description: null, actorLabel };
+      return {
+        category,
+        title: "Localização confirmada em campo",
+        description: descreverConfirmacao(item.confirmation),
+        actorLabel,
+      };
     case "LOCATION_CORRECTED":
       return {
         category,

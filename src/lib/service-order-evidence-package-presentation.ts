@@ -117,6 +117,9 @@ export function locationChangeText(change: {
     actorName: null,
     order: null,
     reason: change.reason,
+    // O pacote técnico (EV-1, congelado) não carrega a medida da confirmação:
+    // a linha continua dizendo o que dizia antes da RC-1C.
+    confirmation: null,
   });
   return { title: p.title, reason: p.description };
 }
