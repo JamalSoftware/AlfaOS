@@ -12,6 +12,7 @@ import '../../../core/media/photo_capture.dart';
 import '../../../core/sync/pending_operation.dart';
 import '../data/execution_repository.dart';
 import '../domain/execution.dart';
+import '../domain/location_confirm.dart';
 
 /// Uma foto que ainda não chegou ao servidor.
 ///
@@ -74,6 +75,7 @@ class ExecutionState {
     this.locationMessage,
     this.completionPendencies = const [],
     this.completed = false,
+    this.locating = false,
   });
 
   final ExecutionBundle? bundle;
@@ -102,6 +104,13 @@ class ExecutionState {
 
   final bool completed;
 
+  /// O GPS está sendo lido para medir a distância antes de confirmar.
+  ///
+  /// Separado de `busy`, que é "um COMANDO em voo": ler a posição não manda
+  /// nada ao servidor, e a tela precisa dizer "obtendo sua localização" em vez
+  /// de parecer travada pelos até quinze segundos de um fix.
+  final bool locating;
+
   ExecutionState copyWith({
     ExecutionBundle? bundle,
     List<StockLine>? stock,
@@ -114,6 +123,7 @@ class ExecutionState {
     String? locationMessage,
     List<CompletionPendency>? completionPendencies,
     bool? completed,
+    bool? locating,
     bool clearError = false,
     bool clearMessage = false,
     bool clearLocationMessage = false,
@@ -131,6 +141,7 @@ class ExecutionState {
         : (locationMessage ?? this.locationMessage),
     completionPendencies: completionPendencies ?? this.completionPendencies,
     completed: completed ?? this.completed,
+    locating: locating ?? this.locating,
   );
 }
 
@@ -299,12 +310,47 @@ class ExecutionController extends StateNotifier<ExecutionState> {
     return reading.position;
   }
 
-  /// Confirma que o ponto cadastrado está correto.
+  /// Lê o GPS e mede a distância até o ponto cadastrado — SEM confirmar nada.
   ///
-  /// O GPS entra como OBSERVAÇÃO — de onde o técnico confirmou — e não como a
-  /// localização do cliente. Mover o ponto é `correctLocation`, que é outra
-  /// ação e exige motivo.
-  Future<bool> confirmLocation() async {
+  /// É o primeiro passo de "Confirmar localização" (RC-1C): o técnico vê a que
+  /// distância está e com que precisão, e só então decide. Ler aqui, e não no
+  /// comando, é o que garante que a posição ENVIADA é a mesma que ele viu.
+  ///
+  /// `null` quando não há o que medir — sem pacote, com um comando em voo, ou
+  /// sem ponto cadastrado (a saída aí é corrigir, e a tela nem oferece
+  /// confirmar).
+  Future<ConfirmLocationCheck?> checkLocationForConfirm() async {
+    final bundle = state.bundle;
+    if (bundle == null || state.busy || state.locating) return null;
+    final location = bundle.location;
+    if (!location.hasCoordinate || location.version == null) {
+      state = state.copyWith(
+        error: 'Este cliente ainda não tem localização. Use "Corrigir".',
+      );
+      return null;
+    }
+    state = state.copyWith(
+      locating: true,
+      clearError: true,
+      clearMessage: true,
+    );
+    try {
+      final reading = await _location.current();
+      return ConfirmLocationCheck.evaluate(
+        location: location,
+        reading: reading,
+      );
+    } finally {
+      if (mounted) state = state.copyWith(locating: false);
+    }
+  }
+
+  /// Confirma que o ponto cadastrado está correto, a partir de [position].
+  ///
+  /// A posição é OBRIGATÓRIA desde a RC-1C: é contra ela que o servidor mede a
+  /// distância e aplica o limite. Ela não vira a localização do cliente —
+  /// mover o ponto é `correctLocation`, que é outra ação e exige motivo.
+  Future<bool> confirmLocation(DeviceLocation position) async {
     final version = state.bundle?.location.version;
     if (version == null) {
       state = state.copyWith(
@@ -312,16 +358,15 @@ class ExecutionController extends StateNotifier<ExecutionState> {
       );
       return false;
     }
-    final position = await _readPosition();
     return _run(
       'location-confirm',
       (_) => _repository.confirmLocation(
         orderId: orderId,
         expectedVersion: version,
         idempotencyKey: _intentKey('location-confirm'),
-        observedLatitude: position?.latitude,
-        observedLongitude: position?.longitude,
-        observedAccuracyMeters: position?.accuracyMeters,
+        observedLatitude: position.latitude,
+        observedLongitude: position.longitude,
+        observedAccuracyMeters: position.accuracyMeters,
       ),
       successMessage: 'Localização confirmada.',
     );

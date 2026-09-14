@@ -7,6 +7,7 @@ import '../../../core/widgets/state_views.dart';
 import '../domain/execution.dart';
 import '../state/execution_controller.dart';
 import 'execution_forms.dart';
+import 'location_confirm_dialog.dart';
 
 /// A tela de EXECUÇÃO do atendimento.
 ///
@@ -347,14 +348,23 @@ class _LocationSection extends StatelessWidget {
             children: [
               if (location.status == LocationStatus.unconfirmed)
                 FilledButton.icon(
-                  onPressed: state.busy
+                  onPressed: state.busy || state.locating
                       ? null
                       : () => _confirm(context, notifier),
-                  icon: const Icon(Icons.check),
-                  label: const Text('Confirmar localização'),
+                  icon: state.locating
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check),
+                  label: Text(
+                    state.locating
+                        ? 'Obtendo sua localização…'
+                        : 'Confirmar localização',
+                  ),
                 ),
               OutlinedButton.icon(
-                onPressed: state.busy
+                onPressed: state.busy || state.locating
                     ? null
                     : () => showCorrectLocationSheet(context, notifier),
                 icon: const Icon(Icons.edit_location_alt_outlined),
@@ -367,36 +377,36 @@ class _LocationSection extends StatelessWidget {
     );
   }
 
-  /// Confirmação com aceite EXPLÍCITO.
+  /// Confirmação com aceite EXPLÍCITO — e medida antes (RC-1C).
   ///
-  /// O GPS sozinho não confirma nada: o aparelho reporta onde ELE está, não que
-  /// o técnico conferiu que aquele é o ponto de instalação. O diálogo é onde a
-  /// pessoa afirma isso (PRD §172).
+  /// Primeiro o GPS é lido e a distância até o ponto é mostrada; só dentro do
+  /// limite que o servidor mandou o diálogo oferece Confirmar. Longe, a saída
+  /// é "Corrigir localização", a um toque. Sem GPS, não há confirmação.
+  ///
+  /// O GPS continua não confirmando nada sozinho: o aparelho reporta onde ELE
+  /// está, e o diálogo é onde a pessoa afirma que aquele é o ponto (PRD §172).
+  /// A posição enviada é a MESMA que o técnico viu medida.
   Future<void> _confirm(
     BuildContext context,
     ExecutionController notifier,
   ) async {
-    final accepted = await showDialog<bool>(
+    final check = await notifier.checkLocationForConfirm();
+    if (check == null || !context.mounted) return;
+
+    final choice = await showDialog<ConfirmLocationChoice>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Você está no endereço do cliente?'),
-        content: const Text(
-          'Confirmar registra que este ponto foi conferido em campo. '
-          'Sua localização atual é usada apenas como referência do registro.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Confirmar'),
-          ),
-        ],
-      ),
+      builder: (context) => ConfirmLocationDialog(check: check),
     );
-    if (accepted ?? false) await notifier.confirmLocation();
+    if (!context.mounted) return;
+    switch (choice) {
+      case ConfirmLocationChoice.confirm:
+        final position = check.position;
+        if (position != null) await notifier.confirmLocation(position);
+      case ConfirmLocationChoice.correct:
+        await showCorrectLocationSheet(context, notifier);
+      case null:
+        break;
+    }
   }
 }
 

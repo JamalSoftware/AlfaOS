@@ -45,6 +45,7 @@ class ExecutionLocation {
     this.verified = false,
     this.reference,
     this.version,
+    this.confirmMaxDistanceMeters,
   });
 
   final LocationStatus status;
@@ -54,6 +55,13 @@ class ExecutionLocation {
   final String? source;
   final bool verified;
   final String? reference;
+
+  /// Até quantos metros do ponto o SERVIDOR aceita confirmar (RC-1C).
+  ///
+  /// Vem do pacote, e não de uma constante daqui: a regra é do servidor, e o
+  /// aplicativo só a usa para não oferecer um botão que seria recusado.
+  /// `null` num servidor anterior à RC-1C.
+  final int? confirmMaxDistanceMeters;
 
   /// Token do compare-and-set da LOCALIZAÇÃO — não o da OS.
   ///
@@ -75,6 +83,8 @@ class ExecutionLocation {
       verified: json['verified'] as bool? ?? false,
       reference: json['reference'] as String?,
       version: (json['version'] as num?)?.toInt(),
+      confirmMaxDistanceMeters: (json['confirmMaxDistanceMeters'] as num?)
+          ?.toInt(),
     );
   }
 }

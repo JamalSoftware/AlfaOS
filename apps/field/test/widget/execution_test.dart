@@ -58,9 +58,15 @@ const _okPosition = LocationReading.ok(
   DeviceLocation(latitude: -23.5505, longitude: -46.6333, accuracyMeters: 9),
 );
 
+/// O ponto cadastrado dos cenários: ~15 m de `_okPosition` — perto o bastante
+/// para confirmar (RC-1C).
+const _pontoLat = -23.5504;
+const _pontoLng = -46.6332;
+
 Map<String, dynamic> bundle({
   String locationStatus = 'UNCONFIRMED',
   int? locationVersion = 0,
+  int? confirmMaxDistanceMeters = 100,
   Map<String, dynamic>? checkIn,
   List<Map<String, dynamic>> checklist = const [],
   List<Map<String, dynamic>> evidences = const [],
@@ -85,13 +91,14 @@ Map<String, dynamic> bundle({
         },
     'location': {
       'status': locationStatus,
-      'latitude': locationStatus == 'MISSING' ? null : -23.55,
-      'longitude': locationStatus == 'MISSING' ? null : -46.63,
+      'latitude': locationStatus == 'MISSING' ? null : _pontoLat,
+      'longitude': locationStatus == 'MISSING' ? null : _pontoLng,
       'accuracyMeters': null,
       'source': locationStatus == 'MISSING' ? null : 'IMPORTED',
       'verified': locationStatus == 'CONFIRMED',
       'reference': null,
       'version': locationVersion,
+      'confirmMaxDistanceMeters': ?confirmMaxDistanceMeters,
     },
     'checkIn': checkIn,
     'checklist': checklist,
@@ -213,97 +220,241 @@ void main() {
       expect(find.text('Corrigir'), findsOneWidget);
     });
 
-    testWidgets('confirmar exige aceite explícito antes de enviar', (
-      tester,
-    ) async {
-      final h = await abrir(tester);
-      h.harness.transport.onJson(
-        'POST',
-        '/service-orders/os-1/location/confirm',
-        data: {},
-      );
-
-      await tester.tap(find.text('Confirmar localização'));
-      await settle(tester);
-
-      // O diálogo é onde a PESSOA afirma que está no endereço. O GPS sozinho
-      // não confirma nada (PRD §172).
-      expect(find.text('Você está no endereço do cliente?'), findsOneWidget);
-      expect(
-        h.harness.transport.countOf(
+    testWidgets(
+      'confirmar mede ANTES, mostra distância e precisão, e exige aceite',
+      (tester) async {
+        final h = await abrir(tester);
+        h.harness.transport.onJson(
           'POST',
           '/service-orders/os-1/location/confirm',
-        ),
-        0,
-      );
+          data: {},
+        );
 
-      await tester.tap(find.text('Cancelar'));
-      await settle(tester);
-      expect(
-        h.harness.transport.countOf(
+        await tester.tap(find.text('Confirmar localização'));
+        await settle(tester);
+
+        // O diálogo é onde a PESSOA afirma que está no endereço — agora com a
+        // distância à vista (RC-1C). O GPS sozinho não confirma nada (§172).
+        expect(find.text('Você está no endereço do cliente?'), findsOneWidget);
+        expect(find.text('Distância da sua posição: 15 m'), findsOneWidget);
+        expect(find.text('Precisão do GPS: 9 m'), findsOneWidget);
+        expect(
+          h.harness.transport.countOf(
+            'POST',
+            '/service-orders/os-1/location/confirm',
+          ),
+          0,
+        );
+
+        await tester.tap(find.text('Cancelar'));
+        await settle(tester);
+        expect(
+          h.harness.transport.countOf(
+            'POST',
+            '/service-orders/os-1/location/confirm',
+          ),
+          0,
+          reason: 'cancelar não pode enviar',
+        );
+
+        await tester.tap(find.text('Confirmar localização'));
+        await settle(tester);
+        await tester.tap(find.byKey(const Key('confirm-location-submit')));
+        await settle(tester);
+
+        final request = h.harness.transport.requestFor(
           'POST',
           '/service-orders/os-1/location/confirm',
-        ),
-        0,
-        reason: 'cancelar não pode enviar',
-      );
+        );
+        final body = request.data as Map<String, dynamic>;
+        // A versão é a da LOCALIZAÇÃO (0), não a da OS (3).
+        expect(body['expectedVersion'], 0);
+        // A posição enviada é a MESMA que foi medida e mostrada.
+        expect(body['observedLatitude'], -23.5505);
+        expect(body['observedLongitude'], -46.6333);
+        expect(body['observedAccuracyMeters'], 9);
+        // Nenhuma distância viaja: quem mede, para valer, é o servidor.
+        expect(body.containsKey('distanceMeters'), isFalse);
+        expect(request.headers['Idempotency-Key'], isNotNull);
+        // Uma leitura por tentativa, e a enviada é a da tentativa aceita.
+        expect(h.gps.calls, 2);
+      },
+    );
 
-      await tester.tap(find.text('Confirmar localização'));
-      await settle(tester);
-      await tester.tap(find.text('Confirmar'));
-      await settle(tester);
+    testWidgets(
+      'longe do ponto: mostra a distância, NÃO oferece Confirmar e leva a Corrigir',
+      (tester) async {
+        // ~2,36 km ao norte do ponto cadastrado.
+        final h = await abrir(
+          tester,
+          location: const LocationReading.ok(
+            DeviceLocation(
+              latitude: -23.529203,
+              longitude: -46.6332,
+              accuracyMeters: 14,
+            ),
+          ),
+        );
 
-      final request = h.harness.transport.requestFor(
-        'POST',
-        '/service-orders/os-1/location/confirm',
-      );
-      final body = request.data as Map<String, dynamic>;
-      // A versão é a da LOCALIZAÇÃO (0), não a da OS (3).
-      expect(body['expectedVersion'], 0);
-      expect(body['observedLatitude'], -23.5505);
-      expect(request.headers['Idempotency-Key'], isNotNull);
-    });
+        await tester.tap(find.text('Confirmar localização'));
+        await settle(tester);
 
-    testWidgets('permissão negada avisa e NÃO trava a tela', (tester) async {
+        expect(find.text('Longe do ponto cadastrado'), findsOneWidget);
+        expect(find.text('Distância da sua posição: 2,36 km'), findsOneWidget);
+        expect(find.text('Precisão do GPS: 14 m'), findsOneWidget);
+        expect(
+          find.text(
+            'Você está muito distante do ponto cadastrado. '
+            'Use Corrigir localização.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('confirm-location-submit')), findsNothing);
+        expect(find.widgetWithText(FilledButton, 'Confirmar'), findsNothing);
+
+        // A saída é a correção, a um toque.
+        await tester.tap(find.byKey(const Key('confirm-location-go-correct')));
+        await settle(tester);
+        expect(find.text('Corrigir endereço e localização'), findsOneWidget);
+        expect(
+          h.harness.transport.countOf(
+            'POST',
+            '/service-orders/os-1/location/confirm',
+          ),
+          0,
+        );
+      },
+    );
+
+    testWidgets('no limite (100 m) confirma; a 101 m não', (tester) async {
+      // 100 e 101 m ao norte do ponto, pela mesma haversine do servidor.
+      const metro = 180 / (3.141592653589793 * 6371008.8);
       final h = await abrir(
         tester,
-        location: const LocationReading.failed(
-          LocationOutcome.permissionDenied,
+        location: const LocationReading.ok(
+          DeviceLocation(
+            latitude: _pontoLat + 100 * metro,
+            longitude: _pontoLng,
+          ),
         ),
       );
-      h.harness.transport.onJson(
-        'POST',
-        '/service-orders/os-1/location/confirm',
-        data: {},
-      );
-
       await tester.tap(find.text('Confirmar localização'));
       await settle(tester);
-      await tester.tap(find.text('Confirmar'));
+      expect(find.text('Distância da sua posição: 100 m'), findsOneWidget);
+      expect(find.byKey(const Key('confirm-location-submit')), findsOneWidget);
+      await tester.tap(find.text('Cancelar'));
       await settle(tester);
 
-      /*
-        O que importa aqui é NÃO TRAVAR.
+      h.gps.reading = const LocationReading.ok(
+        DeviceLocation(latitude: _pontoLat + 101 * metro, longitude: _pontoLng),
+      );
+      await tester.tap(find.text('Confirmar localização'));
+      await settle(tester);
+      expect(find.text('Distância da sua posição: 101 m'), findsOneWidget);
+      expect(find.byKey(const Key('confirm-location-submit')), findsNothing);
+      expect(find.text('Longe do ponto cadastrado'), findsOneWidget);
+    });
 
-        A frase da permissão aparece num toast e é substituída pelo toast de
-        sucesso logo em seguida — asseverar o texto seria testar a ordem de
-        dois SnackBars, não a regra. A regra é: sem GPS a confirmação ACONTECE,
-        porque quem está declarando que o ponto está certo é o técnico, e a
-        coordenada era apenas a referência do registro.
+    testWidgets('o limite é o que o SERVIDOR mandou no pacote', (tester) async {
+      // Com 10 m no pacote, os ~15 m do cenário já não permitem confirmar.
+      await abrir(tester, payload: bundle(confirmMaxDistanceMeters: 10));
+      await tester.tap(find.text('Confirmar localização'));
+      await settle(tester);
+      expect(find.text('Longe do ponto cadastrado'), findsOneWidget);
+      expect(find.byKey(const Key('confirm-location-submit')), findsNothing);
+    });
 
-        O texto de cada recusa é coberto separadamente, em `location_test`.
-      */
-      expect(
-        h.harness.transport.countOf(
+    testWidgets(
+      'GPS negado: NÃO confirma, explica, e a tela continua utilizável',
+      (tester) async {
+        final h = await abrir(
+          tester,
+          location: const LocationReading.failed(
+            LocationOutcome.permissionDenied,
+          ),
+        );
+        h.harness.transport.onJson(
           'POST',
           '/service-orders/os-1/location/confirm',
-        ),
-        1,
+          data: {},
+        );
+
+        await tester.tap(find.text('Confirmar localização'));
+        await settle(tester);
+
+        /*
+        Antes da RC-1C, sem GPS a confirmação ACONTECIA — o técnico declarava
+        e a coordenada era "só referência". O dono decidiu o contrário:
+        confirmar exige a posição do aparelho, porque é contra ela que se mede
+        a distância. Sem ela, não há o que oferecer.
+      */
+        expect(find.text('Sem a sua localização'), findsOneWidget);
+        expect(
+          find.text(
+            'Sem a posição do aparelho não é possível confirmar o ponto.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('confirm-location-submit')), findsNothing);
+
+        await tester.tap(find.text('Fechar'));
+        await settle(tester);
+        expect(
+          h.harness.transport.countOf(
+            'POST',
+            '/service-orders/os-1/location/confirm',
+          ),
+          0,
+        );
+        expect(h.gps.calls, 1);
+        // E o resto da tela continua utilizável.
+        expect(find.text('FAZER CHECK-IN'), findsOneWidget);
+        expect(find.text('Confirmar localização'), findsOneWidget);
+      },
+    );
+
+    testWidgets('GPS indisponível: a frase NÃO diz para continuar sem ele', (
+      tester,
+    ) async {
+      await abrir(
+        tester,
+        location: const LocationReading.failed(LocationOutcome.unavailable),
       );
-      expect(h.gps.calls, 1);
-      // E o resto da tela continua utilizável.
-      expect(find.text('FAZER CHECK-IN'), findsOneWidget);
+      await tester.tap(find.text('Confirmar localização'));
+      await settle(tester);
+      expect(
+        find.text('Não foi possível obter a localização agora.'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('continuar sem ela'), findsNothing);
     });
+
+    testWidgets(
+      'a recusa do servidor aparece — e o ponto não vira confirmado',
+      (tester) async {
+        final h = await abrir(tester);
+        h.harness.transport.onError(
+          'POST',
+          '/service-orders/os-1/location/confirm',
+          status: 400,
+          code: 'VALIDATION_ERROR',
+          message: 'Você está a 120 m do ponto cadastrado. Use Corrigir localização.',
+        );
+
+        await tester.tap(find.text('Confirmar localização'));
+        await settle(tester);
+        await tester.tap(find.byKey(const Key('confirm-location-submit')));
+        await settle(tester);
+
+        expect(
+          find.text(
+            'Você está a 120 m do ponto cadastrado. Use Corrigir localização.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('Não confirmada'), findsOneWidget);
+      },
+    );
   });
 
   group('check-in', () {
