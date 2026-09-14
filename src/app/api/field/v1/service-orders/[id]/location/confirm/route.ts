@@ -13,10 +13,20 @@ import { clientMutationId, fieldExpectedVersion } from "@/lib/field/route";
  * invalidar a confirmação que o técnico está enviando, e confirmar a
  * localização não pode invalidar a foto que está subindo.
  *
- * A coordenada do aparelho é OPCIONAL e entra como observação. Ela é gravada no
- * histórico junto da distância calculada no servidor — não vira a localização
- * do cliente, que continua onde estava. Mover o ponto é `correct`, que é outra
- * ação e exige motivo.
+ * ## A posição do aparelho é OBRIGATÓRIA (RC-1C)
+ *
+ * É contra ela que o servidor mede a distância até o ponto cadastrado, e acima
+ * de `LOCATION_CONFIRM_MAX_DISTANCE_M` (100 m) a confirmação é recusada com
+ * `400` — a saída é `correct`. Sem GPS, também `400`: confirmar sem medir é o
+ * defeito que a fase fechou.
+ *
+ * O schema continua aceitando `null`/ausente e o domínio recusa com a mensagem
+ * certa — forma aqui, regra no domínio. Um `.min()` no zod devolveria o
+ * "Dados inválidos" genérico a um técnico que só está sem sinal.
+ *
+ * A coordenada do aparelho não vira a localização do cliente, que continua onde
+ * estava; ela fica registrada junto da distância. E a distância **nunca** vem do
+ * corpo: um campo `distanceMeters` é recusado pelo `.strict()`.
  */
 const schema = z
   .object({

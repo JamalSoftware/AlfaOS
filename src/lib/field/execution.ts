@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { COMMITTED_EVIDENCE } from "@/lib/service-order-closing";
-import { getCustomerLocationView, type LocationStatus } from "@/lib/customer-locations";
+import {
+  LOCATION_CONFIRM_MAX_DISTANCE_M,
+  getCustomerLocationView,
+  type LocationStatus,
+} from "@/lib/customer-locations";
 import { getOrderChecklist, type PublicChecklistItem } from "@/lib/checklists";
 import {
   validateServiceOrderCompletion,
@@ -62,6 +66,14 @@ export interface FieldExecutionBundle {
     reference: string | null;
     /** Token do compare-and-set da LOCALIZAÇÃO. `null` quando não existe. */
     version: number | null;
+    /**
+     * Até quantos metros do ponto o técnico pode confirmar (RC-1C).
+     *
+     * Viaja para o aplicativo desabilitar "Confirmar" ANTES de enviar — e para
+     * que o número exista num lugar só. Quem recusa continua sendo o servidor
+     * (`confirmCustomerLocation`); um APK que ignore este campo recebe o 400.
+     */
+    confirmMaxDistanceMeters: number;
   };
   checkIn: {
     id: string;
@@ -226,6 +238,7 @@ export async function getFieldExecutionBundle(
       verified: locationView.location?.verified ?? false,
       reference: locationView.location?.reference ?? null,
       version: locationView.location?.version ?? null,
+      confirmMaxDistanceMeters: LOCATION_CONFIRM_MAX_DISTANCE_M,
     },
     checkIn: checkIn
       ? {

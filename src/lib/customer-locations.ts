@@ -15,6 +15,7 @@ import {
   type Coordinate,
 } from "./geo";
 import { coordenadaValida } from "./map-links";
+import { formatDistanceMeters } from "./customer-location-presentation";
 import {
   loadOwnedServiceOrder,
   resolveActingTechnician,
@@ -436,9 +437,60 @@ function assertReasonNote(
 // Confirmação
 // ---------------------------------------------------------------------------
 
+/**
+ * Até quantos metros do ponto cadastrado o técnico pode CONFIRMAR — RC-1C.
+ *
+ * Decisão do dono (RC-LOC-01, 2026-09-14), depois do caso que originou a fase:
+ * um ponto importado foi confirmado por um técnico a ~2,3 km dele, e virou
+ * "verificado" — o mapa e a operação passaram a confiar num ponto que ninguém
+ * conferiu de perto.
+ *
+ * **Inclusivo, e sobre o metro inteiro.** A comparação usa o mesmo valor que
+ * `distanceInMeters` devolve (arredondado) e que o técnico vê na tela. Comparar
+ * o valor bruto faria "100 m" aparecer recusado e "100 m" aparecer aceito, a
+ * depender de uma fração que ninguém enxerga.
+ *
+ * Mora no servidor e VIAJA no pacote de execução (`confirmMaxDistanceMeters`):
+ * o aplicativo usa o número para desabilitar o botão antes de enviar, mas quem
+ * recusa é esta regra — um APK antigo, ou hostil, não passa por ela.
+ */
+export const LOCATION_CONFIRM_MAX_DISTANCE_M = 100;
+
+/** A regra do limite, isolada: `true` quando a distância permite confirmar. */
+export function isConfirmDistanceAllowed(distanceMeters: number): boolean {
+  return distanceMeters <= LOCATION_CONFIRM_MAX_DISTANCE_M;
+}
+
+/**
+ * A posição do aparelho que a confirmação exige — ou a recusa.
+ *
+ * Ausente, pela metade ou fora do planeta, é o mesmo desfecho: sem GPS válido
+ * não há contra o que medir, e confirmar sem medir é o defeito que a RC-1C
+ * fecha. `coordenadaValida` é a MESMA definição de coordenada utilizável que a
+ * navegação e o check-in usam (NaN, infinito, faixa e a ilha nula).
+ */
+function requireObservedPosition(input: ConfirmLocationInput): Coordinate {
+  const lat = input.observedLatitude;
+  const lng = input.observedLongitude;
+  if (lat === null || lat === undefined || lng === null || lng === undefined) {
+    throw badRequest(
+      "Não é possível confirmar sem a localização do aparelho. Ative o GPS e tente novamente.",
+    );
+  }
+  if (typeof lat !== "number" || typeof lng !== "number" || !coordenadaValida(lat, lng)) {
+    throw badRequest(
+      "A localização do aparelho é inválida. Obtenha a posição novamente e tente outra vez.",
+    );
+  }
+  return { latitude: lat, longitude: lng };
+}
+
 export interface ConfirmLocationInput {
   expectedVersion: number;
-  /** Onde o aparelho diz que o técnico está. Registrado, nunca gravado como o ponto. */
+  /**
+   * Onde o aparelho diz que o técnico está. OBRIGATÓRIA desde a RC-1C: é contra
+   * ela que a distância é medida. Registrada, nunca gravada como o ponto.
+   */
   observedLatitude?: number | null;
   observedLongitude?: number | null;
   observedAccuracyMeters?: number | null;
@@ -446,8 +498,8 @@ export interface ConfirmLocationInput {
 
 export interface ConfirmLocationResult {
   location: PublicCustomerLocation;
-  /** Distância entre o técnico e o ponto confirmado, quando ambos existem. */
-  distanceMeters: number | null;
+  /** Distância, calculada no servidor, entre o técnico e o ponto confirmado. */
+  distanceMeters: number;
 }
 
 /**
@@ -457,20 +509,33 @@ export interface ConfirmLocationResult {
  * tinha, e passa a valer `verified = true`. Mover é `correctCustomerLocation`,
  * que é outra ação, com motivo obrigatório.
  *
- * ## O GPS entra como observação, não como o ponto
+ * ## O contrato (RC-1C)
  *
- * A coordenada do aparelho é gravada apenas no histórico, junto da distância
- * calculada no servidor. Ela documenta DE ONDE a pessoa confirmou — não vira a
- * localização do cliente. Se o técnico está a 200 m e mesmo assim confirma, o
- * registro guarda os 200 m, e é a operação que decide o que fazer com isso.
+ * A ordem é a do contrato aprovado, e ela importa:
+ *
+ * ```text
+ * técnico → OS dele → OS em atendimento (sob trava)   quem e quando
+ * ponto existe → versão → ainda não verificado       o que há para confirmar
+ * GPS válido → distância no servidor → ≤ 100 m        se dá para confirmar
+ * só então: verified = true, trilha, evento, auditoria
+ * ```
+ *
+ * Quem não pode mexer nesta OS recebe o 404 da OS antes de qualquer pergunta
+ * sobre GPS — a recusa não conta que existe um ponto do outro lado. E a regra
+ * dos 100 m vem ANTES da escrita: nada é gravado para depois ser desfeito.
+ *
+ * ## O GPS entra como medida, não como o ponto
+ *
+ * A coordenada do aparelho é gravada apenas como registro — no evento, com a
+ * distância e a precisão —, documentando DE ONDE a pessoa confirmou. Ela não
+ * vira a localização do cliente.
  *
  * ## Por que não existe confirmação automática
  *
  * `verified` só é escrito aqui e na correção — os dois caminhos com ação humana
  * explícita. O aparelho reporta onde ELE está, não que o técnico conferiu que
- * aquele é o ponto de instalação (PRD §172). Derivar `verified` da chegada
- * produziria uma base inteira de coordenadas "verificadas" com a precisão do
- * GPS do momento.
+ * aquele é o ponto de instalação (PRD §172). A distância é CONDIÇÃO para a
+ * pessoa poder afirmar isso, não um substituto da afirmação.
  */
 export async function confirmCustomerLocation(
   companyId: string,
@@ -478,20 +543,6 @@ export async function confirmCustomerLocation(
   orderId: string,
   input: ConfirmLocationInput,
 ): Promise<ConfirmLocationResult> {
-  const observedAccuracy = assertValidAccuracy(input.observedAccuracyMeters);
-  let observed: Coordinate | null = null;
-  if (
-    input.observedLatitude !== null &&
-    input.observedLatitude !== undefined &&
-    input.observedLongitude !== null &&
-    input.observedLongitude !== undefined
-  ) {
-    observed = assertValidCoordinate(
-      input.observedLatitude,
-      input.observedLongitude,
-    );
-  }
-
   const result = await prisma.$transaction(async (tx) => {
     const { technician, order } = await requireFieldCustomerContext(
       tx,
@@ -515,6 +566,21 @@ export async function confirmCustomerLocation(
       throw conflict("A localização deste cliente já está confirmada.");
     }
 
+    const observed = requireObservedPosition(input);
+    const observedAccuracy = assertValidAccuracy(input.observedAccuracyMeters);
+
+    // Calculada AQUI, a partir do ponto gravado. Distância enviada pelo
+    // aparelho seria o aparelho avaliando a si mesmo (PRD §167).
+    const distanceMeters = distanceInMeters(observed, {
+      latitude: toNumber(current.latitude),
+      longitude: toNumber(current.longitude),
+    });
+    if (!isConfirmDistanceAllowed(distanceMeters)) {
+      throw badRequest(
+        `Você está a ${formatDistanceMeters(distanceMeters)} do ponto cadastrado. Use Corrigir localização.`,
+      );
+    }
+
     const claimed = await tx.customerLocation.updateMany({
       where: { id: current.id, companyId, version: input.expectedVersion },
       data: {
@@ -531,13 +597,6 @@ export async function confirmCustomerLocation(
       );
     }
 
-    const distanceMeters = observed
-      ? distanceInMeters(observed, {
-          latitude: toNumber(current.latitude),
-          longitude: toNumber(current.longitude),
-        })
-      : null;
-
     await writeLocationHistory(tx, {
       companyId,
       customerId: order.customerId,
@@ -546,11 +605,9 @@ export async function confirmCustomerLocation(
       // Confirmar não é corrigir um erro: o cadastro estava certo e agora está
       // conferido. `INCORRECT_LOCATION` mentiria sobre o que aconteceu.
       reason: "OTHER",
-      note: observed
-        ? `Localização confirmada em campo a ${distanceMeters} m do ponto cadastrado${
-            observedAccuracy !== null ? ` (precisão ${observedAccuracy} m)` : ""
-          }.`
-        : "Localização confirmada em campo, sem coordenada do aparelho.",
+      note: `Localização confirmada em campo a ${distanceMeters} m do ponto cadastrado${
+        observedAccuracy !== null ? ` (precisão ${observedAccuracy} m)` : ""
+      }.`,
       previous: {
         latitude: current.latitude,
         longitude: current.longitude,
@@ -574,6 +631,20 @@ export async function confirmCustomerLocation(
       verified: true,
     });
 
+    /*
+      O registro TIPADO da confirmação — sem migration.
+
+      A linha de `CustomerLocationHistory` guarda a assinatura de confirmação
+      (mesmo ponto, de não verificado para verificado) que a timeline e o pacote
+      técnico reconhecem, mas não tem coluna para a posição do aparelho nem para
+      a distância. O evento, gravado na MESMA transação e amarrado à mesma OS,
+      tem: é aqui que moram os números, e é daqui que a timeline do cliente lê a
+      distância (`customer-timeline.ts`). O limite vigente vai junto, para que
+      uma mudança futura da regra não reescreva o que valia neste dia.
+
+      A posição do aparelho fica no servidor: a timeline e as telas mostram a
+      DISTÂNCIA, nunca esta coordenada.
+    */
     await tx.serviceOrderEvent.create({
       data: {
         companyId,
@@ -584,6 +655,9 @@ export async function confirmCustomerLocation(
           technicianId: technician.id,
           distanceMeters,
           accuracyMeters: observedAccuracy,
+          observedLatitude: observed.latitude,
+          observedLongitude: observed.longitude,
+          confirmMaxDistanceMeters: LOCATION_CONFIRM_MAX_DISTANCE_M,
           source: current.source,
         },
       },
@@ -601,11 +675,7 @@ export async function confirmCustomerLocation(
     action: "CUSTOMER_LOCATION.CONFIRMED",
     entity: "CustomerLocation",
     entityId: orderId,
-    details: `Localização confirmada em campo${
-      result.distanceMeters !== null
-        ? ` a ${result.distanceMeters} m do ponto cadastrado`
-        : ""
-    }`,
+    details: `Localização confirmada em campo a ${result.distanceMeters} m do ponto cadastrado`,
   });
 
   return result;

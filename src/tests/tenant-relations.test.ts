@@ -268,8 +268,11 @@ describe("localização — confirmação e correção por quem não é o dono (
   it("controle positivo: o dono, com a OS em atendimento, confirma", async () => {
     const { order, location } = await atendimentoComPonto();
     await startServiceOrder(fixture.companyA.id, fixture.techA.id, order.id, await versao(order.id));
+    // No ponto, com o GPS do aparelho — a RC-1C passou a exigir os dois.
     const r = await confirmCustomerLocation(fixture.companyA.id, fixture.techA.id, order.id, {
       expectedVersion: location.version,
+      observedLatitude: -20.3,
+      observedLongitude: -40.3,
     });
     expect(r.location.verified).toBe(true);
   });

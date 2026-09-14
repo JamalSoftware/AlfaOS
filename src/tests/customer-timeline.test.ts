@@ -793,10 +793,13 @@ describe("TL-SRC — cada fonte aparece, com conteúdo, instante e dono certos",
         }),
       ),
     );
-    // 3. o técnico confirma em campo
+    // 3. o técnico confirma em campo — no ponto, com o GPS do aparelho, que a
+    //    RC-1C passou a exigir
     await passo("LOCATION_CONFIRMED", ordem.id, async () =>
       confirmCustomerLocation(companyId, fixture.techA.id, ordem.id, {
         expectedVersion: await versao(),
+        observedLatitude: -3.11,
+        observedLongitude: -60.03,
       }),
     );
     // 4. a importação traz outro ponto, longe — a verificada é PRESERVADA, e a
