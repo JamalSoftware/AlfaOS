@@ -1118,10 +1118,19 @@ export async function assignTechnician(
       });
     }
 
+    /*
+      O anterior é lido DENTRO do tenant (RC-TEN-01).
+
+      `os.technicianId` é FK simples — nada no banco impede uma linha da empresa
+      A de apontar para um técnico da B (o vetor da DQ-7.1). Buscar só pelo id
+      copiaria o nome desse técnico para a timeline da A. Nenhum escritor da
+      API produz essa linha; o filtro é o que garante que, se ela existir, o
+      dado da B não atravesse. Com o anterior da própria empresa, nada muda.
+    */
     const previousTechnician = wasAssigned
       ? os.technicianId
         ? await tx.technician.findFirst({
-            where: { id: os.technicianId },
+            where: { id: os.technicianId, companyId },
             include: { user: { select: { name: true } } },
           })
         : null
