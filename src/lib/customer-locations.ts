@@ -3,6 +3,7 @@ import type {
   LocationChangeKind,
   LocationChangeReason,
   Prisma,
+  ServiceOrderStatus,
 } from "@prisma/client";
 import { prisma } from "./prisma";
 import { logAudit } from "./audit";
@@ -357,9 +358,33 @@ async function requireFieldCustomerContext(
 ) {
   const technician = await resolveActingTechnician(tx, companyId, actorUserId);
   const order = await loadOwnedServiceOrder(tx, companyId, technician.id, orderId);
-  if (order.status !== "IN_PROGRESS") {
+
+  /*
+    O status é relido SOB TRAVA de linha — e a trava vale até o commit
+    (RC-LOC-06).
+
+    A conferência era uma leitura simples. Entre ela e o commit, a OS podia ser
+    concluída por outra transação, e o ponto, a linha de histórico e o evento
+    eram gravados mesmo assim — amarrados a uma OS já `COMPLETED`. Reproduzido
+    de forma determinística em `location-completion-race.test.ts`.
+
+    `FOR SHARE`, e não um compare-and-set na `version` da OS: a localização tem
+    `version` própria de propósito, para que um despachante mexendo na OS não
+    invalide a confirmação do técnico (e vice-versa). A trava compartilhada não
+    muda nada disso — dois comandos de localização convivem, e quem os arbitra
+    continua sendo o CAS de `CustomerLocation`. O que ela faz é obrigar o
+    `UPDATE` da conclusão a esperar este commit, ou este comando a esperar o
+    dela e reler `COMPLETED`. Mesma ordem de trava das mutações-filhas (OS
+    antes de cliente), então nenhum ciclo novo.
+  */
+  const [locked] = await tx.$queryRaw<{ status: ServiceOrderStatus }[]>`
+    SELECT status FROM service_orders
+     WHERE id = ${order.id} AND "companyId" = ${companyId}
+       FOR SHARE`;
+  const status = locked?.status ?? order.status;
+  if (status !== "IN_PROGRESS") {
     throw conflict(
-      order.status === "COMPLETED"
+      status === "COMPLETED"
         ? "Esta OS já foi concluída e não pode mais ser alterada."
         : "Só é possível alterar o cadastro durante um atendimento em andamento.",
     );
