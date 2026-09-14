@@ -11,6 +11,8 @@ import { CustomerForm } from "@/components/CustomerForm";
 import { CustomerConnectionsPanel } from "@/components/CustomerConnectionsPanel";
 import { ReceitanetOrderSyncPanel } from "@/components/ReceitanetOrderSyncPanel";
 import { CustomerTimelineSection } from "@/components/CustomerTimelineSection";
+import { CustomerLocationCard } from "@/components/CustomerLocationCard";
+import { getCustomerLocationCard } from "@/lib/customer-location-card";
 import {
   CUSTOMER_TIMELINE_MAX,
   CUSTOMER_TIMELINE_PAGE_SIZE,
@@ -146,6 +148,17 @@ export default async function EditCustomerPage({
     ? await listCustomerConnections(session.companyId, params.id)
     : [];
 
+  /*
+    Localização do cliente — RC-LOC-03, e só para o ADMIN.
+
+    É a mesma fronteira do Mapa Operacional V1: a posição nominal da carteira
+    é do ADMIN, e o DISPATCHER não a ganhou (PRD §376). O cartão é somente
+    leitura e lê a AUTORIDADE (`CustomerLocation`), nunca a projeção.
+  */
+  const locationCard = isAdmin
+    ? await getCustomerLocationCard(session.companyId, customer.id)
+    : null;
+
   // O histórico lê com a empresa e o perfil da SESSÃO: é o perfil que decide
   // se CTO e porta entram, e nunca um parâmetro da tela.
   const historicoBruto = searchParams?.historico;
@@ -184,6 +197,8 @@ export default async function EditCustomerPage({
           */}
           <CustomerForm mode="edit" customer={customer} backHref={volta.href} />
         </div>
+
+        {locationCard && <CustomerLocationCard card={locationCard} />}
 
         {/*
           Sincronizacao das OS abertas no provedor.
