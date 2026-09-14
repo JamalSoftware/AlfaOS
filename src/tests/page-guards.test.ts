@@ -75,3 +75,48 @@ describe("Guards de página — /tecnicos", () => {
     await expect(TechniciansPage({ searchParams: {} })).resolves.toBeTruthy();
   });
 });
+
+/*
+  RC-TEST-01 — o TECHNICIAN nunca entra numa página administrativa.
+
+  A matriz de perfis é aplicada por `requirePageProfile` em cada página, e as
+  rotas de API por trás delas já tinham teste de negação. As PÁGINAS não: um
+  `requirePageProfile(["ADMIN", "TECHNICIAN"])` escrito por engano abriria a
+  tela — e o que ela renderiza no servidor — sem nenhum teste acusar.
+*/
+describe("Guards de página — TECHNICIAN não entra em tela administrativa", () => {
+  const PAGINAS: Array<[string, () => Promise<unknown>]> = [
+    ["/ctos", async () => (await import("@/app/(app)/ctos/page")).default({ searchParams: {} })],
+    [
+      "/ctos/[id]",
+      async () =>
+        (await import("@/app/(app)/ctos/[id]/page")).default({
+          params: { id: "qualquer" },
+          searchParams: {},
+        } as never),
+    ],
+    ["/configuracoes", async () => (await import("@/app/(app)/configuracoes/page")).default()],
+    ["/integracoes", async () => (await import("@/app/(app)/integracoes/page")).default()],
+    ["/dispositivos", async () => (await import("@/app/(app)/dispositivos/page")).default()],
+    ["/dashboard", async () => (await import("@/app/(app)/dashboard/page")).default()],
+    ["/usuarios", async () => (await import("@/app/(app)/usuarios/page")).default()],
+    ["/despacho", async () => (await import("@/app/(app)/despacho/page")).default()],
+    [
+      "/clientes",
+      async () => (await import("@/app/(app)/clientes/page")).default({ searchParams: {} }),
+    ],
+  ];
+
+  it.each(PAGINAS)("%s manda o técnico para /minhas-os", async (_rota, abrir) => {
+    session.token = await createTokenFor(fixture.techA.id);
+    expect(await redirectTargetOf(abrir)).toBe("/minhas-os");
+  });
+
+  it("controle positivo: o ADMIN abre /configuracoes e /dispositivos", async () => {
+    session.token = await createTokenFor(fixture.adminA.id);
+    const { default: Configuracoes } = await import("@/app/(app)/configuracoes/page");
+    const { default: Dispositivos } = await import("@/app/(app)/dispositivos/page");
+    await expect(Configuracoes()).resolves.toBeTruthy();
+    await expect(Dispositivos()).resolves.toBeTruthy();
+  });
+});
