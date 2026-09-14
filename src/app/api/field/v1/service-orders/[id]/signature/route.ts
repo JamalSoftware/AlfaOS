@@ -5,6 +5,7 @@ import { parseIdempotencyKey, withIdempotency } from "@/lib/field/idempotency";
 import { fieldOk, runFieldApi } from "@/lib/field/response";
 import { requireFieldPrincipal } from "@/lib/field/route";
 import { putSignature, SIGNATURE_MAX_BYTES } from "@/lib/service-order-closing";
+import { multipartBodyLimit, readMultipartWithinLimit } from "@/lib/multipart-limit";
 import { INT32_MAX } from "@/lib/version";
 
 /**
@@ -48,12 +49,20 @@ export async function PUT(
 
     const key = parseIdempotencyKey(request);
 
-    let form: FormData;
-    try {
-      form = await request.formData();
-    } catch {
-      throw new FieldError("VALIDATION_ERROR", "Envio inválido.");
+    // Teto do CORPO antes de materializá-lo (RC-STO-01) — ver a rota de evidência.
+    const leitura = await readMultipartWithinLimit(
+      request,
+      multipartBodyLimit(SIGNATURE_MAX_BYTES),
+    );
+    if (!leitura.ok) {
+      throw new FieldError(
+        "VALIDATION_ERROR",
+        leitura.reason === "TOO_LARGE"
+          ? "Imagem de assinatura muito grande."
+          : "Envio inválido.",
+      );
     }
+    const form = leitura.form;
 
     const file = form.get("file");
     if (!(file instanceof File)) {

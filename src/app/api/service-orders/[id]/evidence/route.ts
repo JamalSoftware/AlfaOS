@@ -4,6 +4,7 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { getSessionUser } from "@/lib/session";
 import { INT32_MAX } from "@/lib/version";
 import { addEvidence, EVIDENCE_MAX_BYTES } from "@/lib/service-order-closing";
+import { multipartBodyLimit, readMultipartWithinLimit } from "@/lib/multipart-limit";
 
 const TECHNICIAN_PROFILES = [AccessProfile.TECHNICIAN];
 
@@ -31,25 +32,29 @@ export async function POST(
     const denied = assertProfile(session.profile, TECHNICIAN_PROFILES);
     if (denied) return denied;
 
-    let form: FormData;
-    try {
-      form = await request.formData();
-    } catch {
-      return jsonError("Envio inválido.", 400);
+    const tooLarge = `Imagem muito grande (máximo ${Math.floor(EVIDENCE_MAX_BYTES / 1024 / 1024)} MB).`;
+
+    // The BODY is capped before it is materialized (RC-STO-01): by the
+    // declared Content-Length without reading a byte, and by counting while
+    // reading when the header is missing or lies. `request.formData()` would
+    // buffer the whole body first.
+    const read = await readMultipartWithinLimit(
+      request,
+      multipartBodyLimit(EVIDENCE_MAX_BYTES),
+    );
+    if (!read.ok) {
+      return jsonError(read.reason === "TOO_LARGE" ? tooLarge : "Envio inválido.", 400);
     }
+    const form = read.form;
 
     const file = form.get("file");
     if (!(file instanceof File)) {
       return jsonError("Arquivo é obrigatório.", 400);
     }
 
-    // Reject on the declared size before buffering, so an oversized upload
-    // does not have to be fully materialized to be refused.
+    // The body cap includes the form's framing; the FILE keeps its own cap.
     if (file.size > EVIDENCE_MAX_BYTES) {
-      return jsonError(
-        `Imagem muito grande (máximo ${Math.floor(EVIDENCE_MAX_BYTES / 1024 / 1024)} MB).`,
-        400,
-      );
+      return jsonError(tooLarge, 400);
     }
 
     const rawVersion = form.get("expectedOrderVersion");

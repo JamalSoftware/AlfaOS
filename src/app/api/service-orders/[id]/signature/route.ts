@@ -4,6 +4,7 @@ import { assertSameOrigin } from "@/lib/csrf";
 import { getSessionUser } from "@/lib/session";
 import { INT32_MAX } from "@/lib/version";
 import { getTechnicianByUserId } from "@/lib/service-orders";
+import { multipartBodyLimit, readMultipartWithinLimit } from "@/lib/multipart-limit";
 import {
   loadSignatureForDownload,
   putSignature,
@@ -33,12 +34,20 @@ export async function PUT(
     const denied = assertProfile(session.profile, TECHNICIAN_PROFILES);
     if (denied) return denied;
 
-    let form: FormData;
-    try {
-      form = await request.formData();
-    } catch {
-      return jsonError("Envio inválido.", 400);
+    // Body capped before it is materialized (RC-STO-01) — see the evidence route.
+    const read = await readMultipartWithinLimit(
+      request,
+      multipartBodyLimit(SIGNATURE_MAX_BYTES),
+    );
+    if (!read.ok) {
+      return jsonError(
+        read.reason === "TOO_LARGE"
+          ? "Imagem de assinatura muito grande."
+          : "Envio inválido.",
+        400,
+      );
     }
+    const form = read.form;
 
     const file = form.get("file");
     if (!(file instanceof File)) {

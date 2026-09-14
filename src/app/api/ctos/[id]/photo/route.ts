@@ -6,6 +6,7 @@ import {
   setCtoPhoto,
 } from "@/lib/cto";
 import { requireCtoAccess } from "@/lib/cto-access";
+import { multipartBodyLimit, readMultipartWithinLimit } from "@/lib/multipart-limit";
 import { getOperationalCtoDetail } from "@/lib/cto-read-model";
 import { getFileStorage, MIME_EXTENSIONS } from "@/lib/storage";
 
@@ -37,25 +38,35 @@ export async function POST(
     const access = await requireCtoAccess(request);
     if (!access.ok) return access.response;
 
-    let form: FormData;
-    try {
-      form = await request.formData();
-    } catch {
-      return jsonError("Envio inválido.", 400);
+    const muitoGrande = `Imagem muito grande (máximo ${Math.floor(CTO_PHOTO_MAX_BYTES / 1024 / 1024)} MB).`;
+
+    /*
+      Teto do CORPO antes de materializar qualquer coisa (RC-STO-01).
+
+      O comentário antigo dizia "teto antes de materializar o buffer" e estava
+      errado sobre onde a memória já tinha ido: `request.formData()` lê o corpo
+      inteiro antes de `file.size` existir. A leitura agora é contada e
+      cancelada no teto; o `Content-Length` declarado é recusado sem ler nada.
+    */
+    const leitura = await readMultipartWithinLimit(
+      request,
+      multipartBodyLimit(CTO_PHOTO_MAX_BYTES),
+    );
+    if (!leitura.ok) {
+      return jsonError(
+        leitura.reason === "TOO_LARGE" ? muitoGrande : "Envio inválido.",
+        400,
+      );
     }
+    const form = leitura.form;
 
     const file = form.get("file");
     if (!(file instanceof File)) {
       return jsonError("Selecione uma imagem.", 400);
     }
-    // Teto ANTES de materializar o buffer: `arrayBuffer()` traz o arquivo
-    // inteiro para a memória do processo, e é justamente isso que não se quer
-    // fazer com 500 MB antes de decidir recusar.
+    // O teto do corpo inclui a moldura do formulário; o do arquivo continua.
     if (file.size > CTO_PHOTO_MAX_BYTES) {
-      return jsonError(
-        `Imagem muito grande (máximo ${Math.floor(CTO_PHOTO_MAX_BYTES / 1024 / 1024)} MB).`,
-        400,
-      );
+      return jsonError(muitoGrande, 400);
     }
 
     await setCtoPhoto(

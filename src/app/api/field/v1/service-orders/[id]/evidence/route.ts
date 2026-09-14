@@ -6,6 +6,7 @@ import { parseIdempotencyKey, withIdempotency } from "@/lib/field/idempotency";
 import { fieldOk, runFieldApi } from "@/lib/field/response";
 import { requireFieldPrincipal } from "@/lib/field/route";
 import { addEvidence, EVIDENCE_MAX_BYTES } from "@/lib/service-order-closing";
+import { multipartBodyLimit, readMultipartWithinLimit } from "@/lib/multipart-limit";
 import { INT32_MAX } from "@/lib/version";
 
 /**
@@ -34,8 +35,11 @@ import { INT32_MAX } from "@/lib/version";
  *
  * ## Validação de arquivo
  *
- * Tamanho recusado pelo tamanho DECLARADO antes de bufferizar, para não
- * materializar um upload grande só para recusá-lo. Tipo real decidido pelo
+ * O CORPO tem teto antes de ser materializado (`readMultipartWithinLimit`,
+ * RC-STO-01): o `Content-Length` declarado é conferido sem ler nada, e a
+ * leitura é contada e cancelada no teto quando o cabeçalho falta ou mente. A
+ * versão anterior deste comentário prometia isso e o código chamava
+ * `formData()`, que lê tudo primeiro. Tipo real decidido pelo
  * número mágico dos bytes em `addEvidence` — nunca pela extensão nem pelo
  * `Content-Type`, ambos escolhidos pelo cliente. `.exe` renomeado `.jpg` não
  * passa, e SVG não é aceito em formato nenhum porque carrega script.
@@ -54,22 +58,29 @@ export async function POST(
 
     const key = parseIdempotencyKey(request);
 
-    let form: FormData;
-    try {
-      form = await request.formData();
-    } catch {
-      throw new FieldError("VALIDATION_ERROR", "Envio inválido.");
+    const muitoGrande = `Imagem muito grande (máximo ${Math.floor(EVIDENCE_MAX_BYTES / 1024 / 1024)} MB).`;
+
+    // Teto do CORPO antes de materializá-lo (RC-STO-01). `request.formData()`
+    // lia o corpo inteiro antes de `file.size` existir. Mesmo código de erro
+    // de sempre: o aplicativo não precisa conhecer um novo.
+    const leitura = await readMultipartWithinLimit(
+      request,
+      multipartBodyLimit(EVIDENCE_MAX_BYTES),
+    );
+    if (!leitura.ok) {
+      throw new FieldError(
+        "VALIDATION_ERROR",
+        leitura.reason === "TOO_LARGE" ? muitoGrande : "Envio inválido.",
+      );
     }
+    const form = leitura.form;
 
     const file = form.get("file");
     if (!(file instanceof File)) {
       throw new FieldError("VALIDATION_ERROR", "Arquivo é obrigatório.");
     }
     if (file.size > EVIDENCE_MAX_BYTES) {
-      throw new FieldError(
-        "VALIDATION_ERROR",
-        `Imagem muito grande (máximo ${Math.floor(EVIDENCE_MAX_BYTES / 1024 / 1024)} MB).`,
-      );
+      throw new FieldError("VALIDATION_ERROR", muitoGrande);
     }
 
     const rawVersion = form.get("expectedOrderVersion");
