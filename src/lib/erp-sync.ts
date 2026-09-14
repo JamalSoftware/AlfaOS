@@ -1,4 +1,5 @@
 import { isIntegrationError } from "@/integrations/errors";
+import { isMockErpEnabled } from "@/integrations/mock-availability";
 import { resolveCompanyAdapter } from "./erp-adapter";
 import { logAudit } from "./audit";
 import { badRequest, notFound } from "./errors";
@@ -29,6 +30,11 @@ export async function syncServiceOrdersFromERP(
   }
   if (!integration.enabled) {
     throw badRequest("Integração ERP está desabilitada. Habilite antes de sincronizar.");
+  }
+  // A fábrica também recusa, mas com a mensagem genérica de "não suportado";
+  // aqui o operador fica sabendo o motivo real (RC-OPS-03).
+  if (integration.provider === "MOCK" && !isMockErpEnabled()) {
+    throw badRequest("O Mock ERP não está disponível neste ambiente.");
   }
 
   let adapter;

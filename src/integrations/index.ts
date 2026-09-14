@@ -2,6 +2,7 @@ import type { ERPProvider } from "@prisma/client";
 import type { ERPIntegrationContract } from "./contract";
 import { IntegrationError } from "./errors";
 import { MockERPAdapter } from "./MockERPAdapter";
+import { isMockErpEnabled } from "./mock-availability";
 import { ReceitanetAdapter } from "./ReceitanetAdapter";
 import { SgpAdapter } from "./SgpAdapter";
 import type { FetchLike } from "./receitanet/CallCenterClient";
@@ -76,6 +77,21 @@ export function getERPAdapter(
     }
     case "MOCK":
     default:
+      /*
+        Em produção o Mock não produz adapter (RC-OPS-03).
+
+        Aqui, e não em cada chamador: sincronização, busca de cliente,
+        diagnóstico, teste de conexão e troca de ERP ativo passam todos por
+        esta fábrica, então nenhum dado inventado sai em produção por caminho
+        nenhum — inclusive por um chamador futuro que não saiba do Mock.
+      */
+      if (!isMockErpEnabled()) {
+        throw new IntegrationError(
+          "NOT_SUPPORTED",
+          "MOCK",
+          "Mock ERP indisponível em produção",
+        );
+      }
       return new MockERPAdapter();
   }
 }

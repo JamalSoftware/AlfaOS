@@ -21,6 +21,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ListSliceBanner } from "@/components/ListSliceBanner";
 import { Pagination } from "@/components/Pagination";
 import { SyncERPButton } from "@/components/SyncERPButton";
+import { isMockErpEnabled } from "@/integrations/mock-availability";
 
 export const metadata: Metadata = {
   title: "Ordens de Serviço",
@@ -86,12 +87,16 @@ export default async function OrdersPage({ searchParams }: PageProps) {
   ]);
 
   const hasOtherFilters = Boolean(search || status || priority || technicianId);
+  const mockErp = isMockErpEnabled();
   const empty = slice
     ? sliceEmptyState(slice, hasOtherFilters)
     : {
         title: "Nenhuma OS encontrada",
-        description:
-          "Crie uma OS manualmente ou sincronize o Mock ERP para importar OS pendentes.",
+        // Em produção não há Mock a sincronizar (RC-OPS-03), e a frase
+        // apontaria para um botão que não existe.
+        description: mockErp
+          ? "Crie uma OS manualmente ou sincronize o Mock ERP para importar OS pendentes."
+          : "Crie uma OS manualmente.",
       };
 
   function buildHref(p: number, semRecorte = false): string {
@@ -120,7 +125,7 @@ export default async function OrdersPage({ searchParams }: PageProps) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {isAdmin && <SyncERPButton />}
+          {isAdmin && mockErp && <SyncERPButton />}
           <Link
             href="/ordens/novo"
             className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-fg transition-colors hover:bg-primary-hover"

@@ -15,6 +15,7 @@ import { BackToDashboardLink } from "@/components/BackToDashboardLink";
 import { EmptyState } from "@/components/EmptyState";
 import { ListSliceBanner } from "@/components/ListSliceBanner";
 import { Pagination } from "@/components/Pagination";
+import { isMockErpEnabled } from "@/integrations/mock-availability";
 
 export const metadata: Metadata = {
   title: "Clientes",
@@ -115,8 +116,10 @@ export default async function CustomersPage({ searchParams }: PageProps) {
       )
     : {
         title: "Nenhum cliente encontrado",
-        description:
-          "Crie um cliente manualmente ou importe OS do Mock ERP para gerar clientes automaticamente.",
+        // Em produção não há Mock de onde importar (RC-OPS-03).
+        description: isMockErpEnabled()
+          ? "Crie um cliente manualmente ou importe OS do Mock ERP para gerar clientes automaticamente."
+          : "Crie um cliente manualmente.",
       };
   const connectivity = result.connectivity;
   const now = new Date();

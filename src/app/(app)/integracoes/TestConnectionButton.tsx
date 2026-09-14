@@ -12,11 +12,22 @@ interface TestResult {
 
 export function TestConnectionButton({
   currentProvider,
+  providers,
 }: {
   currentProvider: string;
+  /**
+   * Os provedores oferecidos, decididos no SERVIDOR. Em produção o Mock não
+   * está entre eles (RC-OPS-03) — e a lista não pode ser montada aqui, porque
+   * o ambiente que importa é o do servidor, não o do navegador.
+   */
+  providers: { value: string; label: string }[];
 }) {
   const router = useRouter();
-  const [provider, setProvider] = useState(currentProvider);
+  const [provider, setProvider] = useState(
+    providers.some((p) => p.value === currentProvider)
+      ? currentProvider
+      : (providers[0]?.value ?? currentProvider),
+  );
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TestResult | null>(null);
   const [candidate, setCandidate] = useState(false);
@@ -62,8 +73,11 @@ export function TestConnectionButton({
         onChange={(e) => setProvider(e.target.value)}
         className="mb-3 w-full max-w-xs rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
       >
-        <option value="MOCK">Mock ERP</option>
-        <option value="RECEITANET">ReceitaNet</option>
+        {providers.map((p) => (
+          <option key={p.value} value={p.value}>
+            {p.label}
+          </option>
+        ))}
       </select>
       {provider !== currentProvider && (
         <p className="mb-3 text-xs text-fg-muted" data-testid="test-candidate-hint">

@@ -18,9 +18,16 @@ import { useRouter } from "next/navigation";
 export function ActiveProviderSwitch({
   currentProvider,
   options,
+  semErpAtual = false,
 }: {
   currentProvider: string;
   options: { value: string; label: string }[];
+  /**
+   * A empresa ainda não tem ERP de verdade (em produção, a linha `MOCK` é só o
+   * ponto de partida — RC-OPS-03). A confirmação diz "definindo", e não
+   * "trocando de MOCK para…", que citaria um sistema que a empresa não usa.
+   */
+  semErpAtual?: boolean;
 }) {
   const router = useRouter();
   const [target, setTarget] = useState("");
@@ -111,14 +118,22 @@ export function ActiveProviderSwitch({
           data-testid="switch-confirm"
           className="rounded-lg border border-warning-border bg-warning-bg px-3 py-3 text-sm text-warning-fg"
         >
-          <p className="font-medium">
-            Você está alterando o ERP utilizado pela empresa de {currentLabel}{" "}
-            para {targetLabel}.
-          </p>
-          <p className="mt-1 text-xs">
-            As credenciais de {currentLabel} são preservadas — voltar não exige
-            configurar o token de novo.
-          </p>
+          {semErpAtual ? (
+            <p className="font-medium">
+              Você está definindo {targetLabel} como o ERP da empresa.
+            </p>
+          ) : (
+            <>
+              <p className="font-medium">
+                Você está alterando o ERP utilizado pela empresa de {currentLabel}{" "}
+                para {targetLabel}.
+              </p>
+              <p className="mt-1 text-xs">
+                As credenciais de {currentLabel} são preservadas — voltar não exige
+                configurar o token de novo.
+              </p>
+            </>
+          )}
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"

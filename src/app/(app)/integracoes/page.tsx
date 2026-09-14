@@ -9,6 +9,7 @@ import { IntegrationToggle } from "./IntegrationToggle";
 import { ErpCredentialForm } from "./ErpCredentialForm";
 import { ActiveProviderSwitch } from "./ActiveProviderSwitch";
 import { isSgpActivationEnabled } from "@/lib/erp-provisioning";
+import { isMockErpEnabled } from "@/integrations/mock-availability";
 import { SgpProviderCard } from "./SgpProviderCard";
 
 export const metadata: Metadata = {
@@ -86,6 +87,20 @@ export default async function IntegrationsPage() {
   });
 
   const enabled = integration?.enabled ?? false;
+
+  /*
+    Em produção o Mock não existe (RC-OPS-03): sai das duas listas de escolha,
+    e a linha `MOCK` — que continua sendo como uma empresa nova começa, antes
+    de escolher o ERP de verdade — é apresentada pelo que ela é: nenhum ERP
+    configurado. Anunciá-la como "Mock ERP · ATIVO" seria afirmar que a empresa
+    usa um sistema que ela não tem.
+  */
+  const mockErp = isMockErpEnabled();
+  const providerOptions = PROVIDER_OPTIONS.filter(
+    (option) => mockErp || option.value !== "MOCK",
+  );
+  const semErpConfigurado =
+    !mockErp && (integration?.provider ?? "MOCK") === "MOCK";
   /**
    * `getCredentialStatus` continua sendo consultado apenas para saber se a
    * criptografia está disponível no servidor — informação de ambiente, não
@@ -128,18 +143,24 @@ export default async function IntegrationsPage() {
             */}
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-base font-semibold text-fg" data-testid="integration-name">
-                {PROVIDER_LABEL[integration?.provider ?? "MOCK"]}
+                {semErpConfigurado
+                  ? "Nenhum ERP configurado"
+                  : PROVIDER_LABEL[integration?.provider ?? "MOCK"]}
               </h2>
-              <span
-                className="inline-flex items-center rounded-full bg-primary-bg px-2 py-0.5 text-[11px] font-semibold text-primary-text"
-                data-testid="integration-active-badge"
-              >
-                ATIVO
-              </span>
+              {!semErpConfigurado && (
+                <span
+                  className="inline-flex items-center rounded-full bg-primary-bg px-2 py-0.5 text-[11px] font-semibold text-primary-text"
+                  data-testid="integration-active-badge"
+                >
+                  ATIVO
+                </span>
+              )}
             </div>
-            <p className="mt-0.5 text-xs text-fg-muted">
-              Provedor: {integration?.provider ?? "MOCK"}
-            </p>
+            {!semErpConfigurado && (
+              <p className="mt-0.5 text-xs text-fg-muted">
+                Provedor: {integration?.provider ?? "MOCK"}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <span
@@ -171,7 +192,10 @@ export default async function IntegrationsPage() {
           </div>
         </dl>
 
-        <TestConnectionButton currentProvider={integration?.provider ?? "MOCK"} />
+        <TestConnectionButton
+          currentProvider={integration?.provider ?? "MOCK"}
+          providers={providerOptions}
+        />
         <p className="mt-3 text-xs text-fg-muted">
           O teste verifica a conectividade com o ERP. Ele{" "}
           <strong>não</strong> habilita a integração, <strong>não</strong>{" "}
@@ -187,7 +211,8 @@ export default async function IntegrationsPage() {
         <div className="mb-5 mt-5 border-t border-border-subtle pt-4">
           <ActiveProviderSwitch
             currentProvider={integration?.provider ?? "MOCK"}
-            options={PROVIDER_OPTIONS}
+            options={providerOptions}
+            semErpAtual={semErpConfigurado}
           />
         </div>
 
