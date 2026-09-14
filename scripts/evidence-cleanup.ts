@@ -28,6 +28,7 @@
  * o log de um comando operacional não é lugar de dado de cliente.
  */
 import { prisma } from "../src/lib/prisma";
+import { logServerError } from "../src/lib/safe-log";
 import { purgeExpiredTemporaryEvidence } from "../src/lib/field/evidence-cleanup";
 
 async function main(): Promise<void> {
@@ -55,10 +56,8 @@ async function main(): Promise<void> {
 
 main()
   .catch((error: unknown) => {
-    console.error(
-      "[evidence-cleanup] falha na execução:",
-      error instanceof Error ? error.message : "erro desconhecido",
-    );
+    // Erro de filesystem traz o caminho com a chave de storage (RC-LOG-01).
+    logServerError("evidence-cleanup", error, { operacao: "execucao" });
     process.exitCode = 1;
   })
   .finally(() => {

@@ -3,6 +3,7 @@ import type { MobileDevice, Prisma } from "@prisma/client";
 import { AccessProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { technicianExecutionIssue } from "@/lib/technicians";
+import { logServerError } from "@/lib/safe-log";
 import { FieldError } from "./errors";
 
 /**
@@ -254,10 +255,7 @@ export async function touchDevice(
       data: { lastSeenAt: now },
     });
   } catch (error) {
-    console.error(
-      "[field:last-seen]",
-      error instanceof Error ? error.message : "erro desconhecido",
-    );
+    logServerError("field:last-seen", error);
   }
 }
 

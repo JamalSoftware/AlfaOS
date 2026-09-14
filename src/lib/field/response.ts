@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { DomainError } from "@/lib/errors";
+import { logServerError } from "@/lib/safe-log";
 import { CompletionBlockedError } from "@/lib/service-order-completion";
 import {
   FieldError,
@@ -70,8 +71,8 @@ export async function runFieldApi(
     if (error instanceof DomainError) {
       return fieldFail(fieldCodeForStatus(error.status), error.message);
     }
-    const message = error instanceof Error ? error.message : "Erro desconhecido";
-    console.error("[field:error]", message);
+    // Mesmo contrato da web (RC-LOG-01): tipo e código, nunca a mensagem.
+    logServerError("field:error", error);
     return fieldFail("INTERNAL", "Erro interno do servidor.");
   }
 }

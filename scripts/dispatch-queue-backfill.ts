@@ -24,6 +24,7 @@
  * log de um comando operacional não é lugar de dado de cliente.
  */
 import { prisma } from "../src/lib/prisma";
+import { logServerError } from "../src/lib/safe-log";
 import { backfillDispatchQueues } from "../src/lib/dispatch-queue-backfill";
 
 async function main(): Promise<void> {
@@ -37,10 +38,7 @@ async function main(): Promise<void> {
 
 main()
   .catch((error: unknown) => {
-    console.error(
-      "[dispatch-backfill] falha na execução:",
-      error instanceof Error ? error.message : "erro desconhecido",
-    );
+    logServerError("dispatch-backfill", error, { operacao: "execucao" });
     process.exitCode = 1;
   })
   .finally(() => {

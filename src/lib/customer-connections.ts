@@ -20,6 +20,7 @@ import {
   serviceUnavailable,
 } from "./errors";
 import { prisma } from "./prisma";
+import { logServerError } from "./safe-log";
 import { technicianExecutionIssue } from "./technicians";
 
 /**
@@ -492,13 +493,13 @@ export async function revealConnectionPasswordForOrder(
   } catch (error) {
     /**
      * Registra a falha de INFRAESTRUTURA, nunca o segredo — que está em
-     * escopo nesta função e jamais pode entrar num log. Só a mensagem do
-     * erro do banco é impressa, e ela não contém a senha.
+     * escopo nesta função e jamais pode entrar num log. Nem a mensagem do
+     * erro do banco: a do Prisma repete os argumentos da escrita, e o
+     * `details` desta leva ids de cliente e de OS (RC-LOG-01).
      */
-    console.error(
-      "[audit:required] falha ao registrar PPPOE_CREDENTIAL_VIEWED:",
-      error instanceof Error ? error.message : "erro desconhecido",
-    );
+    logServerError("audit:required", error, {
+      acao: "PPPOE_CREDENTIAL_VIEWED",
+    });
     // Sem fallback silencioso: a senha simplesmente não é devolvida.
     throw serviceUnavailable(
       "Não foi possível registrar o acesso à credencial. Tente novamente.",

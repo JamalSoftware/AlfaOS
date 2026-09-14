@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
+import { logServerError } from "./safe-log";
 
 export interface AuditLogData {
   companyId: string;
@@ -74,7 +75,10 @@ export async function logAudit(data: AuditLogData): Promise<void> {
   try {
     await prisma.auditLog.create({ data: auditRow(data) });
   } catch (error) {
-    console.error("Failed to write audit log:", error);
+    // O objeto de erro inteiro ia para o log — e o do Prisma repete os
+    // argumentos, inclusive o `details` que ia ser gravado (RC-LOG-01). A ação
+    // é código, e é o que o operador precisa para achar a falha.
+    logServerError("audit", error, { acao: data.action });
   }
 }
 

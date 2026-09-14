@@ -35,6 +35,7 @@ import { processOutboxBatch } from "../src/lib/outbox";
 import { installConfiguredPushProvider } from "../src/lib/push/bootstrap";
 import { handleOutboxEvent } from "../src/lib/outbox-handlers";
 import { prisma } from "../src/lib/prisma";
+import { logServerError } from "../src/lib/safe-log";
 
 /** Teto por execução: mantém o comando curto e previsível para o cron. */
 const BATCH_LIMIT = Number(process.env.OUTBOX_BATCH_LIMIT ?? 50);
@@ -80,10 +81,8 @@ async function main(): Promise<void> {
 
 main()
   .catch((error: unknown) => {
-    console.error(
-      "[outbox] falha na execução:",
-      error instanceof Error ? error.message : "erro desconhecido",
-    );
+    // O worker roda em produção: tipo e código, nunca a mensagem (RC-LOG-01).
+    logServerError("outbox", error, { operacao: "execucao" });
     process.exitCode = 1;
   })
   .finally(() => {

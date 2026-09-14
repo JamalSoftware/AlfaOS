@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { AccessProfile } from "@prisma/client";
 import { DomainError } from "./errors";
+import { logServerError } from "./safe-log";
 
 export function jsonOk(data: unknown, status = 200): NextResponse {
   return NextResponse.json({ ok: true, data }, { status });
@@ -62,9 +63,9 @@ export async function runApi(
         { status: error.status },
       );
     }
-    const message =
-      error instanceof Error ? error.message : "Erro desconhecido";
-    console.error("[api:error]", message);
+    // Tipo e código, nunca a mensagem: a do Prisma traz os argumentos da
+    // consulta, a do filesystem o caminho com a chave (RC-LOG-01).
+    logServerError("api:error", error);
     return jsonError("Erro interno do servidor.", 500);
   }
 }
