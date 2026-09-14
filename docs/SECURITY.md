@@ -2731,3 +2731,141 @@ risco `INFO` do codebase — qualquer rota que leve string do cliente para um
 sincronização, nenhum job, nenhuma reserva local: duas pessoas reservariam a
 mesma porta sem rede, e a reconciliação escolheria um perdedor depois de os dois
 terem subido no poste.
+
+---
+
+## 8.21. `RC-1B` — endurecimento de segurança e configuração do Release Candidate
+
+> **Estado: `READY FOR OWNER VALIDATION`.** Commits locais, sem tag e sem push.
+> Os IDs são os da auditoria `RC-1A`. Nenhuma migration, nenhuma dependência,
+> nenhuma funcionalidade nova, e o contrato de "Confirmar localização"
+> (`RC-LOC-01`) **não foi tocado** — ele é da `RC-1C`, depois da decisão do dono.
+
+### `RC-STO-01` — o corpo multipart tem teto ANTES de existir na memória
+
+As cinco rotas de upload (evidência web e Field, assinatura web e Field, foto de
+CTO) chamavam `request.formData()` e só depois conferiam `file.size`. Àquela
+altura o corpo inteiro já estava na memória do processo — um processo só, para
+todas as empresas —, e um usuário autenticado derrubava a aplicação com um POST
+de alguns gigabytes. Os comentários das rotas diziam o contrário.
+
+`readMultipartWithinLimit` (`src/lib/multipart-limit.ts`) é a porta única agora:
+
+- `Content-Length` com formato inválido é recusado, e o declarado acima do teto
+  é recusado **sem ler um byte** do corpo;
+- durante a leitura, os bytes são contados e o fluxo é **cancelado** ao passar
+  do teto — o que cobre o cabeçalho ausente (transferência em pedaços) e o que
+  mente;
+- só então o formulário é interpretado, pelo próprio `Response.formData()` do
+  runtime. Nenhuma dependência de parser em fluxo.
+
+Isso só é proteção de verdade porque o Next 14 entrega ao route handler o corpo
+EM FLUXO: sem middleware, nada o lê antes (`body-streams.js` só bufferiza para
+clonar o corpo para um middleware, e o projeto não tem nenhum). O teto do corpo
+é o do arquivo mais 64 KiB de moldura do formulário; os tetos de arquivo (8 MB,
+2 MB, 8 MB), os códigos (400 / `VALIDATION_ERROR`) e as mensagens continuam os
+mesmos, e a autenticação continua vindo antes.
+
+**Requisito de produção, não opcional:** o teto daqui protege a memória do
+processo Node; a conexão e os bytes que o cliente continua mandando são do
+servidor web à frente. **O proxy reverso precisa de limite de corpo**
+(`client_max_body_size` no nginx, ou equivalente) no valor do maior teto ou
+abaixo — e é ele que cobre as rotas JSON, que continuam lendo o corpo inteiro
+com `request.json()`.
+
+### `RC-LOG-01` — log de erro não carrega dado
+
+`runApi`, `runFieldApi`, `logAudit` (que imprimia o objeto de erro inteiro), a
+falha de auditoria da revelação de PPPoE, a atualização de `lastSeenAt` do Field
+e os três scripts de worker imprimiam `error.message`. A mensagem do Prisma
+repete os argumentos da consulta (nome, documento, o `details` de auditoria), o
+Postgres põe o VALOR que recusou e o filesystem põe o caminho absoluto com a
+chave de storage.
+
+`logServerError` (`src/lib/safe-log.ts`) imprime uma linha: o tipo do erro, um
+código de formato conhecido (Prisma `P####`, errno `E*`) e o contexto que o
+chamador escolheu — cujos valores precisam ter cara de id ou código; texto livre
+vira `?`. Em desenvolvimento entram os frames da pilha, sem a linha da mensagem.
+O log `error` do **próprio Prisma** ficou só em desenvolvimento: todo erro do
+motor é lançado ao chamador e registrado ali, com o código. Provado com um
+`PrismaClientValidationError` real carregando CPF, um `ENOENT` real com caminho
+de storage e uma consulta cujo erro do Postgres contém o valor.
+
+### `RC-SEC-01` — configuração inválida do login derruba a subida
+
+`LOGIN_*` eram lidos com `Number()`: `"abc"` virava `NaN`, e `tentativas >= NaN`
+é sempre falso — o limitador de força bruta sumia sem aviso. Agora são lidos em
+`validateEnv`: **ausente** usa o padrão (5 · 900 s · 20); **presente e
+inválido** (`NaN`, `Infinity`, `"10abc"`, `"1.5"`, `"1e3"`, vazio, zero,
+negativo, fora da faixa) lança na subida, nomeando a variável. Faixas:
+tentativas por e-mail 1..1000, janela 60..604800 s, tentativas por IP
+1..100000. A política do limitador não mudou.
+
+### `RC-OPS-03` — o Mock ERP não existe em produção
+
+`isMockErpEnabled()` (`src/integrations/mock-availability.ts`, `NODE_ENV !==
+"production"`, sem variável para religar) é consultado pela **fábrica de
+adapters** — em produção `MOCK` não produz adapter (`NOT_SUPPORTED`), então
+nenhum dado inventado sai por sincronização, busca de cliente, diagnóstico,
+teste de conexão ou troca de ERP ativo —, pelo domínio da sincronização (com
+mensagem própria) e pelas telas: o botão e as instruções somem de `/ordens` e
+`/clientes`, e `/integracoes` tira o Mock das duas listas e mostra a linha
+`MOCK` como "Nenhum ERP configurado". **A linha `MOCK` continua existindo**: é o
+único caminho pelo qual uma empresa nova ganha uma integração antes de escolher
+o ERP de verdade, e trocar isso seria fluxo novo.
+
+### `RC-OPS-04` — o seed recusa em produção
+
+`prisma/seed.ts` cria — e reativa — usuários ADMIN com senha de demonstração no
+código-fonte. `assertSeedAllowed` recusa com `NODE_ENV=production`, antes de
+qualquer consulta, sem modo de forçar; a senha não é mais impressa. **Limite
+declarado:** depende de `NODE_ENV=production` estar no ambiente do comando —
+uma trava por nome de banco quebraria o `.env.example`, que chama o banco de
+desenvolvimento de `alfaos`. O runbook de produção precisa proibir `db seed` e
+`migrate reset` contra a base real.
+
+### `RC-DB-02` — os índices únicos parciais têm guarda
+
+Três invariantes vivem só no SQL das migrations, porque o DSL do Prisma não
+expressa `WHERE`: um template de checklist padrão por empresa, um cliente ativo
+por porta e uma porta ativa por cliente. `schema-partial-indexes.test.ts`
+confere no banco migrado que cada índice existe, é `UNIQUE`, cobre a coluna
+certa e mantém o predicado, e que nenhuma migration posterior o derruba — e
+prova que falha quando o índice some, vira índice total ou muda de coluna.
+
+### `RC-TEN-01` / `RC-DB-01` — o vetor da FK simples
+
+`assignTechnician` lia o técnico ANTERIOR por id só, para o evento
+`TECHNICIAN_CHANGED`: uma OS da A apontando para um técnico da B — o schema
+permite — copiaria nome e id dele para a timeline da A. Reproduzido com linha
+corrompida; nenhum escritor da API a produz, então é defesa em profundidade. O
+filtro agora leva `companyId`. Testes adversariais novos, com controle
+positivo: OS na A com cliente da B, template da A com tipo da B, e confirmação
+de localização por técnico da mesma empresa que não é o dono e por técnico da B
+com o id da OS da A. **Continua fora (P3):** os `include` de relação por FK no
+detalhe da OS e na visão da fila leem o registro relacionado sem conferir o
+tenant dele — só expõem dado com linha corrompida, que nenhum caminho da API
+produz.
+
+### `RC-LOC-06` — localização × conclusão
+
+Os comandos de localização conferiam `IN_PROGRESS` com leitura simples; entre
+ela e o commit, a OS podia ser concluída, e ponto, histórico e evento eram
+gravados mesmo assim. Reproduzido sem `sleep`
+(`location-completion-race.test.ts`). O status agora é relido com `FOR SHARE`
+na mesma transação: a conclusão espera o commit, ou o comando espera a
+conclusão e recebe o mesmo 409 de antes. Sem CAS na `version` da OS — a
+localização continua com a própria —, e a ordem de trava (OS antes de cliente)
+é a das mutações-filhas.
+
+### `RC-STO-02` / `RC-TEST-01` — infraestrutura de teste
+
+Vitest e E2E não escrevem mais no `.storage` do projeto: cada arquivo de teste
+tem um `STORAGE_ROOT` temporário próprio (`setup.ts`), e o Playwright usa um
+diretório temporário fixo, recriado no `globalSetup` e apagado no
+`globalTeardown`, que recusa qualquer raiz dentro do `.storage`. O resíduo
+antigo **não foi apagado**: o dry-run contou 1.886 diretórios, dos quais 1.884
+são de empresas que não existem no banco de desenvolvimento (2.032 arquivos,
+1,5 MB). As páginas administrativas ganharam teste de redirecionamento do
+`TECHNICIAN`, e o download de assinatura, teste de negação entre empresas e
+entre técnicos.

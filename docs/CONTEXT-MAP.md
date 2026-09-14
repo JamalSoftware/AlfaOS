@@ -85,7 +85,7 @@ concluir pela ausência** é como um contêiner de 43 horas de uptime vira
 
 Quatro coisas dessa Parte que não se redescobrem: **`STALE` não existe** no AlfaOS — a conectividade tem três estados e o que viaja junto é a **idade** da leitura (§370); **o checklist por tipo de OS já está implementado** desde a v0.10, e foi apresentado como escopo novo por engano (§382); **a máquina de estados da OS tem cinco valores**, e *agendada*, *em deslocamento* e *pausada* **não são estados** — os gaps estão registrados em §385 sem inventar enum; e **`CANCELLED` é declarado e inalcançável**.
 
-**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias V1, cada uma com dependências, entregas, testes, segurança e risco. Concluídos e congelados: Mapa Operacional V1, `DASH-1` + `DASH-1a`, `HOTFIX-FIELD-01`, `TL-1`, `EV-1` e `GS-1`. **`CORE FUNCTIONAL V1 — FEATURE COMPLETE`** (13/09/2026): as fatias funcionais da primeira versão estão feitas, e isso **não** é production ready. **Próxima fase: `RC-1` — Release Candidate / Hardening**, não iniciada; os débitos que ela recebe estão no §12 dele. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
+**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias V1, cada uma com dependências, entregas, testes, segurança e risco. Concluídos e congelados: Mapa Operacional V1, `DASH-1` + `DASH-1a`, `HOTFIX-FIELD-01`, `TL-1`, `EV-1` e `GS-1`. **`CORE FUNCTIONAL V1 — FEATURE COMPLETE`** (13/09/2026): as fatias funcionais da primeira versão estão feitas, e isso **não** é production ready. **Fase atual: `RC-1` — Release Candidate / Hardening:** `RC-1A` (auditoria, `OWNER DECISION REQUIRED`) e `RC-1B` (segurança, configuração, tenancy e isolamento de teste, `READY FOR OWNER VALIDATION` — `docs/SECURITY.md` §8.21); os débitos restantes estão no §12 dele. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
 
 **O DASHBOARD OPERACIONAL V1 TAMBÉM ESTÁ CONGELADO** (`DASH-1a` `APPROVED`, 2026-09-12): nenhuma feature nova entra nele, salvo correção crítica de defeito. O mesmo vale para a **Timeline do Cliente V1** (`TL-1`), o **Pacote Técnico V1** (`EV-1`) e a **Busca Global V1** (`GS-1`, `APPROVED`, 13/09/2026) — PRD §381, §383 e §384.
 
@@ -118,6 +118,14 @@ A fronteira: **Core** é tudo o que a PRD §386 lista como V1 MUST HAVE — nada
 **Carregar:** `docs/SECURITY.md` + a seção de arquitetura relacionada (se houver) + os testes de segurança do módulo tocado (ex.: os arquivos relevantes em `src/tests/`).
 **Quando:** a tarefa toca autenticação, autorização, rate limit, CSRF, mass assignment, concorrência/lock otimista, ou qualquer coisa de superfície crítica.
 **Quando NÃO:** mudança sem implicação de autorização ou dado sensível (ex.: texto de label, cor de botão, copy de UI).
+
+**Regras da `RC-1B` que não se desfazem** (`docs/SECURITY.md` §8.21):
+
+* **Upload multipart só por `readMultipartWithinLimit`** (`src/lib/multipart-limit.ts`) — nunca `request.formData()` direto: ele lê o corpo inteiro antes de qualquer teto. O proxy de produção continua precisando de limite de corpo.
+* **Erro de servidor só por `logServerError`** (`src/lib/safe-log.ts`) — nunca `error.message` nem o objeto de erro em `console.*`: a mensagem do Prisma traz os argumentos, a do Postgres o valor, a do filesystem o caminho. O log `error` do próprio Prisma é só de desenvolvimento.
+* **Inteiro de configuração por `readIntegerSetting`** (`src/lib/env.ts`) — ausente usa o padrão, presente e inválido derruba a subida. `Number(process.env.X)` vira `NaN` em silêncio.
+* **Mock ERP só fora de produção** (`isMockErpEnabled`, na fábrica de adapters e nas telas); a linha `MOCK` continua sendo o ponto de partida de empresa sem ERP. O seed de demonstração recusa em produção (`assertSeedAllowed`).
+* **Teste não escreve no `.storage` do projeto**: `setup.ts` dá a cada arquivo um `STORAGE_ROOT` temporário, e o Playwright usa um diretório temporário próprio. Índice parcial crítico novo entra na lista de `schema-partial-indexes.test.ts`.
 
 **Skill de auditoria:** `.claude/skills/alfaos-security-review/SKILL.md` — o método adversarial do projeto (invariantes, severidade, evidência, template de relatório).
 * **Carregar quando:** auditoria adversarial, segurança, multi-tenancy, ownership, concorrência, transações críticas ou gate de release de versão.

@@ -47,8 +47,11 @@ BUSCA GLOBAL V1         GS-1                                          APPROVED �
 **`CORE FUNCTIONAL V1 — FEATURE COMPLETE` (13/09/2026).** As fatias funcionais da
 primeira versão estão concluídas — toda linha da PRD §386 está implementada. Isso
 **não** é `PRODUCTION READY`: faltam Release Candidate, hardening, os débitos do
-§12, segurança, produção e piloto real. **Próxima fase: `RC-1` — Release
-Candidate / Hardening**, não iniciada.
+§12, segurança, produção e piloto real. **Fase atual: `RC-1` — Release
+Candidate / Hardening.** A `RC-1A` (auditoria e plano, zero código) terminou em
+`OWNER DECISION REQUIRED`; a **`RC-1B`** (segurança, configuração, tenancy e
+isolamento de teste) está **`READY FOR OWNER VALIDATION`** — §12 e
+`docs/SECURITY.md` §8.21.
 
 O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e o estado
 de cada item está em **§386**. O contrato final do mapa é a **PRD §392**.
@@ -81,7 +84,10 @@ GS-1                           busca global              ← APPROVED · FROZEN 
    ↓
 CORE FUNCTIONAL V1 — FEATURE COMPLETE   fatias funcionais: COMPLETE   ← 2026-09-13
    ↓
-RC-1   Release Candidate / Hardening                     ← NEXT (não iniciada)
+RC-1   Release Candidate / Hardening                     ← em andamento
+       RC-1A  auditoria e plano                          ← OWNER DECISION REQUIRED
+       RC-1B  segurança · configuração · tenancy · teste ← READY FOR OWNER VALIDATION
+       RC-1C  CustomerLocation (após decisão do dono)    ← próxima, não iniciada
    ↓
 LANÇAMENTO V1 — produção e piloto real
    ↓
@@ -490,6 +496,20 @@ de diagnóstico **em memória do processo** e a **ausência de teto agregado por
 empresa** (`docs/SECURITY.md` §8.7, *Rate limit de capability*; PRD §370).
 Preservados em 13/09/2026, no fechamento da `GS-1`: nenhum foi resolvido ali.
 
+**`RC-1B` — `READY FOR OWNER VALIDATION` (14/09/2026).** Resolvidos, cada um com
+teste que falhava antes e sabotagem que o derruba (`docs/SECURITY.md` §8.21):
+`RC-STO-01` (corpo multipart com teto antes de ser lido — o proxy continua
+precisando de limite de corpo), `RC-LOG-01` (log de erro sem mensagem),
+`RC-SEC-01` (`LOGIN_*` inválido derruba a subida), `RC-OPS-03` (Mock ERP
+indisponível em produção — o item "Sincronizar Mock ERP" abaixo), `RC-OPS-04`
+(seed recusa em produção), `RC-DB-02` (guarda dos índices parciais), `RC-DB-01`
+/ `RC-TEN-01` (técnico anterior lido no tenant, testes de id de outra empresa),
+`RC-TEST-01` (redirecionamentos do técnico e download de assinatura),
+`RC-STO-02` (storage isolado em Vitest e E2E — a metade de teste do item
+"Storage órfão" abaixo) e `RC-LOC-06` (localização × conclusão). **Não
+tocados, por escopo:** `RC-LOC-01`–`05` (RC-1C, após decisão do dono) e o resto
+desta lista.
+
 ```text
 /minhas-os — "Próximas"
   o quê    também contém OS sem agendamento e OS com agendamento vencido
@@ -497,9 +517,10 @@ Preservados em 13/09/2026, no fechamento da `GS-1`: nenhum foi resolvido ali.
   opções   A/B/C registradas SEM decisão — docs/TECHNICIAN-EXECUTION.md §9
   fase     fluxo do técnico
 
-"Sincronizar Mock ERP"
+"Sincronizar Mock ERP"                                   RESOLVIDO na RC-1B
   o quê    visível ao ADMIN em /ordens, sem condição de ambiente
-  fase     release hardening
+  hoje     indisponível em produção — botão, sincronização, adapter e opção
+           em /integracoes (RC-OPS-03, docs/SECURITY.md §8.21)
 
 Datas gerais no fuso do servidor
   o quê    "Criada em", "Vinculado em" e o "Agendada:" dos cartões de /minhas-os
@@ -549,14 +570,19 @@ Configurações — copy antiga de "próximas versões"
   onde     src/app/(app)/configuracoes/page.tsx
   fase     release hardening
 
-Storage órfão
-  o quê    (1) src/tests/field-equipment-persistence.test.ts grava a etiqueta
-           no .storage real, sem isolar o storage, e deixa um diretório por
-           empresa de teste apagada (~1.847 no dev em 13/09/2026); (2) a foto
-           de CTO substituída deixa o blob anterior sem referência — INFO
-           aceito, docs/CTO-NETWORK-DISTRIBUTION.md §20 e §23
-  fase     release hardening — isolar o teste; remover blob só com política
-           própria, porque apagar por suposição é como se perde evidência
+Storage órfão                             (1) RESOLVIDO na RC-1B · (2) aberto
+  o quê    (1) suítes de teste — três de Vitest e o servidor do E2E — gravavam
+           no .storage real; (2) a foto de CTO substituída deixa o blob
+           anterior sem referência — INFO aceito,
+           docs/CTO-NETWORK-DISTRIBUTION.md §20 e §23
+  hoje     (1) Vitest e E2E usam storage temporário, apagado ao fim
+           (RC-STO-02). O resíduo antigo NÃO foi apagado: dry-run de
+           14/09/2026 — 1.886 diretórios no .storage de dev, 1.884 de empresas
+           inexistentes (2.032 arquivos, 1,5 MB); das empresas vivas, 10
+           arquivos referenciados e 5 órfãos (as fotos de CTO trocadas)
+  fase     limpeza do resíduo de teste: decisão do dono sobre o dry-run;
+           (2) remover blob só com política própria, porque apagar por
+           suposição é como se perde evidência
 
 Busca global — telefone/documento gravados com máscara (achado na GS-1)
   o quê    o termo com máscara acha o gravado só em dígitos; o inverso —
