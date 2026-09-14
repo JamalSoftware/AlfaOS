@@ -1,5 +1,7 @@
 import { execSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
+import { e2eStorageRoot } from "./e2e-storage";
 import { assertTestDatabase } from "./test-db-guard";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -27,4 +29,11 @@ export default async function globalSetup() {
   run("npx prisma migrate deploy");
   run("npx tsx e2e/reset-db.ts");
   run("npx prisma db seed");
+
+  // Storage do E2E começa VAZIO, como o banco (RC-STO-02). Uma rodada
+  // interrompida antes do teardown não deixa arquivo para a seguinte.
+  const storage = e2eStorageRoot();
+  fs.rmSync(storage, { recursive: true, force: true });
+  fs.mkdirSync(storage, { recursive: true });
+  console.log(`[e2e] storage de arquivos em "${storage}"`);
 }

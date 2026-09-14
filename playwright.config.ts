@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import { defineConfig } from "@playwright/test";
 
 const E2E_DATABASE_URL =
@@ -35,6 +37,24 @@ const E2E_CONNECTION_KEY =
 const E2E_PORT = process.env.E2E_PORT ?? "3100";
 const E2E_BASE_URL = `http://localhost:${E2E_PORT}`;
 
+/**
+ * Storage de arquivos do E2E: um diretório temporário, nunca o `.storage` do
+ * projeto (RC-STO-02).
+ *
+ * Sem isto, o servidor do Playwright gravava fotos, etiquetas e assinaturas no
+ * MESMO `.storage` do servidor de desenvolvimento — de empresas que o
+ * `reset-db` apaga na rodada seguinte, então cada execução deixava resíduo.
+ *
+ * Caminho FIXO, e não `mkdtemp`: o Playwright carrega este arquivo no processo
+ * principal e de novo em cada worker, e os specs que conferem bytes no disco
+ * (`evidence-package`, `service-order-closing`) precisam da mesma raiz que o
+ * servidor. Atribuído a `process.env` aqui para que eles a leiam; o
+ * `globalSetup` a recria vazia e o `globalTeardown` a apaga.
+ */
+const E2E_STORAGE_ROOT =
+  process.env.E2E_STORAGE_ROOT ?? path.join(os.tmpdir(), "alfaos-e2e-storage");
+process.env.STORAGE_ROOT = E2E_STORAGE_ROOT;
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
@@ -44,6 +64,7 @@ export default defineConfig({
   retries: 0,
   reporter: [["list"]],
   globalSetup: "./e2e/global-setup.ts",
+  globalTeardown: "./e2e/global-teardown.ts",
   use: {
     baseURL: E2E_BASE_URL,
     trace: "on-first-retry",
@@ -78,6 +99,7 @@ export default defineConfig({
       SESSION_COOKIE_NAME: "alfaos_session",
       ERP_CREDENTIAL_ENCRYPTION_KEY: E2E_CREDENTIAL_KEY,
       CUSTOMER_CREDENTIAL_ENCRYPTION_KEY: E2E_CONNECTION_KEY,
+      STORAGE_ROOT: E2E_STORAGE_ROOT,
       NEXT_TELEMETRY_DISABLED: "1",
       PORT: E2E_PORT,
     },

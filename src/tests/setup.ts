@@ -1,3 +1,8 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterAll } from "vitest";
+
 process.env.DATABASE_URL =
   process.env.TEST_DATABASE_URL ??
   "postgresql://alfaos:alfaos_dev_password@localhost:5432/alfaos_test?schema=public";
@@ -24,3 +29,18 @@ process.env.ERP_CREDENTIAL_ENCRYPTION_KEY =
 process.env.CUSTOMER_CREDENTIAL_ENCRYPTION_KEY =
   process.env.CUSTOMER_CREDENTIAL_ENCRYPTION_KEY ??
   "dml0ZXN0LXBwcG9lLWtleS0zMi1ieXRlcy1sb25nISE=";
+
+// Storage de arquivos: SEMPRE um diretório temporário por arquivo de teste
+// (RC-STO-02). Sem isto, toda suíte que não trocasse o adapter gravava no
+// `.storage` do projeto — o mesmo do servidor de desenvolvimento — e deixava um
+// diretório por empresa de teste apagada: 1.867 deles, no RC-1A. Atribuição
+// direta, e não `??=`: um STORAGE_ROOT vindo do ambiente do desenvolvedor não
+// pode ser a raiz em que a suíte escreve. O adapter lê a variável ao ser
+// construído, na primeira chamada — depois deste arquivo, que roda antes de
+// cada arquivo de teste. Suítes que já montam o próprio temporário com
+// `setFileStorage` continuam valendo por cima.
+const storageDoArquivo = mkdtempSync(path.join(os.tmpdir(), "alfaos-vitest-storage-"));
+process.env.STORAGE_ROOT = storageDoArquivo;
+afterAll(() => {
+  rmSync(storageDoArquivo, { recursive: true, force: true });
+});
