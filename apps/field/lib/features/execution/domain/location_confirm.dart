@@ -59,6 +59,7 @@ class ConfirmLocationCheck {
     required this.reading,
     this.distanceMeters,
     this.maxDistanceMeters,
+    this.locationVersion,
   });
 
   /// Mede a leitura contra o ponto cadastrado.
@@ -84,11 +85,19 @@ class ConfirmLocationCheck {
       reading: reading,
       distanceMeters: distance,
       maxDistanceMeters: location.confirmMaxDistanceMeters,
+      locationVersion: location.version,
     );
   }
 
   final LocationReading reading;
   final int? distanceMeters;
+
+  /// A versão do ponto contra o qual a distância foi medida.
+  ///
+  /// É ela que a confirmação envia como `expectedVersion`: se o ponto mudou
+  /// entre medir e confirmar, o servidor responde conflito — em vez de
+  /// confirmar um ponto que o técnico não viu medido.
+  final int? locationVersion;
 
   /// O limite que o SERVIDOR mandou. `null` num servidor anterior à RC-1C:
   /// aí o aplicativo não bloqueia sozinho, e a regra fica inteira do servidor.

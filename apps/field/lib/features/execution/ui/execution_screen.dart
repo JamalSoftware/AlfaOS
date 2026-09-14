@@ -400,8 +400,7 @@ class _LocationSection extends StatelessWidget {
     if (!context.mounted) return;
     switch (choice) {
       case ConfirmLocationChoice.confirm:
-        final position = check.position;
-        if (position != null) await notifier.confirmLocation(position);
+        await notifier.confirmLocation(check);
       case ConfirmLocationChoice.correct:
         await showCorrectLocationSheet(context, notifier);
       case null:

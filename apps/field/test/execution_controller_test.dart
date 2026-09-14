@@ -30,6 +30,23 @@ class StubRepository extends ExecutionRepository {
   Object? evidenceError;
   int evidenceCalls = 0;
   final List<String> evidenceKeys = [];
+  final List<Map<String, Object?>> confirmacoes = [];
+
+  @override
+  Future<void> confirmLocation({
+    required String orderId,
+    required int expectedVersion,
+    required String idempotencyKey,
+    double? observedLatitude,
+    double? observedLongitude,
+    int? observedAccuracyMeters,
+  }) async {
+    confirmacoes.add({
+      'expectedVersion': expectedVersion,
+      'observedLatitude': observedLatitude,
+      'observedLongitude': observedLongitude,
+    });
+  }
 
   @override
   Future<ExecutionBundle> load(String orderId) async {
@@ -89,9 +106,37 @@ class StubLocation implements LocationService {
       const LocationReading.failed(LocationOutcome.unavailable);
 }
 
-ExecutionController build(StubRepository repository) => ExecutionController(
+/// GPS numa posição fixa — perto do ponto dos cenários de localização.
+class PosicaoFixa implements LocationService {
+  @override
+  Future<LocationReading> current() async => const LocationReading.ok(
+    DeviceLocation(latitude: -20.3154, longitude: -40.3128, accuracyMeters: 8),
+  );
+}
+
+ExecutionBundle _bundleComPonto(int versaoDoPonto) => ExecutionBundle.fromJson({
+  'orderId': 'os-1',
+  'version': 5,
+  'executionVersion': 2,
+  'report': {'diagnosis': null, 'workPerformed': null, 'notes': null},
+  'location': {
+    'status': 'UNCONFIRMED',
+    'latitude': -20.3155,
+    'longitude': -40.3128,
+    'verified': false,
+    'version': versaoDoPonto,
+    'confirmMaxDistanceMeters': 100,
+  },
+  'requirements': const <String, dynamic>{},
+  'pendencies': const <Map<String, dynamic>>[],
+});
+
+ExecutionController build(
+  StubRepository repository, {
+  LocationService? location,
+}) => ExecutionController(
   repository: repository,
-  location: StubLocation(),
+  location: location ?? StubLocation(),
   // Caminho FICTÍCIO: o dublê nunca lê o arquivo, então ele não precisa
   // existir. É o que mantém o teste longe de I/O real.
   photos: StubPhotoCapture(File('/tmp/foto-ficticia.png')),
@@ -99,6 +144,49 @@ ExecutionController build(StubRepository repository) => ExecutionController(
 );
 
 void main() {
+  group('confirmar localização (RC-1C)', () {
+    test(
+      'confirma o ponto que foi MEDIDO: a versão enviada é a da medida',
+      () async {
+        /*
+          Entre medir e confirmar o pacote pode ser relido — e o ponto pode ter
+          mudado nesse meio-tempo. A confirmação leva a versão contra a qual a
+          distância foi mostrada: se o ponto andou, o servidor responde conflito
+          em vez de confirmar um ponto que o técnico não viu medido.
+        */
+        final repository = StubRepository()
+          ..bundleBuilder = () => _bundleComPonto(3);
+        final controller = build(repository, location: PosicaoFixa());
+        await controller.load();
+
+        final medida = await controller.checkLocationForConfirm();
+        expect(medida, isNotNull);
+        expect(medida!.withinLimit, isTrue);
+
+        // O pacote é relido com o ponto em outra versão.
+        repository.bundleBuilder = () => _bundleComPonto(7);
+        await controller.load();
+
+        await controller.confirmLocation(medida);
+        expect(repository.confirmacoes, hasLength(1));
+        expect(repository.confirmacoes.single['expectedVersion'], 3);
+        expect(repository.confirmacoes.single['observedLatitude'], -20.3154);
+      },
+    );
+
+    test('sem posição medida, nada é enviado', () async {
+      final repository = StubRepository()
+        ..bundleBuilder = () => _bundleComPonto(3);
+      final controller = build(repository);
+      await controller.load();
+
+      final medida = await controller.checkLocationForConfirm();
+      expect(medida!.hasPosition, isFalse);
+      expect(await controller.confirmLocation(medida), isFalse);
+      expect(repository.confirmacoes, isEmpty);
+    });
+  });
+
   group('foto resiliente (§58)', () {
     test('falha no envio NÃO apaga a foto — ela fica para reenviar', () async {
       final repository = StubRepository()

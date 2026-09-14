@@ -345,13 +345,18 @@ class ExecutionController extends StateNotifier<ExecutionState> {
     }
   }
 
-  /// Confirma que o ponto cadastrado está correto, a partir de [position].
+  /// Confirma o ponto que [check] mediu.
   ///
   /// A posição é OBRIGATÓRIA desde a RC-1C: é contra ela que o servidor mede a
   /// distância e aplica o limite. Ela não vira a localização do cliente —
   /// mover o ponto é `correctLocation`, que é outra ação e exige motivo.
-  Future<bool> confirmLocation(DeviceLocation position) async {
-    final version = state.bundle?.location.version;
+  ///
+  /// A posição E a versão enviadas são as da medida: o que o técnico viu no
+  /// diálogo é exatamente o que o servidor avalia.
+  Future<bool> confirmLocation(ConfirmLocationCheck check) async {
+    final position = check.position;
+    final version = check.locationVersion;
+    if (position == null || !check.hasPosition) return false;
     if (version == null) {
       state = state.copyWith(
         error: 'Este cliente ainda não tem localização. Use "Corrigir".',
