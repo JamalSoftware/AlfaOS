@@ -1,4 +1,5 @@
 import type {
+  Prisma,
   ServiceOrder,
   ServiceOrderPriority,
   ServiceOrderStatus,
@@ -873,6 +874,30 @@ export async function countCompanyServiceOrders(
   return prisma.serviceOrder.count({ where });
 }
 
+/**
+ * Chaves de `metadata` que ficam no banco e NÃO saem na leitura da OS.
+ *
+ * A confirmação de localização (RC-1C) grava de onde o técnico confirmou, porque
+ * o contrato pede o registro. Esta leitura devolve os eventos a ADMIN,
+ * DISPATCHER e ao técnico dono, e nenhuma tela usa a posição do técnico naquele
+ * instante: sai a distância, nunca a coordenada. É o desenho do check-in, que
+ * guarda a coordenada na linha própria e deixa no evento só distância e
+ * precisão.
+ */
+const PRIVATE_EVENT_METADATA_KEYS = ["observedLatitude", "observedLongitude"] as const;
+
+function publicEventMetadata(metadata: Prisma.JsonValue): Prisma.JsonValue {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return metadata;
+  }
+  const publico: Record<string, Prisma.JsonValue> = {};
+  for (const [chave, valor] of Object.entries(metadata)) {
+    if ((PRIVATE_EVENT_METADATA_KEYS as readonly string[]).includes(chave)) continue;
+    publico[chave] = valor as Prisma.JsonValue;
+  }
+  return publico;
+}
+
 export async function getCompanyServiceOrder(
   companyId: string,
   orderId: string,
@@ -894,7 +919,7 @@ export async function getCompanyServiceOrder(
   const events: ServiceOrderEventInfo[] = order.events.map((event) => ({
     id: event.id,
     event: event.event,
-    metadata: event.metadata,
+    metadata: publicEventMetadata(event.metadata),
     userName: event.user?.name ?? null,
     createdAt: event.createdAt,
   }));
