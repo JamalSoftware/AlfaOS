@@ -11,17 +11,14 @@ export const SESSION_MAX_AGE_SECONDS = 12 * 60 * 60;
 
 export const SESSION_SECRET = env.authSecret;
 
-export const LOGIN_MAX_FAILED_ATTEMPTS = Number(
-  process.env.LOGIN_MAX_FAILED_ATTEMPTS ?? 5,
-);
+// Validados em `validateEnv` (RC-SEC-01): valor presente e inválido derruba a
+// subida em vez de virar `NaN` e desligar o limitador em silêncio.
+export const LOGIN_MAX_FAILED_ATTEMPTS = env.loginLimits.maxFailedAttempts;
 
-export const LOGIN_WINDOW_SECONDS = Number(
-  process.env.LOGIN_WINDOW_SECONDS ?? 900,
-);
+export const LOGIN_WINDOW_SECONDS = env.loginLimits.windowSeconds;
 
-export const LOGIN_MAX_FAILED_ATTEMPTS_BY_IP = Number(
-  process.env.LOGIN_MAX_FAILED_ATTEMPTS_BY_IP ?? 20,
-);
+export const LOGIN_MAX_FAILED_ATTEMPTS_BY_IP =
+  env.loginLimits.maxFailedAttemptsByIp;
 
 /**
  * `LOGIN_MAX_FAILED_ATTEMPTS_GLOBAL` used to live here: a ceiling on ALL recent
