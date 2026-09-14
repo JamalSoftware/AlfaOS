@@ -16,6 +16,11 @@ import { clientMutationId } from "@/lib/field/route";
  * uma procedência que ele não tem, e a precedência da §197 passaria a depender
  * do que o aparelho diz sobre si mesmo.
  *
+ * **Coordenada, só com GPS (RC-1C).** `MANUAL` com coordenada é recusado pelo
+ * domínio: uma posição digitada moveria o ponto e o marcaria verificado sem
+ * ninguém ter medido nada. Sem GPS, a correção é só de endereço — e ela não
+ * toca coordenada nem `verified`. Meia coordenada também é `400`.
+ *
  * ## `expectedVersion` aceita `null`
  *
  * `null` significa "eu vi que este cliente NÃO tem localização", e é o

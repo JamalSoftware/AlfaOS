@@ -695,9 +695,10 @@ export interface CorrectLocationInput {
   longitude?: number | null;
   accuracyMeters?: number | null;
   /**
-   * Só `TECHNICIAN_GPS` ou `MANUAL` chegam do Field: o técnico ou usou a
-   * posição do aparelho, ou digitou. `IMPORTED` e `GEOCODED` são origens de
-   * processo automático e não podem ser alegadas por um cliente.
+   * O schema do Field aceita `TECHNICIAN_GPS` ou `MANUAL` — `IMPORTED` e
+   * `GEOCODED` são origens de processo automático e não podem ser alegadas por
+   * um cliente. Desde a RC-1C, uma coordenada `MANUAL` (digitada) é RECUSADA
+   * aqui: a correção de coordenada exige o GPS do aparelho.
    */
   source?: Extract<CustomerLocationSource, "TECHNICIAN_GPS" | "MANUAL">;
   reference?: string | null;
@@ -739,15 +740,34 @@ export async function correctCustomerLocation(
 ): Promise<CorrectLocationResult> {
   const note = assertReasonNote(input.reason, input.note ?? null);
 
-  const hasCoordinate =
-    input.latitude !== null &&
-    input.latitude !== undefined &&
-    input.longitude !== null &&
-    input.longitude !== undefined;
+  const temLatitude = input.latitude !== null && input.latitude !== undefined;
+  const temLongitude = input.longitude !== null && input.longitude !== undefined;
+  if (temLatitude !== temLongitude) {
+    // Meia coordenada não é "sem coordenada": é uma captura quebrada. Tratá-la
+    // como correção só de endereço aplicaria o texto e descartaria a posição em
+    // silêncio — o técnico acharia que moveu o ponto.
+    throw badRequest("Coordenada inválida.");
+  }
+  const hasCoordinate = temLatitude && temLongitude;
 
   let coordinate: Coordinate | null = null;
   let accuracy: number | null = null;
   if (hasCoordinate) {
+    /*
+      Coordenada só pelo GPS do aparelho — RC-1C.
+
+      O contrato do dono: sem GPS, corrige-se apenas o endereço textual, a
+      coordenada não muda e nada novo é marcado como verificado. Uma coordenada
+      DIGITADA (`MANUAL`) moveria o ponto e o gravaria como `verified = true`
+      sem ninguém ter medido nada — o mesmo defeito da confirmação sem GPS, por
+      outra porta. O aplicativo nunca envia `MANUAL`; quem envia é um cliente
+      que não segue o contrato.
+    */
+    if (input.source === "MANUAL") {
+      throw badRequest(
+        "A coordenada só pode ser corrigida com o GPS do aparelho. Sem GPS, corrija apenas o endereço.",
+      );
+    }
     coordinate = assertValidCoordinate(input.latitude, input.longitude);
     accuracy = assertValidAccuracy(input.accuracyMeters);
   }
