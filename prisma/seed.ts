@@ -1,5 +1,16 @@
 import { PrismaClient, AccessProfile } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { assertSeedAllowed } from "../src/lib/seed-guard";
+import { logServerError } from "../src/lib/safe-log";
+
+// Antes de qualquer consulta: em produção o seed recusa (RC-OPS-04). O
+// `PrismaClient` abaixo não conecta ao ser construído, só na primeira query.
+try {
+  assertSeedAllowed();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : "Seed recusado.");
+  process.exit(1);
+}
 
 const prisma = new PrismaClient();
 
@@ -158,7 +169,9 @@ async function main() {
   }
 
   console.log("Seed complete.");
-  console.log("Demo users (password: " + DEMO_PASSWORD + "):");
+  // A senha não é impressa (RC-OPS-04): stdout de seed vai para log de CI e de
+  // terminal compartilhado. Ela está definida no topo deste arquivo.
+  console.log("Demo users (senha de demonstração: ver prisma/seed.ts):");
   console.log("  admin@alfatelecom.local      (Alfa Telecom - ADMIN)");
   console.log("  admin2@alfatelecom.local     (Alfa Telecom - ADMIN, 2o aprovador)");
   console.log("  dispatcher@alfatelecom.local  (Alfa Telecom - DISPATCHER)");
@@ -168,7 +181,9 @@ async function main() {
 
 main()
   .catch((e) => {
-    console.error(e);
+    // O erro de upsert do Prisma repete os argumentos — inclusive o hash de
+    // senha — na mensagem (RC-LOG-01).
+    logServerError("seed", e);
     process.exit(1);
   })
   .finally(async () => {
