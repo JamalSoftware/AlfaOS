@@ -332,3 +332,7 @@ técnico, inclusive a edição da execução descrita na §5.
 Continuam fora do escopo: PDF/comprovante, reabertura/devolução, pausa/retomada,
 GPS, estoque, ReceitaNet real, WhatsApp/notificações, OLT, IA e offline
 avançado.
+
+**Mapa de Campo do Técnico (`FIELD-MAP-1`)** — conceito aprovado pelo dono em
+13/09/2026, `FUTURE` / pós-V1, **não implementado**: `docs/PRD.md` Parte XIX
+(§415–§421). Nada muda em `/minhas-os` por causa dele.

@@ -40,12 +40,18 @@ TIMELINE DO CLIENTE V1  TL-1                                          APPROVED �
                         histórico na ficha do cliente · 50 por vez até 500
 PACOTE TÉCNICO V1       EV-1                                          APPROVED · FROZEN
                         página da OS concluída · conferência pelo hash
-BUSCA GLOBAL V1         GS-1                                          READY FOR OWNER VALIDATION
+BUSCA GLOBAL V1         GS-1                                          APPROVED · FROZEN
                         campo no menu → /busca · predicado das listagens
 ```
 
-O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e a lista
-do que falta está em **§386**. O contrato final do mapa é a **PRD §392**.
+**`CORE FUNCTIONAL V1 — FEATURE COMPLETE` (13/09/2026).** As fatias funcionais da
+primeira versão estão concluídas — toda linha da PRD §386 está implementada. Isso
+**não** é `PRODUCTION READY`: faltam Release Candidate, hardening, os débitos do
+§12, segurança, produção e piloto real. **Próxima fase: `RC-1` — Release
+Candidate / Hardening**, não iniciada.
+
+O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e o estado
+de cada item está em **§386**. O contrato final do mapa é a **PRD §392**.
 
 **O AlfaOS será uma plataforma SaaS modular** — Core mais módulos opcionais por
 tenant (PRD Parte XVIII, §402–§414). **Este plano cobre o Core V1**; os módulos
@@ -71,21 +77,28 @@ TL-1                           timeline do cliente       ← APPROVED · FROZEN 
    ↓
 EV-1                           pacote de evidências      ← APPROVED · FROZEN (2026-09-13)
    ↓
-GS-1                           busca global              ← READY FOR OWNER VALIDATION
+GS-1                           busca global              ← APPROVED · FROZEN (2026-09-13)
    ↓
-LANÇAMENTO V1
+CORE FUNCTIONAL V1 — FEATURE COMPLETE   fatias funcionais: COMPLETE   ← 2026-09-13
+   ↓
+RC-1   Release Candidate / Hardening                     ← NEXT (não iniciada)
+   ↓
+LANÇAMENTO V1 — produção e piloto real
    ↓
 V2 (PRD §388)  →  V3 (PRD §389)
 ```
 
 **A ordem das fatias foi decidida pelo dono, fatia a fatia, como este plano
-previa.** Elas continuam independentes entre si e todas dependem apenas do que
-já existe. **`DASH-1` veio primeiro** e foi aprovada com a `DASH-1a`; o
-**`HOTFIX-FIELD-01`** fechou um defeito conhecido do técnico; e a **`TL-1`** foi
+previa.** Elas eram independentes entre si e todas dependiam apenas do que já
+existia. **`DASH-1` veio primeiro** e foi aprovada com a `DASH-1a`; o
+**`HOTFIX-FIELD-01`** fechou um defeito conhecido do técnico; a **`TL-1`** foi
 aprovada pelo dono e congelada (§5, PRD §381); a **`EV-1`** também (§6, PRD
-§383). **A `GS-1` foi implementada e aguarda a validação do dono** (§7, PRD
-§384). Ela é a última fatia funcional planejada do Core V1; o que vem depois do
-lançamento é decisão do dono, e nada foi iniciado.
+§383); e a **`GS-1`**, última fatia funcional do Core V1, foi validada pelo dono
+em ADMIN, DISPATCHER, TECHNICIAN e web no celular e congelada (§7, PRD §384).
+
+**Com isso o Core V1 está `FEATURE COMPLETE`, e a próxima fase é a `RC-1`.** Ela
+é aberta por decisão do dono; o que ela recebe está no §12. **`FIELD-MAP-1` não
+entra nessa linha:** é backlog pós-V1, avaliado depois do RC e do piloto (§9).
 
 ---
 
@@ -254,9 +267,12 @@ sai no DTO.
 
 ## 7. `GS-1` — Busca global do AlfaOS
 
-> **Estado: `READY FOR OWNER VALIDATION` — commits locais, sem tag e sem push.**
-> Contrato, as três decisões do dono (equipamento fora da V1, técnico sem busca,
-> campo no menu + página) e o que ficou fora: PRD §384. Mapa do código:
+> **Estado: `APPROVED` / `CLOSED` — Busca Global V1 `FROZEN` (2026-09-13).
+> Commits locais, sem tag e sem push.** Validado pelo dono — ADMIN, DISPATCHER,
+> TECHNICIAN e web no celular, todos `PASS`; só reabre por defeito crítico,
+> tenancy, segurança ou decisão explícita do dono. Contrato, as três decisões do
+> dono (equipamento fora da V1, técnico sem busca, campo no menu + página), o que
+> a busca não é e o que ficou fora: PRD §384. Mapa do código:
 > `docs/CONTEXT-MAP.md`, seção *Busca global*. O plano abaixo é o registro de como
 > a fatia foi escrita; ela se cumpriu sem migration, sem rota de API e sem Dart.
 
@@ -367,6 +383,24 @@ não é             NOC, monitoramento de rede, "offline há N dias" — V2 e
                   Parte XVII
 ```
 
+**`FIELD-MAP-1` — Mapa de Campo do Técnico: conceito aprovado pelo dono,
+`FUTURE` / pós-V1 / não implementado (13/09/2026).** Especificação conceitual na
+**PRD Parte XIX (§415–§421)**: CTOs próximas, clientes e OS abertas no mapa do
+técnico, com a conectividade conhecida e navegação — ativado por empresa pelo
+`ADMIN`, sobre as autoridades do Core, sem provider por marcador, com a posição
+da CTO só por sugestão aprovada pelo `ADMIN`, e um contrato para a web no celular
+e o Field. **Não é fatia, não é bloqueador do lançamento e não reabre o Mapa
+Operacional V1 nem a `GS-1`.**
+
+```text
+quando        depois do RC e do piloto, por decisão do dono — nunca durante a
+              RC-1 sem nova ordem dele
+antes dela    as sete decisões abertas da PRD §421 (ativação, alcance de
+              clientes, de OS e de CTOs, sugestão de CTO, telefone, nome)
+não é         GS-1 para técnico · Mapa Operacional V1 · FiberMap · editor de
+              topologia
+```
+
 ---
 
 ## 10. Backlog futuro — Central de Retenção e Recuperação
@@ -432,9 +466,9 @@ ACS / Wi-Fi                     gerência remota do CPE           PRD §410 · �
 Analytics                       indicadores de negócio           PRD §410
 ```
 
-**As fatias V1 não mudam.** Com a `DASH-1`, a `TL-1` e a `EV-1` concluídas e a
-`GS-1` aguardando validação, **nenhum módulo entra no Core V1** — nem como "já
-que estamos mexendo aqui" (PRD §393).
+**As fatias V1 não mudam.** Com a `DASH-1`, a `TL-1`, a `EV-1` e a `GS-1`
+concluídas e o Core V1 `FEATURE COMPLETE`, **nenhum módulo entra no Core V1** —
+nem como "já que estamos mexendo aqui" (PRD §393), nem durante a `RC-1`.
 
 **O que um módulo precisa antes de virar fatia**, além da decisão do dono: a
 camada central de acesso — Module Registry, entitlement por tenant e capability
@@ -449,6 +483,12 @@ medidas da §10 e as decisões abertas da PRD §414.
 
 > **Registro, não fatia.** Nenhum destes itens está sendo corrigido, nenhum
 > reabre uma entrega aprovada, e cada um tem a fase em que deve ser tratado.
+
+**A `RC-1` recebe esta lista inteira**, mais três itens registrados em outro
+lugar: `DIAG-AUTO-01` (§9 — backlog de produto, não débito), o contador do teto
+de diagnóstico **em memória do processo** e a **ausência de teto agregado por
+empresa** (`docs/SECURITY.md` §8.7, *Rate limit de capability*; PRD §370).
+Preservados em 13/09/2026, no fechamento da `GS-1`: nenhum foi resolvido ali.
 
 ```text
 /minhas-os — "Próximas"
@@ -501,6 +541,41 @@ PRD — menções antigas a comprovante em PDF (achado na EV-1)
   o quê    §34, §38 e §117 citam PDF/comprovante sem marca de superado; a §383
            (escopo V1, posterior) diz que PDF não é obrigatório na V1
   fase     higiene documental — marcar na §390, sem mudar decisão
+
+Configurações — copy antiga de "próximas versões"
+  o quê    /configuracoes promete que "mais opções de configuração serão
+           adicionadas nas próximas versões" — promessa sem data numa tela
+           de produto
+  onde     src/app/(app)/configuracoes/page.tsx
+  fase     release hardening
+
+Storage órfão
+  o quê    (1) src/tests/field-equipment-persistence.test.ts grava a etiqueta
+           no .storage real, sem isolar o storage, e deixa um diretório por
+           empresa de teste apagada (~1.847 no dev em 13/09/2026); (2) a foto
+           de CTO substituída deixa o blob anterior sem referência — INFO
+           aceito, docs/CTO-NETWORK-DISTRIBUTION.md §20 e §23
+  fase     release hardening — isolar o teste; remover blob só com política
+           própria, porque apagar por suposição é como se perde evidência
+
+Busca global — telefone/documento gravados com máscara (achado na GS-1)
+  o quê    o termo com máscara acha o gravado só em dígitos; o inverso —
+           gravado "(28) 99948-2862", digitado só em dígitos — não acha
+  alcance  fechar exige normalizar a coluna: migration, decisão própria
+  fase     RC-1, se o dono decidir — a GS-1 está FROZEN (PRD §384)
+
+Técnico sem página individual (achado na GS-1)
+  o quê    o resultado de técnico da busca global abre /tecnicos filtrada pelo
+           nome — a web não tem tela própria do técnico
+  fase     RC-1 decide se é débito ou backlog: tela nova é escopo, não correção
+
+Equipamento sem identidade própria
+  o quê    ServiceOrderEquipment é linha da OS, com série e MAC opcionais; não
+           há entidade, rota nem ciclo de vida — por isso a busca de
+           equipamento é FUTURE (PRD §384, §393), e a Parte XVII depende disso
+           (§10)
+  fase     trilha própria, por decisão do dono — não se cria Equipment só para
+           a busca
 ```
 
 O `HOTFIX-FIELD-01` corrigiu **só** o fuso de "Hoje" em `/minhas-os`; a

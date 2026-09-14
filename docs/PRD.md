@@ -8107,6 +8107,13 @@ descreve o recorte do técnico, e **não cria um segundo mapa**: é a mesma
 `CustomerLocation`, a mesma precedência da §197 e a mesma fronteira com o
 FiberMap da §202.
 
+> **Nome da fatia futura: `FIELD-MAP-1` — Mapa de Campo do Técnico (Parte XIX,
+> §415–§421).** Registrada em 13/09/2026 como conceito aprovado pelo dono,
+> `FUTURE` · pós-V1 · **não implementada**. Ela reúne esta seção, a §260, a §261
+> e a §339 sobre as autoridades que o Core V1 construiu depois delas. Nada daqui
+> foi apagado; onde as duas diferem, a diferença está nomeada na §421 como
+> decisão aberta.
+
 ## O que o técnico vê
 
 ```text
@@ -13022,6 +13029,11 @@ histórico especializado de geolocalização, se ainda for necessário
 integração com o FiberMap (§389)
 ```
 
+> **Registrado em 13/09/2026 (`FIELD-MAP-1`, §418):** quando a confirmação em
+> campo voltar, o formato aprovado como conceito é **sugestão do técnico,
+> decisão do `ADMIN`** — o técnico nunca escreve `CTO.latitude`/`CTO.longitude`.
+> Continua pós-V1, sem schema e sem workflow.
+
 A distinção que sustenta o corte é a mesma da `CustomerLocation` logo acima:
 **receber uma coordenada não é confirmá-la.** O ADMIN corrigindo pelo mapa está
 dizendo *"o ponto é aqui"*; ele não esteve no poste. Colapsar as duas coisas
@@ -13409,11 +13421,28 @@ seção.
 > V1 sem necessidade medida: Postgres responde bem a esse volume, e um serviço
 > de busca a mais é um serviço a mais para operar, sincronizar e ver divergir.
 
-**`GS-1` — `READY FOR OWNER VALIDATION`. Commits locais, sem tag e sem push.** A
-busca existe: um campo **"Buscar"** no topo do menu lateral (desktop e gaveta do
-celular) leva a **`/busca?q=`**, com os resultados agrupados por tipo. Zero
-migration, zero schema, zero rota de API, zero Dart, e nenhum motor de busca: é
-leitura do Postgres do AlfaOS, sem ERP e sem provider.
+**`GS-1` — `APPROVED` / `CLOSED`. Busca Global V1 — `FROZEN` / `APPROVED`
+(13/09/2026).** O dono validou a entrega nos três perfis e no celular (abaixo);
+o contrato desta seção é o aprovado, e só reabre por defeito crítico, vazamento
+de tenancy, problema de segurança ou decisão explícita do dono — ideia nova sobre
+a busca é backlog (§393). Commits locais, sem tag e sem push. A busca existe: um
+campo **"Buscar"** no topo do menu lateral (desktop e gaveta do celular) leva a
+**`/busca?q=`**, com os resultados agrupados por tipo. Zero migration, zero
+schema, zero rota de API, zero Dart, e nenhum motor de busca: é leitura do
+Postgres do AlfaOS, sem ERP e sem provider.
+
+**Validação do dono — 13/09/2026:**
+
+```text
+ADMIN        PASS   cliente · OS · técnico · CTO · endereço · telefone · número
+                    exato da OS · mínimo de caracteres · "Ver todos" · navegação
+DISPATCHER   PASS   busca disponível; clientes, OS e técnicos aparecem; CTO não
+TECHNICIAN   PASS   sem campo de busca; continua no fluxo "Minhas OS"; nenhuma
+                    descoberta administrativa de dado a mais
+MOBILE WEB   PASS   gaveta funcional · campo acessível ao ADMIN · /busca
+                    responsiva · resultados legíveis · navegação · sem estouro
+                    horizontal relevante · layout aprovado
+```
 
 **Decidido pelo dono na abertura da `GS-1`:**
 
@@ -13462,6 +13491,29 @@ e-mail, rua, coordenada nem identificador de ERP**; cada resultado abre a rota
 que já existia para ele; falha de leitura é **aviso de erro**, nunca "nenhum
 resultado". Nada é gravado — nem o termo, nem histórico, recentes ou favoritos.
 Mapa do código em `docs/CONTEXT-MAP.md`.
+
+**Congelado junto — o que a Busca Global V1 não é:**
+
+```text
+ação       Enter no campo do menu; Enter ou o botão "Buscar" na página /busca
+sem        busca a cada tecla · autocomplete · busca aproximada (fuzzy) · IA ·
+           embeddings · consulta a ERP ou provider em tempo real
+fora       equipamento · usuários administrativos (a busca de técnico procura o
+           técnico, não a conta) · financeiro
+```
+
+**Busca de equipamento — `FUTURE` / fora da V1.** O equipamento ainda não é
+entidade própria: não tem identidade estável, rota, ciclo de vida nem inventário
+patrimonial consolidado — existe no contexto da OS (`ServiceOrderEquipment`, com
+série e MAC opcionais desde a v0.10). **Não se cria `Equipment` só para a busca
+ter o que achar.** Se ele virar entidade — trilha própria (§211, §395) —, a busca
+o alcança pelo predicado da listagem dele, como alcança os outros tipos (§201).
+
+**Dois limites declarados, e são débitos da `RC-1`, não reabertura**
+(`docs/MASTER-PLAN.md` §12): telefone ou documento **gravados com máscara** não
+são achados pelo termo digitado só em dígitos (o inverso é coberto; fechar este
+lado é normalizar a coluna, que é migration); e o **técnico não tem página
+individual** — o resultado abre `/tecnicos` filtrada pelo nome dele.
 
 ---
 
@@ -13523,7 +13575,16 @@ O que precisa estar de pé para o primeiro lançamento.
 | Dashboard operacional acionável | **implementado** (`DASH-1` · `DASH-1a`) — aprovado pelo dono, `FROZEN` (§380) |
 | Timeline do cliente | **implementado** (`TL-1`) — aprovado pelo dono, `FROZEN` (§381) |
 | Pacote técnico de evidências | **implementado** (`EV-1`) — aprovado pelo dono, `FROZEN` (§383) |
-| Busca global do AlfaOS | **implementado** (`GS-1`) — `READY FOR OWNER VALIDATION` (§384) |
+| Busca global do AlfaOS | **implementado** (`GS-1`) — aprovado pelo dono, `FROZEN` (§384) |
+
+**Com a `GS-1` aprovada (13/09/2026), toda linha desta tabela está implementada:
+`CORE FUNCTIONAL V1 — FEATURE COMPLETE`.** Quer dizer que as fatias funcionais da
+primeira versão estão concluídas — **não** que o AlfaOS está pronto para
+produção. Faltam Release Candidate, hardening, os débitos registrados
+(`docs/MASTER-PLAN.md` §12), segurança, produção e piloto real; a conferência de
+cobertura do checklist por tipo (§382) também continua pendente — é
+configuração, não fatia. A próxima fase é a **`RC-1`** (§391), e ela não foi
+iniciada.
 
 ---
 
@@ -13731,10 +13792,14 @@ CTO-3.2.2b · c · d · e        estabilização e acabamento de UX
 validação do dono do Mapa Operacional V1    CTO-3.2.2e APPROVED
 MAPA OPERACIONAL V1 — FROZEN (§392)                                ← 2026-09-12
    ↓
-demais fatias V1  dashboard acionável · timeline do cliente        ← próximo:
-                  pacote de evidências · busca global                decisão do dono
+demais fatias V1  dashboard acionável · timeline do cliente        concluídas —
+                  pacote de evidências · busca global              APPROVED · FROZEN
    ↓
-LANÇAMENTO V1
+CORE FUNCTIONAL V1 — FEATURE COMPLETE                              ← 2026-09-13
+   ↓
+RC-1 — RELEASE CANDIDATE / HARDENING                               ← próxima fase,
+   ↓                                                                  não iniciada
+LANÇAMENTO V1 — produção e piloto real
    ↓
 V2 (§388)  →  V3 (§389)
 ```
@@ -13743,8 +13808,19 @@ V2 (§388)  →  V3 (§389)
 backlog; o que volta a abrir o código do mapa antes do lançamento é **correção
 crítica de defeito**, e só ela (§392).
 
-A sequência das fatias V1 depois do mapa **não está congelada entre si** — elas
-são independentes, e a ordem é decisão do dono no momento de cada uma.
+A sequência das fatias V1 depois do mapa **não estava congelada entre si** — elas
+eram independentes, e a ordem foi decisão do dono no momento de cada uma:
+`DASH-1` (§380), `TL-1` (§381), `EV-1` (§383) e `GS-1` (§384), todas aprovadas e
+congeladas até 13/09/2026.
+
+**`FEATURE COMPLETE` não é `PRODUCTION READY`.** O que separa um do outro é a
+`RC-1`: Release Candidate, hardening, os débitos registrados
+(`docs/MASTER-PLAN.md` §12), revisão de segurança, produção e piloto real. Ela
+é aberta por decisão do dono, e nada dela foi iniciado.
+
+**`FIELD-MAP-1` não está nesta linha.** O Mapa de Campo do Técnico é conceito
+aprovado, sem versão (Parte XIX): o dono o avalia **depois do RC e do piloto**, e
+ele **não bloqueia o lançamento**.
 
 > **A §119 continua valendo.** Esta Parte autoriza o que está em §386; ela não
 > autoriza nada do que está em §388 ou §389, por mais detalhado que esteja
@@ -13876,8 +13952,11 @@ NOC                                       V2 (§388)
 IA de diagnóstico                         backlog, sem seção própria
 auto-atualização do diagnóstico na OS     backlog (DIAG-AUTO-01) — o refresh é
                                           ação explícita (§337, §370)
-busca de equipamento por série/MAC        backlog (GS-1) — o equipamento não tem
-                                          identidade fora da OS (§384)
+busca de equipamento por série/MAC        FUTURE, fora da V1 (GS-1) — o
+                                          equipamento não é entidade própria
+                                          (§384)
+mapa de campo do técnico (FIELD-MAP-1)    conceito aprovado, pós-V1 — Parte XIX
+                                          (§415); avaliar depois do RC/piloto
 ```
 
 A §119 continua valendo para todos: estar descrito aqui não é autorização.
@@ -14732,6 +14811,9 @@ sendo `DASH-1 · TL-1 · EV-1 · GS-1`, na ordem que o dono decidir. O critério
 §393 vale para os módulos como para qualquer ideia: se não bloqueia a operação
 V1, é backlog.
 
+*(Registro de 2026-09-12. As quatro fatias fecharam até 13/09/2026 e o Core V1
+está `FEATURE COMPLETE` — §391; a próxima fase é a `RC-1`.)*
+
 **Nada foi implementado:** nenhum módulo, enum, schema, migration, rota, tela,
 dependência, nem provider de mensageria, pagamento ou IA.
 
@@ -14750,6 +14832,311 @@ dependência, nem provider de mensageria, pagamento ou IA.
 5  Super Admin          o desenho do plano de controle da plataforma (§412)
 6  nomes                identificadores de módulo e nomes de plano são
                         provisórios
+```
+
+---
+
+# PARTE XIX — FIELD-MAP-1 · MAPA DE CAMPO DO TÉCNICO · FUTURE / PÓS-V1
+
+> **Registrada em 13/09/2026, no fechamento da Busca Global V1 (§384). Conceito
+> aprovado pelo dono — `FUTURE` · `POST-V1` · `NOT IMPLEMENTED`.**
+>
+> Nada desta Parte existe em código, nenhuma fase está aberta, e ela não cria
+> enum, schema, migration, flag, rota, tela nem permissão. Ela **não** é `MUST
+> HAVE` da V1 (§386), **não** reabre o Mapa Operacional V1 (§392), a Busca
+> Global V1 (§384) nem o Core V1, e **não** bloqueia o lançamento. A §119 vale
+> linha por linha.
+>
+> A ordem é esta: primeiro a `RC-1` (§391); **depois do RC e do piloto real**, o
+> dono avalia se e quando a `FIELD-MAP-1` vira fase. Iniciá-la durante a `RC-1`
+> exige nova ordem do dono.
+>
+> Ela dá nome e fronteira ao que a Parte IX já descrevia para o aplicativo — o
+> mapa do técnico (§259), a ação no pin (§260), a privacidade do GPS (§261) — e
+> à CTO no campo (§339), agora sobre as autoridades que o Core V1 construiu
+> depois delas. Nada daquelas seções foi apagado.
+
+---
+
+# 415. O QUE É, E O QUE NÃO É
+
+**Objetivo:** dar ao técnico uma visão geográfica **de execução em campo** —
+achar a caixa próxima, o cliente e a OS aberta, ver a conectividade conhecida do
+cliente e chegar lá.
+
+```text
+localizar    CTOs próximas · clientes · OS abertas
+consultar    conectividade conhecida do cliente, com a idade da leitura
+navegar      até o cliente ou a caixa — a navegação da §172
+```
+
+**Não transforma o técnico em administrador.** O mapa mostra e leva; ele não
+edita a rede, não atribui nem reatribui OS, não roteiriza e não entrega dado que
+a tela do técnico não usa (§259, §260).
+
+Três superfícies, e não se misturam:
+
+```text
+Mapa Operacional V1   ADMIN · DISPATCHER   visão da operação       web · FROZEN (§392)
+Busca Global V1       ADMIN · DISPATCHER   descoberta              web · FROZEN (§384)
+                                           administrativa
+Mapa de Campo         TECHNICIAN           visão limitada da       web mobile + Field
+                                           execução em campo       FUTURE (esta Parte)
+```
+
+São superfícies diferentes sobre **as mesmas autoridades** (§419). **O técnico
+continuar sem a Busca Global é compatível com ele ter, no futuro, o Mapa de
+Campo:** a `GS-1` é descoberta administrativa de cadastro; a `FIELD-MAP-1` é
+ferramenta geográfica de quem está na rua. Uma não empresta permissão à outra.
+
+**FiberMap fica fora (§389).** A fronteira da §334 continua: o FiberMap futuro é
+a autoridade da topologia física, o AlfaOS a da operacional. O mapa de campo
+**não vira editor de topologia** — nem de cabo, nem de splitter, nem de caixa.
+
+---
+
+# 416. ATIVAÇÃO POR EMPRESA E CONFIGURAÇÃO DO ADMIN
+
+A empresa **liga ou desliga** o Mapa de Campo pelo painel do `ADMIN`. Desligado,
+o técnico **não vê** o item "Mapa"; ligado, ele o acessa. No vocabulário da
+§405, é **entitlement ou política do tenant** — não capability do usuário e não
+feature flag de ambiente —, e quem verifica é o **servidor**, em toda rota do
+mapa, inclusive de leitura, como na rede CTO (§338).
+
+**A forma física não é escolhida aqui:** coluna de política em `Company` (o
+precedente de `ctoNetworkEnabled`) ou a camada central de entitlement da Parte
+XVIII (§406) é decisão aberta, ligada às decisões 1 e 2 da §414. Nenhum schema
+nasce desta Parte.
+
+Desenho **conceitual** das configurações — não é contrato de schema, e nenhum
+controle é implementado agora:
+
+```text
+Configurações → Operação de Campo → Mapa do Técnico
+
+[ ] Ativar mapa para técnicos
+[ ] Mostrar CTOs
+[ ] Mostrar clientes
+[ ] Mostrar conectividade dos clientes
+[ ] Mostrar OS abertas
+[ ] Destacar OS urgentes
+[ ] Permitir busca de clientes
+
+futuro / opcional
+[ ] Permitir atualização manual do diagnóstico
+```
+
+Desligar não apaga nada (§407): o que o mapa lê pertence às autoridades do Core,
+e continua lá.
+
+A gaveta do Field já lista um item **"Mapa Operacional"** marcado `EM BREVE`,
+sem rota (§256). A regra de ativação passa a valer quando o mapa existir; até
+lá, nada muda no aplicativo.
+
+---
+
+# 417. CAMADAS, CONECTIVIDADE E DIAGNÓSTICO
+
+## Camadas
+
+```text
+CTOs         a caixa no poste — leitura; o técnico não a edita (§418)
+clientes     com a conectividade conhecida
+OS abertas   derivadas dos estados terminais, como no mapa V1 (§371)
+```
+
+A camada de CTOs depende também da rede CTO ligada na empresa (§338) — as duas
+verificações são independentes. O vocabulário visual aprovado no Mapa
+Operacional é reaproveitado quando servir, com forma e rótulo junto da cor
+(§149, §259), **sem duplicar regra de negócio**: estado da caixa, contagem de
+portas e precedência de estado têm uma implementação cada.
+
+## Conectividade — a MESMA autoridade
+
+`CustomerDiagnosticSnapshot`, com os três estados de sempre — `ONLINE`,
+`OFFLINE`, `UNKNOWN` — e **nunca** `STALE` (§370). A idade da leitura
+(`observedAt`) viaja junto e é mostrada:
+
+```text
+Online · última leitura há 4 min
+Offline · última leitura há 2 h
+```
+
+Leitura antiga **nunca** é apresentada como tempo real.
+
+## Nenhum provider por marcador
+
+O mapa **não** chama ReceitaNet, SGP nem ERP nenhum para desenhar marcador. A
+conectividade vem **em lote** — o princípio de `getConnectivityForCustomers`, ou
+da autoridade equivalente vigente na época: **50 clientes visíveis não são 50
+chamadas ao ERP**, são uma leitura de banco.
+
+## Atualização do diagnóstico
+
+Na primeira implementação, o mapa **só mostra** o último snapshot conhecido.
+Abrir ou mover o mapa **não** dispara refresh — a atualização automática
+continua fora até decisão própria (`DIAG-AUTO-01`, §393).
+
+Se um dia houver "Atualizar diagnóstico" no mapa, ele reutiliza **o mesmo
+contrato** que a OS já usa, inteiro: autorização, adapter da empresa, teto,
+snapshot, e o invariante de que **falha de integração nunca vira `OFFLINE`**.
+Não nasce segunda arquitetura de diagnóstico. O teto continua **10 por minuto,
+por usuário, dentro da empresa** — chave `(companyId, userId, capability)`
+(§370) —, e o mapa não o contorna.
+
+## Cliente com OS urgente
+
+Destaque claro para o cliente com OS **aberta** de prioridade **`URGENT`** — a
+mesma autoridade do mapa V1 (§371): `HIGH` **não** é `URGENT`, e OS urgente
+encerrada não destaca. Vocabulário possível — cliente online, offline, sem
+leitura, com OS aberta, com OS urgente —, com o desenho definido na fase, não
+aqui.
+
+---
+
+# 418. LOCALIZAÇÃO — CTO, CLIENTE E O GPS DO APARELHO
+
+## CTO — regra absoluta
+
+O `TECHNICIAN` **não** altera `CTO.latitude` / `CTO.longitude` — hoje nenhuma
+rota deixa, e no Mapa de Campo também não. O caminho futuro, aprovado como
+conceito, é **sugerir, não escrever**:
+
+```text
+TECHNICIAN   "Sugerir correção da localização"
+             posição sugerida · observação · data/hora · técnico responsável
+     ↓
+ADMIN        revisa → Aprovar ou Recusar
+     ↓
+aprovada     só então a coordenada oficial da CTO muda — pelo caminho de escrita
+             que já existe (§377), com a auditoria do "de → para"
+```
+
+A sugestão **não é coordenada oficial** e não pode virar uma segunda fonte:
+`CTOLocation` continua proibida (§377). Como guardar a sugestão é decisão da
+fase, e nenhum workflow nasce agora. É nesse formato que volta a "confirmação da
+posição pelo técnico em campo", pós-V1 na §377: **receber uma coordenada não é
+confirmá-la**, e aqui o técnico nem a grava — quem decide é o `ADMIN`.
+
+## Cliente
+
+O cliente continua diferente da CTO. A autoridade é a **`CustomerLocation`** e o
+histórico dela (§134, §377), e o mapa reutiliza o fluxo autorizado que já existe
+— confirmar, corrigir, auditar. **Nenhuma coordenada paralela.**
+
+## CTOs próximas
+
+Uma das funções principais: mostrar as caixas perto de onde o técnico está — na
+instalação, no reparo, para achar a caixa certa e consultar a ocupação, na rua
+ou na região. **Leitura.** A proximidade **ordena, não escolhe** (§339): duas
+caixas a 30 m são indistinguíveis por GPS de celular.
+
+## "Próximos de mim" — FUTURE
+
+Filtro por raio — **500 m · 1 km · 3 km · 5 km** — como evolução desejada. Sem
+schema, índice nem algoritmo definidos aqui.
+
+## GPS do aparelho
+
+A posição atual só entra com **permissão, propósito operacional, contrato de
+privacidade e tenancy** — `while-in-use`, enquanto o mapa está aberto (§261).
+Nada é guardado além do necessário sem regra explícita, e o **rastreamento do
+técnico continua sendo contrato separado** (§135, §261). Negar o GPS não impede
+o trabalho: o mapa abre sem "minha posição".
+
+---
+
+# 419. UM CONTRATO PARA A WEB MOBILE E O FIELD
+
+A `FIELD-MAP-1` deve ter, preferencialmente, **um backend e um contrato**
+servindo as duas superfícies do técnico — a web no celular e o aplicativo
+Flutter. Não existe "regra do mapa web" e "regra do mapa Flutter"; as duas
+compartilham:
+
+```text
+autorização · tenancy · DTOs · autoridade de conectividade · regra de CTO ·
+regra de cliente · OS abertas
+```
+
+Em uma linha:
+
+```text
+mapa do técnico → DTO operacional limitado → autoridades do Core
+                → nenhum provider por marcador
+```
+
+## Busca no mapa
+
+"Buscar cliente, endereço ou CTO" — *Roseli*, *CTO A16* — localiza e
+centraliza. **Contrato de autorização próprio:** não reutilizar a `GS-1`
+administrativa se isso ampliar o que o técnico enxerga; a busca nunca amplia a
+permissão dele.
+
+## Popup do cliente
+
+Conteúdo conceitual permitido — o mínimo para decidir o próximo passo (§260):
+
+```text
+nome · conectividade · idade da leitura · endereço · CTO/porta quando
+autorizado · OS abertas · Navegar · Abrir OS · Abrir cliente no escopo permitido
+```
+
+**O popup não é ficha do cliente.**
+
+## Privacidade
+
+O técnico não recebe pelo mapa dado administrativo que a tela não usa
+(`docs/FIELD-API.md` §7). **Nunca:**
+
+```text
+CPF/documento completo sem necessidade · financeiro · faturas · mensalidades ·
+senha PPPoE · tokens · credenciais de ERP · payload de provider · dado de outra
+empresa
+```
+
+**Telefone**, só se fizer parte do fluxo operacional aprovado na fase.
+
+---
+
+# 420. O QUE ESTA PARTE NÃO AUTORIZA
+
+```text
+não é MUST HAVE   a V1 continua sendo a §386
+não reabre        Mapa Operacional V1 (§392) · Busca Global V1 (§384) · Core V1
+não bloqueia      o lançamento
+não cria          schema · migration · flag · rota · tela · permissão · workflow
+não inclui        FiberMap · editor de topologia · posição de outros técnicos
+                  (§135) · roteirização (§137) · atualização automática do
+                  diagnóstico (§393)
+```
+
+**Os débitos da `RC-1` não moram aqui.** Os que já estão registrados continuam
+onde estão (`docs/MASTER-PLAN.md` §12), e esta Parte não resolve nenhum.
+
+---
+
+# 421. DECISÕES ABERTAS — E SÃO DO DONO
+
+Nenhuma resolvida em silêncio. Cada uma pesa quando a fase for aberta:
+
+```text
+1  ativação           coluna de política em Company ou camada de entitlement
+                      (§406; decisões 1 e 2 da §414)
+2  clientes           a carteira inteira, um raio, ou só os clientes das OS do
+                      técnico? No Mapa Operacional V1 nem o DISPATCHER vê a
+                      carteira nominal (§376) — o técnico ver mais que ele é
+                      inversão que só decisão explícita autoriza
+3  OS abertas         só as do técnico, ou também as pendentes sem técnico que a
+                      §259 condiciona à política da empresa?
+4  CTOs fora da OS    a leitura de rede do Field exige OS em atendimento, de
+                      propósito (CTO-2.4, docs/CTO-NETWORK-DISTRIBUTION.md §29);
+                      "CTOs próximas" fora de uma visita amplia esse alcance —
+                      e o ocupante de porta alheia continua fora do Field
+5  sugestão de CTO    onde e como a sugestão fica guardada, sem CTOLocation
+                      (§377)
+6  telefone           se entra no popup, e para quem
+7  nome               a gaveta do Field chama o item de "Mapa Operacional", que é
+                      o nome da superfície ADMIN/DISPATCHER da web
 ```
 
 ---

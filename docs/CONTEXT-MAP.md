@@ -85,9 +85,11 @@ concluir pela ausência** é como um contêiner de 43 horas de uptime vira
 
 Quatro coisas dessa Parte que não se redescobrem: **`STALE` não existe** no AlfaOS — a conectividade tem três estados e o que viaja junto é a **idade** da leitura (§370); **o checklist por tipo de OS já está implementado** desde a v0.10, e foi apresentado como escopo novo por engano (§382); **a máquina de estados da OS tem cinco valores**, e *agendada*, *em deslocamento* e *pausada* **não são estados** — os gaps estão registrados em §385 sem inventar enum; e **`CANCELLED` é declarado e inalcançável**.
 
-**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias V1, cada uma com dependências, entregas, testes, segurança e risco. Concluídos: Mapa Operacional V1, `DASH-1` + `DASH-1a`, `HOTFIX-FIELD-01`, `TL-1` e `EV-1`. **`GS-1` implementada, aguardando a validação do dono** — é a última fatia funcional planejada do Core V1. Os débitos conhecidos fora das fatias estão no §12 dele. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
+**Carregar também:** `docs/MASTER-PLAN.md` — a sequência até o lançamento e as fatias V1, cada uma com dependências, entregas, testes, segurança e risco. Concluídos e congelados: Mapa Operacional V1, `DASH-1` + `DASH-1a`, `HOTFIX-FIELD-01`, `TL-1`, `EV-1` e `GS-1`. **`CORE FUNCTIONAL V1 — FEATURE COMPLETE`** (13/09/2026): as fatias funcionais da primeira versão estão feitas, e isso **não** é production ready. **Próxima fase: `RC-1` — Release Candidate / Hardening**, não iniciada; os débitos que ela recebe estão no §12 dele. Ele **não é um segundo PRD**: onde os dois divergirem, o PRD vence.
 
-**O DASHBOARD OPERACIONAL V1 TAMBÉM ESTÁ CONGELADO** (`DASH-1a` `APPROVED`, 2026-09-12): nenhuma feature nova entra nele, salvo correção crítica de defeito.
+**O DASHBOARD OPERACIONAL V1 TAMBÉM ESTÁ CONGELADO** (`DASH-1a` `APPROVED`, 2026-09-12): nenhuma feature nova entra nele, salvo correção crítica de defeito. O mesmo vale para a **Timeline do Cliente V1** (`TL-1`), o **Pacote Técnico V1** (`EV-1`) e a **Busca Global V1** (`GS-1`, `APPROVED`, 13/09/2026) — PRD §381, §383 e §384.
+
+**`FIELD-MAP-1` — Mapa de Campo do Técnico — é conceito aprovado, `FUTURE` / pós-V1, NADA em código** (PRD Parte XIX, §415–§421; mapa do código futuro na seção *Mapa operacional no Field* abaixo). Não iniciar durante a `RC-1` sem nova ordem do dono.
 
 **O MAPA OPERACIONAL V1 ESTÁ CONGELADO — PRD §392** (`CTO-3.2.2e` `APPROVED`, 2026-09-12). Antes de propor qualquer coisa no mapa, leia a §392 e a **§393**, o critério contra o feature creep: ideia nova que não bloqueia a operação V1 vai para o backlog, e o código do mapa só reabre por **correção crítica de defeito**. Não existe `CTO-3.2.2f`. A **Central de Retenção e Recuperação** (inadimplência, patrimônio em risco, recolhimento, churn, cobrança, WhatsApp) é a **PRD Parte XVII (§394–§401)** — backlog sem versão, **nada em código**, e não é fatia do Master Plan.
 
@@ -204,9 +206,11 @@ Quatro coisas que não se redescobrem:
 * **Localização sem coordenada.** O check-in entra como hora, com/sem GPS, distância ao ponto cadastrado (congelada no check-in) e precisão; a mudança de ponto entra só se feita NESTA OS e para ESTE cliente. Latitude e longitude não são nem selecionadas.
 * **A série e o MAC saem como o domínio gravou** (`normalizeHardwareId`), não como foram digitados — é o que o Field mostra também.
 
-## Busca global — `GS-1` (READY FOR OWNER VALIDATION)
+## Busca global — `GS-1` (APPROVED · FROZEN)
 
-**Carregar:** PRD **§384** (contrato e as três decisões do dono), §201 (reutilizar a busca que já existe) e `docs/MASTER-PLAN.md` §7. Não há documento de módulo: o contrato é a PRD e o cabeçalho de `src/lib/global-search.ts`.
+**Validada pelo dono em 13/09/2026** — ADMIN, DISPATCHER, TECHNICIAN e web no celular, todos `PASS`. **Busca Global V1 `FROZEN`:** só reabre por defeito crítico, tenancy, segurança ou decisão explícita do dono; ideia nova sobre a busca é backlog (PRD §393). Enter no campo do menu, Enter ou "Buscar" na página — sem busca a cada tecla, autocomplete, fuzzy, IA, embeddings ou provider. Equipamento é `FUTURE`, fora da V1.
+
+**Carregar:** PRD **§384** (contrato, as três decisões do dono, a validação e o que a busca não é), §201 (reutilizar a busca que já existe) e `docs/MASTER-PLAN.md` §7. Não há documento de módulo: o contrato é a PRD e o cabeçalho de `src/lib/global-search.ts`.
 **Quando:** a tarefa toca `/busca`, o campo "Buscar" do menu, ou o **predicado de busca** de `/clientes`, `/ordens` ou `/tecnicos` — ele é o mesmo da busca global.
 **Quando NÃO:** a busca do Mapa Operacional (`/api/ctos/map/search`, FROZEN — contrato próprio, §374) e a busca de cliente no ERP (`/api/integrations/customers/search`).
 
@@ -551,7 +555,7 @@ A porta única da correção (§258) **já foi aplicada** no endurecimento final
 
 ## Mapa operacional no Field, agenda e estoque do técnico — PLANNED
 
-**Carregar:** `docs/PRD.md` §259–§263 — mapa do técnico, ação no pin, privacidade/GPS, agenda de compromissos e "Meu Estoque". Leia junto o bloco correspondente já existente: mapa é a Parte VI (§196–§209), agenda estende a §171, estoque estende a §181.
+**Carregar:** `docs/PRD.md` §259–§263 — mapa do técnico, ação no pin, privacidade/GPS, agenda de compromissos e "Meu Estoque"; para o mapa, também a **Parte XIX (§415–§421)**. Leia junto o bloco correspondente já existente: mapa é a Parte VI (§196–§209), agenda estende a §171, estoque estende a §181.
 **Quando:** a tarefa envolve mapa dentro do aplicativo, compromisso do técnico, lembrete, ou saldo de material do técnico.
 **Quando NÃO:** Central de Despacho — isso é **web** (§203, §204). Ferramenta cedida ao técnico é custódia (§211).
 
@@ -562,6 +566,15 @@ A porta única da correção (§258) **já foi aplicada** no endurecimento final
 * **A OS na agenda é projeção, não cópia** (§262). Guardar horário próprio criaria duas respostas para "quando é o atendimento".
 
 O plantão da Escala (§298, Parte XI) entra na agenda pela mesma regra de projeção — nunca com horário próprio guardado ali.
+
+**O mapa do técnico ganhou nome e fronteira: `FIELD-MAP-1` — Mapa de Campo do Técnico**, conceito aprovado pelo dono em 13/09/2026, `FUTURE` / pós-V1, **NADA em código** (PRD **Parte XIX, §415–§421**; `docs/MASTER-PLAN.md` §9). Não iniciar durante a `RC-1` sem nova ordem do dono. A arquitetura futura, em uma linha: **mapa do técnico → DTO operacional limitado → autoridades do Core → nenhum provider por marcador**, com **um** contrato para a web no celular e o Field. O que ela reutiliza, e não duplica:
+
+* **Conectividade:** `getConnectivityForCustomers` (`src/lib/customer-diagnostics.ts`), o lote sobre `CustomerDiagnosticSnapshot` — três estados, sem `STALE`, com `observedAt`. Refresh, se existir, só pelo contrato da OS e o teto de `src/lib/capability-rate-limit.ts`, `(companyId, userId, capability)`.
+* **Cliente:** a `CustomerLocation` e o fluxo que o Field já usa na OS (`/api/field/v1/service-orders/[id]/location/confirm` e `.../correct`). Nenhuma coordenada paralela.
+* **CTO:** a escrita de `CTO.latitude`/`longitude` é `PATCH /api/ctos/[id]`, só `ADMIN` (`requireCtoAccess`). O técnico **sugere**, o `ADMIN` aprova — e a sugestão não é uma `CTOLocation`.
+* **Distância:** `distanceInMeters` (`src/lib/geo.ts`) — "Próximos de mim" ainda não tem algoritmo nem índice.
+
+Duas coisas que a fase não pode herdar por engano: a busca do mapa de campo **não** é a `GS-1` (outro contrato de autorização, e o técnico continua sem busca global); e a leitura de rede do Field exige OS `IN_PROGRESS` **de propósito** (`docs/CTO-NETWORK-DISTRIBUTION.md` §29) — "CTOs próximas" fora de uma visita é decisão aberta do dono (PRD §421), não detalhe de implementação.
 
 ## Ferramentas do técnico e configuração de roteador — PLANNED
 
