@@ -400,6 +400,18 @@ void main() {
         OperationalFixFailure.unavailable,
       );
     });
+
+    test('o plugin falha ao ABRIR o fluxo: falha tipada na hora, sem esperar o prazo', () async {
+      final gps = FakePositionSource()..openError = StateError('canal');
+      final inicio = DateTime.now();
+      final f = falhou(await capturar(gps));
+      expect(f.reason, OperationalFixFailure.unavailable);
+      expect(
+        DateTime.now().difference(inicio),
+        lessThan(const Duration(seconds: 5)),
+        reason: 'não pode esperar os 20 s do prazo',
+      );
+    });
   });
 
   group('evaluateReading — o juízo de uma leitura', () {

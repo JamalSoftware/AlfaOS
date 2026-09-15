@@ -56,6 +56,9 @@ class FakePositionSource implements PositionSource {
   /// Um erro do plugin, entregue no fluxo no lugar das leituras.
   Object? streamError;
 
+  /// Um erro do plugin na hora de ABRIR o fluxo — síncrono, antes de escutar.
+  Object? openError;
+
   final DateTime Function() _clock;
 
   int requestCalls = 0;
@@ -98,6 +101,8 @@ class FakePositionSource implements PositionSource {
   @override
   Stream<RawPositionReading> positions() {
     watchCalls += 1;
+    final falhaAoAbrir = openError;
+    if (falhaAoAbrir != null) throw falhaAoAbrir;
     final controller = StreamController<RawPositionReading>();
     _atual = controller;
     final agendadas = <Timer>[];

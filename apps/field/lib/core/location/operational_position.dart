@@ -169,8 +169,9 @@ ReadingVerdict evaluateReading(
 
   final precisao = reading.accuracyMeters;
   if (precisao == null) return ReadingVerdict.noAccuracy;
-  if (!precisao.isFinite || precisao <= 0)
+  if (!precisao.isFinite || precisao <= 0) {
     return ReadingVerdict.invalidAccuracy;
+  }
   if (precisao > policy.maxAccuracyMeters) return ReadingVerdict.inaccurate;
   return ReadingVerdict.accepted;
 }
@@ -391,7 +392,17 @@ class OperationalPositionAcquirer {
       ),
     );
 
-    assinatura = _source.positions().listen(
+    final Stream<RawPositionReading> leituras;
+    try {
+      leituras = _source.positions();
+    } catch (error) {
+      // Um plugin que falha na hora de abrir o fluxo não pode deixar a tela
+      // presa em "buscando" até o prazo: a falha é tipada, agora.
+      Log.error('gps_acquisition_failed stage=open', error: error);
+      encerrar(falha(OperationalFixFailure.unavailable));
+      return desfecho.future;
+    }
+    assinatura = leituras.listen(
       (leitura) {
         if (desfecho.isCompleted) return;
         final veredito = evaluateReading(

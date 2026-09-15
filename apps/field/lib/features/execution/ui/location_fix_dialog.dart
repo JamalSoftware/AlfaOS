@@ -80,22 +80,31 @@ class _LocationFixDialogState extends State<LocationFixDialog> {
     _cancelarCaptura();
     final cancel = Completer<void>();
     _cancel = cancel;
-    final resultado = await widget.acquire(
-      cancel: cancel.future,
-      onReading: (precisao) {
-        if (mounted && identical(_cancel, cancel)) {
-          setState(() => _atual = precisao);
-        }
-      },
-    );
+    OperationalFixResult resultado;
+    try {
+      resultado = await widget.acquire(
+        cancel: cancel.future,
+        onReading: (precisao) {
+          if (mounted && identical(_cancel, cancel)) {
+            setState(() => _atual = precisao);
+          }
+        },
+      );
+    } catch (_) {
+      // A captura não lança; se lançar, a tela não fica presa em "buscando".
+      resultado = OperationalFixFailed(
+        OperationalFixFailure.unavailable,
+        maxAccuracyMeters: widget.maxAccuracyMeters,
+      );
+    }
     if (!mounted || !identical(_cancel, cancel)) return;
     switch (resultado) {
       case OperationalFixAcquired(:final fix):
         Navigator.of(context).pop(fix);
       case OperationalFixFailed(reason: OperationalFixFailure.cancelled):
         break;
-      case OperationalFixFailed():
-        setState(() => _falha = resultado);
+      case final OperationalFixFailed falha:
+        setState(() => _falha = falha);
     }
   }
 
