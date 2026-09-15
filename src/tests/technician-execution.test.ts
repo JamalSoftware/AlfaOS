@@ -1149,8 +1149,11 @@ describe("Execução do técnico — leitura", () => {
     );
     expect(after.inProgress).toHaveLength(1);
     expect(after.inProgress[0].id).toBe(order.id);
+    // Status vence agendamento: ela sai de todas as outras seções.
     expect(after.today).toHaveLength(0);
+    expect(after.overdue).toHaveLength(0);
     expect(after.upcoming).toHaveLength(0);
+    expect(after.unscheduled).toHaveLength(0);
   });
 });
 

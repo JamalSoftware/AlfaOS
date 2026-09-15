@@ -32,6 +32,7 @@ import { allocateServiceOrderNumber } from "./service-order-number";
 import {
   TIME_DEPENDENT_SLICES,
   companySliceClock,
+  isOverdueServiceOrder,
   serviceOrderSliceWhere,
   type ServiceOrderSlice,
   type SliceClock,
@@ -1433,8 +1434,26 @@ export interface TechnicianWorkQueue {
    * hardest to find.
    */
   inProgress: PublicServiceOrder[];
+  /**
+   * Agendadas para ANTES de hoje e ainda não iniciadas — RC-1D.
+   *
+   * Elas ficavam dentro de "Próximas", e o dono viu uma OS de 06/09 lá numa
+   * validação de 13/09: pertencia à fila, mas não era "próxima" de nada. A
+   * regra é a do painel (`isOverdueServiceOrder`, PRD §380), e "Hoje" tem
+   * precedência — o agendamento de hoje que já passou continua sendo o
+   * trabalho de hoje (contrato do `HOTFIX-FIELD-01`).
+   */
+  overdue: PublicServiceOrder[];
   today: PublicServiceOrder[];
+  /** Agendadas para DEPOIS de hoje. */
   upcoming: PublicServiceOrder[];
+  /**
+   * Atribuídas e sem data.
+   *
+   * Seção própria porque elas não são "próximas": não têm quando. Enfiá-las
+   * entre as agendadas fazia a lista prometer uma ordem que não existe.
+   */
+  unscheduled: PublicServiceOrder[];
 }
 
 export interface TechnicianContext {
@@ -1513,30 +1532,49 @@ export async function listServiceOrdersForTechnician(
   const day = civilDayBoundsIn(clock.now, clock.timezone);
 
   const inProgress: typeof orders = [];
+  const overdue: typeof orders = [];
   const today: typeof orders = [];
   const upcoming: typeof orders = [];
+  const unscheduled: typeof orders = [];
 
+  /*
+    As seções são EXCLUSIVAS, e a ordem de decisão é o contrato (RC-1D):
+
+    1. status vence agendamento — iniciada é "em atendimento";
+    2. "Hoje" é o dia civil da EMPRESA (HOTFIX-FIELD-01), e ele vem antes de
+       "Atrasadas": um agendamento de hoje às 8h, às 10h, continua sendo o
+       trabalho de hoje;
+    3. atrasada é a regra do painel (PRD §380), aplicada ao que sobrou;
+    4. o resto agendado é futuro;
+    5. sem data não finge ter data.
+  */
   for (const order of orders) {
-    // Status wins over schedule: a started order belongs to "em atendimento"
-    // regardless of when it was booked for.
     if (order.status === "IN_PROGRESS") {
       inProgress.push(order);
       continue;
     }
-    const scheduled = order.scheduledAt
-      ? new Date(order.scheduledAt)
-      : null;
-    if (scheduled && scheduled >= day.start && scheduled < day.end) {
-      today.push(order);
-    } else {
-      upcoming.push(order);
+    const scheduled = order.scheduledAt ? new Date(order.scheduledAt) : null;
+    if (!scheduled) {
+      unscheduled.push(order);
+      continue;
     }
+    if (scheduled >= day.start && scheduled < day.end) {
+      today.push(order);
+      continue;
+    }
+    if (isOverdueServiceOrder({ status: order.status, scheduledAt: scheduled }, clock.now)) {
+      overdue.push(order);
+      continue;
+    }
+    upcoming.push(order);
   }
 
   return {
     inProgress: inProgress.map(toPublicServiceOrder),
+    overdue: overdue.map(toPublicServiceOrder),
     today: today.map(toPublicServiceOrder),
     upcoming: upcoming.map(toPublicServiceOrder),
+    unscheduled: unscheduled.map(toPublicServiceOrder),
   };
 }
 

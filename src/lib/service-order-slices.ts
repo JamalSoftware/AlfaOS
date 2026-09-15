@@ -115,6 +115,29 @@ export function serviceOrderSliceWhere(
   }
 }
 
+/**
+ * A MESMA regra de "atrasada", para quem já tem a linha na mão — RC-1D.
+ *
+ * `serviceOrderSliceWhere("atrasadas")` responde no SQL, para contar; esta
+ * responde em memória, para a fila do técnico decidir a seção de uma OS que já
+ * veio do banco. Uma segunda leitura só para classificar seria consulta a mais,
+ * e uma segunda FÓRMULA seria a divergência que o `DASH-1` existe para não ter:
+ * as duas dizem "agendada, vencida e ainda não iniciada", e um teste compara as
+ * duas contra os mesmos vetores.
+ *
+ * Sem agendamento nunca é atrasada — não há prazo a vencer.
+ */
+export function isOverdueServiceOrder(
+  order: { status: ServiceOrderStatus; scheduledAt: Date | null },
+  now: Date,
+): boolean {
+  return (
+    NOT_STARTED_SERVICE_ORDER_STATUSES.includes(order.status) &&
+    order.scheduledAt !== null &&
+    order.scheduledAt < now
+  );
+}
+
 /** O relógio da empresa: agora, no fuso que ela declarou. */
 export async function companySliceClock(
   companyId: string,

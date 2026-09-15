@@ -34,6 +34,16 @@ const FUSO_SERVIDOR = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 const NUMERO_HOJE_EMPRESA = 9101;
 const NUMERO_HOJE_SERVIDOR = 9102;
+const NUMERO_ATRASADA = 9103;
+const NUMERO_PROXIMA = 9104;
+const NUMERO_SEM_AGENDA = 9105;
+
+/**
+ * A OS que é "hoje" só no relógio do SERVIDOR cai em "Próximas" ou em
+ * "Atrasadas" conforme ela esteja no futuro ou no passado — as duas respostas
+ * são corretas, e o teste não pode depender de qual das duas o relógio deu.
+ */
+let ehFuturo = false;
 
 let empresaId = "";
 
@@ -99,9 +109,16 @@ test.beforeAll(async () => {
     (d) => dataCivil(d, FUSO_SERVIDOR) === hojeServidor && dataCivil(d, FUSO_EMPRESA) !== hojeEmpresa,
   );
 
+  ehFuturo = y.getTime() > agora.getTime();
+
+  const TRES_DIAS = 3 * 24 * 60 * 60_000;
   for (const [numero, scheduledAt] of [
     [NUMERO_HOJE_EMPRESA, x],
     [NUMERO_HOJE_SERVIDOR, y],
+    // RC-1D: uma OS de cada seção nova.
+    [NUMERO_ATRASADA, new Date(agora.getTime() - TRES_DIAS)],
+    [NUMERO_PROXIMA, new Date(agora.getTime() + TRES_DIAS)],
+    [NUMERO_SEM_AGENDA, null],
   ] as const) {
     await prisma.serviceOrder.create({
       data: {
@@ -151,6 +168,43 @@ test("FIELD-TODAY-E2E-01 · /minhas-os: 'Hoje' segue o dia civil da empresa, nã
 
   // Só a OS do dia da EMPRESA em "Hoje".
   await expect(hoje.getByTestId("order-number")).toHaveText([`OS Nº ${NUMERO_HOJE_EMPRESA}`]);
-  // A que só é "hoje" no relógio do servidor fica em "Próximas" — não some.
-  await expect(proximas.getByTestId("order-number")).toHaveText([`OS Nº ${NUMERO_HOJE_SERVIDOR}`]);
+
+  /*
+    A que só é "hoje" no relógio do servidor NÃO some — e desde a RC-1D ela vai
+    para a seção que a descreve: futura em "Próximas", vencida em "Atrasadas".
+  */
+  const destino = ehFuturo ? proximas : secao(page, "Atrasadas");
+  await expect(destino.getByTestId("order-number")).toContainText([
+    `OS Nº ${NUMERO_HOJE_SERVIDOR}`,
+  ]);
+});
+
+test("RC1D-MINHAS-OS · atrasada, próxima e sem agendamento têm seção própria", async ({ page }) => {
+  /*
+    O débito que a RC-1D fecha: "Próximas" juntava futuro, vencido e sem data.
+    Na validação do dono, em 13/09/2026, ela mostrou OS agendadas para 06/09.
+  */
+  await entrar(page);
+
+  await expect(
+    secao(page, "Atrasadas").getByTestId("order-number"),
+  ).toContainText([`OS Nº ${NUMERO_ATRASADA}`]);
+  await expect(secao(page, "Atrasadas")).toContainText(
+    "Agendadas para antes de hoje e ainda não iniciadas",
+  );
+
+  await expect(
+    secao(page, "Próximas").getByTestId("order-number"),
+  ).toContainText([`OS Nº ${NUMERO_PROXIMA}`]);
+
+  const semAgenda = secao(page, "Sem agendamento");
+  await expect(semAgenda.getByTestId("order-number")).toHaveText([
+    `OS Nº ${NUMERO_SEM_AGENDA}`,
+  ]);
+  await expect(semAgenda).toContainText("ainda sem data marcada");
+
+  // E nenhuma delas ficou em "Próximas" junto das futuras.
+  const proximas = await secao(page, "Próximas").getByTestId("order-number").allTextContents();
+  expect(proximas).not.toContain(`OS Nº ${NUMERO_ATRASADA}`);
+  expect(proximas).not.toContain(`OS Nº ${NUMERO_SEM_AGENDA}`);
 });

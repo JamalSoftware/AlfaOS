@@ -154,6 +154,29 @@ export default async function MyOrdersPage() {
         </section>
       )}
 
+      {/*
+        ATRASADAS vêm antes de "Hoje" — RC-1D.
+
+        Elas estavam dentro de "Próximas", e o dono viu uma OS de 06/09 lá numa
+        validação de 13/09. A regra é a do painel (PRD §380): agendada, vencida
+        e ainda não iniciada — e "Hoje" tem precedência, então o que está aqui
+        é de um dia que já passou. A seção só aparece quando existe: uma lista
+        vazia de atrasadas todo dia ensinaria a ignorá-la.
+      */}
+      {queue.overdue.length > 0 && (
+        <section className="mb-8" data-testid="minhas-os-atrasadas">
+          <h2 className="mb-3 text-base font-semibold text-fg">Atrasadas</h2>
+          <p className="mb-3 text-sm text-fg-muted">
+            Agendadas para antes de hoje e ainda não iniciadas.
+          </p>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {queue.overdue.map((order) => (
+              <OrderCard key={order.id} order={order} />
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="mb-8">
         <h2 className="mb-3 text-base font-semibold text-fg">Hoje</h2>
         {queue.today.length === 0 ? (
@@ -172,13 +195,13 @@ export default async function MyOrdersPage() {
         )}
       </section>
 
-      <section className="mb-8">
+      <section className="mb-8" data-testid="minhas-os-proximas">
         <h2 className="mb-3 text-base font-semibold text-fg">Próximas</h2>
         {queue.upcoming.length === 0 ? (
           <div className="rounded-2xl border border-border bg-surface shadow-sm">
             <EmptyState
-              title="Nenhuma OS próxima"
-              description="Quando uma OS for atribuída a você, ela aparecerá aqui."
+              title="Nenhuma OS agendada para os próximos dias"
+              description="As OS agendadas para depois de hoje aparecerão aqui."
             />
           </div>
         ) : (
@@ -189,6 +212,26 @@ export default async function MyOrdersPage() {
           </div>
         )}
       </section>
+
+      {/*
+        SEM AGENDAMENTO é seção própria: uma OS sem data não é "próxima" de
+        nada, e fingir que é foi metade do débito que a RC-1D fecha.
+      */}
+      {queue.unscheduled.length > 0 && (
+        <section className="mb-8" data-testid="minhas-os-sem-agendamento">
+          <h2 className="mb-3 text-base font-semibold text-fg">
+            Sem agendamento
+          </h2>
+          <p className="mb-3 text-sm text-fg-muted">
+            Atribuídas a você e ainda sem data marcada.
+          </p>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {queue.unscheduled.map((order) => (
+              <OrderCard key={order.id} order={order} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/*
         Antes da v0.5.1 uma OS concluída simplesmente sumia: continuava

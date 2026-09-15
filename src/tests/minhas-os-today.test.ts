@@ -2,6 +2,10 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AccessProfile, type ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { listServiceOrdersForTechnician } from "@/lib/service-orders";
+import {
+  isOverdueServiceOrder,
+  serviceOrderSliceWhere,
+} from "@/lib/service-order-slices";
 import { civilDateIn, civilDayBoundsIn } from "@/lib/workday";
 import { seedTestData, type TestFixture } from "./helpers";
 
@@ -135,10 +139,103 @@ describe("HOTFIX-FIELD-01 — o 'hoje' de /minhas-os", () => {
     const emSaoPaulo = await listServiceOrdersForTechnician(c.companyId, c.technicianId, AGORA);
     expect(ids(emSaoPaulo.today)).toEqual(ids([c.inicio, c.ontemEmpresa]));
 
-    // E o que não é "hoje" continua em "Próximas" — nenhuma OS some.
-    expect(ids([...emTokyo.today, ...emTokyo.upcoming])).toEqual(
+    // E o que não é "hoje" continua na fila — nenhuma OS some. Desde a RC-1D
+    // cada uma vai para a seção que a descreve: atrasada, próxima ou sem data.
+    expect(
+      ids([
+        ...emTokyo.overdue,
+        ...emTokyo.today,
+        ...emTokyo.upcoming,
+        ...emTokyo.unscheduled,
+      ]),
+    ).toEqual(
       ids([c.inicio, c.ontemEmpresa, c.amanhaServidor, c.inicioSeguinte, c.semAgenda]),
     );
+  });
+
+  /*
+    RC-1D — "Próximas" era tudo o que não era "Em atendimento" nem "Hoje":
+    futuro, vencido e sem data no mesmo balde. O dono viu uma OS de 06/09 lá
+    numa validação de 13/09.
+  */
+  it("RC1D-FILA-01 · cada OS vai para a seção que a descreve: atrasada, hoje, próxima, sem data", async () => {
+    const c = await cenarioTokyo();
+    const fila = await listServiceOrdersForTechnician(c.companyId, c.technicianId, AGORA);
+
+    expect(ids(fila.overdue)).toEqual(ids([c.ontemEmpresa]));
+    expect(ids(fila.today)).toEqual(ids([c.inicio, c.amanhaServidor]));
+    expect(ids(fila.upcoming)).toEqual(ids([c.inicioSeguinte]));
+    expect(ids(fila.unscheduled)).toEqual(ids([c.semAgenda]));
+
+    // Nenhuma OS em duas seções.
+    const todas = [
+      ...fila.inProgress,
+      ...fila.overdue,
+      ...fila.today,
+      ...fila.upcoming,
+      ...fila.unscheduled,
+    ].map((o) => o.id);
+    expect(new Set(todas).size).toBe(todas.length);
+  });
+
+  it("RC1D-FILA-02 · 'Hoje' vence 'Atrasadas': o agendamento de hoje que já passou é trabalho de HOJE", async () => {
+    const c = await cenarioTokyo();
+    // 13/09 00h30 em Tóquio já passou às 00h30… então usa-se um instante depois.
+    const maisTarde = new Date("2026-09-13T02:00:00.000Z"); // 13/09 11h em Tóquio
+    const cedoHoje = await os({
+      companyId: c.companyId,
+      customerId: c.customerId,
+      technicianId: c.technicianId,
+      scheduledAt: new Date("2026-09-12T23:00:00.000Z"), // 13/09 08h em Tóquio
+    });
+    const fila = await listServiceOrdersForTechnician(
+      c.companyId,
+      c.technicianId,
+      maisTarde,
+    );
+    expect(ids(fila.today)).toContain(cedoHoje.id);
+    expect(ids(fila.overdue)).not.toContain(cedoHoje.id);
+  });
+
+  it("RC1D-FILA-03 · a regra de atrasada é a do painel — a mesma resposta em SQL e em memória", async () => {
+    const c = await cenarioTokyo();
+    const clock = { now: AGORA, timezone: TOKYO };
+
+    // O que o painel conta como atrasada, pelo predicado em SQL.
+    const emSql = await prisma.serviceOrder.findMany({
+      where: {
+        companyId: c.companyId,
+        technicianId: c.technicianId,
+        ...serviceOrderSliceWhere("atrasadas", clock),
+      },
+      select: { id: true, status: true, scheduledAt: true },
+    });
+    // A mesma pergunta, em memória, sobre as linhas da fila.
+    const todas = await prisma.serviceOrder.findMany({
+      where: { companyId: c.companyId, technicianId: c.technicianId },
+      select: { id: true, status: true, scheduledAt: true },
+    });
+    const emMemoria = todas.filter((o) => isOverdueServiceOrder(o, AGORA));
+
+    expect(emMemoria.map((o) => o.id).sort()).toEqual(
+      emSql.map((o) => o.id).sort(),
+    );
+    // E a seção "Atrasadas" é exatamente isso, menos o que "Hoje" levou.
+    const fila = await listServiceOrdersForTechnician(c.companyId, c.technicianId, AGORA);
+    const doDia = new Set(ids(fila.today));
+    expect(ids(fila.overdue).sort()).toEqual(
+      emSql.map((o) => o.id).filter((id) => !doDia.has(id)).sort(),
+    );
+  });
+
+  it("RC1D-FILA-04 · OS sem agendamento nunca é atrasada — não há prazo a vencer", async () => {
+    const c = await cenarioTokyo();
+    const fila = await listServiceOrdersForTechnician(c.companyId, c.technicianId, AGORA);
+    expect(ids(fila.overdue)).not.toContain(c.semAgenda.id);
+    expect(ids(fila.unscheduled)).toContain(c.semAgenda.id);
+    expect(
+      isOverdueServiceOrder({ status: "ASSIGNED", scheduledAt: null }, AGORA),
+    ).toBe(false);
   });
 
   it("FIELD-TODAY-01b · fuso ausente ou inválido segue o contrato de resolveTimezone — nada inventado", async () => {
@@ -151,11 +248,12 @@ describe("HOTFIX-FIELD-01 — o 'hoje' de /minhas-os", () => {
     expect(ids(invalido.today)).toEqual(ids(padrao.today));
   });
 
-  it("FIELD-TODAY-02 · 'hoje' no servidor mas 'ontem' na empresa NÃO entra em Hoje", async () => {
+  it("FIELD-TODAY-02 · 'hoje' no servidor mas 'ontem' na empresa NÃO entra em Hoje — e desde a RC-1D é ATRASADA", async () => {
     const c = await cenarioTokyo();
     const fila = await listServiceOrdersForTechnician(c.companyId, c.technicianId, AGORA);
     expect(ids(fila.today)).not.toContain(c.ontemEmpresa.id);
-    expect(ids(fila.upcoming)).toContain(c.ontemEmpresa.id);
+    expect(ids(fila.overdue)).toContain(c.ontemEmpresa.id);
+    expect(ids(fila.upcoming)).not.toContain(c.ontemEmpresa.id);
   });
 
   it("FIELD-TODAY-03 · 'amanhã' no servidor mas 'hoje' na empresa ENTRA em Hoje", async () => {

@@ -599,7 +599,14 @@ describe("Concluídas recentes do técnico", () => {
       fixture.companyA.id,
       techOne.id,
     );
-    const all = [...queue.inProgress, ...queue.today, ...queue.upcoming];
+    // Todas as seções da fila (RC-1D acrescentou atrasadas e sem agendamento).
+    const all = [
+      ...queue.inProgress,
+      ...queue.overdue,
+      ...queue.today,
+      ...queue.upcoming,
+      ...queue.unscheduled,
+    ];
 
     expect(all).toHaveLength(1);
     expect(all.every((o) => o.status !== "COMPLETED")).toBe(true);
