@@ -1,9 +1,31 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import {
+  connectivityAge,
+  connectivityPresentation,
+  type ConnectivityTone,
+} from "@/lib/connectivity-presentation";
+import type { CtoClientConnectivity } from "@/lib/cto-client-connectivity";
+import {
+  CTO_PORT_CUSTOMER_FILTERS,
+  CTO_PORT_FILTER_LABELS,
+  CTO_PORT_OCCUPANCY_FILTERS,
+  countPortFilters,
+  portMatchesFilter,
+  type CtoPortFilter,
+} from "@/lib/cto-port-filters";
 import type { OperationalCtoDetail } from "@/lib/cto-read-model";
 import { PortConnectionPanel } from "./PortConnectionPanel";
+
+/** O selo de conectividade: borda, fundo e texto do MESMO tom — nunca só cor. */
+const CONNECTIVITY_TONE_CLASSES: Record<ConnectivityTone, string> = {
+  success: "border-success-border bg-success-bg text-success-fg",
+  danger: "border-danger-border bg-danger-bg text-danger-fg",
+  neutral: "border-neutral-border bg-neutral-bg text-neutral-fg",
+};
 
 /*
   A classe do campo é montada em DUAS partes, e a separação é necessária.
@@ -75,10 +97,41 @@ interface ScopedError {
 const inputErrorClass =
   "border-danger-border bg-danger-bg ring-1 ring-danger-border focus:ring-danger-border";
 
-export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
+export function CtoDetailManager({
+  cto,
+  clientes,
+  renderedAt,
+}: {
+  cto: OperationalCtoDetail;
+  /** Os clientes da caixa — RC-1D. Só leitura, o mesmo resumo do popup do mapa. */
+  clientes: CtoClientConnectivity;
+  /** O instante da renderização no servidor: a idade da leitura é contra ele. */
+  renderedAt: string;
+}) {
   const router = useRouter();
   const [error, setError] = useState<ScopedError | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /*
+    O filtro da lista de portas — RC-1D. Estado de tela e só: filtra o que a
+    página já trouxe, e nada volta ao servidor.
+  */
+  const [filtro, setFiltro] = useState<CtoPortFilter>("ALL");
+  const ocupantes = useMemo(
+    () => new Map(clientes.customers.map((c) => [c.portNumber, c])),
+    [clientes.customers],
+  );
+  const contagemDosFiltros = useMemo(
+    () => countPortFilters(cto.ports, clientes.customers),
+    [cto.ports, clientes.customers],
+  );
+  const portasVisiveis = cto.ports.filter((port) =>
+    portMatchesFilter(filtro, port, ocupantes.get(port.number)),
+  );
+  const relogio = new Date(renderedAt);
+  const inativosNasPortas = clientes.customers.filter(
+    (c) => !c.customerActive,
+  ).length;
 
   const [name, setName] = useState(cto.name);
   const [addressReference, setAddressReference] = useState(
@@ -491,9 +544,8 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
   return (
     <div className="space-y-6">
       {/*
-        Ocupação é honesta: não há vínculo de cliente no produto ainda, então o
-        contador de ocupadas é zero e a nota diz por quê. Inventar um número, ou
-        esconder a linha, faria a tela prometer o que a CTO-1 não entrega.
+        Ocupação é das PORTAS: as contagens vêm de `summarizePortCounts`, sobre
+        o vínculo ativo real. As pessoas estão na seção seguinte.
       */}
       <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
         <h2 className="mb-4 text-base font-semibold text-fg">Ocupação</h2>
@@ -543,6 +595,90 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
         </p>
       </section>
 
+      {/*
+        OS CLIENTES da caixa — RC-1D.
+
+        Separado das portas de propósito: acima é infraestrutura, aqui é gente,
+        e "livres" e "online" nunca aparecem como parcelas da mesma soma (PRD
+        §373). Os números são os do popup da caixa no mapa — a MESMA função
+        (`getCtoOperationalSummaries`) —, e a semântica é a da PRD §372: ativos
+        são os de cadastro ativo com vínculo ativo, e online, offline e sem
+        leitura contam esses. Sem leitura nunca é somado a offline.
+
+        Nada aqui é consultado no provedor: é o último snapshot conhecido.
+      */}
+      <section
+        className="rounded-2xl border border-border bg-surface p-5 shadow-sm"
+        aria-labelledby="cto-clients-title"
+        data-testid="cto-clients-summary"
+      >
+        <h2 id="cto-clients-title" className="mb-4 text-base font-semibold text-fg">
+          Clientes
+        </h2>
+        <dl className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+          <div>
+            <dt className="text-xs text-fg-muted">Ativos</dt>
+            <dd
+              className="text-xl font-semibold text-fg"
+              data-testid="cto-clients-active"
+            >
+              {clientes.summary.activeCustomerCount}
+            </dd>
+          </div>
+          {(
+            [
+              ["ONLINE", clientes.summary.onlineCount, "cto-clients-online"],
+              ["OFFLINE", clientes.summary.offlineCount, "cto-clients-offline"],
+              ["UNKNOWN", clientes.summary.unknownCount, "cto-clients-unknown"],
+            ] as const
+          ).map(([status, valor, testId]) => {
+            const apresentacao = connectivityPresentation(status);
+            return (
+              <div key={status}>
+                {/* Rótulo em texto, glifo e cor: o estado nunca é só cor. */}
+                <dt className="flex items-center gap-1 text-xs text-fg-muted">
+                  <span
+                    aria-hidden="true"
+                    className={`inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] leading-none ${CONNECTIVITY_TONE_CLASSES[apresentacao.tone]}`}
+                  >
+                    {apresentacao.glyph}
+                  </span>
+                  {apresentacao.mapLabel}
+                </dt>
+                <dd className="text-xl font-semibold text-fg" data-testid={testId}>
+                  {valor}
+                </dd>
+              </div>
+            );
+          })}
+          <div>
+            <dt className="text-xs text-fg-muted">OS abertas</dt>
+            <dd
+              className="text-xl font-semibold text-fg"
+              data-testid="cto-clients-open-orders"
+            >
+              {clientes.summary.openServiceOrderCount}
+            </dd>
+          </div>
+        </dl>
+        <p className="mt-3 text-xs text-fg-muted">
+          Ativos são os clientes com cadastro ativo ligados a uma porta desta
+          caixa. Online, offline e sem leitura vêm da última leitura conhecida de
+          cada um — não da situação cadastral. Abrir esta página não consulta o
+          provedor.
+        </p>
+        {inativosNasPortas > 0 && (
+          <p
+            className="mt-2 text-xs text-fg-muted"
+            data-testid="cto-clients-inactive-note"
+          >
+            {inativosNasPortas === 1
+              ? "1 porta está ocupada por cliente com cadastro inativo: ela continua ocupada e não entra nas contagens de clientes."
+              : `${inativosNasPortas} portas estão ocupadas por clientes com cadastro inativo: elas continuam ocupadas e não entram nas contagens de clientes.`}
+          </p>
+        )}
+      </section>
+
       <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
         <h2 className="mb-4 text-base font-semibold text-fg">Portas</h2>
 
@@ -554,8 +690,75 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
           a `CTO-2.3` corrigiu no diálogo de conflito.
         */}
 
+        {/*
+          Os filtros — RC-1D. Duas linhas, uma por unidade: PORTAS conta
+          posição, CLIENTES conta cliente de cadastro ativo (o conjunto do
+          resumo acima). Botões com `aria-pressed`: operáveis por teclado, e o
+          selecionado é dito ao leitor de tela, não só pintado.
+        */}
+        <div className="mb-4 space-y-2" data-testid="cto-port-filters">
+          {(
+            [
+              ["Portas", CTO_PORT_OCCUPANCY_FILTERS, "Filtrar a lista por ocupação da porta"],
+              ["Clientes", CTO_PORT_CUSTOMER_FILTERS, "Filtrar a lista pela conectividade do cliente"],
+            ] as const
+          ).map(([titulo, filtros, rotuloDoGrupo]) => (
+            <div
+              key={titulo}
+              role="group"
+              aria-label={rotuloDoGrupo}
+              className="flex flex-wrap items-center gap-2"
+            >
+              <span
+                aria-hidden="true"
+                className="w-16 text-[11px] font-semibold uppercase tracking-wide text-fg-muted"
+              >
+                {titulo}
+              </span>
+              {filtros.map((f) => {
+                const ativo = filtro === f;
+                return (
+                  <button
+                    key={f}
+                    type="button"
+                    aria-pressed={ativo}
+                    onClick={() => setFiltro(f)}
+                    data-testid={`cto-port-filter-${f.toLowerCase()}`}
+                    className={`inline-flex min-h-[32px] items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
+                      ativo
+                        ? "border-primary bg-primary text-primary-fg"
+                        : "border-border bg-surface text-fg-secondary hover:bg-surface-muted"
+                    }`}
+                  >
+                    {CTO_PORT_FILTER_LABELS[f]}
+                    <span className="tabular-nums">({contagemDosFiltros[f]})</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+          <p
+            className="text-xs text-fg-muted"
+            role="status"
+            data-testid="cto-port-filter-status"
+          >
+            {filtro === "ALL"
+              ? `Mostrando todas as ${cto.ports.length} portas.`
+              : `Mostrando ${portasVisiveis.length} de ${cto.ports.length} portas — ${CTO_PORT_FILTER_LABELS[filtro]}.`}
+          </p>
+        </div>
+
+        {portasVisiveis.length === 0 && (
+          <p
+            className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-sm text-fg-muted"
+            data-testid="cto-port-filter-empty"
+          >
+            Nenhuma porta neste filtro.
+          </p>
+        )}
+
         <div className="space-y-2">
-          {cto.ports.map((port) => {
+          {portasVisiveis.map((port) => {
             /*
               Histórica: a posição existe na linha do tempo da caixa e não na
               caixa que a empresa oferece hoje.
@@ -616,12 +819,79 @@ export function CtoDetailManager({ cto }: { cto: OperationalCtoDetail }) {
                   </span>
                 )}
                 {port.activeConnection && (
-                  <span
-                    className="text-sm text-fg-secondary"
-                    data-testid={`cto-port-customer-${port.number}`}
-                  >
-                    {port.activeConnection.customer.name}
-                  </span>
+                  <div className="min-w-0">
+                    <Link
+                      href={`/clientes/${port.activeConnection.customer.id}/editar`}
+                      className="text-sm font-medium text-primary-text underline-offset-2 hover:text-primary-text-hover hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                      data-testid={`cto-port-customer-${port.number}`}
+                    >
+                      {port.activeConnection.customer.name}
+                    </Link>
+                    {/*
+                      CADASTRO ao lado da CONECTIVIDADE — PRD §372. Um cliente
+                      inativo que ainda ocupa a porta aparece como inativo,
+                      porque o cabo continua lá. "Offline" é o link, nunca a
+                      situação do contrato.
+
+                      Porta LIVRE não chega aqui: sem ocupante não existe
+                      conectividade, e ela nunca diz "Sem leitura".
+                    */}
+                    {(() => {
+                      const ocupante = ocupantes.get(port.number);
+                      if (!ocupante) return null;
+                      const apresentacao = connectivityPresentation(
+                        ocupante.connectivityStatus,
+                      );
+                      const idade = connectivityAge(
+                        ocupante.connectivityObservedAt,
+                        relogio,
+                      );
+                      return (
+                        <p
+                          className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
+                          data-testid={`cto-port-client-${port.number}`}
+                        >
+                          <span
+                            className={
+                              ocupante.customerActive
+                                ? "text-fg-muted"
+                                : "font-medium text-neutral-fg"
+                            }
+                            data-testid={`cto-port-registration-${port.number}`}
+                          >
+                            {ocupante.customerActive
+                              ? "Cadastro ativo"
+                              : "Cadastro inativo"}
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-px font-medium ${CONNECTIVITY_TONE_CLASSES[apresentacao.tone]}`}
+                            data-testid={`cto-port-connectivity-${port.number}`}
+                            data-status={ocupante.connectivityStatus}
+                          >
+                            <span aria-hidden="true">{apresentacao.glyph}</span>
+                            {apresentacao.mapLabel}
+                          </span>
+                          <span
+                            className="text-fg-muted"
+                            data-testid={`cto-port-reading-${port.number}`}
+                          >
+                            {idade
+                              ? `Última leitura ${idade}`
+                              : "Nenhuma leitura disponível"}
+                          </span>
+                          {ocupante.openServiceOrderCount > 0 && (
+                            <span
+                              className="rounded-full border border-warning-border bg-warning-bg px-1.5 py-px font-medium text-warning-fg"
+                              data-testid={`cto-port-open-orders-${port.number}`}
+                            >
+                              {ocupante.openServiceOrderCount} OS aberta
+                              {ocupante.openServiceOrderCount === 1 ? "" : "s"}
+                            </span>
+                          )}
+                        </p>
+                      );
+                    })()}
+                  </div>
                 )}
                 <div className="ml-auto flex flex-wrap justify-end gap-2">
                   <PortConnectionPanel

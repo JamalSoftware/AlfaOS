@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { isCtoNetworkEnabled } from "@/lib/cto";
+import { getCtoClientConnectivity } from "@/lib/cto-client-connectivity";
 import { getOperationalCtoDetail } from "@/lib/cto-read-model";
 import { requirePageProfile } from "@/lib/guards";
 import { buildMapViewQuery, parseMapViewParams } from "@/lib/map-view-params";
@@ -93,6 +94,13 @@ export default async function CtoDetailPage({
     notFound();
   }
 
+  /*
+    Os clientes da caixa — RC-1D. Só DEPOIS de a caixa ter sido provada desta
+    empresa, e só leitura: o mesmo resumo e a mesma lista por porta do popup do
+    mapa, sobre o último snapshot conhecido. Nada aqui chama provider.
+  */
+  const clientes = await getCtoClientConnectivity(session.companyId, cto.id);
+
   const volta = resolverVolta(searchParams);
 
   return (
@@ -113,7 +121,16 @@ export default async function CtoDetailPage({
         </p>
       </div>
 
-      <CtoDetailManager cto={cto} />
+      <CtoDetailManager
+        cto={cto}
+        clientes={clientes}
+        /*
+          O instante da renderização, para a idade da leitura. Servidor e
+          navegador calculam "há X min" contra o MESMO relógio — sem isso, a
+          hidratação poderia discordar na virada de um minuto.
+        */
+        renderedAt={new Date().toISOString()}
+      />
     </div>
   );
 }
