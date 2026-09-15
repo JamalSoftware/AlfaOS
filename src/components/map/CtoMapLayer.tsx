@@ -913,6 +913,37 @@ export function CtoMapLayer({
         return;
       }
 
+      /*
+        A posição GRAVADA ganha na hora — RC-1D.
+
+        Sem isto, limpar o rascunho devolvia a caixa ao par ANTIGO do recorte
+        até a releitura chegar: um salto para trás e outro para frente logo
+        depois de "Salvar". O par usado aqui é o que o SERVIDOR devolveu da
+        escrita — a verdade gravada, e não o rascunho da tela —, e a releitura
+        abaixo continua sendo quem confirma o resto.
+
+        A tela não confere o par: ele vem do domínio, que já o validou — uma
+        segunda conferência aqui seria a segunda autoridade sobre coordenada
+        que o `MAPEDIT-SEC` proíbe. Sem par na resposta, fica a releitura.
+      */
+      const gravada = payload?.data?.cto;
+      if (gravada?.latitude != null && gravada?.longitude != null) {
+        const latitudeGravada = Number(gravada.latitude);
+        const longitudeGravada = Number(gravada.longitude);
+        const id = ctoEmEdicao.id;
+        setView((atual) =>
+          atual
+            ? {
+                ...atual,
+                markers: atual.markers.map((m) =>
+                  m.id === id
+                    ? { ...m, latitude: latitudeGravada, longitude: longitudeGravada }
+                    : m,
+                ),
+              }
+            : atual,
+        );
+      }
       setCtoEmEdicao(null);
       setEsboco(null);
       /*

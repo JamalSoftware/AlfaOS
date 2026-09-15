@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { memo } from "react";
-import { divIcon, type DivIcon } from "leaflet";
+import { memo, useRef } from "react";
+import { divIcon, type DivIcon, type LatLngTuple } from "leaflet";
 import { Marker, Popup, Tooltip } from "react-leaflet";
 import type { CtoMapMarker } from "@/lib/cto-map";
 import { ctoMapStatusPresentation } from "@/lib/cto-map-presentation";
 import { OPERATIONAL_MAP_PATH } from "@/lib/return-to";
 import { CTO_MARKER_SIZE, ctoMarkerHtml } from "./cto-marker-icon";
+import { stablePosition } from "./stable-position";
 import {
   MAP_POPUP_CLEARANCE_BOTTOM_RIGHT,
   MAP_POPUP_CLEARANCE_TOP_LEFT,
@@ -240,6 +241,8 @@ function CtoMarkers({
   canSeeCustomers,
   onShowCustomers,
 }: CtoMarkersProps) {
+  // Mesma referência para o mesmo par — ver `stable-position.ts` (RC-1D).
+  const posicoes = useRef(new Map<string, LatLngTuple>());
   return (
     <>
       {markers.map((marker) => {
@@ -280,11 +283,25 @@ function CtoMarkers({
               quando alguém cancela — por isso Cancelar é confiável depois de
               quantos arrastos forem: não existe estado acumulado para desfazer,
               existe uma origem que nunca foi alterada.
+
+              E o array é ESTÁVEL (RC-1D): uma releitura do recorte que chegue
+              com a caixa na mão traz o mesmo par, e com a mesma referência o
+              react-leaflet não a devolve ao ponto gravado no meio do gesto.
             */
             position={
               editando && draftPosition
-                ? [draftPosition.latitude, draftPosition.longitude]
-                : [marker.latitude, marker.longitude]
+                ? stablePosition(
+                    posicoes.current,
+                    marker.id,
+                    draftPosition.latitude,
+                    draftPosition.longitude,
+                  )
+                : stablePosition(
+                    posicoes.current,
+                    marker.id,
+                    marker.latitude,
+                    marker.longitude,
+                  )
             }
             /*
               Arrastável SÓ a caixa em edição, e só enquanto ela estiver.

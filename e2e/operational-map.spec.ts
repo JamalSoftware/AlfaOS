@@ -3009,6 +3009,149 @@ test.describe("Mapa Operacional — ADMIN ajusta a posição da CTO", () => {
       "true",
     );
   });
+
+  test("MAPEDIT-15 · a releitura do recorte que chega NO MEIO do arrasto não devolve a caixa", async ({
+    page,
+  }) => {
+    /*
+      RC-1D — a causa do MAPEDIT intermitente, reproduzida SEM sorte.
+
+      Os dois sintomas registrados (docs/MASTER-PLAN.md §12) eram o mesmo
+      defeito visto de lados diferentes: o painel mostrava um par "novo" e o
+      marcador estava sobre o ponto gravado (MAPEDIT-05/06/07, desvio 0), ou o
+      Salvar gravava o ponto de ANTES do arrasto (MAPEDIT-08/14).
+
+      O mecanismo: todo arrasto de teste começa recentrando o MAPA
+      (`centralizarMarcador`), e mover o mapa dispara uma releitura do recorte
+      com atraso. Quando a resposta chegava entre o último movimento do mouse e
+      o soltar, o recorte novo re-renderizava os marcadores; o react-leaflet
+      compara `position` POR REFERÊNCIA e o array era recriado a cada render,
+      então ele chamava `setLatLng(par gravado)` no marcador que estava na mão.
+      O `dragend` lia de volta o ponto antigo.
+
+      Aqui a leitura é SEGURADA pela rota e liberada exatamente nessa janela —
+      mão parada sobre o destino, botão ainda apertado.
+    */
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaNaCaixaDePosicao(page);
+    const antes = await coordenadaGravada();
+
+    await marcadorDe(page, NOME_POS).click();
+    await page.getByTestId("cto-map-popup-edit-position").click();
+    await expect(page.getByTestId("cto-map-position-panel")).toBeVisible();
+    // A releitura de ENTRAR em edição (o `panInside`) termina antes da nossa.
+    await esperarMapaParar(page);
+    await page.waitForTimeout(1_000);
+
+    let liberar!: () => void;
+    const portao = new Promise<void>((resolve) => {
+      liberar = resolve;
+    });
+    let seguradas = 0;
+    await page.route("**/api/ctos/map?*", async (rota) => {
+      seguradas += 1;
+      await portao;
+      await rota.continue();
+    });
+
+    // Mover o MAPA pede um recorte novo — que fica preso no portão.
+    const mapa = (await page.locator(".leaflet-container").boundingBox())!;
+    const pegaX = mapa.x + mapa.width * 0.8;
+    const pegaY = mapa.y + mapa.height * 0.75;
+    await page.mouse.move(pegaX, pegaY);
+    await page.mouse.down();
+    await page.mouse.move(pegaX - 60, pegaY - 40, { steps: 10 });
+    await page.mouse.up();
+    await esperarMapaParar(page);
+    await expect.poll(() => seguradas, { timeout: 5_000 }).toBeGreaterThan(0);
+
+    const desvioOriginal = await desvioDoGravado(page);
+
+    // O arrasto inteiro, SEM soltar o botão.
+    const caixa = (await marcadorDe(page, NOME_POS).boundingBox())!;
+    const x = caixa.x + caixa.width / 2;
+    const y = caixa.y + caixa.height / 2;
+    const alcancavel = await page.evaluate(
+      ([a, b]) => Boolean(document.elementFromPoint(a, b)?.closest(".leaflet-marker-icon")),
+      [x, y],
+    );
+    expect(alcancavel, "o ponteiro precisa alcançar o marcador").toBe(true);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 40, y + 30, { steps: 6 });
+    await page.mouse.move(x + 80, y + 60, { steps: 6 });
+
+    // A resposta chega com a mão ainda na caixa — e é aplicada.
+    const resposta = page.waitForResponse((r) => r.url().includes("/api/ctos/map?"));
+    liberar();
+    await resposta;
+    await page.waitForTimeout(500);
+    await page.mouse.up();
+    await page.unroute("**/api/ctos/map?*");
+
+    // A caixa ficou onde a mão a deixou…
+    const arrastado = await desvioDoGravado(page);
+    expect(Math.abs(arrastado.x - desvioOriginal.x)).toBeGreaterThan(40);
+    expect(Math.abs(arrastado.y - desvioOriginal.y)).toBeGreaterThan(30);
+
+    // …e é ESSE ponto que o Salvar grava: sudeste do original.
+    await page.getByTestId("cto-map-position-save").click();
+    await expect(page.getByTestId("cto-map-position-panel")).toHaveCount(0, {
+      timeout: 15_000,
+    });
+    const depois = await coordenadaGravada();
+    expect(depois.longitude!).toBeGreaterThan(antes.longitude!);
+    expect(depois.latitude!).toBeLessThan(antes.latitude!);
+  });
+
+  test("MAPEDIT-16 · depois de Salvar, a caixa fica no ponto GRAVADO enquanto o mapa relê", async ({
+    page,
+  }) => {
+    /*
+      A outra metade do invariante: no sucesso, a posição persistida ganha.
+
+      Limpar o rascunho devolvia a caixa ao par antigo do recorte até a
+      releitura chegar. A releitura é SEGURADA aqui, e a caixa precisa estar
+      sobre o ponto que o banco tem agora — não sobre o de antes.
+    */
+    await login(page, ADMIN_EMAIL);
+    await abrirMapaNaCaixaDePosicao(page);
+
+    await marcadorDe(page, NOME_POS).click();
+    await page.getByTestId("cto-map-popup-edit-position").click();
+    await expect(page.getByTestId("cto-map-position-panel")).toBeVisible();
+    // Com a caixa sobre o ponto gravado, o desvio é só o ancoramento do ícone.
+    const ancora = await desvioDoGravado(page);
+
+    await arrastar(page, 80, 60);
+    await esperarMapaParar(page);
+    await page.waitForTimeout(1_000);
+
+    let liberar!: () => void;
+    const portao = new Promise<void>((resolve) => {
+      liberar = resolve;
+    });
+    let seguradas = 0;
+    await page.route("**/api/ctos/map?*", async (rota) => {
+      seguradas += 1;
+      await portao;
+      await rota.continue();
+    });
+
+    await page.getByTestId("cto-map-position-save").click();
+    await expect(page.getByTestId("cto-map-position-panel")).toHaveCount(0, {
+      timeout: 15_000,
+    });
+    await expect.poll(() => seguradas, { timeout: 5_000 }).toBeGreaterThan(0);
+
+    // A releitura ainda não chegou — e a caixa já está no ponto GRAVADO.
+    const agora = await desvioDoGravado(page);
+    expect(Math.abs(agora.x - ancora.x)).toBeLessThanOrEqual(3);
+    expect(Math.abs(agora.y - ancora.y)).toBeLessThanOrEqual(3);
+
+    liberar();
+    await page.unroute("**/api/ctos/map?*");
+  });
 });
 
 // ---------------------------------------------------------------------------
