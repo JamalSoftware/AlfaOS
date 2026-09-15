@@ -339,6 +339,9 @@ avançado.
 
 ## 13. Localização do cliente em campo — contrato da RC-1C
 
+> **Estado: `RC-1C` — `APPROVED` / `CLOSED` (15/09/2026).** Validação física
+> final do dono `PASS`; o contrato final do GPS está congelado em §13.8.
+
 Decisão do dono (RC-1C, 14/09/2026), depois do caso que abriu a fase: um ponto
 importado foi **confirmado** por um técnico a ~2,3 km dele e virou "verificado".
 O mapa estava certo — ele lê a autoridade, e o ponto não tinha se movido —, mas a
@@ -640,3 +643,62 @@ alfaos.gps gps_reading n=1 verdict=accepted ageMs=5000 bornBeforeCaptureMs=5000 
 certo. `rawAccuracy=0.0` seria uma leitura realmente sem medida: continua
 recusada, e só aí a pergunta de uma fonte alternativa volta — com decisão do
 dono. `sourceMode` é sempre `primary`, porque não existe outra fonte.
+
+### 13.8. Fechamento — o contrato final do GPS, congelado (15/09/2026)
+
+**`RC-1C` — `APPROVED` / `CLOSED`.** As três correções da captura estão
+fechadas: `RC-1C-HOTFIX` (precisão ≤ 50 m), `RC-1C-HOTFIX-2` (frescor pela
+idade da leitura) e `RC-1C-HOTFIX-3` (a precisão lida corretamente no Android).
+
+**Validação física final do dono: `PASS`.** Num aparelho Android real, com a
+localização precisa (FINE) concedida:
+
+* o Android entregou uma leitura com precisão real de ~15,2 m, e a captura a
+  aceitou na hora — `verdict=accepted`, `accuracyMeters=15.2`,
+  `outcome=acquired`;
+* "Corrigir localização" gravou a `CustomerLocation` pelo Field;
+* o Mapa Operacional do `ADMIN` pôs o marcador exatamente onde o GPS indicava;
+* o ponto continuou lá depois de recarregar o mapa (F5) e depois de sair e
+  entrar de novo.
+
+Nenhuma coordenada é registrada aqui.
+
+**A causa final do `noAccuracy` (§13.7).** Com `geolocator` 13.0.4,
+`geolocator_android` 4.6.2 e `geolocator_platform_interface` 4.3.0,
+`AndroidPosition.fromMap` não preserva `hasAccuracy`, embora o valor numérico de
+`accuracy` continue presente. O AlfaOS confiava na bandeira e anulava uma
+precisão real. A precisão medida no Android passou a valer quando é finita e
+maior que zero, mesmo com a bandeira quebrada, e continua obrigatório que seja
+≤ 50 m. Nenhum plugin foi atualizado e nenhuma dependência entrou.
+
+**O contrato congelado.** Mudar qualquer linha abaixo é decisão do dono, com
+`DECISION UPDATED` na PRD §172. Precisão e distância são regras independentes.
+
+*Confirmar localização* — só com tudo isto:
+
+| Regra | Quem garante |
+| --- | --- |
+| Coordenada válida | aplicativo (`isUsableCoordinate`) e servidor (`requireObservedPosition`) |
+| Leitura recente: idade até 10 s, pelo instante da própria leitura; no futuro, só até 2 s | aplicativo, na captura — o servidor não recebe o instante da leitura (§13.5) |
+| Precisão maior que zero e até 50 m, sobre o valor real | aplicativo e servidor (`requireGpsAccuracy`) |
+| Distância até a `CustomerLocation` até 100 m, inclusiva, calculada no servidor | servidor (`isConfirmDistanceAllowed`); o aplicativo só mostra e orienta |
+| Ponto cadastrado, na versão que foi medida | servidor (compare-and-set; ponto mudou → conflito) |
+| Técnico dono da OS em atendimento, na empresa do token | servidor (`404` genérico antes de qualquer pergunta sobre GPS) |
+
+*Corrigir localização com GPS* — só com tudo isto:
+
+| Regra | Quem garante |
+| --- | --- |
+| Coordenada válida, origem `TECHNICIAN_GPS` (`MANUAL` e meia coordenada recusadas) | aplicativo e servidor |
+| Idade até 10 s | aplicativo, na captura |
+| Precisão maior que zero e até 50 m | aplicativo e servidor |
+| Sem rebaixamento silencioso para correção só de endereço: GPS escolhido sem posição válida é recusado, e o endereço do mesmo corpo não é aplicado | controlador e servidor |
+| Motivo obrigatório; versão do ponto (ou criação, quando não há ponto) | servidor |
+| Técnico dono da OS em atendimento, na empresa do token | servidor |
+
+*Correção só de endereço:* não exige GPS e não move a `CustomerLocation` —
+coordenada e `verified` ficam como estão.
+
+**O que não bloqueou o fechamento**, e segue aberto como já estava registrado
+(`docs/MASTER-PLAN.md` §12): o backfill do legado `RC-LOC-04` (decisão do dono,
+não executado) e o histórico de precisão por correção (backlog).

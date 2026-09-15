@@ -2874,9 +2874,12 @@ entre técnicos.
 
 ## 8.22. `RC-1C` — o contrato de localização do cliente
 
-> **Estado: `READY FOR OWNER VALIDATION`.** Commits locais, sem tag e sem push.
-> Contrato aprovado pelo dono (PRD §172, `DECISION UPDATED`); o técnico em
-> `docs/TECHNICIAN-EXECUTION.md` §13. Nenhuma migration, nenhuma dependência.
+> **Estado: `APPROVED` / `CLOSED` (15/09/2026).** Validação física final do dono
+> `PASS` (`docs/TECHNICIAN-EXECUTION.md` §13.8, onde o contrato final do GPS está
+> congelado). Sem tag; publicação em `origin/main` autorizada pelo dono no
+> fechamento, só fast-forward. Contrato aprovado pelo dono (PRD §172,
+> `DECISION UPDATED`); o técnico em `docs/TECHNICIAN-EXECUTION.md` §13. Nenhuma
+> migration, nenhuma dependência.
 
 ### `RC-LOC-01` — confirmar exige GPS e distância, e quem decide é o servidor
 
@@ -2932,10 +2935,11 @@ verificador e de OS, que são FK simples.
 
 ### 8.22.1. `RC-1C-HOTFIX` — precisão do GPS ≤ 50 m, no aplicativo e no servidor
 
-> **Estado: `READY FOR OWNER VALIDATION`** (15/09/2026). Commits locais, sem tag
-> e sem push. Decisão do dono; causa raiz e contrato da captura em
-> `docs/TECHNICIAN-EXECUTION.md` §13.5. Nenhuma migration, nenhuma dependência,
-> nenhuma permissão nova.
+> **Estado: `APPROVED` / `CLOSED`** (15/09/2026), com as correções
+> `RC-1C-HOTFIX-2` (frescor) e `RC-1C-HOTFIX-3` (precisão lida no Android)
+> descritas abaixo. Decisão do dono; causa raiz e contrato da captura em
+> `docs/TECHNICIAN-EXECUTION.md` §13.5 a §13.8. Nenhuma migration, nenhuma
+> dependência, nenhuma permissão nova.
 
 A validação física gravou um ponto a mais de 1 km do lugar: o aplicativo só
 tinha a permissão de localização aproximada, o Android entregou uma posição com

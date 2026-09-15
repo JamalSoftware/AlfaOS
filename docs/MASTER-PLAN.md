@@ -51,15 +51,13 @@ primeira versão estão concluídas — toda linha da PRD §386 está implementa
 Candidate / Hardening.** A `RC-1A` (auditoria e plano, zero código) terminou em
 `OWNER DECISION REQUIRED`; a **`RC-1B`** (segurança, configuração, tenancy e
 isolamento de teste) está **`APPROVED` / `CLOSED`** — `docs/SECURITY.md` §8.21;
-e a **`RC-1C`** (o contrato de localização do cliente que o dono aprovou)
-continua **aberta**: a validação física gravou um ponto a mais de 1 km do lugar,
-a **`RC-1C-HOTFIX`** (captura de GPS recente e com precisão ≤ 50 m, no
-aplicativo e no servidor) reprovou na segunda validação física pela regra de
-frescor, a **`RC-1C-HOTFIX-2`** (frescor pela idade da leitura) reprovou na
-terceira — toda leitura `noAccuracy` —, e a **`RC-1C-HOTFIX-3`** (a precisão
-que o plugin do Android perdia) está **`READY FOR OWNER VALIDATION`** — §12,
-`docs/TECHNICIAN-EXECUTION.md` §13, §13.5, §13.6 e §13.7, `docs/SECURITY.md`
-§8.22 e §8.22.1.
+e a **`RC-1C`** (o contrato de localização do cliente que o dono aprovou) está
+**`APPROVED` / `CLOSED`** (15/09/2026): depois de três correções da captura de
+GPS — precisão ≤ 50 m (`RC-1C-HOTFIX`), frescor pela idade da leitura
+(`RC-1C-HOTFIX-2`) e a precisão que o plugin do Android perdia
+(`RC-1C-HOTFIX-3`) —, a validação física final do dono passou. Contrato final
+congelado em `docs/TECHNICIAN-EXECUTION.md` §13.8; §12, `docs/SECURITY.md`
+§8.22 e §8.22.1. A próxima é a `RC-1D`, não iniciada.
 
 O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e o estado
 de cada item está em **§386**. O contrato final do mapa é a **PRD §392**.
@@ -95,10 +93,10 @@ CORE FUNCTIONAL V1 — FEATURE COMPLETE   fatias funcionais: COMPLETE   ← 2026
 RC-1   Release Candidate / Hardening                     ← em andamento
        RC-1A  auditoria e plano                          ← OWNER DECISION REQUIRED
        RC-1B  segurança · configuração · tenancy · teste ← APPROVED · CLOSED (2026-09-14)
-       RC-1C  CustomerLocation — contrato do dono        ← ABERTA (validação física)
-       RC-1C-HOTFIX  captura de GPS · precisão ≤ 50 m    ← reprovada no frescor (2ª validação física)
-       RC-1C-HOTFIX-2  frescor pela idade da leitura     ← reprovada: noAccuracy (3ª validação física)
-       RC-1C-HOTFIX-3  precisão perdida no plugin        ← READY FOR OWNER VALIDATION
+       RC-1C  CustomerLocation — contrato do dono        ← APPROVED · CLOSED (2026-09-15)
+       RC-1C-HOTFIX  captura de GPS · precisão ≤ 50 m    ← CLOSED (reprovada no frescor → HOTFIX-2)
+       RC-1C-HOTFIX-2  frescor pela idade da leitura     ← CLOSED (noAccuracy → HOTFIX-3)
+       RC-1C-HOTFIX-3  precisão perdida no plugin        ← APPROVED · CLOSED (validação física PASS)
        RC-1D  copy · timeline da OS · acessibilidade     ← próxima recomendada, não iniciada
    ↓
 LANÇAMENTO V1 — produção e piloto real
@@ -508,7 +506,7 @@ de diagnóstico **em memória do processo** e a **ausência de teto agregado por
 empresa** (`docs/SECURITY.md` §8.7, *Rate limit de capability*; PRD §370).
 Preservados em 13/09/2026, no fechamento da `GS-1`: nenhum foi resolvido ali.
 
-**`RC-1C-HOTFIX-3` — `READY FOR OWNER VALIDATION` (15/09/2026).** A terceira
+**`RC-1C-HOTFIX-3` — `APPROVED` / `CLOSED` (15/09/2026).** A terceira
 validação física, com o frescor já corrigido, mostrou no `logcat` toda leitura
 recusada como `noAccuracy` (`accuracyMeters=-`, ~5 s de idade), com o sistema
 medindo de 7 a 27 m. Causa lida no código do plugin instalado: o
@@ -519,9 +517,12 @@ podia passar no Android. A precisão passou a ser a **medida**
 (`measuredAccuracyMeters`), sem fonte alternativa, sem dependência nova e sem
 mudar o contrato ou o servidor. Os testes da captura pulavam a conversão do
 plugin; a borda agora é testada por ela (`docs/TECHNICIAN-EXECUTION.md` §13.7).
-A `RC-1C` só fecha com a validação física desta hotfix.
+**Validação física final do dono `PASS`:** leitura de ~15,2 m aceita na hora
+(`verdict=accepted`, `outcome=acquired`), `CustomerLocation` corrigida pelo
+Field, marcador no lugar certo no Mapa Operacional, e o ponto preservado depois
+de recarregar e de sair e entrar (`docs/TECHNICIAN-EXECUTION.md` §13.8).
 
-**`RC-1C-HOTFIX-2` — reprovada: `noAccuracy` (15/09/2026), corrigida na HOTFIX-3.** A segunda
+**`RC-1C-HOTFIX-2` — `CLOSED` (15/09/2026): reprovada por `noAccuracy`, corrigida na HOTFIX-3.** A segunda
 validação física, já com a localização precisa concedida, terminava toda captura
 em "Localização não obtida": com o aparelho parado, o provedor fundido do Google
 entregou só 13 localizações em seis capturas, e a captura recusou todas porque
@@ -532,7 +533,7 @@ coordenada no `logcat` de depuração (`docs/TECHNICIAN-EXECUTION.md` §13.6). F
 esse gancho que mostrou, no teste seguinte, a segunda causa escondida atrás do
 frescor.
 
-**`RC-1C-HOTFIX` — reprovada no frescor (15/09/2026), corrigida na HOTFIX-2.** A validação
+**`RC-1C-HOTFIX` — `CLOSED` (15/09/2026): reprovada no frescor, corrigida na HOTFIX-2.** A validação
 física da `RC-1C` gravou, por "Corrigir localização" com GPS, um ponto a mais de
 1 km do lugar em que o Google Maps pôs o mesmo telefone. Causa provada no
 aparelho e no banco: permissão só **aproximada** (o Android a entrega com 2000 m
@@ -543,10 +544,10 @@ posição, sem ninguém olhar precisão ou idade. O dono aprovou precisão ≤ 5
 vira posição; pede a localização precisa quando só a aproximada foi concedida),
 e o servidor exige a mesma precisão em confirmar e em corrigir com coordenada
 (`docs/TECHNICIAN-EXECUTION.md` §13.5; `docs/SECURITY.md` §8.22.1). **Zero
-migration, zero dependência, zero permissão nova.** A `RC-1C` só fecha com a
-validação física desta hotfix.
+migration, zero dependência, zero permissão nova.** A `RC-1C` fechou com a
+validação física da HOTFIX-3.
 
-**`RC-1C` — `READY FOR OWNER VALIDATION` (14/09/2026).** O contrato de
+**`RC-1C` — `APPROVED` / `CLOSED` (15/09/2026; entregue em 14/09/2026).** O contrato de
 localização que o dono aprovou (PRD §172 `DECISION UPDATED`;
 `docs/TECHNICIAN-EXECUTION.md` §13; `docs/SECURITY.md` §8.22), cada regra com
 teste que falhava antes e sabotagem que o derruba: `RC-LOC-01` (confirmar exige
@@ -558,7 +559,9 @@ somente leitura, `ADMIN`), `RC-LOC-05` (teste de autoridade do mapa e o E2E
 Correção: coordenada só pelo GPS — `MANUAL` e meia coordenada recusados. A
 posição do aparelho fica no servidor (a leitura da OS a remove). **Zero
 migration, zero dependência.** `RC-LOC-04` foi analisado e depende do dono —
-item abaixo.
+item abaixo. Fechada com a validação física final do dono, depois das três
+correções da captura acima; o contrato final do GPS está congelado em
+`docs/TECHNICIAN-EXECUTION.md` §13.8.
 
 **`RC-1B` — `APPROVED` / `CLOSED` (14/09/2026).** Validada pelo dono em uso real
 (upload de foto pelo Field e pela web, troca da foto da CTO: `PASS`) e
@@ -589,7 +592,8 @@ CustomerLocation legado — projeção sem autoridade (RC-LOC-04)
            (applyImportedCustomerLocation): cria a autoridade como IMPORTED,
            não verificada, e só onde ela não existe — idempotente e com a
            procedência preservada. NÃO executado
-  fase     decisão do dono
+  fase     decisão do dono — não bloqueou o fechamento da RC-1C
+           (15/09/2026); dívida pós-RC-1C
   junto    no banco de dev, 4 fixtures de QA do mapa (11/09) têm o inverso —
            autoridade sem projeção, gravadas direto em teste manual; nenhum
            escritor de produção produz isso. Não tocadas

@@ -4850,6 +4850,14 @@ exatamente para distinguir uma coisa da outra.
 >
 > Detalhe técnico: `docs/TECHNICIAN-EXECUTION.md` §13.5.
 
+> **Fechamento — `RC-1C` `APPROVED` / `CLOSED` (15/09/2026).** Validado pelo
+> dono num aparelho Android real: leitura aceita com ~15,2 m de precisão,
+> correção gravada, marcador no lugar certo no Mapa Operacional, e o ponto
+> preservado depois de recarregar e de sair e entrar. O contrato desta seção
+> está congelado — a tabela final está em `docs/TECHNICIAN-EXECUTION.md` §13.8.
+> As correções de implementação do caminho (frescor pela idade da leitura;
+> precisão lida corretamente no Android) não mudaram nenhuma regra acima.
+
 ---
 
 # 173. TOOLBOX — ORGANIZAÇÃO
