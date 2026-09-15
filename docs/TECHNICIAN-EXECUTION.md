@@ -336,3 +336,91 @@ avançado.
 **Mapa de Campo do Técnico (`FIELD-MAP-1`)** — conceito aprovado pelo dono em
 13/09/2026, `FUTURE` / pós-V1, **não implementado**: `docs/PRD.md` Parte XIX
 (§415–§421). Nada muda em `/minhas-os` por causa dele.
+
+## 13. Localização do cliente em campo — contrato da RC-1C
+
+Decisão do dono (RC-1C, 14/09/2026), depois do caso que abriu a fase: um ponto
+importado foi **confirmado** por um técnico a ~2,3 km dele e virou "verificado".
+O mapa estava certo — ele lê a autoridade, e o ponto não tinha se movido —, mas a
+confirmação marcava `verified` sem mostrar a distância, sem bloquear e até sem
+GPS. Contrato: PRD §172 (`DECISION UPDATED`); segurança: `docs/SECURITY.md` §8.22.
+
+`CustomerLocation` continua sendo a **autoridade** geográfica, e
+`Customer.latitude`/`longitude` a projeção de leitura, sincronizada na mesma
+transação de toda escrita. O Mapa Operacional e o cartão do ADMIN leem a
+autoridade.
+
+### 13.1. Confirmar (`POST /api/field/v1/service-orders/:id/location/confirm`)
+
+| Regra | Onde |
+| --- | --- |
+| Exige a posição do aparelho; ausente, pela metade ou inválida → `400` | `requireObservedPosition` |
+| Distância calculada **no servidor** (haversine, metro inteiro) | `distanceInMeters` (`src/lib/geo.ts`) |
+| Limite **100 m, inclusivo**, comparado no metro arredondado que o técnico vê | `LOCATION_CONFIRM_MAX_DISTANCE_M`, `isConfirmDistanceAllowed` |
+| Acima do limite → `400` "Você está a X do ponto cadastrado. Use Corrigir localização." — e **nada é gravado** | `confirmCustomerLocation` |
+| Confirmar **não move** o ponto nem troca a origem; só `verified = true` | idem |
+| Distância vinda do corpo é recusada (`.strict()`) e nunca usada | rota + domínio |
+
+A ordem dentro da transação é a do contrato: técnico → OS dele → OS em
+atendimento (`FOR SHARE`, RC-LOC-06) → ponto existe → versão → ainda não
+verificado → GPS → distância → limite → escrita. Quem não pode mexer na OS
+recebe o 404 genérico da OS antes de qualquer pergunta sobre GPS, e a regra dos
+100 m vem antes da escrita — não existe `verified` gravado para depois ser
+desfeito.
+
+**Precisão não bloqueia.** Não há limite de precisão aprovado: a precisão é
+registrada e mostrada ao técnico, e o limite é decisão pendente do dono
+(`docs/MASTER-PLAN.md` §12).
+
+**Onde a confirmação fica registrada — sem migration.** A linha de
+`CustomerLocationHistory` mantém a assinatura de confirmação (mesmo ponto, de não
+verificado para verificado) que a timeline e o pacote técnico reconhecem; os
+**números** — distância, precisão, posição do aparelho e o limite vigente — ficam
+no `metadata` do evento `LOCATION_CONFIRMED`, gravado na mesma transação. A
+posição do aparelho fica no servidor: a leitura da OS
+(`getCompanyServiceOrder`) a remove da saída, e as telas mostram a distância.
+
+### 13.2. Corrigir (`.../location/correct`)
+
+* **Com GPS:** o ponto muda — autoridade, trilha com o ponto anterior, técnico,
+  OS, instante, precisão, origem `TECHNICIAN_GPS`, `verified = true`, projeção e
+  mapa.
+* **Sem GPS:** só o endereço textual; coordenada e `verified` intactos (trilha
+  `ADDRESS`, evento `ADDRESS_CORRECTED`).
+* **Coordenada digitada (`source: MANUAL`) é recusada** (`400`): moveria o ponto
+  e o marcaria verificado sem ninguém ter medido nada. O aplicativo nunca a
+  envia.
+* **Meia coordenada é recusada** (`400`), em vez de virar correção só de
+  endereço com a posição descartada em silêncio.
+
+### 13.3. No aplicativo
+
+"Confirmar localização" lê o GPS **uma vez** e mostra "Distância da sua posição"
+e "Precisão do GPS" antes de perguntar:
+
+* dentro do limite que o **servidor mandou** no pacote
+  (`location.confirmMaxDistanceMeters`): "Você está no endereço do cliente?", com
+  Confirmar — e a confirmação envia exatamente a posição mostrada e a versão do
+  ponto medido (se o ponto mudou nesse meio-tempo, o servidor responde conflito);
+* acima dele: "Você está muito distante do ponto cadastrado. Use Corrigir
+  localização.", sem Confirmar, com o botão que leva à correção;
+* sem GPS: o motivo, e nenhuma confirmação.
+
+A coordenada do cliente não aparece — só distância e precisão. A conta é a do
+servidor, provada pelos mesmos vetores dos dois lados
+(`apps/field/test/location_confirm_test.dart` ×
+`src/tests/customer-location-confirm.test.ts`). Um servidor sem o campo do
+limite deixa a regra inteira com ele: o aplicativo não bloqueia sozinho.
+
+### 13.4. Na web
+
+* **Timeline do cliente (RC-LOC-02):** "Confirmada a 32 m do ponto cadastrado." —
+  nunca a coordenada. Confirmação antiga acima do limite de hoje: "…, acima do
+  limite de 100 m."; sem GPS: "Confirmada sem a posição do aparelho." A timeline
+  da OS (`/ordens/[id]`) continua com o código cru — débito da `RC-1D`.
+* **Cartão "Localização do cliente" (RC-LOC-03):** `ADMIN`, somente leitura, lido
+  da autoridade — coordenadas, precisão, origem, verificada, atualizada em (fuso
+  da empresa), técnico e OS quando houver, e "Ver no mapa" quando a empresa tem o
+  Mapa Operacional. Sem ponto: "Sem localização geográfica cadastrada". Projeção
+  sem autoridade (legado, RC-LOC-04): a mesma frase, com uma nota, e sem a
+  coordenada antiga. **Nenhum campo de latitude/longitude existe para editar.**

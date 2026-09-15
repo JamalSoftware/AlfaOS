@@ -50,8 +50,10 @@ primeira versão estão concluídas — toda linha da PRD §386 está implementa
 §12, segurança, produção e piloto real. **Fase atual: `RC-1` — Release
 Candidate / Hardening.** A `RC-1A` (auditoria e plano, zero código) terminou em
 `OWNER DECISION REQUIRED`; a **`RC-1B`** (segurança, configuração, tenancy e
-isolamento de teste) está **`READY FOR OWNER VALIDATION`** — §12 e
-`docs/SECURITY.md` §8.21.
+isolamento de teste) está **`APPROVED` / `CLOSED`** — `docs/SECURITY.md` §8.21;
+e a **`RC-1C`** (o contrato de localização do cliente que o dono aprovou) está
+**`READY FOR OWNER VALIDATION`** — §12, `docs/TECHNICIAN-EXECUTION.md` §13 e
+`docs/SECURITY.md` §8.22.
 
 O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e o estado
 de cada item está em **§386**. O contrato final do mapa é a **PRD §392**.
@@ -86,8 +88,9 @@ CORE FUNCTIONAL V1 — FEATURE COMPLETE   fatias funcionais: COMPLETE   ← 2026
    ↓
 RC-1   Release Candidate / Hardening                     ← em andamento
        RC-1A  auditoria e plano                          ← OWNER DECISION REQUIRED
-       RC-1B  segurança · configuração · tenancy · teste ← READY FOR OWNER VALIDATION
-       RC-1C  CustomerLocation (após decisão do dono)    ← próxima, não iniciada
+       RC-1B  segurança · configuração · tenancy · teste ← APPROVED · CLOSED (2026-09-14)
+       RC-1C  CustomerLocation — contrato do dono        ← READY FOR OWNER VALIDATION
+       RC-1D  copy · timeline da OS · acessibilidade     ← próxima recomendada, não iniciada
    ↓
 LANÇAMENTO V1 — produção e piloto real
    ↓
@@ -496,8 +499,24 @@ de diagnóstico **em memória do processo** e a **ausência de teto agregado por
 empresa** (`docs/SECURITY.md` §8.7, *Rate limit de capability*; PRD §370).
 Preservados em 13/09/2026, no fechamento da `GS-1`: nenhum foi resolvido ali.
 
-**`RC-1B` — `READY FOR OWNER VALIDATION` (14/09/2026).** Resolvidos, cada um com
-teste que falhava antes e sabotagem que o derruba (`docs/SECURITY.md` §8.21):
+**`RC-1C` — `READY FOR OWNER VALIDATION` (14/09/2026).** O contrato de
+localização que o dono aprovou (PRD §172 `DECISION UPDATED`;
+`docs/TECHNICIAN-EXECUTION.md` §13; `docs/SECURITY.md` §8.22), cada regra com
+teste que falhava antes e sabotagem que o derruba: `RC-LOC-01` (confirmar exige
+GPS e vale até 100 m, arbitrado pelo servidor; o aplicativo mostra distância e
+precisão e leva a "Corrigir" quando longe), `RC-LOC-02` (a timeline do cliente
+diz a distância da confirmação), `RC-LOC-03` (cartão "Localização do cliente",
+somente leitura, `ADMIN`), `RC-LOC-05` (teste de autoridade do mapa e o E2E
+"corrigir → o marcador muda e fica") e `RC-LOC-06` estendido aos fluxos novos.
+Correção: coordenada só pelo GPS — `MANUAL` e meia coordenada recusados. A
+posição do aparelho fica no servidor (a leitura da OS a remove). **Zero
+migration, zero dependência.** `RC-LOC-04` foi analisado e depende do dono —
+item abaixo.
+
+**`RC-1B` — `APPROVED` / `CLOSED` (14/09/2026).** Validada pelo dono em uso real
+(upload de foto pelo Field e pela web, troca da foto da CTO: `PASS`) e
+publicada no GitHub, sem tag. Resolvidos, cada um com teste que falhava antes e
+sabotagem que o derruba (`docs/SECURITY.md` §8.21):
 `RC-STO-01` (corpo multipart com teto antes de ser lido — o proxy continua
 precisando de limite de corpo), `RC-LOG-01` (log de erro sem mensagem),
 `RC-SEC-01` (`LOGIN_*` inválido derruba a subida), `RC-OPS-03` (Mock ERP
@@ -507,10 +526,33 @@ indisponível em produção — o item "Sincronizar Mock ERP" abaixo), `RC-OPS-0
 `RC-TEST-01` (redirecionamentos do técnico e download de assinatura),
 `RC-STO-02` (storage isolado em Vitest e E2E — a metade de teste do item
 "Storage órfão" abaixo) e `RC-LOC-06` (localização × conclusão). **Não
-tocados, por escopo:** `RC-LOC-01`–`05` (RC-1C, após decisão do dono) e o resto
+tocados, por escopo:** `RC-LOC-01`–`05` (entregues depois, na `RC-1C`) e o resto
 desta lista.
 
 ```text
+CustomerLocation legado — projeção sem autoridade (RC-LOC-04)
+  o quê    Customer.latitude/longitude gravados pelo enriquecimento do ERP
+           ANTES da v0.10, sem CustomerLocation. Dry-run de 14/09/2026 (banco
+           de dev, só leitura): 1 cliente — real, ReceitaNet, locationSource
+           IMPORTED, não verificado, 3 OS, nenhuma linha de histórico
+  hoje     o mapa e o cartão do ADMIN o tratam como SEM localização (leem a
+           autoridade); o Field também (a seção pede "Corrigir", que cria o
+           ponto com GPS); só o link de navegação da OS ainda lê a projeção
+  proposta backfill pelo escritor automático que já existe
+           (applyImportedCustomerLocation): cria a autoridade como IMPORTED,
+           não verificada, e só onde ela não existe — idempotente e com a
+           procedência preservada. NÃO executado
+  fase     decisão do dono
+  junto    no banco de dev, 4 fixtures de QA do mapa (11/09) têm o inverso —
+           autoridade sem projeção, gravadas direto em teste manual; nenhum
+           escritor de produção produz isso. Não tocadas
+
+Precisão do GPS — sem limite aprovado (RC-1C)
+  o quê    confirmar e corrigir exigem coordenada válida, registram e mostram a
+           precisão, e NÃO bloqueiam por ela
+  fase     decisão do dono — um limite inventado seria regra de negócio sem
+           contrato
+
 /minhas-os — "Próximas"
   o quê    também contém OS sem agendamento e OS com agendamento vencido
            (validação do dono, 13/09/2026: OS de 06/09 em "Próximas")

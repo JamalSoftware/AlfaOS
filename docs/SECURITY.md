@@ -2736,10 +2736,12 @@ terem subido no poste.
 
 ## 8.21. `RC-1B` — endurecimento de segurança e configuração do Release Candidate
 
-> **Estado: `READY FOR OWNER VALIDATION`.** Commits locais, sem tag e sem push.
-> Os IDs são os da auditoria `RC-1A`. Nenhuma migration, nenhuma dependência,
-> nenhuma funcionalidade nova, e o contrato de "Confirmar localização"
-> (`RC-LOC-01`) **não foi tocado** — ele é da `RC-1C`, depois da decisão do dono.
+> **Estado: `APPROVED` / `CLOSED` (14/09/2026).** O dono validou em uso real o
+> que era visível — upload de foto pelo Field, upload pela web e troca da foto da
+> CTO: `PASS`. Publicada no GitHub no mesmo dia, sem tag. Os IDs são os da
+> auditoria `RC-1A`. Nenhuma migration, nenhuma dependência, nenhuma
+> funcionalidade nova, e o contrato de "Confirmar localização" (`RC-LOC-01`)
+> **não foi tocado** aqui — ele é da `RC-1C` (§8.22).
 
 ### `RC-STO-01` — o corpo multipart tem teto ANTES de existir na memória
 
@@ -2869,3 +2871,61 @@ são de empresas que não existem no banco de desenvolvimento (2.032 arquivos,
 1,5 MB). As páginas administrativas ganharam teste de redirecionamento do
 `TECHNICIAN`, e o download de assinatura, teste de negação entre empresas e
 entre técnicos.
+
+## 8.22. `RC-1C` — o contrato de localização do cliente
+
+> **Estado: `READY FOR OWNER VALIDATION`.** Commits locais, sem tag e sem push.
+> Contrato aprovado pelo dono (PRD §172, `DECISION UPDATED`); o técnico em
+> `docs/TECHNICIAN-EXECUTION.md` §13. Nenhuma migration, nenhuma dependência.
+
+### `RC-LOC-01` — confirmar exige GPS e distância, e quem decide é o servidor
+
+"Confirmar localização" gravava `verified = true` sem condição: um técnico a
+~2,3 km — ou com o GPS negado — transformava um ponto importado em verificado,
+e o mapa e a operação passavam a confiar nele. Agora a posição do aparelho é
+obrigatória, a distância é calculada **no servidor** e o limite é 100 m,
+inclusivo, comparado no metro inteiro que o técnico vê. Acima dele, `400` e nada
+é gravado — nem `verified`, nem trilha, nem evento, nem auditoria.
+
+- **A distância nunca vem do cliente.** `distanceMeters` no corpo é recusado pelo
+  `.strict()`, e o domínio só lê a posição.
+- **A regra vem antes da escrita**, dentro da mesma transação: não existe um
+  `verified` gravado para depois ser desfeito.
+- **A porta da OS vem antes do GPS.** Técnico de outra empresa — inclusive pelo
+  vetor da DQ-7.1, OS da A apontando técnico da B — e técnico da mesma empresa
+  que não é o dono recebem o `404` genérico da OS; o corpo não conta que existe
+  cliente ou ponto do outro lado.
+- **A posição do aparelho fica no servidor.** Ela é gravada no `metadata` do
+  evento `LOCATION_CONFIRMED`, e a leitura da OS (`getCompanyServiceOrder`, que
+  serve `GET /api/service-orders/:id` e a resposta da conclusão a ADMIN,
+  DISPATCHER e ao técnico dono) a remove da saída. Achado na revisão da própria
+  fase, antes dos gates: sem a poda, a posição do técnico naquele instante
+  viajaria em toda leitura da OS. É o desenho do check-in, que guarda a
+  coordenada na linha própria e deixa no evento só distância e precisão.
+
+### Correção: coordenada só pelo GPS do aparelho
+
+Uma coordenada DIGITADA (`source: MANUAL`) movia o ponto e o marcava verificado
+sem ninguém ter medido nada — o mesmo defeito, por outra porta. Recusada (`400`).
+Meia coordenada também: antes ela era descartada em silêncio e o endereço da
+mesma requisição era aplicado. O aplicativo nunca enviou nenhuma das duas.
+
+### Quem escreve localização de cliente
+
+Só o técnico dono da OS em atendimento, pelas duas rotas do Field. `DISPATCHER` e
+`ADMIN` não têm porta de escrita — nem pelo Field (o token é de `TECHNICIAN`),
+nem pela web; um teste estrutural exige que só essas duas rotas chamem os
+escritores. O cartão "Localização do cliente" (`RC-LOC-03`) é **somente
+leitura**, só para o `ADMIN` — a mesma fronteira da camada de clientes do mapa
+(PRD §376) —, lê a autoridade e confere o tenant de novo nas relações de
+verificador e de OS, que são FK simples.
+
+### O que ficou declarado, não fechado
+
+- **Precisão não bloqueia:** não há limite de precisão aprovado. A precisão é
+  registrada e mostrada; o limite é decisão pendente do dono.
+- **A regra é sobre a posição que o aparelho declara.** Um aparelho hostil pode
+  mentir a coordenada, e o servidor não tem como provar onde o técnico está. O
+  que o contrato garante é que a confirmação passou pela regra, que a distância
+  declarada fica registrada e que burlá-la exige mandar uma posição falsa de
+  propósito — não basta negar o GPS.

@@ -4803,6 +4803,30 @@ ponto de instalação. Confirmação automática produziria uma base inteira de
 coordenadas "verificadas" com a precisão do GPS do momento — e a §134 existe
 exatamente para distinguir uma coisa da outra.
 
+> **`DECISION UPDATED` — RC-1C (14/09/2026), decisão do dono.** O fluxo acima
+> não dizia o que acontecia quando a comparação dava longe, nem quando não havia
+> GPS — e a implementação confirmava nos dois casos: um ponto importado foi
+> confirmado a ~2,3 km dele. O contrato passa a ser:
+>
+> - **Confirmar exige a posição válida do aparelho.** GPS negado, indisponível
+>   ou coordenada inválida: não confirma.
+> - **O técnico vê a distância** entre onde está e o ponto cadastrado (e a
+>   precisão) antes de confirmar — o "Você está a 18 metros do ponto cadastrado"
+>   da §134.
+> - **Limite de 100 m, inclusivo, arbitrado pelo servidor.** Acima dele não
+>   confirma, e a orientação é "Use Corrigir localização".
+> - **Confirmar não move o ponto**; só o valida. `verified = true` só depois de
+>   uma confirmação válida, e a distância fica registrada.
+> - **Corrigir com GPS** move o ponto, com histórico, técnico, OS, instante,
+>   precisão e origem; **sem GPS** corrige só o endereço textual, sem mexer em
+>   coordenada nem em `verified`.
+> - A timeline do cliente mostra a distância da confirmação, nunca a coordenada;
+>   a ficha do cliente ganha um cartão **somente leitura** para o `ADMIN`,
+>   alimentado por `CustomerLocation`.
+>
+> Limite de **precisão** do GPS: não definido — a precisão é registrada e
+> mostrada, e não bloqueia. Detalhe técnico: `docs/TECHNICIAN-EXECUTION.md` §13.
+
 ---
 
 # 173. TOOLBOX — ORGANIZAÇÃO
@@ -13700,6 +13724,18 @@ está na própria §377, com a atualização abaixo dele.
 
 Nada disso cria coluna, tabela ou migration: `CTO.latitude`/`CTO.longitude` já
 são a fonte da verdade, e **`CTOLocation` continua proibida**.
+
+## §172 — `DECISION UPDATED`
+
+A §172 descrevia a confirmação como *"GPS atual · comparação · confirmação
+explícita"* sem dizer o que acontecia quando a comparação dava longe ou quando
+não havia GPS — e o código confirmava nos dois casos.
+
+**Atualização, decidida pelo dono na `RC-1C` (2026-09-14):** confirmar exige GPS
+válido, mostra a distância ao técnico e só vale a até **100 m** do ponto,
+arbitrado pelo servidor; acima disso, "Use Corrigir localização". Corrigir com
+GPS move o ponto; sem GPS, só o endereço. O texto anterior continua na §172, com
+a atualização logo abaixo dele. Nenhuma coluna, tabela ou migration.
 
 ## Freeze do Mapa Operacional V1 — 2026-09-12
 
