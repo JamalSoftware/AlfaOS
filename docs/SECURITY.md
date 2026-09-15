@@ -2973,3 +2973,14 @@ até o teto de sanidade de 100 km.
   relativo à abertura e precisão — **nunca coordenada**, e um teste estrutural
   varre `Log`, `debugPrint` e `print` dos arquivos de localização, e exige que o
   tipo do diagnóstico não tenha campo de coordenada.
+- **RC-1C-HOTFIX-3 — a precisão é a MEDIDA, não a bandeira** —
+  `docs/TECHNICIAN-EXECUTION.md` §13.7. Com `geolocator_android` 4.6.2,
+  `Position.hasAccuracy` chega `false` em toda leitura do Android (o plugin não
+  repassa o campo que a interface 4.3.0 criou), e a captura recusava todas. Ela
+  lê agora `measuredAccuracyMeters`: o valor que a plataforma afirma ter medido,
+  ou, sem a afirmação, só um número positivo e finito — o `0.0` de "não mediu"
+  continua sendo "sem precisão". Nada é presumido e nenhuma fonte alternativa
+  entrou; o servidor continua exigindo precisão presente, positiva e ≤ 50 m. A
+  linha crua `raw_position` (tipo, `hasAccuracy`, `accuracy` bruta, idade) segue
+  as mesmas regras do gancho acima: só em build de depuração, nunca coordenada,
+  e o teste estrutural cobre também as classes que a montam.

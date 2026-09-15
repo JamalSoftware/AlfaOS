@@ -470,14 +470,14 @@ uma só para Confirmar e Corrigir:
 
 | Regra | Valor |
 | --- | --- |
-| Precisão, sobre o valor real | até **50 m** (o limite do pacote, `gpsMaxAccuracyMeters`; sem ele, 50) |
+| Precisão, sobre o valor real | até **50 m** (o limite do pacote, `gpsMaxAccuracyMeters`; sem ele, 50) — o valor **medido** (`measuredAccuracyMeters`); a bandeira `hasAccuracy` do plugin não serve no Android (RC-1C-HOTFIX-3, §13.7) |
 | Idade da leitura | até **10 s**, pelo instante da própria leitura — pode ter nascido antes de a captura abrir (RC-1C-HOTFIX-2, §13.6); no futuro, só até 2 s |
 | Espera | ~**20 s**; várias leituras, e a **primeira aceitável** encerra |
 | Sem leitura aceitável | falha — a melhor precisão vista vai na **mensagem**, nunca como posição |
 | Coordenada | a mesma definição do servidor (`coordenadaValida`) |
 | GPS depois da resposta | desligado (o fluxo é cancelado) — nada em segundo plano |
 | Última posição conhecida | proibida em `lib/` inteiro (teste estrutural) |
-| Log | motivo, idade e precisão; **nunca** coordenada (teste estrutural) |
+| Log | motivo, idade, precisão e o que o plugin entregou (tipo, `hasAccuracy`, `accuracy` bruta); **nunca** coordenada (teste estrutural) |
 
 **Precisa × aproximada.** Com só a aproximada concedida, a captura pede a
 permissão de novo — é o que faz o Android 12+ oferecer "usar localização
@@ -560,3 +560,83 @@ alfaos.gps gps_capture outcome=acquired readings=1 bestAccuracyMeters=18.0
 Com o telefone ligado ao computador durante o teste físico, `adb logcat -s flutter`
 mostra por que cada leitura foi aceita ou recusada. Em build de produção, nada
 disso é escrito.
+
+> **Corrigido pela RC-1C-HOTFIX-3 (§13.7).** "Foram recusadas como **velhas**"
+> não estava provado: o título "Localização não obtida" sai igual para leitura
+> velha e para leitura sem precisão. Com a regra de frescor antiga avaliada antes
+> da precisão, as leituras nascidas antes da abertura caíam como velhas, e as
+> demais como sem precisão. A correção desta seção era real — a matriz a provou —
+> e havia uma segunda causa atrás dela, que foi o que este diagnóstico mostrou no
+> teste seguinte.
+
+### 13.7. A precisão que o plugin do Android esconde — RC-1C-HOTFIX-3 (15/09/2026)
+
+**O defeito da terceira validação física.** Com o frescor corrigido, o `logcat`
+do aparelho mostrou, na captura:
+
+```text
+alfaos.gps gps_reading n=1 verdict=noAccuracy ageMs=5059 … accuracyMeters=-
+alfaos.gps gps_reading n=2 verdict=noAccuracy ageMs=5039 … accuracyMeters=-
+alfaos.gps gps_capture outcome=timeout readings=2 bestAccuracyMeters=-
+```
+
+Leituras de ~5 s — dentro do frescor — recusadas só por não terem precisão, com
+o sistema medindo de 7 a 27 m (`dumpsys location`, lido sem coordenada: fundida
+6,9 m e GPS 16,2 m nesta sessão; fundida ~27 m, rede ~16 m e GPS ~11 m na
+anterior).
+
+**A causa, no plugin instalado — não no aparelho.** Lida no código das versões
+do `pubspec.lock` (`geolocator` 13.0.4, `geolocator_android` 4.6.2,
+`geolocator_platform_interface` 4.3.0):
+
+1. o nativo (`LocationMapper.toHashMap`) só escreve `accuracy` no mapa quando
+   `Location.hasAccuracy()` é verdadeiro, com o valor de `Location.getAccuracy()`;
+2. a interface 4.3.0 criou `Position.hasAccuracy`, com padrão `false`, e o
+   `Position.fromMap` o calcula certo, pela presença da chave;
+3. o `geolocator_android` 4.6.2 chama `Position.fromMap` e **reconstrói** a
+   leitura em `AndroidPosition.fromMap`, por um construtor que não conhece o
+   campo — `hasAccuracy` volta ao padrão.
+
+No Android, **toda** leitura chega com `hasAccuracy == false`, e com o número
+medido intacto em `accuracy`. A captura da RC-1C-HOTFIX lia a precisão como
+`hasAccuracy ? accuracy : null` e recusava 100% das leituras. É determinístico, e
+não condição do aparelho: desde a RC-1C-HOTFIX, nenhuma captura de Confirmar ou
+Corrigir podia passar no Android. A combinação de versões é a que as restrições
+permitem (`geolocator_android` pede `geolocator_platform_interface: ^4.1.0`), e
+nenhuma dependência mudou nesta hotfix. O check-in e o ponto não foram afetados:
+`LocationService` lê `accuracy > 0`, e não a bandeira.
+
+**Por que os testes não viram.** Todos os testes da captura entregavam leituras
+abaixo da fronteira `PositionSource`, pulando a conversão do plugin — justamente
+onde o defeito morava. Medido por sabotagem: a regra antiga, reintroduzida, passa
+nos testes da captura que existiam antes e cai nos novos
+(`apps/field/test/operational_position_platform_test.dart`), que rodam a
+`GeolocatorPositionSource` real sobre a conversão do Android até o corpo das
+requisições de Confirmar e Corrigir.
+
+**A correção — sem fonte alternativa.** `measuredAccuracyMeters` decide pelo que
+o plugin garante: se a plataforma afirma que mediu, vale o valor como veio (zero,
+negativo ou infinito continuam recusados como precisão inválida); se não afirma,
+só um número positivo e finito é medida. O `0.0` é a marca de "não mediu" e vira
+"sem precisão" — nunca "zero metros de erro", nunca um valor presumido, nunca a
+precisão pedida ao provedor. A posição original tinha a precisão; quem a perdia
+era a leitura dela. Por isso **não entrou fallback** (`getCurrentPosition`,
+`LocationManager`): não havia leitura sem precisão a compensar, e o provedor
+fundido continua sendo a fonte. O contrato não mudou — ≤ 50 m, ≤ 10 s, ~20 s — e
+o servidor também não.
+
+**O que ainda precisa do aparelho.** Os fatos acima estão provados no código e
+em teste que roda a conversão real do plugin. Que as leituras entregues ao
+AlfaOS naquele aparelho tragam `accuracy` positivo ainda não está: o `logcat`
+antigo já tinha girado. A captura passou a registrar, **antes do juízo**, só em
+build de depuração e sem coordenada, o que a plataforma entregou:
+
+```text
+alfaos.gps raw_position n=1 sourceMode=primary type=AndroidPosition hasAccuracy=false rawAccuracy=18.0 rawFinite=true rawPositive=true ageMs=5000 timestampMs=…
+alfaos.gps gps_reading n=1 verdict=accepted ageMs=5000 bornBeforeCaptureMs=5000 accuracyMeters=18.0
+```
+
+`hasAccuracy=false` com `rawAccuracy` positivo é o defeito do plugin, agora lido
+certo. `rawAccuracy=0.0` seria uma leitura realmente sem medida: continua
+recusada, e só aí a pergunta de uma fonte alternativa volta — com decisão do
+dono. `sourceMode` é sempre `primary`, porque não existe outra fonte.
