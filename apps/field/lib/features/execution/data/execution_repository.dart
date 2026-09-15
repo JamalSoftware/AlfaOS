@@ -98,7 +98,8 @@ class ExecutionRepository {
     required String idempotencyKey,
     double? observedLatitude,
     double? observedLongitude,
-    int? observedAccuracyMeters,
+    // O valor REAL (RC-1C-HOTFIX): o servidor julga a precisão sem arredondar.
+    double? observedAccuracyMeters,
   }) async {
     await _api.post(
       '/service-orders/$orderId/location/confirm',
@@ -127,7 +128,7 @@ class ExecutionRepository {
     String? note,
     double? latitude,
     double? longitude,
-    int? accuracyMeters,
+    double? accuracyMeters,
     String? source,
     Map<String, String?>? address,
   }) async {

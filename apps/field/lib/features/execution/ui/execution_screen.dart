@@ -8,6 +8,7 @@ import '../domain/execution.dart';
 import '../state/execution_controller.dart';
 import 'execution_forms.dart';
 import 'location_confirm_dialog.dart';
+import 'location_fix_dialog.dart';
 
 /// A tela de EXECUÇÃO do atendimento.
 ///
@@ -348,23 +349,14 @@ class _LocationSection extends StatelessWidget {
             children: [
               if (location.status == LocationStatus.unconfirmed)
                 FilledButton.icon(
-                  onPressed: state.busy || state.locating
+                  onPressed: state.busy
                       ? null
                       : () => _confirm(context, notifier),
-                  icon: state.locating
-                      ? const SizedBox.square(
-                          dimension: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.check),
-                  label: Text(
-                    state.locating
-                        ? 'Obtendo sua localização…'
-                        : 'Confirmar localização',
-                  ),
+                  icon: const Icon(Icons.check),
+                  label: const Text('Confirmar localização'),
                 ),
               OutlinedButton.icon(
-                onPressed: state.busy || state.locating
+                onPressed: state.busy
                     ? null
                     : () => showCorrectLocationSheet(context, notifier),
                 icon: const Icon(Icons.edit_location_alt_outlined),
@@ -379,9 +371,11 @@ class _LocationSection extends StatelessWidget {
 
   /// Confirmação com aceite EXPLÍCITO — e medida antes (RC-1C).
   ///
-  /// Primeiro o GPS é lido e a distância até o ponto é mostrada; só dentro do
-  /// limite que o servidor mandou o diálogo oferece Confirmar. Longe, a saída
-  /// é "Corrigir localização", a um toque. Sem GPS, não há confirmação.
+  /// Primeiro a captura procura uma posição dentro do contrato (RC-1C-HOTFIX:
+  /// precisão até o limite, leitura recente), mostrando a precisão enquanto
+  /// procura; sem ela, não há confirmação. Com ela, a distância até o ponto é
+  /// mostrada, e só dentro do limite que o servidor mandou o diálogo oferece
+  /// Confirmar. Longe, a saída é "Corrigir localização", a um toque.
   ///
   /// O GPS continua não confirmando nada sozinho: o aparelho reporta onde ELE
   /// está, e o diálogo é onde a pessoa afirma que aquele é o ponto (PRD §172).
@@ -390,8 +384,14 @@ class _LocationSection extends StatelessWidget {
     BuildContext context,
     ExecutionController notifier,
   ) async {
-    final check = await notifier.checkLocationForConfirm();
-    if (check == null || !context.mounted) return;
+    final fix = await showLocationFixDialog(
+      context,
+      acquire: notifier.acquireFix,
+      maxAccuracyMeters: notifier.fixPolicy.maxAccuracyMeters,
+    );
+    if (fix == null || !context.mounted) return;
+    final check = notifier.measureForConfirm(fix);
+    if (check == null) return;
 
     final choice = await showDialog<ConfirmLocationChoice>(
       context: context,

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/theme/tokens.dart';
-import '../../../core/location/location_service.dart';
+import '../../../core/location/operational_position.dart';
 import '../domain/location_confirm.dart';
 
 /// O que o técnico escolheu no diálogo de confirmação.
@@ -15,15 +15,17 @@ enum ConfirmLocationChoice {
 
 /// O diálogo de "Confirmar localização" — RC-1C.
 ///
-/// Três desfechos, e cada um diz o que fazer, sem pedir que o técnico
+/// Dois desfechos, e cada um diz o que fazer, sem pedir que o técnico
 /// interprete regra:
 ///
 /// - **dentro do limite:** a distância e a precisão, e a pergunta de sempre
 ///   ("Você está no endereço do cliente?"), com Confirmar;
 /// - **longe:** a distância e a orientação ("Use Corrigir localização"), com o
-///   botão que leva direto para lá — e SEM Confirmar;
-/// - **sem GPS:** o motivo, e nenhuma confirmação. Antes da RC-1C a
-///   confirmação acontecia assim mesmo; o dono decidiu que não.
+///   botão que leva direto para lá — e SEM Confirmar.
+///
+/// Sem GPS, ou com GPS impreciso, este diálogo nem abre (RC-1C-HOTFIX): a
+/// captura (`LocationFixDialog`) diz o motivo e deixa tentar de novo, e só
+/// uma posição dentro do contrato chega até aqui.
 ///
 /// A coordenada do cliente não aparece: o técnico precisa da distância, não
 /// de números (a navegação continua pelos links de mapa da OS).
@@ -34,7 +36,6 @@ class ConfirmLocationDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!check.hasPosition) return _semGps(context);
     if (!check.withinLimit) return _longe(context);
     return _perto(context);
   }
@@ -42,22 +43,19 @@ class ConfirmLocationDialog extends StatelessWidget {
   Widget _medidas(BuildContext context) {
     final destaque = Theme.of(context).textTheme.bodyLarge
         ?.copyWith(fontWeight: FontWeight.w600);
-    final precisao = check.position?.accuracyMeters;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Distância da sua posição: '
-          '${formatDistanceMeters(check.distanceMeters!)}',
+          '${formatDistanceMeters(check.distanceMeters)}',
           key: const Key('confirm-location-distance'),
           style: destaque,
         ),
         const SizedBox(height: AlfaSpacing.xs),
         Text(
-          precisao != null
-              ? 'Precisão do GPS: $precisao m'
-              : 'Precisão do GPS: não informada',
+          'Precisão do GPS: ${formatAccuracyMeters(check.fix.accuracyMeters)}',
           key: const Key('confirm-location-accuracy'),
         ),
       ],
@@ -125,48 +123,6 @@ class ConfirmLocationDialog extends StatelessWidget {
               Navigator.of(context).pop(ConfirmLocationChoice.correct),
           icon: const Icon(Icons.edit_location_alt_outlined),
           label: const Text('Corrigir localização'),
-        ),
-      ],
-    );
-  }
-
-  /// O motivo, com a saída de cada recusa.
-  ///
-  /// Não reaproveita `LocationReading.message`: aquela frase foi escrita para o
-  /// check-in, que acontece sem GPS, e termina com "você pode continuar sem
-  /// ela" — o oposto do que vale aqui.
-  static String _motivo(LocationOutcome outcome) => switch (outcome) {
-    LocationOutcome.permissionDenied =>
-      'A permissão de localização não foi concedida.',
-    LocationOutcome.permissionDeniedForever =>
-      'A permissão de localização está bloqueada. Libere nas configurações '
-          'do aparelho.',
-    LocationOutcome.serviceDisabled => 'O GPS do aparelho está desligado.',
-    LocationOutcome.unavailable ||
-    LocationOutcome.ok => 'Não foi possível obter a localização agora.',
-  };
-
-  Widget _semGps(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Sem a sua localização'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(_motivo(check.reading.outcome)),
-            const SizedBox(height: AlfaSpacing.md),
-            const Text(
-              'Sem a posição do aparelho não é possível confirmar o ponto.',
-              key: Key('confirm-location-no-gps'),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Fechar'),
         ),
       ],
     );

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:alfaos_field/core/errors/field_error.dart';
 import 'package:alfaos_field/core/location/location_service.dart';
+import 'package:alfaos_field/core/location/operational_position.dart';
 import 'package:alfaos_field/core/media/photo_capture.dart';
 import 'package:alfaos_field/core/sync/pending_operation.dart';
 import 'package:alfaos_field/features/execution/data/execution_repository.dart';
@@ -9,6 +10,7 @@ import 'package:alfaos_field/features/execution/domain/execution.dart';
 import 'package:alfaos_field/features/execution/state/execution_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/fake_position_source.dart';
 import 'support/fake_transport.dart';
 
 /// # O controlador da execução
@@ -29,8 +31,10 @@ class StubRepository extends ExecutionRepository {
   ExecutionBundle Function()? bundleBuilder;
   Object? evidenceError;
   int evidenceCalls = 0;
+  int loads = 0;
   final List<String> evidenceKeys = [];
   final List<Map<String, Object?>> confirmacoes = [];
+  final List<Map<String, Object?>> correcoes = [];
 
   @override
   Future<void> confirmLocation({
@@ -39,17 +43,42 @@ class StubRepository extends ExecutionRepository {
     required String idempotencyKey,
     double? observedLatitude,
     double? observedLongitude,
-    int? observedAccuracyMeters,
+    double? observedAccuracyMeters,
   }) async {
     confirmacoes.add({
       'expectedVersion': expectedVersion,
       'observedLatitude': observedLatitude,
       'observedLongitude': observedLongitude,
+      'observedAccuracyMeters': observedAccuracyMeters,
+    });
+  }
+
+  @override
+  Future<void> correctLocation({
+    required String orderId,
+    required int? expectedVersion,
+    required String reason,
+    required String idempotencyKey,
+    String? note,
+    double? latitude,
+    double? longitude,
+    double? accuracyMeters,
+    String? source,
+    Map<String, String?>? address,
+  }) async {
+    correcoes.add({
+      'expectedVersion': expectedVersion,
+      'latitude': latitude,
+      'longitude': longitude,
+      'accuracyMeters': accuracyMeters,
+      'source': source,
+      'address': address,
     });
   }
 
   @override
   Future<ExecutionBundle> load(String orderId) async {
+    loads += 1;
     return (bundleBuilder ?? _defaultBundle)();
   }
 
@@ -106,85 +135,240 @@ class StubLocation implements LocationService {
       const LocationReading.failed(LocationOutcome.unavailable);
 }
 
-/// GPS numa posição fixa — perto do ponto dos cenários de localização.
-class PosicaoFixa implements LocationService {
-  @override
-  Future<LocationReading> current() async => const LocationReading.ok(
-    DeviceLocation(latitude: -20.3154, longitude: -40.3128, accuracyMeters: 8),
-  );
-}
-
-ExecutionBundle _bundleComPonto(int versaoDoPonto) => ExecutionBundle.fromJson({
+ExecutionBundle _bundleComPonto(
+  int versaoDoPonto, {
+  String status = 'UNCONFIRMED',
+  int? limitePrecisao = 50,
+}) => ExecutionBundle.fromJson({
   'orderId': 'os-1',
   'version': 5,
   'executionVersion': 2,
   'report': {'diagnosis': null, 'workPerformed': null, 'notes': null},
   'location': {
-    'status': 'UNCONFIRMED',
-    'latitude': -20.3155,
-    'longitude': -40.3128,
-    'verified': false,
-    'version': versaoDoPonto,
+    'status': status,
+    'latitude': status == 'MISSING' ? null : -20.3155,
+    'longitude': status == 'MISSING' ? null : -40.3128,
+    'verified': status == 'CONFIRMED',
+    'version': status == 'MISSING' ? null : versaoDoPonto,
     'confirmMaxDistanceMeters': 100,
+    'gpsMaxAccuracyMeters': ?limitePrecisao,
   },
   'requirements': const <String, dynamic>{},
   'pendencies': const <Map<String, dynamic>>[],
 });
 
+/// A posição que a captura entregaria: perto do ponto, 8 m de precisão.
+const _perto = ScriptedReading(-20.3154, -40.3128, accuracy: 8);
+
 ExecutionController build(
   StubRepository repository, {
-  LocationService? location,
+  FakePositionSource? positions,
 }) => ExecutionController(
   repository: repository,
-  location: location ?? StubLocation(),
+  location: StubLocation(),
+  positions: positions ?? FakePositionSource(),
   // Caminho FICTÍCIO: o dublê nunca lê o arquivo, então ele não precisa
   // existir. É o que mantém o teste longe de I/O real.
   photos: StubPhotoCapture(File('/tmp/foto-ficticia.png')),
   orderId: 'os-1',
 );
 
+Future<OperationalFix> capturar(ExecutionController controller) async {
+  final r = await controller.acquireFix();
+  if (r case OperationalFixAcquired(:final fix)) return fix;
+  fail('a captura devia ter entregado posição: $r');
+}
+
+OperationalFix _posicao({double precisao = 8}) => OperationalFix(
+  latitude: -20.3154,
+  longitude: -40.3128,
+  accuracyMeters: precisao,
+  capturedAt: DateTime.now(),
+);
+
 void main() {
-  group('confirmar localização (RC-1C)', () {
-    test(
-      'confirma o ponto que foi MEDIDO: a versão enviada é a da medida',
-      () async {
-        /*
+  group('confirmar localização (RC-1C + RC-1C-HOTFIX)', () {
+    test('confirma o ponto que foi MEDIDO: a versão e a posição enviadas são as da medida', () async {
+      /*
           Entre medir e confirmar o pacote pode ser relido — e o ponto pode ter
           mudado nesse meio-tempo. A confirmação leva a versão contra a qual a
           distância foi mostrada: se o ponto andou, o servidor responde conflito
           em vez de confirmar um ponto que o técnico não viu medido.
         */
+      final repository = StubRepository()
+        ..bundleBuilder = () => _bundleComPonto(3);
+      final controller = build(
+        repository,
+        positions: FakePositionSource(script: const [_perto]),
+      );
+      await controller.load();
+
+      final fix = await capturar(controller);
+      final medida = controller.measureForConfirm(fix);
+      expect(medida, isNotNull);
+      expect(medida!.withinLimit, isTrue);
+
+      // O pacote é relido com o ponto em outra versão.
+      repository.bundleBuilder = () => _bundleComPonto(7);
+      await controller.load();
+
+      await controller.confirmLocation(medida);
+      expect(repository.confirmacoes, hasLength(1));
+      final enviada = repository.confirmacoes.single;
+      expect(enviada['expectedVersion'], 3);
+      expect(enviada['observedLatitude'], -20.3154);
+      expect(enviada['observedLongitude'], -40.3128);
+      // O valor REAL da precisão, que o servidor julga sem arredondar.
+      expect(enviada['observedAccuracyMeters'], 8.0);
+    });
+
+    test(
+      'posição fora do contrato NÃO é enviada — nem montada à mão (1200 m)',
+      () async {
         final repository = StubRepository()
           ..bundleBuilder = () => _bundleComPonto(3);
-        final controller = build(repository, location: PosicaoFixa());
+        final controller = build(repository);
         await controller.load();
 
-        final medida = await controller.checkLocationForConfirm();
-        expect(medida, isNotNull);
-        expect(medida!.withinLimit, isTrue);
-
-        // O pacote é relido com o ponto em outra versão.
-        repository.bundleBuilder = () => _bundleComPonto(7);
-        await controller.load();
-
-        await controller.confirmLocation(medida);
-        expect(repository.confirmacoes, hasLength(1));
-        expect(repository.confirmacoes.single['expectedVersion'], 3);
-        expect(repository.confirmacoes.single['observedLatitude'], -20.3154);
+        final medida = controller.measureForConfirm(_posicao(precisao: 1200));
+        expect(await controller.confirmLocation(medida!), isFalse);
+        expect(repository.confirmacoes, isEmpty);
+        expect(controller.state.error, contains('precisão necessária'));
       },
     );
 
-    test('sem posição medida, nada é enviado', () async {
+    test('o limite de precisão é o do pacote; sem ele, o do contrato', () async {
       final repository = StubRepository()
-        ..bundleBuilder = () => _bundleComPonto(3);
+        ..bundleBuilder = () => _bundleComPonto(3, limitePrecisao: 30);
+      final controller = build(repository);
+      await controller.load();
+      expect(controller.fixPolicy.maxAccuracyMeters, 30);
+
+      repository.bundleBuilder = () => _bundleComPonto(3, limitePrecisao: null);
+      await controller.load();
+      expect(controller.fixPolicy.maxAccuracyMeters, 50);
+
+      // E o limite do pacote vale na hora de enviar: 35 m passa pelo contrato,
+      // não pelo servidor que mandou 30.
+      repository.bundleBuilder = () => _bundleComPonto(3, limitePrecisao: 30);
+      await controller.load();
+      final medida = controller.measureForConfirm(_posicao(precisao: 35));
+      expect(await controller.confirmLocation(medida!), isFalse);
+    });
+  });
+
+  group('corrigir localização (RC-1C-HOTFIX)', () {
+    test('com GPS: envia a posição CAPTURADA e RECARREGA o pacote — a seção sai de "Sem localização"', () async {
+      /*
+          A pergunta da validação física: depois de corrigir, a tela ainda
+          dizia "Sem localização". O servidor criou o ponto; a tela precisa
+          mostrar o que o SERVIDOR diz agora, e não o pacote de antes.
+        */
+      final repository = StubRepository()
+        ..bundleBuilder = () => _bundleComPonto(0, status: 'MISSING');
+      final controller = build(
+        repository,
+        positions: FakePositionSource(script: const [_perto]),
+      );
+      await controller.load();
+      expect(controller.state.bundle!.location.status, LocationStatus.missing);
+      final cargas = repository.loads;
+
+      final fix = await capturar(controller);
+      repository.bundleBuilder = () => _bundleComPonto(1, status: 'CONFIRMED');
+      final ok = await controller.correctLocation(
+        reason: 'INCORRECT_LOCATION',
+        useGps: true,
+        fix: fix,
+      );
+
+      expect(ok, isTrue);
+      final enviada = repository.correcoes.single;
+      expect(enviada['latitude'], fix.latitude);
+      expect(enviada['longitude'], fix.longitude);
+      expect(enviada['accuracyMeters'], fix.accuracyMeters);
+      expect(enviada['source'], 'TECHNICIAN_GPS');
+      // Criação: o cliente não tinha ponto.
+      expect(enviada['expectedVersion'], isNull);
+
+      expect(repository.loads, cargas + 1, reason: 'recarregou do servidor');
+      expect(
+        controller.state.bundle!.location.status,
+        LocationStatus.confirmed,
+      );
+      expect(
+        controller.state.message,
+        'Localização corrigida. Precisão do GPS: 8 m.',
+      );
+    });
+
+    test(
+      'GPS escolhido e SEM posição: recusa — não vira correção só de endereço',
+      () async {
+        final repository = StubRepository()
+          ..bundleBuilder = () => _bundleComPonto(2);
+        final controller = build(repository);
+        await controller.load();
+
+        final ok = await controller.correctLocation(
+          reason: 'INCORRECT_LOCATION',
+          useGps: true,
+          address: const {'address': 'Rua Que Não Pode Entrar Sozinha'},
+        );
+
+        expect(ok, isFalse);
+        expect(repository.correcoes, isEmpty);
+        expect(
+          controller.state.error,
+          contains('Usar minha localização atual'),
+        );
+      },
+    );
+
+    test('GPS escolhido com posição imprecisa (1200 m): recusa', () async {
+      final repository = StubRepository()
+        ..bundleBuilder = () => _bundleComPonto(2);
       final controller = build(repository);
       await controller.load();
 
-      final medida = await controller.checkLocationForConfirm();
-      expect(medida!.hasPosition, isFalse);
-      expect(await controller.confirmLocation(medida), isFalse);
-      expect(repository.confirmacoes, isEmpty);
+      expect(
+        await controller.correctLocation(
+          reason: 'INCORRECT_LOCATION',
+          useGps: true,
+          fix: _posicao(precisao: 1200),
+        ),
+        isFalse,
+      );
+      expect(repository.correcoes, isEmpty);
     });
+
+    test(
+      'GPS desligado: só endereço, sem coordenada, sem precisão e sem GPS',
+      () async {
+        final gps = FakePositionSource(script: const [_perto]);
+        final repository = StubRepository()
+          ..bundleBuilder = () => _bundleComPonto(2);
+        final controller = build(repository, positions: gps);
+        await controller.load();
+
+        final ok = await controller.correctLocation(
+          reason: 'INCORRECT_ADDRESS',
+          useGps: false,
+          // Uma posição que sobrou não entra numa correção de endereço.
+          fix: _posicao(),
+          address: const {'number': '77'},
+        );
+
+        expect(ok, isTrue);
+        final enviada = repository.correcoes.single;
+        expect(enviada['latitude'], isNull);
+        expect(enviada['accuracyMeters'], isNull);
+        expect(enviada['source'], isNull);
+        expect(enviada['address'], {'number': '77'});
+        expect(gps.watchCalls, 0);
+        expect(controller.state.message, 'Cadastro corrigido.');
+      },
+    );
   });
 
   group('foto resiliente (§58)', () {

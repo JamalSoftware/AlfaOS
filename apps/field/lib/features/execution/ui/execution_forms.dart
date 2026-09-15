@@ -16,8 +16,10 @@ import 'package:flutter/services.dart';
 
 import '../../../app/theme/tokens.dart';
 import '../../../core/errors/field_error.dart';
+import '../../../core/location/operational_position.dart';
 import '../domain/execution.dart';
 import '../state/execution_controller.dart';
+import 'location_fix_dialog.dart';
 import 'signature_pad.dart';
 
 Future<T?> _sheet<T>(BuildContext context, Widget child) {
@@ -359,6 +361,7 @@ Future<void> showCorrectLocationSheet(
   var reason = 'INCORRECT_LOCATION';
   var useGps = true;
   Map<String, String>? preenchido;
+  OperationalFix? capturada;
 
   // `_SheetFields` por fora, `StatefulBuilder` por dentro: os controladores
   // pertencem à rota; o motivo e o interruptor de GPS são estado local da
@@ -458,9 +461,32 @@ Future<void> showCorrectLocationSheet(
               ),
               const SizedBox(height: AlfaSpacing.lg),
               FilledButton(
-                // Lê os campos AQUI, com eles ainda vivos, e leva o resultado
-                // no pop. Depois do `await` não há mais controlador a tocar.
-                onPressed: () {
+                key: const Key('correct-location-submit'),
+                /*
+                  Com o GPS ligado, a posição é capturada AQUI, por cima da
+                  folha, e só uma posição dentro do contrato a fecha
+                  (RC-1C-HOTFIX). Falhou ou desistiu: a folha continua aberta,
+                  com o que foi digitado — dá para tentar de novo ou desligar
+                  o GPS e corrigir só o endereço. O que NÃO acontece é virar
+                  correção de endereço sozinha: quem ligou o GPS quis mover o
+                  ponto.
+
+                  Capturar no salvar, e não ao abrir a folha, é o que mantém a
+                  leitura recente: digitar o endereço leva minutos.
+                */
+                onPressed: () async {
+                  OperationalFix? fix;
+                  if (useGps) {
+                    fix = await showLocationFixDialog(
+                      context,
+                      acquire: notifier.acquireFix,
+                      maxAccuracyMeters: notifier.fixPolicy.maxAccuracyMeters,
+                    );
+                    if (fix == null || !context.mounted) return;
+                  }
+                  // Lê os campos AQUI, com eles ainda vivos, e leva o
+                  // resultado no pop. Depois do `await` da folha não há mais
+                  // controlador a tocar.
                   preenchido = {
                     'note': _t(fields, 'note'),
                     'address': _t(fields, 'address'),
@@ -468,6 +494,7 @@ Future<void> showCorrectLocationSheet(
                     'district': _t(fields, 'district'),
                     'city': _t(fields, 'city'),
                   };
+                  capturada = fix;
                   Navigator.of(context).pop(true);
                 },
                 child: const Text('Salvar correção'),
@@ -490,7 +517,8 @@ Future<void> showCorrectLocationSheet(
     await notifier.correctLocation(
       reason: reason,
       note: (valores['note'] ?? '').isEmpty ? null : valores['note'],
-      useCurrentPosition: useGps,
+      useGps: useGps,
+      fix: capturada,
       address: patch.isEmpty ? null : patch,
     );
   }

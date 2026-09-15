@@ -2,11 +2,13 @@ import 'dart:io';
 
 import 'package:alfaos_field/app/providers.dart';
 import 'package:alfaos_field/core/location/location_service.dart';
+import 'package:alfaos_field/core/location/operational_position.dart';
 import 'package:alfaos_field/core/media/photo_capture.dart';
 import 'package:alfaos_field/features/execution/ui/execution_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/fake_position_source.dart';
 import '../support/fake_transport.dart';
 import '../support/harness.dart';
 
@@ -19,7 +21,8 @@ import '../support/harness.dart';
 ///
 /// Fixtures fictícias: nenhum nome, endereço ou identificador real.
 
-/// GPS controlável.
+/// GPS controlável do CHECK-IN — que aceita a leitura que vier. Confirmar e
+/// Corrigir usam a captura (`FakePositionSource`), desde a RC-1C-HOTFIX.
 class FakeLocationService implements LocationService {
   FakeLocationService(this.reading);
 
@@ -63,10 +66,18 @@ const _okPosition = LocationReading.ok(
 const _pontoLat = -23.5504;
 const _pontoLng = -46.6332;
 
+/// A leitura boa da captura: no mesmo lugar de `_okPosition`, 9 m de precisão.
+const _pertoPreciso = ScriptedReading(-23.5505, -46.6333, accuracy: 9);
+
+/// ~1,8 km ao norte, com os 2000 m da posição APROXIMADA do Android — a
+/// leitura do caso físico.
+const _aproximada = ScriptedReading(-23.5343, -46.6333, accuracy: 2000);
+
 Map<String, dynamic> bundle({
   String locationStatus = 'UNCONFIRMED',
   int? locationVersion = 0,
   int? confirmMaxDistanceMeters = 100,
+  int? gpsMaxAccuracyMeters = 50,
   Map<String, dynamic>? checkIn,
   List<Map<String, dynamic>> checklist = const [],
   List<Map<String, dynamic>> evidences = const [],
@@ -99,6 +110,7 @@ Map<String, dynamic> bundle({
       'reference': null,
       'version': locationVersion,
       'confirmMaxDistanceMeters': ?confirmMaxDistanceMeters,
+      'gpsMaxAccuracyMeters': ?gpsMaxAccuracyMeters,
     },
     'checkIn': checkIn,
     'checklist': checklist,
@@ -136,11 +148,19 @@ Future<void> settle(WidgetTester tester) async {
   await tester.pumpAndSettle(const Duration(milliseconds: 50));
 }
 
-Future<({Harness harness, FakeLocationService gps, FakePhotoCapture camera})>
+Future<
+  ({
+    Harness harness,
+    FakeLocationService gps,
+    FakePositionSource captura,
+    FakePhotoCapture camera,
+  })
+>
 abrir(
   WidgetTester tester, {
   Map<String, dynamic>? payload,
   LocationReading location = _okPosition,
+  FakePositionSource? captura,
   File? photo,
   List<Map<String, dynamic>> stock = const [],
 }) async {
@@ -160,6 +180,7 @@ abrir(
 
   final harness = Harness();
   final gps = FakeLocationService(location);
+  final fonte = captura ?? FakePositionSource(script: const [_pertoPreciso]);
   final camera = FakePhotoCapture(file: photo);
 
   harness.transport.onJson(
@@ -174,13 +195,31 @@ abrir(
     const ExecutionScreen(orderId: 'os-1'),
     extraOverrides: [
       locationServiceProvider.overrideWithValue(gps),
+      positionSourceProvider.overrideWithValue(fonte),
       photoCaptureProvider.overrideWithValue(camera),
     ],
   );
   await settle(tester);
 
-  return (harness: harness, gps: gps, camera: camera);
+  return (harness: harness, gps: gps, captura: fonte, camera: camera);
 }
+
+/// Pulsos curtos: a captura está procurando, com a barra de progresso
+/// animando — `pumpAndSettle` não assentaria.
+Future<void> buscando(WidgetTester tester) async {
+  for (var i = 0; i < 4; i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+}
+
+/// O tempo da captura esgota (20 s, no relógio falso do teste).
+Future<void> esgotarCaptura(WidgetTester tester) async {
+  await tester.pump(const Duration(seconds: 21));
+  await settle(tester);
+}
+
+int _posts(Harness h, String rota) =>
+    h.transport.countOf('POST', '/service-orders/os-1/location/$rota');
 
 void main() {
   group('localização', () {
@@ -221,7 +260,7 @@ void main() {
     });
 
     testWidgets(
-      'confirmar mede ANTES, mostra distância e precisão, e exige aceite',
+      'confirmar CAPTURA antes, mostra distância e precisão, e exige aceite',
       (tester) async {
         final h = await abrir(tester);
         h.harness.transport.onJson(
@@ -238,24 +277,11 @@ void main() {
         expect(find.text('Você está no endereço do cliente?'), findsOneWidget);
         expect(find.text('Distância da sua posição: 15 m'), findsOneWidget);
         expect(find.text('Precisão do GPS: 9 m'), findsOneWidget);
-        expect(
-          h.harness.transport.countOf(
-            'POST',
-            '/service-orders/os-1/location/confirm',
-          ),
-          0,
-        );
+        expect(_posts(h.harness, 'confirm'), 0);
 
         await tester.tap(find.text('Cancelar'));
         await settle(tester);
-        expect(
-          h.harness.transport.countOf(
-            'POST',
-            '/service-orders/os-1/location/confirm',
-          ),
-          0,
-          reason: 'cancelar não pode enviar',
-        );
+        expect(_posts(h.harness, 'confirm'), 0, reason: 'cancelar não envia');
 
         await tester.tap(find.text('Confirmar localização'));
         await settle(tester);
@@ -269,30 +295,190 @@ void main() {
         final body = request.data as Map<String, dynamic>;
         // A versão é a da LOCALIZAÇÃO (0), não a da OS (3).
         expect(body['expectedVersion'], 0);
-        // A posição enviada é a MESMA que foi medida e mostrada.
+        // A posição enviada é a MESMA que foi capturada e mostrada — com a
+        // precisão REAL, que o servidor julga sem arredondar.
         expect(body['observedLatitude'], -23.5505);
         expect(body['observedLongitude'], -46.6333);
-        expect(body['observedAccuracyMeters'], 9);
+        expect(body['observedAccuracyMeters'], 9.0);
         // Nenhuma distância viaja: quem mede, para valer, é o servidor.
         expect(body.containsKey('distanceMeters'), isFalse);
         expect(request.headers['Idempotency-Key'], isNotNull);
-        // Uma leitura por tentativa, e a enviada é a da tentativa aceita.
-        expect(h.gps.calls, 2);
+        // Uma captura por tentativa; o GPS do check-in não entra aqui.
+        expect(h.captura.watchCalls, 2);
+        expect(h.gps.calls, 0);
+        // E o GPS foi desligado depois de cada captura.
+        expect(h.captura.listening, isFalse);
+      },
+    );
+
+    testWidgets(
+      'o caso físico: a leitura APROXIMADA (2000 m, ~1,8 km) aparece como precisão atual e NÃO é usada',
+      (tester) async {
+        final h = await abrir(
+          tester,
+          captura: FakePositionSource(
+            script: [
+              _aproximada,
+              ScriptedReading(
+                _pertoPreciso.latitude,
+                _pertoPreciso.longitude,
+                accuracy: 12,
+                after: const Duration(seconds: 3),
+              ),
+            ],
+          ),
+        );
+        h.harness.transport.onJson(
+          'POST',
+          '/service-orders/os-1/location/confirm',
+          data: {},
+        );
+
+        await tester.tap(find.text('Confirmar localização'));
+        await buscando(tester);
+        expect(find.text('Buscando uma localização precisa…'), findsOneWidget);
+        expect(find.text('Precisão atual: 2000 m'), findsOneWidget);
+        expect(find.text('Precisão necessária: até 50 m.'), findsOneWidget);
+        // Nada de "Longe do ponto" por causa de uma posição que não vale.
+        expect(find.text('Longe do ponto cadastrado'), findsNothing);
+
+        await tester.pump(const Duration(seconds: 3));
+        await settle(tester);
+        expect(find.text('Distância da sua posição: 15 m'), findsOneWidget);
+        expect(find.text('Precisão do GPS: 12 m'), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('confirm-location-submit')));
+        await settle(tester);
+        final body =
+            h.harness.transport
+                    .requestFor('POST', '/service-orders/os-1/location/confirm')
+                    .data
+                as Map<String, dynamic>;
+        expect(body['observedLatitude'], _pertoPreciso.latitude);
+        expect(body['observedAccuracyMeters'], 12.0);
+      },
+    );
+
+    testWidgets(
+      'precisão insuficiente: mostra os metros, esgota, NÃO envia — e tentar de novo abre captura nova',
+      (tester) async {
+        final h = await abrir(
+          tester,
+          captura: FakePositionSource(
+            script: const [ScriptedReading(-23.5505, -46.6333, accuracy: 74)],
+          ),
+        );
+
+        await tester.tap(find.text('Confirmar localização'));
+        await buscando(tester);
+        expect(find.text('Precisão atual: 74 m'), findsOneWidget);
+
+        await esgotarCaptura(tester);
+        expect(find.text('Precisão do GPS insuficiente'), findsOneWidget);
+        expect(
+          find.text(
+            'Precisão do GPS insuficiente: 74 m. Precisão necessária: até '
+            '50 m. Aguarde alguns segundos em um local mais aberto e tente '
+            'novamente.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('Você está no endereço do cliente?'), findsNothing);
+        expect(_posts(h.harness, 'confirm'), 0);
+        expect(h.captura.listening, isFalse);
+
+        // Melhorou: a tentativa nova usa a leitura NOVA.
+        h.captura.script = const [
+          ScriptedReading(-23.5505, -46.6333, accuracy: 18),
+        ];
+        await tester.tap(find.byKey(const Key('fix-retry')));
+        await settle(tester);
+        expect(h.captura.watchCalls, 2);
+        expect(find.text('Precisão do GPS: 18 m'), findsOneWidget);
+        expect(_posts(h.harness, 'confirm'), 0, reason: 'ainda falta o aceite');
+      },
+    );
+
+    testWidgets(
+      'nenhuma leitura em 20 s: a mensagem de tempo esgotado, e a tela continua utilizável',
+      (tester) async {
+        final h = await abrir(tester, captura: FakePositionSource());
+
+        await tester.tap(find.text('Confirmar localização'));
+        await buscando(tester);
+        expect(find.byKey(const Key('fix-current-accuracy')), findsNothing);
+        await esgotarCaptura(tester);
+
+        expect(
+          find.text(
+            'Não foi possível obter uma localização com precisão suficiente. '
+            'Precisão necessária: até 50 m. Vá para um local mais aberto, '
+            'aguarde alguns segundos e tente novamente.',
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(find.byKey(const Key('fix-close')));
+        await settle(tester);
+        expect(_posts(h.harness, 'confirm'), 0);
+        expect(find.text('FAZER CHECK-IN'), findsOneWidget);
+        expect(find.text('Confirmar localização'), findsOneWidget);
+      },
+    );
+
+    testWidgets('cancelar a busca não envia nada e desliga o GPS', (
+      tester,
+    ) async {
+      final h = await abrir(
+        tester,
+        captura: FakePositionSource(
+          script: const [ScriptedReading(-23.5505, -46.6333, accuracy: 90)],
+        ),
+      );
+
+      await tester.tap(find.text('Confirmar localização'));
+      await buscando(tester);
+      expect(h.captura.listening, isTrue);
+
+      await tester.tap(find.byKey(const Key('fix-cancel')));
+      await settle(tester);
+      expect(find.text('Buscando uma localização precisa…'), findsNothing);
+      expect(h.captura.listening, isFalse);
+      expect(_posts(h.harness, 'confirm'), 0);
+    });
+
+    testWidgets(
+      'só a localização APROXIMADA: pede a precisa; recusada, orienta e não mede',
+      (tester) async {
+        final h = await abrir(
+          tester,
+          captura: FakePositionSource(precise: false),
+        );
+
+        await tester.tap(find.text('Confirmar localização'));
+        await settle(tester);
+
+        expect(find.text('Localização precisa desativada'), findsOneWidget);
+        expect(
+          find.textContaining(
+            'Ative Localização precisa para usar esta função.',
+          ),
+          findsOneWidget,
+        );
+        expect(h.captura.requestCalls, 1);
+        expect(h.captura.watchCalls, 0);
+        expect(_posts(h.harness, 'confirm'), 0);
       },
     );
 
     testWidgets(
       'longe do ponto: mostra a distância, NÃO oferece Confirmar e leva a Corrigir',
       (tester) async {
-        // ~2,36 km ao norte do ponto cadastrado.
+        // ~2,36 km ao norte do ponto cadastrado — com GPS BOM (14 m): a
+        // precisão passa, e quem recusa é a regra dos 100 m.
         final h = await abrir(
           tester,
-          location: const LocationReading.ok(
-            DeviceLocation(
-              latitude: -23.529203,
-              longitude: -46.6332,
-              accuracyMeters: 14,
-            ),
+          captura: FakePositionSource(
+            script: const [ScriptedReading(-23.529203, -46.6332, accuracy: 14)],
           ),
         );
 
@@ -316,13 +502,7 @@ void main() {
         await tester.tap(find.byKey(const Key('confirm-location-go-correct')));
         await settle(tester);
         expect(find.text('Corrigir endereço e localização'), findsOneWidget);
-        expect(
-          h.harness.transport.countOf(
-            'POST',
-            '/service-orders/os-1/location/confirm',
-          ),
-          0,
-        );
+        expect(_posts(h.harness, 'confirm'), 0);
       },
     );
 
@@ -331,11 +511,10 @@ void main() {
       const metro = 180 / (3.141592653589793 * 6371008.8);
       final h = await abrir(
         tester,
-        location: const LocationReading.ok(
-          DeviceLocation(
-            latitude: _pontoLat + 100 * metro,
-            longitude: _pontoLng,
-          ),
+        captura: FakePositionSource(
+          script: const [
+            ScriptedReading(_pontoLat + 100 * metro, _pontoLng, accuracy: 8),
+          ],
         ),
       );
       await tester.tap(find.text('Confirmar localização'));
@@ -345,9 +524,9 @@ void main() {
       await tester.tap(find.text('Cancelar'));
       await settle(tester);
 
-      h.gps.reading = const LocationReading.ok(
-        DeviceLocation(latitude: _pontoLat + 101 * metro, longitude: _pontoLng),
-      );
+      h.captura.script = const [
+        ScriptedReading(_pontoLat + 101 * metro, _pontoLng, accuracy: 8),
+      ];
       await tester.tap(find.text('Confirmar localização'));
       await settle(tester);
       expect(find.text('Distância da sua posição: 101 m'), findsOneWidget);
@@ -369,8 +548,9 @@ void main() {
       (tester) async {
         final h = await abrir(
           tester,
-          location: const LocationReading.failed(
-            LocationOutcome.permissionDenied,
+          captura: FakePositionSource(
+            permission: PositionPermission.denied,
+            permissionAfterRequest: PositionPermission.denied,
           ),
         );
         h.harness.transport.onJson(
@@ -383,30 +563,25 @@ void main() {
         await settle(tester);
 
         /*
-        Antes da RC-1C, sem GPS a confirmação ACONTECIA — o técnico declarava
-        e a coordenada era "só referência". O dono decidiu o contrário:
-        confirmar exige a posição do aparelho, porque é contra ela que se mede
-        a distância. Sem ela, não há o que oferecer.
-      */
-        expect(find.text('Sem a sua localização'), findsOneWidget);
+          Antes da RC-1C, sem GPS a confirmação ACONTECIA — o técnico declarava
+          e a coordenada era "só referência". O dono decidiu o contrário:
+          confirmar exige a posição do aparelho, porque é contra ela que se
+          mede a distância. Sem ela, a captura explica, e não há medida.
+        */
+        expect(find.text('Permissão de localização'), findsOneWidget);
         expect(
           find.text(
-            'Sem a posição do aparelho não é possível confirmar o ponto.',
+            'A permissão de localização não foi concedida. Permita o acesso à '
+            'localização para continuar.',
           ),
           findsOneWidget,
         );
         expect(find.byKey(const Key('confirm-location-submit')), findsNothing);
 
-        await tester.tap(find.text('Fechar'));
+        await tester.tap(find.byKey(const Key('fix-close')));
         await settle(tester);
-        expect(
-          h.harness.transport.countOf(
-            'POST',
-            '/service-orders/os-1/location/confirm',
-          ),
-          0,
-        );
-        expect(h.gps.calls, 1);
+        expect(_posts(h.harness, 'confirm'), 0);
+        expect(h.captura.watchCalls, 0, reason: 'sem permissão, não mede');
         // E o resto da tela continua utilizável.
         expect(find.text('FAZER CHECK-IN'), findsOneWidget);
         expect(find.text('Confirmar localização'), findsOneWidget);
@@ -418,12 +593,14 @@ void main() {
     ) async {
       await abrir(
         tester,
-        location: const LocationReading.failed(LocationOutcome.unavailable),
+        captura: FakePositionSource()..streamError = StateError('sem fix'),
       );
       await tester.tap(find.text('Confirmar localização'));
       await settle(tester);
       expect(
-        find.text('Não foi possível obter a localização agora.'),
+        find.text(
+          'Não foi possível obter a localização agora. Tente novamente.',
+        ),
         findsOneWidget,
       );
       expect(find.textContaining('continuar sem ela'), findsNothing);
@@ -455,6 +632,119 @@ void main() {
         expect(find.text('Não confirmada'), findsOneWidget);
       },
     );
+  });
+
+  group('corrigir localização (RC-1C-HOTFIX)', () {
+    Future<void> abrirFolha(WidgetTester tester) async {
+      await tester.tap(find.text('Corrigir'));
+      await settle(tester);
+      expect(find.text('Corrigir endereço e localização'), findsOneWidget);
+    }
+
+    testWidgets(
+      'com GPS: captura no salvar, envia a posição CAPTURADA, e a seção sai de "Sem localização"',
+      (tester) async {
+        /*
+          A pergunta da validação física: depois de uma correção, a tela ainda
+          dizia "Sem localização". A seção mostra o que o SERVIDOR diz, relido
+          depois do comando — e o comando só sai com uma posição dentro do
+          contrato.
+        */
+        final h = await abrir(
+          tester,
+          payload: bundle(locationStatus: 'MISSING', locationVersion: null),
+        );
+        expect(find.text('Sem localização'), findsOneWidget);
+        h.harness.transport.onJson(
+          'POST',
+          '/service-orders/os-1/location/correct',
+          data: {},
+        );
+
+        await abrirFolha(tester);
+        // O servidor, depois do comando, tem o ponto — verificado.
+        h.harness.transport.onJson(
+          'GET',
+          '/service-orders/os-1/execution',
+          data: bundle(locationStatus: 'CONFIRMED', locationVersion: 1),
+        );
+        await tester.tap(find.byKey(const Key('correct-location-submit')));
+        await settle(tester);
+
+        final body =
+            h.harness.transport
+                    .requestFor('POST', '/service-orders/os-1/location/correct')
+                    .data
+                as Map<String, dynamic>;
+        expect(body['latitude'], _pertoPreciso.latitude);
+        expect(body['longitude'], _pertoPreciso.longitude);
+        expect(body['accuracyMeters'], 9.0);
+        expect(body['source'], 'TECHNICIAN_GPS');
+        expect(body['expectedVersion'], isNull, reason: 'criação do ponto');
+
+        expect(find.text('Confirmada'), findsOneWidget);
+        expect(find.text('Sem localização'), findsNothing);
+        expect(h.captura.listening, isFalse);
+      },
+    );
+
+    testWidgets(
+      'GPS ruim + endereço + GPS ligado: NADA é enviado — nem como correção só de endereço — e a folha fica com o que foi digitado',
+      (tester) async {
+        final h = await abrir(
+          tester,
+          captura: FakePositionSource(
+            script: const [ScriptedReading(-23.5505, -46.6333, accuracy: 300)],
+          ),
+        );
+        await abrirFolha(tester);
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Logradouro'),
+          'Rua Digitada QA',
+        );
+        await tester.tap(find.byKey(const Key('correct-location-submit')));
+        await buscando(tester);
+        expect(find.text('Precisão atual: 300 m'), findsOneWidget);
+        await esgotarCaptura(tester);
+        expect(find.text('Precisão do GPS insuficiente'), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('fix-close')));
+        await settle(tester);
+        expect(_posts(h.harness, 'correct'), 0);
+        // A folha continua aberta, com o endereço digitado: dá para tentar de
+        // novo ou desligar o GPS — a escolha é do técnico, não do app.
+        expect(find.text('Corrigir endereço e localização'), findsOneWidget);
+        expect(find.text('Rua Digitada QA'), findsOneWidget);
+      },
+    );
+
+    testWidgets('GPS desligado: corrige só o endereço, sem abrir o GPS', (
+      tester,
+    ) async {
+      final h = await abrir(tester);
+      h.harness.transport.onJson(
+        'POST',
+        '/service-orders/os-1/location/correct',
+        data: {},
+      );
+      await abrirFolha(tester);
+      await tester.tap(find.byType(SwitchListTile));
+      await tester.pump();
+      await tester.enterText(find.widgetWithText(TextField, 'Número'), '77');
+      await tester.tap(find.byKey(const Key('correct-location-submit')));
+      await settle(tester);
+
+      final body =
+          h.harness.transport
+                  .requestFor('POST', '/service-orders/os-1/location/correct')
+                  .data
+              as Map<String, dynamic>;
+      expect(body.containsKey('latitude'), isFalse);
+      expect(body.containsKey('accuracyMeters'), isFalse);
+      expect(body.containsKey('source'), isFalse);
+      expect(body['address'], {'number': '77'});
+      expect(h.captura.watchCalls, 0);
+    });
   });
 
   group('check-in', () {

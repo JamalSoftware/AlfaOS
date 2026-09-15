@@ -20,7 +20,7 @@ library;
 
 import 'dart:math' as math;
 
-import '../../../core/location/location_service.dart';
+import '../../../core/location/operational_position.dart';
 import 'execution.dart';
 
 /// Raio médio da Terra, em metros — o mesmo de `geo.ts`.
@@ -52,45 +52,50 @@ String formatDistanceMeters(int meters) {
   return '$km km';
 }
 
-/// O resultado de ler o GPS para confirmar: onde o técnico está, a que
-/// distância do ponto, e se isso permite confirmar.
+/// A medida para confirmar: onde o técnico está, a que distância do ponto, e
+/// se isso permite confirmar.
+///
+/// Só existe a partir de uma posição CAPTURADA (RC-1C-HOTFIX): precisão até o
+/// limite, leitura recente. Sem ela não há medida — a falha fica na captura,
+/// que diz o motivo e deixa tentar de novo.
 class ConfirmLocationCheck {
   const ConfirmLocationCheck({
-    required this.reading,
-    this.distanceMeters,
+    required this.fix,
+    required this.distanceMeters,
     this.maxDistanceMeters,
     this.locationVersion,
   });
 
-  /// Mede a leitura contra o ponto cadastrado.
+  /// Mede a posição capturada contra o ponto cadastrado.
   ///
-  /// Sem posição do aparelho — ou sem ponto, que a tela nem deixa chegar
-  /// aqui —, não há distância, e sem distância não há confirmação.
+  /// O ponto precisa existir — sem ele a saída é corrigir, e a tela nem
+  /// oferece confirmar.
   factory ConfirmLocationCheck.evaluate({
     required ExecutionLocation location,
-    required LocationReading reading,
+    required OperationalFix fix,
   }) {
-    final position = reading.position;
     final lat = location.latitude;
     final lng = location.longitude;
-    final distance = position != null && lat != null && lng != null
-        ? distanceInMeters(
-            fromLatitude: position.latitude,
-            fromLongitude: position.longitude,
-            toLatitude: lat,
-            toLongitude: lng,
-          )
-        : null;
+    if (lat == null || lng == null) {
+      throw ArgumentError('sem ponto cadastrado não há o que medir');
+    }
     return ConfirmLocationCheck(
-      reading: reading,
-      distanceMeters: distance,
+      fix: fix,
+      distanceMeters: distanceInMeters(
+        fromLatitude: fix.latitude,
+        fromLongitude: fix.longitude,
+        toLatitude: lat,
+        toLongitude: lng,
+      ),
       maxDistanceMeters: location.confirmMaxDistanceMeters,
       locationVersion: location.version,
     );
   }
 
-  final LocationReading reading;
-  final int? distanceMeters;
+  /// A posição medida — a MESMA que o diálogo mostra e que a confirmação
+  /// envia.
+  final OperationalFix fix;
+  final int distanceMeters;
 
   /// A versão do ponto contra o qual a distância foi medida.
   ///
@@ -103,12 +108,7 @@ class ConfirmLocationCheck {
   /// aí o aplicativo não bloqueia sozinho, e a regra fica inteira do servidor.
   final int? maxDistanceMeters;
 
-  DeviceLocation? get position => reading.position;
-
-  bool get hasPosition => position != null && distanceMeters != null;
-
-  /// Pode confirmar: há posição e ela está dentro do limite (inclusivo).
+  /// Pode confirmar: dentro do limite de distância (inclusivo).
   bool get withinLimit =>
-      hasPosition &&
-      (maxDistanceMeters == null || distanceMeters! <= maxDistanceMeters!);
+      maxDistanceMeters == null || distanceMeters <= maxDistanceMeters!;
 }

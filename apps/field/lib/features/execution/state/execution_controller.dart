@@ -8,6 +8,7 @@ import '../../../app/providers.dart';
 import '../../../core/api/idempotency.dart';
 import '../../../core/errors/field_error.dart';
 import '../../../core/location/location_service.dart';
+import '../../../core/location/operational_position.dart';
 import '../../../core/media/photo_capture.dart';
 import '../../../core/sync/pending_operation.dart';
 import '../data/execution_repository.dart';
@@ -75,7 +76,6 @@ class ExecutionState {
     this.locationMessage,
     this.completionPendencies = const [],
     this.completed = false,
-    this.locating = false,
   });
 
   final ExecutionBundle? bundle;
@@ -104,13 +104,6 @@ class ExecutionState {
 
   final bool completed;
 
-  /// O GPS está sendo lido para medir a distância antes de confirmar.
-  ///
-  /// Separado de `busy`, que é "um COMANDO em voo": ler a posição não manda
-  /// nada ao servidor, e a tela precisa dizer "obtendo sua localização" em vez
-  /// de parecer travada pelos até quinze segundos de um fix.
-  final bool locating;
-
   ExecutionState copyWith({
     ExecutionBundle? bundle,
     List<StockLine>? stock,
@@ -123,7 +116,6 @@ class ExecutionState {
     String? locationMessage,
     List<CompletionPendency>? completionPendencies,
     bool? completed,
-    bool? locating,
     bool clearError = false,
     bool clearMessage = false,
     bool clearLocationMessage = false,
@@ -141,7 +133,6 @@ class ExecutionState {
         : (locationMessage ?? this.locationMessage),
     completionPendencies: completionPendencies ?? this.completionPendencies,
     completed: completed ?? this.completed,
-    locating: locating ?? this.locating,
   );
 }
 
@@ -163,15 +154,25 @@ class ExecutionController extends StateNotifier<ExecutionState> {
   ExecutionController({
     required ExecutionRepository repository,
     required LocationService location,
+    required PositionSource positions,
     required PhotoCapture photos,
     required this.orderId,
+    DateTime Function()? clock,
   }) : _repository = repository,
        _location = location,
+       _acquirer = OperationalPositionAcquirer(positions, clock: clock),
        _photos = photos,
        super(const ExecutionState());
 
   final ExecutionRepository _repository;
+
+  /// A leitura do check-in: a que vier, porque lá a coordenada só informa.
   final LocationService _location;
+
+  /// A captura de Confirmar e Corrigir (RC-1C-HOTFIX): precisão e idade
+  /// julgadas leitura a leitura.
+  final OperationalPositionAcquirer _acquirer;
+
   final PhotoCapture _photos;
   final String orderId;
 
@@ -310,18 +311,57 @@ class ExecutionController extends StateNotifier<ExecutionState> {
     return reading.position;
   }
 
-  /// Lê o GPS e mede a distância até o ponto cadastrado — SEM confirmar nada.
+  /// O contrato da captura, com o limite de precisão que o SERVIDOR mandou.
   ///
-  /// É o primeiro passo de "Confirmar localização" (RC-1C): o técnico vê a que
-  /// distância está e com que precisão, e só então decide. Ler aqui, e não no
-  /// comando, é o que garante que a posição ENVIADA é a mesma que ele viu.
+  /// Sem o campo (servidor anterior à RC-1C-HOTFIX), vale o do contrato —
+  /// 50 m —, e não "sem limite".
+  OperationalFixPolicy get fixPolicy {
+    final limite = state.bundle?.location.gpsMaxAccuracyMeters;
+    return limite != null
+        ? OperationalFixPolicy(maxAccuracyMeters: limite.toDouble())
+        : const OperationalFixPolicy();
+  }
+
+  /// Procura uma posição dentro de [fixPolicy] — o "Buscando uma localização
+  /// precisa…" de Confirmar e de Corrigir (RC-1C-HOTFIX).
+  ///
+  /// Não escreve nada: quem envia é `confirmLocation` ou `correctLocation`,
+  /// com a posição que esta captura devolveu.
+  Future<OperationalFixResult> acquireFix({
+    void Function(double accuracyMeters)? onReading,
+    Future<void>? cancel,
+  }) {
+    return _acquirer.acquire(
+      policy: fixPolicy,
+      onReading: onReading,
+      cancel: cancel,
+    );
+  }
+
+  /// A posição está dentro do contrato? A captura só entrega assim; conferir
+  /// de novo antes de enviar impede que uma posição de outra origem — ou um
+  /// defeito de tela — chegue ao servidor como se tivesse passado por ela.
+  bool _dentroDoContrato(OperationalFix fix) {
+    final precisao = fix.accuracyMeters;
+    return isUsableCoordinate(fix.latitude, fix.longitude) &&
+        precisao.isFinite &&
+        precisao > 0 &&
+        precisao <= fixPolicy.maxAccuracyMeters;
+  }
+
+  /// Mede a posição capturada contra o ponto cadastrado — SEM confirmar nada.
+  ///
+  /// É o segundo passo de "Confirmar localização": a captura já entregou uma
+  /// posição dentro do contrato, e aqui ela vira distância. O técnico vê a
+  /// distância e a precisão, e só então decide. A medida guarda a posição e a
+  /// versão do ponto: o que ele viu é o que vai.
   ///
   /// `null` quando não há o que medir — sem pacote, com um comando em voo, ou
   /// sem ponto cadastrado (a saída aí é corrigir, e a tela nem oferece
   /// confirmar).
-  Future<ConfirmLocationCheck?> checkLocationForConfirm() async {
+  ConfirmLocationCheck? measureForConfirm(OperationalFix fix) {
     final bundle = state.bundle;
-    if (bundle == null || state.busy || state.locating) return null;
+    if (bundle == null || state.busy) return null;
     final location = bundle.location;
     if (!location.hasCoordinate || location.version == null) {
       state = state.copyWith(
@@ -329,38 +369,29 @@ class ExecutionController extends StateNotifier<ExecutionState> {
       );
       return null;
     }
-    state = state.copyWith(
-      locating: true,
-      clearError: true,
-      clearMessage: true,
-    );
-    try {
-      final reading = await _location.current();
-      return ConfirmLocationCheck.evaluate(
-        location: location,
-        reading: reading,
-      );
-    } finally {
-      if (mounted) state = state.copyWith(locating: false);
-    }
+    return ConfirmLocationCheck.evaluate(location: location, fix: fix);
   }
 
   /// Confirma o ponto que [check] mediu.
   ///
-  /// A posição é OBRIGATÓRIA desde a RC-1C: é contra ela que o servidor mede a
-  /// distância e aplica o limite. Ela não vira a localização do cliente —
-  /// mover o ponto é `correctLocation`, que é outra ação e exige motivo.
+  /// A posição é OBRIGATÓRIA desde a RC-1C, e precisa estar dentro da
+  /// precisão desde a RC-1C-HOTFIX: é contra ela que o servidor mede a
+  /// distância. Ela não vira a localização do cliente — mover o ponto é
+  /// `correctLocation`, que é outra ação e exige motivo.
   ///
   /// A posição E a versão enviadas são as da medida: o que o técnico viu no
   /// diálogo é exatamente o que o servidor avalia.
   Future<bool> confirmLocation(ConfirmLocationCheck check) async {
-    final position = check.position;
+    final fix = check.fix;
     final version = check.locationVersion;
-    if (position == null || !check.hasPosition) return false;
     if (version == null) {
       state = state.copyWith(
         error: 'Este cliente ainda não tem localização. Use "Corrigir".',
       );
+      return false;
+    }
+    if (!_dentroDoContrato(fix)) {
+      state = state.copyWith(error: _foraDoContrato);
       return false;
     }
     return _run(
@@ -369,33 +400,44 @@ class ExecutionController extends StateNotifier<ExecutionState> {
         orderId: orderId,
         expectedVersion: version,
         idempotencyKey: _intentKey('location-confirm'),
-        observedLatitude: position.latitude,
-        observedLongitude: position.longitude,
-        observedAccuracyMeters: position.accuracyMeters,
+        observedLatitude: fix.latitude,
+        observedLongitude: fix.longitude,
+        observedAccuracyMeters: fix.accuracyMeters,
       ),
       successMessage: 'Localização confirmada.',
     );
   }
 
+  static const _foraDoContrato =
+      'A localização obtida não tem a precisão necessária. '
+      'Obtenha a posição novamente e tente outra vez.';
+
   /// Corrige endereço e/ou coordenada.
   ///
-  /// `useCurrentPosition` lê o GPS e envia como `TECHNICIAN_GPS`. Sem ele, e
-  /// sem coordenada digitada, a correção é só de endereço — e não toca
-  /// `verified`, porque o texto estar errado não diz nada sobre o ponto.
+  /// Com [useGps], a correção MOVE o ponto e exige [fix] — a posição que a
+  /// captura entregou, enviada como `TECHNICIAN_GPS`. Sem ela, recusa: o
+  /// técnico escolheu usar o GPS, e virar uma correção só de endereço em
+  /// silêncio o faria achar que moveu o ponto (RC-1C-HOTFIX).
+  ///
+  /// Sem [useGps], é só endereço: não toca coordenada nem `verified`, porque
+  /// o texto estar errado não diz nada sobre o ponto.
   Future<bool> correctLocation({
     required String reason,
     String? note,
-    bool useCurrentPosition = false,
+    required bool useGps,
+    OperationalFix? fix,
     Map<String, String?>? address,
   }) async {
-    DeviceLocation? position;
-    if (useCurrentPosition) {
-      position = await _readPosition();
-      if (position == null) {
-        // Sem posição não há o que corrigir no mapa. O aviso já foi para o
-        // estado; recusar aqui evita mandar uma correção vazia.
-        return false;
-      }
+    final posicao = useGps ? fix : null;
+    if (useGps && (posicao == null || !_dentroDoContrato(posicao))) {
+      state = state.copyWith(
+        error: posicao == null
+            ? 'Sem uma localização precisa o ponto não pode ser corrigido. '
+                  'Tente de novo, ou desligue "Usar minha localização atual" '
+                  'para corrigir só o endereço.'
+            : _foraDoContrato,
+      );
+      return false;
     }
 
     return _run(
@@ -406,13 +448,16 @@ class ExecutionController extends StateNotifier<ExecutionState> {
         reason: reason,
         note: note,
         idempotencyKey: _intentKey('location-correct'),
-        latitude: position?.latitude,
-        longitude: position?.longitude,
-        accuracyMeters: position?.accuracyMeters,
-        source: position != null ? 'TECHNICIAN_GPS' : null,
+        latitude: posicao?.latitude,
+        longitude: posicao?.longitude,
+        accuracyMeters: posicao?.accuracyMeters,
+        source: posicao != null ? 'TECHNICIAN_GPS' : null,
         address: address,
       ),
-      successMessage: 'Cadastro corrigido.',
+      successMessage: posicao != null
+          ? 'Localização corrigida. Precisão do GPS: '
+                '${formatAccuracyMeters(posicao.accuracyMeters)}.'
+          : 'Cadastro corrigido.',
     );
   }
 
@@ -878,6 +923,7 @@ final executionControllerProvider = StateNotifierProvider.autoDispose
       return ExecutionController(
         repository: ref.watch(executionRepositoryProvider),
         location: ref.watch(locationServiceProvider),
+        positions: ref.watch(positionSourceProvider),
         photos: ref.watch(photoCaptureProvider),
         orderId: orderId,
       );

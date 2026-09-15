@@ -46,6 +46,7 @@ class ExecutionLocation {
     this.reference,
     this.version,
     this.confirmMaxDistanceMeters,
+    this.gpsMaxAccuracyMeters,
   });
 
   final LocationStatus status;
@@ -62,6 +63,12 @@ class ExecutionLocation {
   /// aplicativo só a usa para não oferecer um botão que seria recusado.
   /// `null` num servidor anterior à RC-1C.
   final int? confirmMaxDistanceMeters;
+
+  /// A pior precisão de GPS que confirmar e corrigir aceitam (RC-1C-HOTFIX).
+  ///
+  /// Do servidor, como o limite de distância. `null` num servidor anterior à
+  /// hotfix — e aí vale o limite do contrato (50 m), não "sem limite".
+  final int? gpsMaxAccuracyMeters;
 
   /// Token do compare-and-set da LOCALIZAÇÃO — não o da OS.
   ///
@@ -85,6 +92,7 @@ class ExecutionLocation {
       version: (json['version'] as num?)?.toInt(),
       confirmMaxDistanceMeters: (json['confirmMaxDistanceMeters'] as num?)
           ?.toInt(),
+      gpsMaxAccuracyMeters: (json['gpsMaxAccuracyMeters'] as num?)?.toInt(),
     );
   }
 }

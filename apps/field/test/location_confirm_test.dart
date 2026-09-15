@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:alfaos_field/core/location/location_service.dart';
+import 'package:alfaos_field/core/location/operational_position.dart';
 import 'package:alfaos_field/features/execution/domain/execution.dart';
 import 'package:alfaos_field/features/execution/domain/location_confirm.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,15 +35,15 @@ ExecutionLocation _ponto({int? limite = 100}) => ExecutionLocation(
   confirmMaxDistanceMeters: limite,
 );
 
-LocationReading _leitura(
+/// Uma posição CAPTURADA (RC-1C-HOTFIX): só ela vira medida.
+OperationalFix _leitura(
   ({double latitude, double longitude}) o, {
-  int? precisao = 9,
-}) => LocationReading.ok(
-  DeviceLocation(
-    latitude: o.latitude,
-    longitude: o.longitude,
-    accuracyMeters: precisao,
-  ),
+  double precisao = 9,
+}) => OperationalFix(
+  latitude: o.latitude,
+  longitude: o.longitude,
+  accuracyMeters: precisao,
+  capturedAt: DateTime.now(),
 );
 
 void main() {
@@ -94,7 +94,7 @@ void main() {
     test('a 100 m: pode confirmar (inclusivo)', () {
       final c = ConfirmLocationCheck.evaluate(
         location: _ponto(),
-        reading: _leitura(_aNorte(100)),
+        fix: _leitura(_aNorte(100)),
       );
       expect(c.distanceMeters, 100);
       expect(c.withinLimit, isTrue);
@@ -103,28 +103,40 @@ void main() {
     test('a 101 m: não pode', () {
       final c = ConfirmLocationCheck.evaluate(
         location: _ponto(),
-        reading: _leitura(_aNorte(101)),
+        fix: _leitura(_aNorte(101)),
       );
-      expect(c.hasPosition, isTrue);
       expect(c.withinLimit, isFalse);
     });
 
     test('o número é o do pacote: com 50 m, 80 m não pode', () {
       final c = ConfirmLocationCheck.evaluate(
         location: _ponto(limite: 50),
-        reading: _leitura(_aNorte(80)),
+        fix: _leitura(_aNorte(80)),
       );
       expect(c.withinLimit, isFalse);
     });
 
-    test('sem GPS: nem distância, nem confirmação', () {
-      final c = ConfirmLocationCheck.evaluate(
-        location: _ponto(),
-        reading: const LocationReading.failed(LocationOutcome.permissionDenied),
+    test('a medida guarda a posição capturada — a mesma que será enviada', () {
+      final fix = _leitura(_aNorte(40), precisao: 12.5);
+      final c = ConfirmLocationCheck.evaluate(location: _ponto(), fix: fix);
+      expect(identical(c.fix, fix), isTrue);
+      expect(c.locationVersion, 0);
+    });
+
+    test('sem ponto cadastrado não há medida — a saída é corrigir', () {
+      /*
+        Antes da RC-1C-HOTFIX havia também a medida "sem GPS", que o diálogo
+        mostrava como recusa. Agora a medida só nasce de uma posição capturada:
+        sem GPS, ou com GPS impreciso, a falha fica na captura — com o motivo e
+        com "Tentar novamente" — e nenhuma medida existe para ser confirmada.
+      */
+      expect(
+        () => ConfirmLocationCheck.evaluate(
+          location: const ExecutionLocation(status: LocationStatus.missing),
+          fix: _leitura(_aNorte(0)),
+        ),
+        throwsArgumentError,
       );
-      expect(c.hasPosition, isFalse);
-      expect(c.distanceMeters, isNull);
-      expect(c.withinLimit, isFalse);
     });
 
     test(
@@ -132,21 +144,23 @@ void main() {
       () {
         final c = ConfirmLocationCheck.evaluate(
           location: _ponto(limite: null),
-          reading: _leitura(_aNorte(2357)),
+          fix: _leitura(_aNorte(2357)),
         );
         expect(c.withinLimit, isTrue);
       },
     );
 
-    test('o pacote traz o limite pelo JSON', () {
+    test('o pacote traz os limites pelo JSON — distância e precisão', () {
       final l = ExecutionLocation.fromJson({
         'status': 'UNCONFIRMED',
         'latitude': _p.latitude,
         'longitude': _p.longitude,
         'version': 3,
         'confirmMaxDistanceMeters': 100,
+        'gpsMaxAccuracyMeters': 50,
       });
       expect(l.confirmMaxDistanceMeters, 100);
+      expect(l.gpsMaxAccuracyMeters, 50);
     });
   });
 }
