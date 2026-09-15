@@ -66,16 +66,20 @@ void main() {
   });
 
   test('nenhum log da localização carrega coordenada', () {
+    // O `debugPrint` entra junto desde a RC-1C-HOTFIX-2: é por ele que o
+    // diagnóstico chega ao `logcat` num build de depuração.
+    var chamadas = 0;
     for (final caminho in [
       'lib/core/location/operational_position.dart',
       'lib/core/location/location_service.dart',
     ]) {
       final fonte = _semComentarios(File(caminho).readAsStringSync());
       for (final chamada in RegExp(
-        r'Log\.(debug|error)\((.*?)\);',
+        r'(?:Log\.(?:debug|error)|debugPrint|\bprint|_diagnostico)\((.*?)\);',
         dotAll: true,
       ).allMatches(fonte)) {
-        final argumentos = chamada.group(2)!;
+        chamadas += 1;
+        final argumentos = chamada.group(1)!;
         expect(
           argumentos,
           isNot(matches(RegExp('latitude|longitude|leitura|fix|position'))),
@@ -83,5 +87,16 @@ void main() {
         );
       }
     }
+    expect(chamadas, greaterThan(5), reason: 'o scanner não achou os logs');
+  });
+
+  test('o diagnóstico de leitura não tem campo de coordenada', () {
+    final fonte = _semComentarios(
+      File('lib/core/location/operational_position.dart').readAsStringSync(),
+    );
+    final inicio = fonte.indexOf('class ReadingDiagnostic');
+    expect(inicio, isNonNegative);
+    final corpo = fonte.substring(inicio, fonte.indexOf('\n}\n', inicio));
+    expect(corpo, isNot(matches(RegExp('latitude|longitude'))));
   });
 }

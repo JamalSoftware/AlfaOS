@@ -17,7 +17,9 @@
 /// ## O contrato aprovado pelo dono (2026-09-15)
 ///
 /// - precisão até 50 m, sobre o valor real — 50,1 m não serve;
-/// - leitura recente: até 10 s, e nunca de antes de a captura começar;
+/// - leitura recente: até 10 s de IDADE, medida pelo instante da própria
+///   leitura — ela pode ter nascido segundos antes de a captura abrir
+///   (RC-1C-HOTFIX-2, abaixo);
 /// - várias leituras até ~20 s, e a primeira ACEITÁVEL encerra — uma leitura
 ///   ruim nunca é usada, nem quando é a melhor que apareceu;
 /// - sem posição aceitável, falha: nada é enviado, nada vira coordenada.
@@ -31,6 +33,19 @@
 /// O servidor aplica a mesma precisão (`requireGpsAccuracy`) — um APK antigo
 /// ou hostil não passa por esta captura. Ele não recebe o instante da leitura:
 /// a recência é garantida aqui.
+///
+/// ## RC-1C-HOTFIX-2 — frescor é IDADE, não "nascer depois da abertura"
+///
+/// A primeira versão recusava toda leitura nascida mais de 2 s antes de a
+/// captura abrir. A validação física mostrou o preço: com o aparelho PARADO, o
+/// provedor fundido do Google entra em modo estacionário (`device stationary`,
+/// `engine stationary throttled` no `dumpsys`), entrega pouquíssimas leituras —
+/// 13 em seis capturas de 20 s — e pode entregar a que já tinha, nascida
+/// segundos antes da assinatura. Recusada essa, nenhuma nova chegava, e toda
+/// captura esgotava o prazo em "Localização não obtida", com o sistema tendo
+/// posições de 11 a 27 m. A regra do dono é a idade: até 10 s, venha a leitura
+/// de onde vier NO FLUXO. A última posição conhecida (`getLastKnownPosition`)
+/// continua proibida — ela não é leitura do fluxo, e a idade dela é qualquer.
 library;
 
 import 'dart:async';
@@ -60,14 +75,15 @@ class OperationalFixPolicy {
 
   final double maxAccuracyMeters;
 
-  /// Idade máxima da leitura no instante em que ela chega.
+  /// Idade máxima da leitura no instante em que ela chega — a ÚNICA regra de
+  /// frescor. Não importa se ela nasceu antes ou depois de a captura abrir.
   final Duration maxAge;
 
-  /// Quanto o relógio do aparelho pode discordar do instante da leitura.
+  /// Quanto uma leitura pode estar no FUTURO do relógio do aparelho.
   ///
-  /// Dois segundos: cobre com folga a diferença de milissegundos entre o
-  /// relógio do sistema e o do GNSS, e continua recusando uma posição
-  /// guardada — que é velha em dezenas de segundos ou em minutos.
+  /// Dois segundos: cobre com folga a diferença entre o relógio do sistema e o
+  /// do GNSS (medida no aparelho da validação: ~0,3 s). Além disso, relógio e
+  /// leitura discordam demais para a idade significar alguma coisa.
   final Duration clockSkewTolerance;
 
   /// Quanto esperar por uma leitura aceitável antes de desistir.
@@ -120,7 +136,7 @@ enum ReadingVerdict {
   /// Fora do planeta, `NaN`, infinita ou a ilha nula.
   invalidCoordinate,
 
-  /// Velha, anterior à captura, ou de um relógio que discorda demais.
+  /// Mais velha que o limite, ou no futuro além da tolerância.
   stale,
 
   /// A plataforma não mediu a precisão.
@@ -131,6 +147,50 @@ enum ReadingVerdict {
 
   /// Leitura boa, precisão acima do limite.
   inaccurate,
+}
+
+/// O que a captura sabe de UMA leitura, para diagnóstico — RC-1C-HOTFIX-2.
+///
+/// É o que prova, no aparelho, por que uma leitura foi aceita ou recusada: a
+/// idade, quanto antes de a captura abrir ela nasceu, e a precisão. **Sem
+/// coordenada, de propósito** — a posição do técnico não tem lugar num log, e
+/// um teste estrutural garante que esta classe não a carrega.
+@immutable
+class ReadingDiagnostic {
+  const ReadingDiagnostic({
+    required this.sequence,
+    required this.verdict,
+    required this.age,
+    required this.bornBeforeCapture,
+    required this.accuracyMeters,
+  });
+
+  /// 1 para a primeira leitura desta captura.
+  final int sequence;
+  final ReadingVerdict verdict;
+
+  /// Idade quando chegou; negativa quando está no futuro do relógio.
+  final Duration age;
+
+  /// Quanto antes da abertura da captura ela nasceu; negativa quando depois.
+  final Duration bornBeforeCapture;
+
+  final double? accuracyMeters;
+
+  /// A linha do log: `gps_reading n=1 verdict=accepted ageMs=4000 …`.
+  String get line =>
+      'gps_reading n=$sequence verdict=${verdict.name} '
+      'ageMs=${age.inMilliseconds} '
+      'bornBeforeCaptureMs=${bornBeforeCapture.inMilliseconds} '
+      'accuracyMeters=${accuracyMeters?.toStringAsFixed(1) ?? '-'}';
+}
+
+/// O diagnóstico vai ao log da aplicação e, SÓ num build de depuração, ao
+/// `logcat` — é por ele que a validação física lê o que aconteceu. `Log`
+/// escreve no canal de depuração do Dart, que o `adb logcat` não mostra.
+void _diagnostico(String linha) {
+  Log.debug(linha);
+  if (kDebugMode) debugPrint('alfaos.gps $linha');
 }
 
 /// A mesma definição de coordenada utilizável do servidor (`coordenadaValida`).
@@ -144,23 +204,21 @@ bool isUsableCoordinate(double latitude, double longitude) {
 ///
 /// A ordem importa só para dizer POR QUE uma leitura foi descartada: qualquer
 /// veredito diferente de `accepted` é o mesmo desfecho — ela não é usada.
+///
+/// O instante em que a captura abriu NÃO entra no juízo (RC-1C-HOTFIX-2): uma
+/// leitura de 4 s de idade é recente, tenha ela nascido antes ou depois da
+/// assinatura. Exigir o "depois" recusava a posição que o provedor fundido
+/// entrega com o aparelho parado — e com ele parado nenhuma outra vinha.
 ReadingVerdict evaluateReading(
   RawPositionReading reading, {
   required DateTime now,
-  required DateTime startedAt,
   required OperationalFixPolicy policy,
 }) {
   if (!isUsableCoordinate(reading.latitude, reading.longitude)) {
     return ReadingVerdict.invalidCoordinate;
   }
 
-  final instante = reading.timestamp;
-  // De antes de a captura começar é posição que o sistema tinha guardada —
-  // exatamente o que o contrato proíbe.
-  if (instante.isBefore(startedAt.subtract(policy.clockSkewTolerance))) {
-    return ReadingVerdict.stale;
-  }
-  final idade = now.difference(instante);
+  final idade = now.difference(reading.timestamp);
   if (idade > policy.maxAge) return ReadingVerdict.stale;
   // Do futuro além da tolerância: relógio e leitura discordam, e não há como
   // afirmar que ela é recente. Recusar custa uma espera; aceitar poderia
@@ -327,13 +385,15 @@ class OperationalPositionAcquirer {
   ///
   /// [onReading] recebe a precisão de cada leitura RECENTE, aceitável ou
   /// não — é o "Precisão atual" da tela. [cancel], quando completa, encerra a
-  /// captura como `cancelled`.
+  /// captura como `cancelled`. [onDiagnostic] recebe o juízo de cada leitura,
+  /// sem coordenada — é o gancho de teste e de diagnóstico.
   ///
   /// Nunca devolve uma leitura fora do contrato: no tempo esgotado, a melhor
   /// precisão vista vai na FALHA, para a mensagem, e a posição fica para trás.
   Future<OperationalFixResult> acquire({
     OperationalFixPolicy policy = const OperationalFixPolicy(),
     void Function(double accuracyMeters)? onReading,
+    void Function(ReadingDiagnostic diagnostic)? onDiagnostic,
     Future<void>? cancel,
   }) async {
     OperationalFixFailed falha(
@@ -367,9 +427,12 @@ class OperationalPositionAcquirer {
     }
     if (cancelado) return falha(OperationalFixFailure.cancelled);
 
+    // Só para o diagnóstico: o juízo da leitura é pela idade dela, e não por
+    // este instante (RC-1C-HOTFIX-2).
     final inicio = _clock();
     final desfecho = Completer<OperationalFixResult>();
     double? melhor;
+    var recebidas = 0;
     StreamSubscription<RawPositionReading>? assinatura;
     Timer? prazo;
 
@@ -405,12 +468,18 @@ class OperationalPositionAcquirer {
     assinatura = leituras.listen(
       (leitura) {
         if (desfecho.isCompleted) return;
-        final veredito = evaluateReading(
-          leitura,
-          now: _clock(),
-          startedAt: inicio,
-          policy: policy,
+        final agora = _clock();
+        final veredito = evaluateReading(leitura, now: agora, policy: policy);
+        recebidas += 1;
+        final diagnostico = ReadingDiagnostic(
+          sequence: recebidas,
+          verdict: veredito,
+          age: agora.difference(leitura.timestamp),
+          bornBeforeCapture: inicio.difference(leitura.timestamp),
+          accuracyMeters: leitura.accuracyMeters,
         );
+        onDiagnostic?.call(diagnostico);
+        _diagnostico(diagnostico.line);
         if (veredito == ReadingVerdict.accepted ||
             veredito == ReadingVerdict.inaccurate) {
           final precisao = leitura.accuracyMeters!;
@@ -454,6 +523,13 @@ class OperationalPositionAcquirer {
         data: {'reason': reason.name, 'bestAccuracyMeters': melhor},
       );
     }
+    _diagnostico(
+      'gps_capture outcome=${switch (resultado) {
+        OperationalFixAcquired() => 'acquired',
+        OperationalFixFailed(:final reason) => reason.name,
+      }} readings=$recebidas '
+      'bestAccuracyMeters=${melhor?.toStringAsFixed(1) ?? '-'}',
+    );
     return resultado;
   }
 

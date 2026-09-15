@@ -13,9 +13,9 @@ import 'support/fake_position_source.dart';
 /// 2000 m, `getCurrentPosition` a devolveu por ser a primeira, e ninguém
 /// olhou a precisão.
 ///
-/// O contrato aprovado: precisão até 50 m, leitura de até 10 s e nunca de
-/// antes da captura, várias leituras até ~20 s, e nenhuma leitura ruim usada —
-/// nem quando é a melhor que apareceu.
+/// O contrato aprovado: precisão até 50 m, leitura de até 10 s de IDADE (pode
+/// ter nascido antes de a captura abrir — RC-1C-HOTFIX-2), várias leituras até
+/// ~20 s, e nenhuma leitura ruim usada — nem quando é a melhor que apareceu.
 
 /// Perto do ponto dos cenários — fictício.
 const _lat = -20.3155;
@@ -64,6 +64,187 @@ void main() {
       expect(p.maxAccuracyMeters, 50);
       expect(p.maxAge, const Duration(seconds: 10));
       expect(p.timeout, const Duration(seconds: 20));
+    });
+  });
+
+  /*
+    RC-1C-HOTFIX-2 — o frescor é a IDADE da leitura, e não "ter nascido depois
+    de a captura abrir".
+
+    A validação física: com o aparelho parado, o provedor fundido do Google
+    entrega poucas leituras (13 em seis capturas de 20 s) e pode entregar a que
+    já tinha, nascida segundos antes da assinatura. A regra anterior recusava
+    toda leitura nascida mais de 2 s antes da abertura — mesmo com 4 s de idade
+    e 18 m de precisão — e, sem leitura nova chegando, a captura esgotava o
+    prazo em "Localização não obtida".
+
+    Relógio controlado: a captura abre às 12:00:05, e cada leitura chega na
+    abertura já com a idade pedida (idade negativa = do futuro).
+  */
+  group('RC-1C-HOTFIX-2 — frescor pela idade da leitura', () {
+    final abertura = DateTime(2026, 9, 15, 12, 0, 5);
+
+    Future<OperationalFixResult> naAbertura({
+      required Duration idade,
+      double? precisao = 18,
+      OperationalFixPolicy policy = _rapida,
+    }) async {
+      final agora = abertura;
+      final gps = FakePositionSource(clock: () => agora);
+      final captura = OperationalPositionAcquirer(
+        gps,
+        clock: () => agora,
+      ).acquire(policy: policy);
+      await esperarEscuta(gps);
+      gps.emit(ScriptedReading(_lat, _lng, accuracy: precisao, age: idade));
+      return captura;
+    }
+
+    test('o caso do dono: captura às 12:00:05, leitura das 12:00:01 com 18 m — ACEITA', () async {
+      final fix = aceita(await naAbertura(idade: const Duration(seconds: 4)));
+      expect(fix.accuracyMeters, 18);
+      // A posição usada é a leitura, com o instante dela.
+      expect(fix.capturedAt, DateTime(2026, 9, 15, 12, 0, 1));
+    });
+
+    test('FRESH-01 · nascida agora, 20 m: aceita', () async {
+      aceita(await naAbertura(idade: Duration.zero, precisao: 20));
+    });
+
+    test('FRESH-02 · 2 s antes da abertura, 15 m: aceita', () async {
+      aceita(await naAbertura(idade: const Duration(seconds: 2), precisao: 15));
+    });
+
+    test('FRESH-03 · 5 s antes da abertura, 18 m: aceita', () async {
+      aceita(await naAbertura(idade: const Duration(seconds: 5)));
+    });
+
+    test('FRESH-04 · 9,9 s de idade, 20 m: aceita', () async {
+      aceita(
+        await naAbertura(
+          idade: const Duration(milliseconds: 9900),
+          precisao: 20,
+        ),
+      );
+    });
+
+    test('FRESH-05 · mais de 10 s de idade, 10 m: recusa pela idade', () async {
+      final f = falhou(
+        await naAbertura(
+          idade: const Duration(seconds: 10, milliseconds: 1),
+          precisao: 10,
+        ),
+      );
+      expect(f.reason, OperationalFixFailure.timeout);
+      // Velha não conta nem como "precisão atual".
+      expect(f.bestAccuracyMeters, isNull);
+    });
+
+    test('FRESH-06 · 5 s de idade, 70 m: recusa pela PRECISÃO', () async {
+      final f = falhou(
+        await naAbertura(idade: const Duration(seconds: 5), precisao: 70),
+      );
+      expect(f.reason, OperationalFixFailure.timeout);
+      // Recente: aparece como precisão vista — é a precisão que recusa.
+      expect(f.bestAccuracyMeters, 70);
+    });
+
+    test('FRESH-07 · recente, 50 m: aceita', () async {
+      aceita(await naAbertura(idade: Duration.zero, precisao: 50));
+    });
+
+    test('FRESH-08 · recente, 50,1 m: recusa', () async {
+      final f = falhou(await naAbertura(idade: Duration.zero, precisao: 50.1));
+      expect(f.bestAccuracyMeters, 50.1);
+    });
+
+    test('FRESH-09 · 1,5 s no futuro (dentro da tolerância): aceita', () async {
+      aceita(await naAbertura(idade: const Duration(milliseconds: -1500)));
+    });
+
+    test('FRESH-10 · 5 s no futuro: recusa', () async {
+      final f = falhou(
+        await naAbertura(idade: const Duration(seconds: -5), precisao: 8),
+      );
+      expect(f.bestAccuracyMeters, isNull);
+    });
+
+    test('DIAG · o gancho diz, leitura a leitura, o veredito, a idade, quanto antes da abertura ela nasceu e a precisão', () async {
+      var agora = abertura;
+      final gps = FakePositionSource(clock: () => agora);
+      final vistos = <ReadingDiagnostic>[];
+      final captura = OperationalPositionAcquirer(
+        gps,
+        clock: () => agora,
+      ).acquire(policy: _rapida, onDiagnostic: vistos.add);
+      await esperarEscuta(gps);
+      // Velha (12 s), imprecisa (5 s, 70 m) e, por fim, a do caso (4 s, 18 m).
+      gps.emit(
+        const ScriptedReading(
+          _lat,
+          _lng,
+          accuracy: 9,
+          age: Duration(seconds: 12),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      gps.emit(
+        const ScriptedReading(
+          _lat,
+          _lng,
+          accuracy: 70,
+          age: Duration(seconds: 5),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      agora = agora.add(const Duration(seconds: 1));
+      gps.emit(
+        const ScriptedReading(
+          _lat,
+          _lng,
+          accuracy: 18,
+          age: Duration(seconds: 4),
+        ),
+      );
+      aceita(await captura);
+
+      expect(vistos.map((d) => d.verdict), [
+        ReadingVerdict.stale,
+        ReadingVerdict.inaccurate,
+        ReadingVerdict.accepted,
+      ]);
+      expect(vistos.map((d) => d.sequence), [1, 2, 3]);
+      expect(vistos[0].age, const Duration(seconds: 12));
+      expect(vistos[2].age, const Duration(seconds: 4));
+      // Chegou 1 s depois da abertura com 4 s de idade: nasceu 3 s ANTES.
+      expect(vistos[2].bornBeforeCapture, const Duration(seconds: 3));
+      expect(vistos[1].accuracyMeters, 70);
+      expect(
+        vistos[2].line,
+        'gps_reading n=3 verdict=accepted ageMs=4000 '
+        'bornBeforeCaptureMs=3000 accuracyMeters=18.0',
+      );
+      // Nenhuma linha carrega coordenada.
+      for (final d in vistos) {
+        expect(d.line, isNot(contains(_lat.toString())));
+        expect(d.line, isNot(contains(_lng.toString())));
+      }
+    });
+
+    test('aparelho PARADO: uma leitura só, 6 s antes da abertura, 16 m — aceita NA HORA, sem esperar o prazo', () async {
+      /*
+          O cenário físico: o provedor entrega a posição que tinha e, com o
+          aparelho parado, não entrega outra. O prazo aqui é o do contrato
+          (20 s): esperar por ele seria a falha que o técnico viu.
+        */
+      final relogio = Stopwatch()..start();
+      final resultado = await naAbertura(
+        idade: const Duration(seconds: 6),
+        precisao: 16,
+        policy: const OperationalFixPolicy(),
+      ).timeout(const Duration(seconds: 5));
+      expect(aceita(resultado).accuracyMeters, 16);
+      expect(relogio.elapsed, lessThan(const Duration(seconds: 5)));
     });
   });
 
@@ -147,7 +328,7 @@ void main() {
       expect(f.reason, OperationalFixFailure.timeout);
     });
 
-    test('GPS-07 · precisa (5 m) mas GUARDADA: velha, ou de antes da captura, não serve', () async {
+    test('GPS-07 · precisa (5 m) mas VELHA (3 min): não serve', () async {
       final velha = FakePositionSource(
         script: const [
           ScriptedReading(_lat, _lng, accuracy: 5, age: Duration(minutes: 3)),
@@ -158,17 +339,15 @@ void main() {
         OperationalFixFailure.timeout,
       );
 
-      // 5 s antes de a captura abrir, e entregue na abertura: tem só 5 s de
-      // idade — e mesmo assim é a posição que o sistema tinha guardada.
-      final guardada = FakePositionSource(
-        script: const [
-          ScriptedReading(_lat, _lng, accuracy: 5, age: Duration(seconds: 5)),
-        ],
+      // A outra metade deste teste afirmava que uma leitura de 5 s, nascida
+      // antes de a captura abrir, também não servia. A RC-1C-HOTFIX-2 inverteu
+      // isso por decisão do dono — o critério é a idade —, e a matriz FRESH
+      // acima prova o novo contrato. Guardada, aqui, é a VELHA: 3 min.
+      expect(
+        falhou(await capturar(velha, policy: _rapida)).bestAccuracyMeters,
+        isNull,
+        reason: 'velha não conta nem como precisão atual',
       );
-      final f = falhou(await capturar(guardada, policy: _rapida));
-      expect(f.reason, OperationalFixFailure.timeout);
-      // E ela nem aparece como "precisão atual": não é leitura desta captura.
-      expect(f.bestAccuracyMeters, isNull);
     });
 
     test('GPS-08 · recente com 500 m: não aceita', () async {
@@ -431,12 +610,7 @@ void main() {
     ReadingVerdict julgar(
       RawPositionReading r, {
       Duration depois = const Duration(seconds: 2),
-    }) => evaluateReading(
-      r,
-      now: inicio.add(depois),
-      startedAt: inicio,
-      policy: p,
-    );
+    }) => evaluateReading(r, now: inicio.add(depois), policy: p);
 
     test('recente e precisa: aceita', () {
       expect(julgar(leitura()), ReadingVerdict.accepted);
@@ -471,15 +645,17 @@ void main() {
       },
     );
 
-    test('de antes da captura (além da tolerância): guardada', () {
+    test('RC-1C-HOTFIX-2 · nascer ANTES da abertura não reprova — só a idade decide', () {
+      // Até a HOTFIX-2 esta leitura era "guardada" e recusada: 3 s antes da
+      // referência, julgada 2 s depois dela — 5 s de idade. É recente.
       expect(
         julgar(leitura(desdeOInicio: const Duration(seconds: -3))),
-        ReadingVerdict.stale,
-      );
-      expect(
-        julgar(leitura(desdeOInicio: const Duration(seconds: -1))),
         ReadingVerdict.accepted,
-        reason: 'um segundo antes está dentro da tolerância de relógio',
+      );
+      // Recusada pela IDADE (11 s), e por nada mais.
+      expect(
+        julgar(leitura(desdeOInicio: const Duration(seconds: -9))),
+        ReadingVerdict.stale,
       );
     });
 
