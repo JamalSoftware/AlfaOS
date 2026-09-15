@@ -10,6 +10,7 @@ import 'package:alfaos_field/features/execution/domain/execution.dart';
 import 'package:alfaos_field/features/execution/state/execution_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/fake_geolocator_platform.dart';
 import 'support/fake_position_source.dart';
 import 'support/fake_transport.dart';
 
@@ -162,7 +163,7 @@ const _perto = ScriptedReading(-20.3154, -40.3128, accuracy: 8);
 
 ExecutionController build(
   StubRepository repository, {
-  FakePositionSource? positions,
+  PositionSource? positions,
 }) => ExecutionController(
   repository: repository,
   location: StubLocation(),
@@ -187,6 +188,62 @@ OperationalFix _posicao({double precisao = 8}) => OperationalFix(
 );
 
 void main() {
+  group(
+    'RC-1C-HOTFIX-3 — a precisão que o Android mediu chega ao servidor',
+    () {
+      test('17,5 m pelo plugin do Android: Confirmar envia 17,5 e Corrigir envia 17,5', () async {
+        /*
+          A validação física: o Android media, e a captura recusava toda leitura
+          como "sem precisão" — `geolocator_android` 4.6.2 perde a bandeira
+          `hasAccuracy` ao reconstruir a leitura. Aqui a posição entra pela
+          MESMA conversão do plugin (a `GeolocatorPositionSource` real sobre o
+          canal nativo) e é seguida até o corpo das duas requisições: nenhum
+          mapeamento do AlfaOS pode perder nem arredondar o número.
+        */
+        final plugin = installFakeAndroidGeolocator()
+          ..script = [
+            nativeAndroidLocation(
+              latitude: -20.3154,
+              longitude: -40.3128,
+              timestamp: DateTime.now().subtract(const Duration(seconds: 5)),
+              accuracy: 17.5,
+            ),
+          ];
+        final repository = StubRepository()
+          ..bundleBuilder = () => _bundleComPonto(3);
+        final controller = build(
+          repository,
+          positions: const GeolocatorPositionSource(),
+        );
+        await controller.load();
+
+        final paraConfirmar = await capturar(controller);
+        expect(paraConfirmar.accuracyMeters, 17.5);
+        final medida = controller.measureForConfirm(paraConfirmar)!;
+        expect(medida.withinLimit, isTrue);
+        expect(await controller.confirmLocation(medida), isTrue);
+        expect(repository.confirmacoes.single['observedAccuracyMeters'], 17.5);
+
+        final paraCorrigir = await capturar(controller);
+        expect(
+          await controller.correctLocation(
+            reason: 'INCORRECT_LOCATION',
+            useGps: true,
+            fix: paraCorrigir,
+          ),
+          isTrue,
+        );
+        final correcao = repository.correcoes.single;
+        expect(correcao['accuracyMeters'], 17.5);
+        expect(correcao['latitude'], -20.3154);
+        expect(correcao['longitude'], -40.3128);
+        expect(correcao['source'], 'TECHNICIAN_GPS');
+        expect(plugin.streamOpens, 2, reason: 'uma captura por ação');
+        expect(plugin.listening, isFalse);
+      });
+    },
+  );
+
   group('confirmar localização (RC-1C + RC-1C-HOTFIX)', () {
     test('confirma o ponto que foi MEDIDO: a versão e a posição enviadas são as da medida', () async {
       /*

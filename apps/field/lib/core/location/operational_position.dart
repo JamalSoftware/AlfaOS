@@ -46,6 +46,24 @@
 /// posições de 11 a 27 m. A regra do dono é a idade: até 10 s, venha a leitura
 /// de onde vier NO FLUXO. A última posição conhecida (`getLastKnownPosition`)
 /// continua proibida — ela não é leitura do fluxo, e a idade dela é qualquer.
+///
+/// ## RC-1C-HOTFIX-3 — a precisão que o plugin do Android esconde
+///
+/// A validação física seguinte chegou com `verdict=noAccuracy` e
+/// `accuracyMeters=-` em toda leitura, com ~5 s de idade — dentro do frescor —
+/// e o sistema medindo de 7 a 27 m. A causa está no plugin instalado, não no
+/// aparelho: `geolocator_platform_interface` 4.3.0 criou `Position.hasAccuracy`
+/// (padrão `false`) e o calcula certo em `Position.fromMap`, mas o
+/// `geolocator_android` 4.6.2 reconstrói cada leitura em
+/// `AndroidPosition.fromMap` por um construtor que não conhece o campo. No
+/// Android, TODA leitura chega com `hasAccuracy == false` — e com o número
+/// medido intacto em `accuracy`. A captura confiava na bandeira e recusava
+/// todas; `measuredAccuracyMeters` decide agora pelo que o plugin garante.
+///
+/// Nenhum teste viu isso porque todos entregavam leituras ABAIXO da fronteira
+/// `PositionSource`, pulando a conversão do plugin. Desde esta hotfix, a
+/// `GeolocatorPositionSource` é testada através da própria conversão do
+/// Android (`test/operational_position_platform_test.dart`).
 library;
 
 import 'dart:async';
@@ -98,6 +116,7 @@ class RawPositionReading {
     required this.longitude,
     required this.timestamp,
     this.accuracyMeters,
+    this.platform,
   });
 
   final double latitude;
@@ -107,6 +126,32 @@ class RawPositionReading {
   final double? accuracyMeters;
 
   /// O instante da leitura, no relógio de parede.
+  final DateTime timestamp;
+
+  /// O que a plataforma disse, antes de qualquer decisão — só para o
+  /// diagnóstico (RC-1C-HOTFIX-3). `null` quando a leitura não veio do plugin.
+  final PlatformPositionFacts? platform;
+}
+
+/// O que o plugin entregou numa `Position`, cru — RC-1C-HOTFIX-3.
+///
+/// É o que prova, no aparelho, de onde veio o `noAccuracy`: o tipo da leitura,
+/// a bandeira `hasAccuracy` e o número de `accuracy` ANTES de a captura
+/// decidir se ele é medida. **Sem coordenada, de propósito** — um teste
+/// estrutural garante que esta classe não a carrega.
+@immutable
+class PlatformPositionFacts {
+  const PlatformPositionFacts({
+    required this.type,
+    required this.hasAccuracy,
+    required this.rawAccuracy,
+    required this.timestamp,
+  });
+
+  /// `AndroidPosition` no Android.
+  final String type;
+  final bool hasAccuracy;
+  final double rawAccuracy;
   final DateTime timestamp;
 }
 
@@ -163,7 +208,16 @@ class ReadingDiagnostic {
     required this.age,
     required this.bornBeforeCapture,
     required this.accuracyMeters,
+    this.platform,
   });
+
+  /// De onde as leituras vêm: o fluxo do provedor da plataforma, e só ele.
+  ///
+  /// Não existe fonte alternativa (RC-1C-HOTFIX-3): o `noAccuracy` da validação
+  /// física era a bandeira perdida no plugin, não uma leitura sem medida, e
+  /// corrigida a leitura do número o fluxo principal basta. O campo existe
+  /// para o log dizer isso sem ninguém precisar deduzir.
+  static const sourceMode = 'primary';
 
   /// 1 para a primeira leitura desta captura.
   final int sequence;
@@ -175,7 +229,11 @@ class ReadingDiagnostic {
   /// Quanto antes da abertura da captura ela nasceu; negativa quando depois.
   final Duration bornBeforeCapture;
 
+  /// A precisão que a captura considerou MEDIDA — `null` quando não houve.
   final double? accuracyMeters;
+
+  /// O que o plugin disse, cru. `null` quando a leitura não veio dele.
+  final PlatformPositionFacts? platform;
 
   /// A linha do log: `gps_reading n=1 verdict=accepted ageMs=4000 …`.
   String get line =>
@@ -183,6 +241,22 @@ class ReadingDiagnostic {
       'ageMs=${age.inMilliseconds} '
       'bornBeforeCaptureMs=${bornBeforeCapture.inMilliseconds} '
       'accuracyMeters=${accuracyMeters?.toStringAsFixed(1) ?? '-'}';
+
+  /// A linha crua, ANTES do juízo: `raw_position n=1 sourceMode=primary
+  /// type=AndroidPosition hasAccuracy=false rawAccuracy=18.0 …` — RC-1C-HOTFIX-3.
+  ///
+  /// `null` quando a leitura não veio do plugin.
+  String? get rawLine {
+    final cru = platform;
+    if (cru == null) return null;
+    return 'raw_position n=$sequence sourceMode=$sourceMode '
+        'type=${cru.type} hasAccuracy=${cru.hasAccuracy} '
+        'rawAccuracy=${cru.rawAccuracy} '
+        'rawFinite=${cru.rawAccuracy.isFinite} '
+        'rawPositive=${cru.rawAccuracy > 0} '
+        'ageMs=${age.inMilliseconds} '
+        'timestampMs=${cru.timestamp.millisecondsSinceEpoch}';
+  }
 }
 
 /// O diagnóstico vai ao log da aplicação e, SÓ num build de depuração, ao
@@ -477,8 +551,11 @@ class OperationalPositionAcquirer {
           age: agora.difference(leitura.timestamp),
           bornBeforeCapture: inicio.difference(leitura.timestamp),
           accuracyMeters: leitura.accuracyMeters,
+          platform: leitura.platform,
         );
         onDiagnostic?.call(diagnostico);
+        final cru = diagnostico.rawLine;
+        if (cru != null) _diagnostico(cru);
         _diagnostico(diagnostico.line);
         if (veredito == ReadingVerdict.accepted ||
             veredito == ReadingVerdict.inaccurate) {
@@ -561,7 +638,55 @@ class OperationalPositionAcquirer {
   }
 }
 
+/// A precisão horizontal que a plataforma MEDIU, ou `null` — RC-1C-HOTFIX-3.
+///
+/// `Position.hasAccuracy` sozinho NÃO serve no Android com as versões
+/// instaladas: `geolocator_android` 4.6.2 reconstrói a leitura em
+/// `AndroidPosition.fromMap` sem repassar o campo, e ele chega `false` em TODA
+/// leitura, com o número medido intacto em `accuracy`. Confiar na bandeira era
+/// recusar 100% das leituras do Android como `noAccuracy`.
+///
+/// O que o plugin garante, e é por isso que esta regra é medida e não
+/// suposição: o `LocationMapper` nativo só escreve `accuracy` quando
+/// `Location.hasAccuracy()` é verdadeiro (`Location.getAccuracy()`, em metros),
+/// e a ausência chega como `0.0` pelo `_toDouble` do `Position.fromMap`. Então:
+///
+/// - a plataforma afirma que mediu → o valor como veio; zero, negativo ou
+///   infinito são recusados adiante como `invalidAccuracy`;
+/// - não afirma → só um número POSITIVO e finito é medida. O `0.0` é a marca
+///   de "não mediu" e vira `null`: nunca "zero metros de erro", nunca um valor
+///   presumido, nunca a precisão pedida ao provedor.
+double? measuredAccuracyMeters(Position position) {
+  if (position.hasAccuracy) return position.accuracy;
+  final valor = position.accuracy;
+  return valor.isFinite && valor > 0 ? valor : null;
+}
+
+/// A leitura crua de uma `Position` do plugin, com a precisão MEDIDA e os fatos
+/// da plataforma para o diagnóstico — RC-1C-HOTFIX-3.
+///
+/// Nada se perde aqui: a coordenada, o instante e o número de precisão passam
+/// como vieram, e a única decisão é se o número é medida.
+RawPositionReading readingFromPlatformPosition(Position position) =>
+    RawPositionReading(
+      latitude: position.latitude,
+      longitude: position.longitude,
+      accuracyMeters: measuredAccuracyMeters(position),
+      timestamp: position.timestamp,
+      platform: PlatformPositionFacts(
+        type: position.runtimeType.toString(),
+        hasAccuracy: position.hasAccuracy,
+        rawAccuracy: position.accuracy,
+        timestamp: position.timestamp,
+      ),
+    );
+
 /// O plugin `geolocator`, atrás da fronteira.
+///
+/// ## A precisão lida
+///
+/// Pela `readingFromPlatformPosition`: `hasAccuracy` sozinho mente no Android
+/// (RC-1C-HOTFIX-3), e a regra de medida mora em `measuredAccuracyMeters`.
 ///
 /// ## A precisão pedida
 ///
@@ -612,16 +737,7 @@ class GeolocatorPositionSource implements PositionSource {
             distanceFilter: 0,
           );
     return Geolocator.getPositionStream(locationSettings: settings)
-        .map(
-          (p) => RawPositionReading(
-            latitude: p.latitude,
-            longitude: p.longitude,
-            // `accuracy` vale 0 quando a plataforma não mediu; `hasAccuracy`
-            // é quem diz se houve medida.
-            accuracyMeters: p.hasAccuracy ? p.accuracy : null,
-            timestamp: p.timestamp,
-          ),
-        )
+        .map(readingFromPlatformPosition)
         .handleError(
           (Object error) => throw PositionSourceException(switch (error) {
             LocationServiceDisabledException() =>

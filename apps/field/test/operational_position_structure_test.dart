@@ -90,13 +90,18 @@ void main() {
     expect(chamadas, greaterThan(5), reason: 'o scanner não achou os logs');
   });
 
-  test('o diagnóstico de leitura não tem campo de coordenada', () {
-    final fonte = _semComentarios(
-      File('lib/core/location/operational_position.dart').readAsStringSync(),
-    );
-    final inicio = fonte.indexOf('class ReadingDiagnostic');
-    expect(inicio, isNonNegative);
-    final corpo = fonte.substring(inicio, fonte.indexOf('\n}\n', inicio));
-    expect(corpo, isNot(matches(RegExp('latitude|longitude'))));
-  });
+  // A linha crua da RC-1C-HOTFIX-3 (`raw_position`) é montada pelo
+  // `ReadingDiagnostic` a partir de `PlatformPositionFacts`: as duas classes
+  // são tudo o que o log de diagnóstico enxerga de uma leitura.
+  for (final classe in ['ReadingDiagnostic', 'PlatformPositionFacts']) {
+    test('$classe não tem campo de coordenada', () {
+      final fonte = _semComentarios(
+        File('lib/core/location/operational_position.dart').readAsStringSync(),
+      );
+      final inicio = fonte.indexOf('class $classe');
+      expect(inicio, isNonNegative, reason: '$classe sumiu');
+      final corpo = fonte.substring(inicio, fonte.indexOf('\n}\n', inicio));
+      expect(corpo, isNot(matches(RegExp('latitude|longitude'))));
+    });
+  }
 }
