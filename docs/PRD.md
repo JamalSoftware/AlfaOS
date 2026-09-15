@@ -4827,6 +4827,25 @@ exatamente para distinguir uma coisa da outra.
 > Limite de **precisão** do GPS: não definido — a precisão é registrada e
 > mostrada, e não bloqueia. Detalhe técnico: `docs/TECHNICIAN-EXECUTION.md` §13.
 
+> **`DECISION UPDATED` — RC-1C-HOTFIX (15/09/2026), decisão do dono.** O
+> parágrafo acima ("precisão não definido") está superado. Na validação física,
+> no mesmo telefone, o Google Maps acertou o lugar e o AlfaOS gravou um ponto a
+> mais de 1 km: o aparelho só tinha a localização aproximada, que o Android
+> entrega com 2000 m de precisão, e nada a recusava. O contrato passa a incluir:
+>
+> - **Precisão até 50 m** para usar o GPS em Confirmar **e** em Corrigir — sobre
+>   o valor real (50,1 m não serve), exigida pelo aplicativo e pelo servidor.
+>   Acima disso a posição não é usada: "Precisão do GPS insuficiente: 74 m.
+>   Aguarde alguns segundos em um local mais aberto e tente novamente."
+> - **Leitura recente** (até 10 s), nunca uma posição guardada; o aplicativo
+>   espera ~20 s por uma leitura boa e, sem ela, não salva nada.
+> - **Regras independentes:** precisão ≤ 50 m **e** distância ≤ 100 m para
+>   confirmar. Com GPS bom e longe, Corrigir continua sendo a saída.
+> - **Corrigir com GPS ruim não vira correção de endereço** em silêncio; sem
+>   GPS (interruptor desligado), só o endereço, como antes.
+>
+> Detalhe técnico: `docs/TECHNICIAN-EXECUTION.md` §13.5.
+
 ---
 
 # 173. TOOLBOX — ORGANIZAÇÃO
@@ -13736,6 +13755,13 @@ válido, mostra a distância ao técnico e só vale a até **100 m** do ponto,
 arbitrado pelo servidor; acima disso, "Use Corrigir localização". Corrigir com
 GPS move o ponto; sem GPS, só o endereço. O texto anterior continua na §172, com
 a atualização logo abaixo dele. Nenhuma coluna, tabela ou migration.
+
+**Segunda atualização, decidida pelo dono na `RC-1C-HOTFIX` (2026-09-15):** o
+GPS só é usado para confirmar ou corrigir com **precisão até 50 m** (valor real)
+e leitura **recente** (até 10 s) — no aplicativo e no servidor. Precisão e
+distância são regras independentes. O motivo foi a validação física: a posição
+aproximada do Android (2000 m de precisão) gravou um ponto a mais de 1 km do
+lugar. Também sem coluna, tabela ou migration.
 
 ## Freeze do Mapa Operacional V1 — 2026-09-12
 

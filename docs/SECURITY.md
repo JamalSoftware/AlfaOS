@@ -2922,10 +2922,46 @@ verificador e de OS, que são FK simples.
 
 ### O que ficou declarado, não fechado
 
-- **Precisão não bloqueia:** não há limite de precisão aprovado. A precisão é
-  registrada e mostrada; o limite é decisão pendente do dono.
+- ~~**Precisão não bloqueia:** não há limite de precisão aprovado.~~ **Fechado
+  pela RC-1C-HOTFIX** (§8.22.1): precisão ≤ 50 m, exigida no servidor.
 - **A regra é sobre a posição que o aparelho declara.** Um aparelho hostil pode
   mentir a coordenada, e o servidor não tem como provar onde o técnico está. O
   que o contrato garante é que a confirmação passou pela regra, que a distância
   declarada fica registrada e que burlá-la exige mandar uma posição falsa de
   propósito — não basta negar o GPS.
+
+### 8.22.1. `RC-1C-HOTFIX` — precisão do GPS ≤ 50 m, no aplicativo e no servidor
+
+> **Estado: `READY FOR OWNER VALIDATION`** (15/09/2026). Commits locais, sem tag
+> e sem push. Decisão do dono; causa raiz e contrato da captura em
+> `docs/TECHNICIAN-EXECUTION.md` §13.5. Nenhuma migration, nenhuma dependência,
+> nenhuma permissão nova.
+
+A validação física gravou um ponto a mais de 1 km do lugar: o aplicativo só
+tinha a permissão de localização aproximada, o Android entregou uma posição com
+2000 m de precisão, e nada a recusava — o servidor aceitava qualquer precisão
+até o teto de sanidade de 100 km.
+
+- **O servidor recusa por conta própria.** Confirmar e corrigir **com**
+  coordenada exigem `observedAccuracyMeters`/`accuracyMeters` presente, finita,
+  maior que zero e ≤ `LOCATION_GPS_MAX_ACCURACY_M` (50), sobre o valor bruto
+  (`requireGpsAccuracy`). Um APK anterior à hotfix — ou um cliente sabotado com
+  coordenada perfeita e precisão 1500 m — recebe `400 VALIDATION_ERROR`, e nada
+  é gravado. Provado pela rota e pelo servidor real (E2E).
+- **Zero é recusa**: é o valor que o plugin devolve quando a plataforma não
+  mediu nada.
+- **A ordem de confirmar não mudou**: a porta da OS continua antes de qualquer
+  pergunta de GPS — a precisão não vira oráculo de existência para quem não é o
+  dono. Na correção, a validação da precisão fica ao lado da validação da
+  coordenada, antes da transação, como já era a da coordenada: depende só do
+  corpo e não revela nada sobre a OS.
+- **Correção com GPS ruim não vira correção de endereço**: o corpo inteiro é
+  recusado. Correção só de endereço (sem coordenada) não exige precisão.
+- **Recência não é arbitrada pelo servidor**: a API não recebe o instante da
+  leitura, e a hotfix não o acrescentou. A leitura de até 10 s é garantida pela
+  captura do aplicativo; o servidor arbitra coordenada, precisão, distância, posse
+  e tenant.
+- **Privacidade**: nenhum log do aplicativo leva coordenada (teste estrutural);
+  a captura registra só o motivo e a melhor precisão. O GPS é desligado ao fim de
+  cada captura; nada mede em segundo plano, e `ACCESS_BACKGROUND_LOCATION`
+  continua fora do manifesto.

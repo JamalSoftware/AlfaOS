@@ -51,9 +51,11 @@ primeira versão estão concluídas — toda linha da PRD §386 está implementa
 Candidate / Hardening.** A `RC-1A` (auditoria e plano, zero código) terminou em
 `OWNER DECISION REQUIRED`; a **`RC-1B`** (segurança, configuração, tenancy e
 isolamento de teste) está **`APPROVED` / `CLOSED`** — `docs/SECURITY.md` §8.21;
-e a **`RC-1C`** (o contrato de localização do cliente que o dono aprovou) está
-**`READY FOR OWNER VALIDATION`** — §12, `docs/TECHNICIAN-EXECUTION.md` §13 e
-`docs/SECURITY.md` §8.22.
+e a **`RC-1C`** (o contrato de localização do cliente que o dono aprovou)
+continua **aberta**: a validação física gravou um ponto a mais de 1 km do lugar,
+e a **`RC-1C-HOTFIX`** (captura de GPS recente e com precisão ≤ 50 m, no
+aplicativo e no servidor) está **`READY FOR OWNER VALIDATION`** — §12,
+`docs/TECHNICIAN-EXECUTION.md` §13 e §13.5, `docs/SECURITY.md` §8.22 e §8.22.1.
 
 O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e o estado
 de cada item está em **§386**. O contrato final do mapa é a **PRD §392**.
@@ -89,7 +91,8 @@ CORE FUNCTIONAL V1 — FEATURE COMPLETE   fatias funcionais: COMPLETE   ← 2026
 RC-1   Release Candidate / Hardening                     ← em andamento
        RC-1A  auditoria e plano                          ← OWNER DECISION REQUIRED
        RC-1B  segurança · configuração · tenancy · teste ← APPROVED · CLOSED (2026-09-14)
-       RC-1C  CustomerLocation — contrato do dono        ← READY FOR OWNER VALIDATION
+       RC-1C  CustomerLocation — contrato do dono        ← ABERTA (validação física)
+       RC-1C-HOTFIX  captura de GPS · precisão ≤ 50 m    ← READY FOR OWNER VALIDATION
        RC-1D  copy · timeline da OS · acessibilidade     ← próxima recomendada, não iniciada
    ↓
 LANÇAMENTO V1 — produção e piloto real
@@ -499,6 +502,20 @@ de diagnóstico **em memória do processo** e a **ausência de teto agregado por
 empresa** (`docs/SECURITY.md` §8.7, *Rate limit de capability*; PRD §370).
 Preservados em 13/09/2026, no fechamento da `GS-1`: nenhum foi resolvido ali.
 
+**`RC-1C-HOTFIX` — `READY FOR OWNER VALIDATION` (15/09/2026).** A validação
+física da `RC-1C` gravou, por "Corrigir localização" com GPS, um ponto a mais de
+1 km do lugar em que o Google Maps pôs o mesmo telefone. Causa provada no
+aparelho e no banco: permissão só **aproximada** (o Android a entrega com 2000 m
+de precisão — o número gravado) e `getCurrentPosition` aceitando a primeira
+posição, sem ninguém olhar precisão ou idade. O dono aprovou precisão ≤ 50 m
+(PRD §172 `DECISION UPDATED`). O aplicativo passou a capturar leituras novas
+(≤ 10 s, precisão ≤ 50 m, até ~20 s, a primeira aceitável encerra, a ruim nunca
+vira posição; pede a localização precisa quando só a aproximada foi concedida),
+e o servidor exige a mesma precisão em confirmar e em corrigir com coordenada
+(`docs/TECHNICIAN-EXECUTION.md` §13.5; `docs/SECURITY.md` §8.22.1). **Zero
+migration, zero dependência, zero permissão nova.** A `RC-1C` só fecha com a
+validação física desta hotfix.
+
 **`RC-1C` — `READY FOR OWNER VALIDATION` (14/09/2026).** O contrato de
 localização que o dono aprovou (PRD §172 `DECISION UPDATED`;
 `docs/TECHNICIAN-EXECUTION.md` §13; `docs/SECURITY.md` §8.22), cada regra com
@@ -547,11 +564,17 @@ CustomerLocation legado — projeção sem autoridade (RC-LOC-04)
            autoridade sem projeção, gravadas direto em teste manual; nenhum
            escritor de produção produz isso. Não tocadas
 
-Precisão do GPS — sem limite aprovado (RC-1C)
-  o quê    confirmar e corrigir exigem coordenada válida, registram e mostram a
-           precisão, e NÃO bloqueiam por ela
-  fase     decisão do dono — um limite inventado seria regra de negócio sem
-           contrato
+Precisão do GPS — limite aprovado (RC-1C)          RESOLVIDO na RC-1C-HOTFIX
+  o quê    confirmar e corrigir registravam e mostravam a precisão sem bloquear
+  hoje     precisão ≤ 50 m (valor real), exigida no Field e no servidor; decisão
+           do dono de 15/09/2026, depois da validação física
+
+Histórico de precisão por correção (RC-1C-HOTFIX, observação)
+  o quê    CustomerLocation.accuracyMeters guarda só a precisão da ÚLTIMA
+           escrita; a trilha não tem coluna para ela, e o evento
+           LOCATION_CORRECTED não a registra. Foi o que impediu saber a
+           precisão da primeira correção da validação física
+  fase     backlog — não é contrato desta hotfix
 
 /minhas-os — "Próximas"
   o quê    também contém OS sem agendamento e OS com agendamento vencido
@@ -585,8 +608,12 @@ E2E do mapa — MAPEDIT-05/06/07 intermitente (achado na TL-1, 13/09/2026)
            isolado, falhou 2 de 6; no grupo MAPEDIT, 10 de 10; na suíte inteira,
            1 falha numa rodada e 308/308 na seguinte; nos gates da EV-1,
            314/314 numa rodada só
+  também   MAPEDIT-08/14 (gates da RC-1C-HOTFIX, 15/09/2026): o valor gravado
+           depois de "Salvar" era o de antes do arrasto — 1 falha na suíte
+           (330/331), e 10/10 no grupo MAPEDIT isolado, três rodadas seguidas.
+           Mesma família: o arrasto que às vezes não chega
   alcance  código do mapa idêntico ao de antes da TL-1 — nenhum arquivo do
-           caminho de /mapa mudou
+           caminho de /mapa mudou (nem na RC-1C-HOTFIX)
   aberto   se é corrida da medição ou o marcador voltando ao ponto gravado
   fase     investigação própria; o mapa está FROZEN e só reabre por defeito provado
 

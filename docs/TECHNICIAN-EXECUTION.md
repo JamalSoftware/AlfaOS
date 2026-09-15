@@ -355,6 +355,7 @@ autoridade.
 | Regra | Onde |
 | --- | --- |
 | Exige a posição do aparelho; ausente, pela metade ou inválida → `400` | `requireObservedPosition` |
+| Exige a **precisão**: até **50 m**, sobre o valor real (50,1 m não passa); ausente ou zero → `400` — antes da distância (RC-1C-HOTFIX) | `LOCATION_GPS_MAX_ACCURACY_M`, `isGpsAccuracyAllowed`, `requireGpsAccuracy` |
 | Distância calculada **no servidor** (haversine, metro inteiro) | `distanceInMeters` (`src/lib/geo.ts`) |
 | Limite **100 m, inclusivo**, comparado no metro arredondado que o técnico vê | `LOCATION_CONFIRM_MAX_DISTANCE_M`, `isConfirmDistanceAllowed` |
 | Acima do limite → `400` "Você está a X do ponto cadastrado. Use Corrigir localização." — e **nada é gravado** | `confirmCustomerLocation` |
@@ -363,14 +364,17 @@ autoridade.
 
 A ordem dentro da transação é a do contrato: técnico → OS dele → OS em
 atendimento (`FOR SHARE`, RC-LOC-06) → ponto existe → versão → ainda não
-verificado → GPS → distância → limite → escrita. Quem não pode mexer na OS
-recebe o 404 genérico da OS antes de qualquer pergunta sobre GPS, e a regra dos
-100 m vem antes da escrita — não existe `verified` gravado para depois ser
-desfeito.
+verificado → GPS → **precisão** → distância → limite → escrita. Quem não pode
+mexer na OS recebe o 404 genérico da OS antes de qualquer pergunta sobre GPS, e a
+regra dos 100 m vem antes da escrita — não existe `verified` gravado para depois
+ser desfeito.
 
-**Precisão não bloqueia.** Não há limite de precisão aprovado: a precisão é
-registrada e mostrada ao técnico, e o limite é decisão pendente do dono
-(`docs/MASTER-PLAN.md` §12).
+**Precisão ≤ 50 m — RC-1C-HOTFIX (15/09/2026).** Até a hotfix a precisão era só
+registrada e mostrada; a validação física provou o preço (§13.5), e o dono
+aprovou o limite. São duas regras **independentes**: precisão ≤ 50 m **e**
+distância ≤ 100 m. Com 220 m de precisão a distância nem é calculada; com 14 m e
+1,2 km, a precisão passa e a recusa é a dos 100 m. O limite vigente fica no
+`metadata` do evento (`gpsMaxAccuracyMeters`), ao lado do de distância.
 
 **Onde a confirmação fica registrada — sem migration.** A linha de
 `CustomerLocationHistory` mantém a assinatura de confirmação (mesmo ponto, de não
@@ -384,7 +388,9 @@ posição do aparelho fica no servidor: a leitura da OS
 
 * **Com GPS:** o ponto muda — autoridade, trilha com o ponto anterior, técnico,
   OS, instante, precisão, origem `TECHNICIAN_GPS`, `verified = true`, projeção e
-  mapa.
+  mapa. Desde a RC-1C-HOTFIX, com a mesma exigência de **precisão ≤ 50 m**
+  (ausente → `400`); fora dela, `400` e o **endereço do mesmo corpo também não é
+  aplicado** — quem mandou coordenada escolheu mover o ponto.
 * **Sem GPS:** só o endereço textual; coordenada e `verified` intactos (trilha
   `ADDRESS`, evento `ADDRESS_CORRECTED`).
 * **Coordenada digitada (`source: MANUAL`) é recusada** (`400`): moveria o ponto
@@ -395,16 +401,28 @@ posição do aparelho fica no servidor: a leitura da OS
 
 ### 13.3. No aplicativo
 
-"Confirmar localização" lê o GPS **uma vez** e mostra "Distância da sua posição"
-e "Precisão do GPS" antes de perguntar:
+"Confirmar localização" primeiro **captura** uma posição dentro do contrato
+(§13.5) — "Buscando uma localização precisa…", com a precisão atual e Cancelar —
+e só então mostra "Distância da sua posição" e "Precisão do GPS" antes de
+perguntar:
 
 * dentro do limite que o **servidor mandou** no pacote
   (`location.confirmMaxDistanceMeters`): "Você está no endereço do cliente?", com
-  Confirmar — e a confirmação envia exatamente a posição mostrada e a versão do
-  ponto medido (se o ponto mudou nesse meio-tempo, o servidor responde conflito);
+  Confirmar — e a confirmação envia exatamente a posição capturada e mostrada
+  (precisão com o valor real) e a versão do ponto medido (se o ponto mudou nesse
+  meio-tempo, o servidor responde conflito);
 * acima dele: "Você está muito distante do ponto cadastrado. Use Corrigir
   localização.", sem Confirmar, com o botão que leva à correção;
-* sem GPS: o motivo, e nenhuma confirmação.
+* sem GPS ou com GPS impreciso: a captura diz o motivo e oferece "Tentar
+  novamente", e nenhuma medida existe para confirmar.
+
+"Corrigir", com "Usar minha localização atual" ligado, captura no **Salvar**, por
+cima da folha: só uma posição dentro do contrato a fecha e vai ao servidor; falha
+ou cancelamento deixam a folha aberta com o que foi digitado. O controlador
+recusa correção por GPS sem posição válida em vez de transformá-la em correção
+só de endereço. Com o interruptor desligado, só o endereço — sem GPS nenhum.
+Depois de um comando aceito, o pacote é relido do servidor, e a seção mostra o
+estado de lá.
 
 A coordenada do cliente não aparece — só distância e precisão. A conta é a do
 servidor, provada pelos mesmos vetores dos dois lados
@@ -424,3 +442,72 @@ limite deixa a regra inteira com ele: o aplicativo não bloqueia sozinho.
   Mapa Operacional. Sem ponto: "Sem localização geográfica cadastrada". Projeção
   sem autoridade (legado, RC-LOC-04): a mesma frase, com uma nota, e sem a
   coordenada antiga. **Nenhum campo de latitude/longitude existe para editar.**
+
+### 13.5. A captura de posição — RC-1C-HOTFIX (15/09/2026)
+
+**O defeito da validação física.** No mesmo telefone, o Google Maps pôs o
+aparelho no lugar certo e o AlfaOS gravou um ponto a mais de 1 km dali, por
+"Corrigir localização" com "Usar minha localização atual". A causa, provada no
+aparelho e no banco — não suposta:
+
+1. o AlfaOS Field tinha só a permissão de localização **aproximada** (Android
+   12+: `ACCESS_COARSE_LOCATION` concedida, `ACCESS_FINE_LOCATION` negada por
+   escolha do usuário); o Google Maps tinha a precisa;
+2. o Android entrega posição aproximada deslocada numa grade de ~2 km e com
+   precisão de **2000 m** — exatamente o `accuracyMeters` gravado. Duas correções
+   no mesmo lugar moveram o ponto 2004 m uma da outra;
+3. `Geolocator.getCurrentPosition` (`geolocator` 13.0.4, `geolocator_android`
+   4.6.2) responde com a **primeira** posição que o sistema entrega — o plugin
+   cancela as atualizações no primeiro retorno —, e nem o aplicativo nem o
+   servidor olhavam precisão ou idade.
+
+Coordenada invertida ou alterada no caminho foi descartada pela medida: o ponto
+gravado fica a ~1 km dos outros pontos da empresa, e a ~3.000 km se latitude e
+longitude estivessem trocadas.
+
+**O contrato da captura** (`apps/field/lib/core/location/operational_position.dart`),
+uma só para Confirmar e Corrigir:
+
+| Regra | Valor |
+| --- | --- |
+| Precisão, sobre o valor real | até **50 m** (o limite do pacote, `gpsMaxAccuracyMeters`; sem ele, 50) |
+| Idade da leitura | até **10 s**; nunca de antes de a captura começar (tolerância de relógio de 2 s) |
+| Espera | ~**20 s**; várias leituras, e a **primeira aceitável** encerra |
+| Sem leitura aceitável | falha — a melhor precisão vista vai na **mensagem**, nunca como posição |
+| Coordenada | a mesma definição do servidor (`coordenadaValida`) |
+| GPS depois da resposta | desligado (o fluxo é cancelado) — nada em segundo plano |
+| Última posição conhecida | proibida em `lib/` inteiro (teste estrutural) |
+| Log | motivo e precisão; **nunca** coordenada (teste estrutural) |
+
+**Precisa × aproximada.** Com só a aproximada concedida, a captura pede a
+permissão de novo — é o que faz o Android 12+ oferecer "usar localização
+precisa" — no momento do toque em Confirmar/Corrigir, nunca na abertura. Recusada,
+falha com "Ative Localização precisa para usar esta função." Mesmo que o sistema
+dissesse "precisa", a precisão de cada leitura continua sendo o que decide.
+
+**A precisão pedida ao plugin.** `LocationAccuracy.best`, conferido na versão
+instalada: no Android, `high`, `best` e `bestForNavigation` viram todos
+`PRIORITY_HIGH_ACCURACY` no provedor fundido — trocar o enum não mudaria nada. O
+que a hotfix muda é aceitar só a leitura que o contrato aceita. Intervalo de 1 s.
+
+**O servidor não recebe o instante da leitura**, e a hotfix não o acrescentou à
+API: a recência é garantida pela captura, e o servidor arbitra o que o corpo traz
+— coordenada, precisão, distância, posse e tenant (`requireGpsAccuracy`). Um APK
+anterior à hotfix, que ainda envia a posição aproximada, recebe `400` "Precisão
+do GPS insuficiente: 2000 m. …".
+
+**O check-in e o ponto não mudaram.** Continuam com `LocationService.current()`:
+lá a coordenada informa e nunca bloqueia, e o contrato de precisão não os alcança.
+
+**"Sem localização" depois de corrigir** — a outra pergunta da validação. O banco
+mostra que as duas correções gravadas na validação (OS Nº 11) moveram o ponto, e
+que a OS em atendimento cujo cliente seguia sem localização (Nº 5) não tem
+correção nenhuma gravada: para aquele cliente a seção dizia a verdade. Por que a
+tentativa não gravou não dá para provar — recusa do servidor não deixa rastro no
+banco, e nem o log do servidor nem o do aparelho daquele momento estavam
+disponíveis. O que o código mostra é o que a tela escondia: corrigir lia o GPS
+por até 15 s **sem estado nenhum na tela**, e uma falha virava um aviso
+passageiro — a seção continuava igual, sem dizer se algo estava acontecendo. A
+hotfix dá à captura um estado visível, com cancelar e tentar de novo, e prova
+por teste que, depois de uma correção aceita, o pacote é relido e a seção mostra
+o que o servidor diz agora.
