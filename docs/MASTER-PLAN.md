@@ -53,9 +53,11 @@ Candidate / Hardening.** A `RC-1A` (auditoria e plano, zero código) terminou em
 isolamento de teste) está **`APPROVED` / `CLOSED`** — `docs/SECURITY.md` §8.21;
 e a **`RC-1C`** (o contrato de localização do cliente que o dono aprovou)
 continua **aberta**: a validação física gravou um ponto a mais de 1 km do lugar,
-e a **`RC-1C-HOTFIX`** (captura de GPS recente e com precisão ≤ 50 m, no
-aplicativo e no servidor) está **`READY FOR OWNER VALIDATION`** — §12,
-`docs/TECHNICIAN-EXECUTION.md` §13 e §13.5, `docs/SECURITY.md` §8.22 e §8.22.1.
+a **`RC-1C-HOTFIX`** (captura de GPS recente e com precisão ≤ 50 m, no
+aplicativo e no servidor) reprovou na segunda validação física pela regra de
+frescor, e a **`RC-1C-HOTFIX-2`** (frescor pela idade da leitura) está
+**`READY FOR OWNER VALIDATION`** — §12, `docs/TECHNICIAN-EXECUTION.md` §13, §13.5
+e §13.6, `docs/SECURITY.md` §8.22 e §8.22.1.
 
 O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e o estado
 de cada item está em **§386**. O contrato final do mapa é a **PRD §392**.
@@ -92,7 +94,8 @@ RC-1   Release Candidate / Hardening                     ← em andamento
        RC-1A  auditoria e plano                          ← OWNER DECISION REQUIRED
        RC-1B  segurança · configuração · tenancy · teste ← APPROVED · CLOSED (2026-09-14)
        RC-1C  CustomerLocation — contrato do dono        ← ABERTA (validação física)
-       RC-1C-HOTFIX  captura de GPS · precisão ≤ 50 m    ← READY FOR OWNER VALIDATION
+       RC-1C-HOTFIX  captura de GPS · precisão ≤ 50 m    ← reprovada no frescor (2ª validação física)
+       RC-1C-HOTFIX-2  frescor pela idade da leitura     ← READY FOR OWNER VALIDATION
        RC-1D  copy · timeline da OS · acessibilidade     ← próxima recomendada, não iniciada
    ↓
 LANÇAMENTO V1 — produção e piloto real
@@ -502,7 +505,17 @@ de diagnóstico **em memória do processo** e a **ausência de teto agregado por
 empresa** (`docs/SECURITY.md` §8.7, *Rate limit de capability*; PRD §370).
 Preservados em 13/09/2026, no fechamento da `GS-1`: nenhum foi resolvido ali.
 
-**`RC-1C-HOTFIX` — `READY FOR OWNER VALIDATION` (15/09/2026).** A validação
+**`RC-1C-HOTFIX-2` — `READY FOR OWNER VALIDATION` (15/09/2026).** A segunda
+validação física, já com a localização precisa concedida, terminava toda captura
+em "Localização não obtida": com o aparelho parado, o provedor fundido do Google
+entregou só 13 localizações em seis capturas, e a captura recusou todas porque
+a regra de frescor também exigia que a leitura tivesse nascido no máximo 2 s
+antes da abertura. O dono fixou o frescor na **idade** da leitura (≤ 10 s),
+não no instante de abertura. Só Flutter, com um gancho de diagnóstico sem
+coordenada no `logcat` de depuração (`docs/TECHNICIAN-EXECUTION.md` §13.6). A
+`RC-1C` só fecha com a validação física desta hotfix.
+
+**`RC-1C-HOTFIX` — reprovada no frescor (15/09/2026), corrigida na HOTFIX-2.** A validação
 física da `RC-1C` gravou, por "Corrigir localização" com GPS, um ponto a mais de
 1 km do lugar em que o Google Maps pôs o mesmo telefone. Causa provada no
 aparelho e no banco: permissão só **aproximada** (o Android a entrega com 2000 m

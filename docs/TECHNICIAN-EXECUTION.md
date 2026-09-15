@@ -471,13 +471,13 @@ uma só para Confirmar e Corrigir:
 | Regra | Valor |
 | --- | --- |
 | Precisão, sobre o valor real | até **50 m** (o limite do pacote, `gpsMaxAccuracyMeters`; sem ele, 50) |
-| Idade da leitura | até **10 s**; nunca de antes de a captura começar (tolerância de relógio de 2 s) |
+| Idade da leitura | até **10 s**, pelo instante da própria leitura — pode ter nascido antes de a captura abrir (RC-1C-HOTFIX-2, §13.6); no futuro, só até 2 s |
 | Espera | ~**20 s**; várias leituras, e a **primeira aceitável** encerra |
 | Sem leitura aceitável | falha — a melhor precisão vista vai na **mensagem**, nunca como posição |
 | Coordenada | a mesma definição do servidor (`coordenadaValida`) |
 | GPS depois da resposta | desligado (o fluxo é cancelado) — nada em segundo plano |
 | Última posição conhecida | proibida em `lib/` inteiro (teste estrutural) |
-| Log | motivo e precisão; **nunca** coordenada (teste estrutural) |
+| Log | motivo, idade e precisão; **nunca** coordenada (teste estrutural) |
 
 **Precisa × aproximada.** Com só a aproximada concedida, a captura pede a
 permissão de novo — é o que faz o Android 12+ oferecer "usar localização
@@ -511,3 +511,52 @@ passageiro — a seção continuava igual, sem dizer se algo estava acontecendo.
 hotfix dá à captura um estado visível, com cancelar e tentar de novo, e prova
 por teste que, depois de uma correção aceita, o pacote é relido e a seção mostra
 o que o servidor diz agora.
+
+### 13.6. Frescor pela idade da leitura — RC-1C-HOTFIX-2 (15/09/2026)
+
+**O defeito da segunda validação física.** Com `ACCESS_FINE_LOCATION`
+concedida, a localização ligada e o aparelho tendo posições boas (fundida ~27 m,
+rede ~16 m, GPS ~11 m), toda captura terminava em "Localização não obtida". O
+que o aparelho registrou, lido no `dumpsys` sem nenhuma coordenada:
+
+* o provedor fundido do Google recebeu cada captura como pedido
+  `@1s HIGH_ACCURACY` e ligou o GPS em nome do AlfaOS; **cinco das seis
+  capturas seguraram o GPS pelos 20 s inteiros** — o prazo — e a sexta foi
+  cancelada aos 12 s;
+* o provedor marcou o aparelho como **parado** (`device stationary`,
+  `engine stationary throttled`) e entregou **13 localizações em todas as
+  sessões do AlfaOS** somadas — não uma por segundo;
+* a tela dizia "Localização não obtida", e não "Precisão do GPS insuficiente":
+  nenhuma das 13 foi contada nem como imprecisa. Foram recusadas como **velhas**.
+
+**A causa, no código.** A regra de frescor tinha duas condições: idade até 10 s
+**e** ter nascido no máximo 2 s antes de a captura abrir. A segunda recusava a
+posição que o provedor entrega com o aparelho parado — a que ele já tinha,
+nascida segundos antes da assinatura —, e com o aparelho parado nenhuma outra
+vinha. A matriz de teste reproduziu isso antes da correção: a leitura das
+12:00:01 com 18 m, numa captura aberta às 12:00:05, era recusada.
+
+**O contrato do dono.** A leitura serve se tem coordenada válida, precisão entre
+0 e 50 m, e **idade até 10 s** — no futuro, até ~2 s. **Quando ela nasceu em
+relação à abertura não importa.** Isso não reabre a última posição conhecida
+(`getLastKnownPosition` continua proibida): a leitura vem do FLUXO aberto pela
+captura, e é a idade dela que decide.
+
+**O relógio do aparelho não era o problema.** Com hora automática, ele estava a
+~0,3 s do UTC (medido contra NTP pelo computador), bem dentro da tolerância de 2
+s.
+
+**O que NÃO foi provado no aparelho, e como a próxima validação prova.** O
+`dumpsys` não registra o instante de cada leitura entregue, então ele não
+distingue "nascida mais de 2 s antes da abertura" (corrigido) de "mais de 10 s
+de idade" (continua recusado, pelo contrato). A captura passou a registrar, num
+build de depuração e **sem coordenada**, uma linha por leitura no `logcat`:
+
+```text
+alfaos.gps gps_reading n=1 verdict=accepted ageMs=4210 bornBeforeCaptureMs=3980 accuracyMeters=18.0
+alfaos.gps gps_capture outcome=acquired readings=1 bestAccuracyMeters=18.0
+```
+
+Com o telefone ligado ao computador durante o teste físico, `adb logcat -s flutter`
+mostra por que cada leitura foi aceita ou recusada. Em build de produção, nada
+disso é escrito.

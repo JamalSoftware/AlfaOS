@@ -2965,3 +2965,11 @@ até o teto de sanidade de 100 km.
   a captura registra só o motivo e a melhor precisão. O GPS é desligado ao fim de
   cada captura; nada mede em segundo plano, e `ACCESS_BACKGROUND_LOCATION`
   continua fora do manifesto.
+- **RC-1C-HOTFIX-2 — o frescor é a idade da leitura** (≤ 10 s; no futuro, até
+  ~2 s), não "ter nascido depois de a captura abrir" — `docs/TECHNICIAN-EXECUTION.md`
+  §13.6. `getLastKnownPosition` continua proibida em `lib/` inteiro. O gancho de
+  diagnóstico escreve no `logcat` **só em build de depuração** (`kDebugMode`,
+  e `Log` já é `assert`-only), uma linha por leitura com veredito, idade, instante
+  relativo à abertura e precisão — **nunca coordenada**, e um teste estrutural
+  varre `Log`, `debugPrint` e `print` dos arquivos de localização, e exige que o
+  tipo do diagnóstico não tenha campo de coordenada.

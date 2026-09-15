@@ -4837,8 +4837,12 @@ exatamente para distinguir uma coisa da outra.
 >   o valor real (50,1 m não serve), exigida pelo aplicativo e pelo servidor.
 >   Acima disso a posição não é usada: "Precisão do GPS insuficiente: 74 m.
 >   Aguarde alguns segundos em um local mais aberto e tente novamente."
-> - **Leitura recente** (até 10 s), nunca uma posição guardada; o aplicativo
->   espera ~20 s por uma leitura boa e, sem ela, não salva nada.
+> - **Leitura recente**: até 10 s de **idade**, pelo instante da própria
+>   leitura — ela pode ter nascido segundos antes de a captura abrir
+>   (esclarecido na RC-1C-HOTFIX-2: com o aparelho parado, o provedor entrega a
+>   posição que já tinha, e exigir o "depois" recusava uma leitura de 4 s e
+>   18 m); nunca a última posição conhecida do sistema. O aplicativo espera
+>   ~20 s por uma leitura boa e, sem ela, não salva nada.
 > - **Regras independentes:** precisão ≤ 50 m **e** distância ≤ 100 m para
 >   confirmar. Com GPS bom e longe, Corrigir continua sendo a saída.
 > - **Corrigir com GPS ruim não vira correção de endereço** em silêncio; sem
