@@ -98,15 +98,18 @@ export default async function TechniciansPage({ searchParams }: PageProps) {
         className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-surface p-4 shadow-sm"
       >
         {inService && <input type="hidden" name="emAtendimento" value="true" />}
+        {/* RC-1D: `placeholder` não é rótulo — ele some ao digitar. */}
         <input
           type="search"
           name="search"
+          aria-label="Buscar técnicos por nome"
           defaultValue={search}
           placeholder="Buscar por nome..."
           className="min-w-0 flex-1 rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
         />
         <select
           name="active"
+          aria-label="Filtrar por situação do técnico"
           defaultValue={activeRaw}
           className="rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
         >

@@ -149,26 +149,31 @@ export default async function OrdersPage({ searchParams }: PageProps) {
       >
         {/* O recorte sobrevive a "Filtrar": os filtros da tela se somam a ele. */}
         {slice && <input type="hidden" name="recorte" value={slice} />}
+        {/*
+          RC-1D: `placeholder` não é rótulo. Ele some ao digitar, e o leitor de
+          tela anuncia "campo de edição" e nada mais.
+        */}
         <input
           type="search"
           name="search"
+          aria-label="Buscar ordens de serviço por número, cliente, tipo ou descrição"
           defaultValue={search}
           placeholder="Buscar por nº, cliente, tipo ou descrição..."
           className="min-w-0 flex-1 rounded-lg border border-input-border px-3 py-2 text-sm text-fg focus:border-focus focus:outline-none focus:ring-2 focus:ring-focus-soft"
         />
-        <select name="status" defaultValue={status} className={selectClass}>
+        <select name="status" aria-label="Filtrar por status" defaultValue={status} className={selectClass}>
           <option value="">Todos os status</option>
           {Object.entries(SERVICE_ORDER_STATUS_LABELS).map(([value, label]) => (
             <option key={value} value={value}>{label}</option>
           ))}
         </select>
-        <select name="priority" defaultValue={priority} className={selectClass}>
+        <select name="priority" aria-label="Filtrar por prioridade" defaultValue={priority} className={selectClass}>
           <option value="">Todas as prioridades</option>
           {Object.entries(SERVICE_ORDER_PRIORITY_LABELS).map(([value, label]) => (
             <option key={value} value={value}>{label}</option>
           ))}
         </select>
-        <select name="technicianId" defaultValue={technicianId} className={selectClass}>
+        <select name="technicianId" aria-label="Filtrar por técnico" defaultValue={technicianId} className={selectClass}>
           <option value="">Todos os técnicos</option>
           {technicians.map((tech) => (
             <option key={tech.id} value={tech.id}>{tech.name}</option>
