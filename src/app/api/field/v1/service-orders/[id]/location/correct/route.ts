@@ -21,6 +21,16 @@ import { clientMutationId } from "@/lib/field/route";
  * ninguém ter medido nada. Sem GPS, a correção é só de endereço — e ela não
  * toca coordenada nem `verified`. Meia coordenada também é `400`.
  *
+ * **Coordenada com precisão ≤ 50 m (RC-1C-HOTFIX).** Com coordenada,
+ * `accuracyMeters` é obrigatório e vai até `LOCATION_GPS_MAX_ACCURACY_M`; fora
+ * disso, `400` — e o endereço do mesmo corpo NÃO é aplicado sozinho, porque
+ * quem mandou coordenada escolheu mover o ponto. Sem coordenada, a precisão
+ * não é pedida: correção só de endereço não usa GPS.
+ *
+ * O servidor não recebe o instante da leitura, e a hotfix não o acrescentou:
+ * a leitura recente (até 10 s) é garantida pela captura do aplicativo, e o
+ * servidor arbitra o que o corpo traz — coordenada, precisão, posse e tenant.
+ *
  * ## `expectedVersion` aceita `null`
  *
  * `null` significa "eu vi que este cliente NÃO tem localização", e é o

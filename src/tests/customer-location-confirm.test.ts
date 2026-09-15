@@ -6,10 +6,13 @@ import { DomainError } from "@/lib/errors";
 import { distanceInMeters } from "@/lib/geo";
 import {
   LOCATION_CONFIRM_MAX_DISTANCE_M,
+  LOCATION_GPS_MAX_ACCURACY_M,
   applyImportedCustomerLocation,
   confirmCustomerLocation,
   isConfirmDistanceAllowed,
+  isGpsAccuracyAllowed,
 } from "@/lib/customer-locations";
+import { formatAccuracyMeters } from "@/lib/customer-location-presentation";
 import { classificarLocalizacao } from "@/lib/customer-timeline";
 import { startServiceOrder } from "@/lib/service-orders";
 import {
@@ -146,6 +149,14 @@ async function nadaGravado(s: Awaited<ReturnType<typeof atendimento>>) {
   expect(projecao.locationVerified).toBe(false);
 }
 
+/**
+ * Confirma com a posição `observado`.
+ *
+ * A precisão tem um padrão VÁLIDO (8 m) desde a RC-1C-HOTFIX, que passou a
+ * exigi-la: os cenários da RC-1C falam de distância, de GPS ausente e de
+ * posse, e cada um continua recusado — ou aceito — pelo motivo que nomeia. Os
+ * cenários de precisão a sobrescrevem explicitamente.
+ */
 function confirmar(
   s: Awaited<ReturnType<typeof atendimento>>,
   observado: Record<string, unknown>,
@@ -154,6 +165,7 @@ function confirmar(
 ) {
   return confirmCustomerLocation(companyId, userId, s.order.id, {
     expectedVersion: s.location.version,
+    observedAccuracyMeters: 8,
     ...observado,
   });
 }
@@ -299,15 +311,23 @@ describe("LOC-C06..C08 — sem a posição do aparelho não se confirma", () => 
     await nadaGravado(s);
   });
 
-  it("precisão NÃO bloqueia (sem limite aprovado): 60 m de precisão a 20 m do ponto confirma", async () => {
+  it("RC-1C-HOTFIX · 60 m de precisão a 20 m do ponto NÃO confirma mais — o dono aprovou o limite de 50 m", async () => {
+    // Até a RC-1C este cenário confirmava: não havia limite de precisão
+    // aprovado. A validação física mostrou o preço, e o dono decidiu.
     const s = await atendimento();
     const o = aNorte(P, 20);
-    const r = await confirmar(s, {
-      observedLatitude: o.latitude,
-      observedLongitude: o.longitude,
-      observedAccuracyMeters: 60,
-    });
-    expect(r.location.verified).toBe(true);
+    const e = await erro(
+      confirmar(s, {
+        observedLatitude: o.latitude,
+        observedLongitude: o.longitude,
+        observedAccuracyMeters: 60,
+      }),
+    );
+    expect(e.status).toBe(400);
+    expect(e.message).toBe(
+      "Precisão do GPS insuficiente: 60 m. Aguarde alguns segundos em um local mais aberto e tente novamente.",
+    );
+    await nadaGravado(s);
   });
 });
 
@@ -401,6 +421,7 @@ describe("LOC-C09..C11 — a confirmação válida", () => {
         expectedVersion: s.location.version + 1,
         observedLatitude: o.latitude,
         observedLongitude: o.longitude,
+        observedAccuracyMeters: 8,
       }),
     );
     expect(e.status).toBe(409);
@@ -414,6 +435,7 @@ describe("LOC-C09..C11 — a confirmação válida", () => {
         expectedVersion: 0,
         observedLatitude: P.latitude,
         observedLongitude: P.longitude,
+        observedAccuracyMeters: 8,
       }),
     );
     expect(e.status).toBe(404);
@@ -571,6 +593,7 @@ describe("a rota de confirmação", () => {
       expectedVersion: s.location.version,
       observedLatitude: o.latitude,
       observedLongitude: o.longitude,
+      observedAccuracyMeters: 12,
     });
     expect(r.status).toBe(400);
     const b = await corpo(r);
@@ -597,6 +620,7 @@ describe("a rota de confirmação", () => {
       expectedVersion: s.location.version,
       observedLatitude: longe.latitude,
       observedLongitude: longe.longitude,
+      observedAccuracyMeters: 12,
       distanceMeters: 3,
     });
     expect(r.status).toBe(400);
@@ -615,5 +639,284 @@ describe("a rota de confirmação", () => {
     const location = b.data?.location as Record<string, unknown>;
     expect(location.confirmMaxDistanceMeters).toBe(100);
     expect(location.status).toBe("UNCONFIRMED");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RC-1C-HOTFIX — precisão do GPS ≤ 50 m, antes da distância
+// ---------------------------------------------------------------------------
+
+/**
+ * O caso físico que abriu a hotfix: no mesmo telefone, o Google Maps acertou o
+ * lugar e o AlfaOS gravou um ponto a mais de 1 km. O aparelho tinha só a
+ * permissão APROXIMADA, e o Android entrega essa posição com precisão de 2000 m
+ * — o número que ficou gravado. A precisão era registrada e nunca exigida.
+ *
+ * Duas regras independentes: precisão ≤ 50 m E distância ≤ 100 m.
+ */
+describe("RC-1C-HOTFIX — o limite de precisão", () => {
+  it("o limite é 50 m", () => {
+    expect(LOCATION_GPS_MAX_ACCURACY_M).toBe(50);
+  });
+
+  it.each([
+    [0.5, true],
+    [12, true],
+    [49.9, true],
+    [50, true],
+    [50.0001, false],
+    [50.1, false],
+    [50.6, false],
+    [74, false],
+    [1200, false],
+    [2000, false],
+  ])("%s m → aceita: %s — sobre o valor REAL, sem arredondar", (precisao, aceita) => {
+    expect(isGpsAccuracyAllowed(precisao)).toBe(aceita);
+  });
+
+  it.each([
+    [74, "74 m"],
+    [50, "50 m"],
+    [50.04, "50,1 m"],
+    [50.6, "50,6 m"],
+    [18.3, "18,3 m"],
+    [184.2, "185 m"],
+    [2000, "2000 m"],
+  ])("a mensagem escreve %s como %s — arredondando PARA CIMA", (precisao, texto) => {
+    // Para cima: "50 m" numa recusa de 50,04 m faria a regra parecer errada.
+    expect(formatAccuracyMeters(precisao)).toBe(texto);
+  });
+});
+
+describe("RC-1C-HOTFIX — confirmar exige precisão ≤ 50 m", () => {
+  it("ACC-C01 · precisão 12 m a 80 m do ponto: confirma", async () => {
+    const s = await atendimento();
+    const o = aNorte(P, 80);
+    const r = await confirmar(s, {
+      observedLatitude: o.latitude,
+      observedLongitude: o.longitude,
+      observedAccuracyMeters: 12,
+    });
+    expect(r.location.verified).toBe(true);
+    expect(r.distanceMeters).toBe(80);
+  });
+
+  it("ACC-C02 · precisão 70 m a 10 m do ponto: 400 pela PRECISÃO, nada gravado", async () => {
+    const s = await atendimento();
+    const o = aNorte(P, 10);
+    const e = await erro(
+      confirmar(s, {
+        observedLatitude: o.latitude,
+        observedLongitude: o.longitude,
+        observedAccuracyMeters: 70,
+      }),
+    );
+    expect(e.status).toBe(400);
+    expect(e.message).toBe(
+      "Precisão do GPS insuficiente: 70 m. Aguarde alguns segundos em um local mais aberto e tente novamente.",
+    );
+    await nadaGravado(s);
+  });
+
+  it("ACC-C03 · precisão 12 m a 120 m do ponto: 400 pelos 100 m — GPS bom não libera longe", async () => {
+    const s = await atendimento();
+    const o = aNorte(P, 120);
+    const e = await erro(
+      confirmar(s, {
+        observedLatitude: o.latitude,
+        observedLongitude: o.longitude,
+        observedAccuracyMeters: 12,
+      }),
+    );
+    expect(e.status).toBe(400);
+    expect(e.message).toBe("Você está a 120 m do ponto cadastrado. Use Corrigir localização.");
+    await nadaGravado(s);
+  });
+
+  it("ACC-C04 · precisão 220 m: a distância NÃO importa — a recusa é da precisão", async () => {
+    const s = await atendimento();
+    const longe = aNorte(P, 2357);
+    const e = await erro(
+      confirmar(s, {
+        observedLatitude: longe.latitude,
+        observedLongitude: longe.longitude,
+        observedAccuracyMeters: 220,
+      }),
+    );
+    expect(e.message).toMatch(/^Precisão do GPS insuficiente: 220 m\./);
+    expect(e.message).not.toMatch(/ponto cadastrado/);
+    await nadaGravado(s);
+  });
+
+  it("ACC-C05 · precisão AUSENTE: 400, nada gravado — não é 'sem limite'", async () => {
+    const s = await atendimento();
+    const e = await erro(
+      confirmar(s, {
+        observedLatitude: P.latitude,
+        observedLongitude: P.longitude,
+        observedAccuracyMeters: null,
+      }),
+    );
+    expect(e.status).toBe(400);
+    expect(e.message).toBe(
+      "Não é possível confirmar sem a precisão do GPS. Obtenha a posição novamente e tente outra vez.",
+    );
+    await nadaGravado(s);
+  });
+
+  it.each([
+    ["zero (o 'não medido' do plugin)", 0],
+    ["negativa", -1],
+    ["NaN", Number.NaN],
+    ["infinita", Number.POSITIVE_INFINITY],
+  ])("ACC-C06 · precisão inválida (%s): 400, nada gravado", async (_label, precisao) => {
+    const s = await atendimento();
+    const e = await erro(
+      confirmar(s, {
+        observedLatitude: P.latitude,
+        observedLongitude: P.longitude,
+        observedAccuracyMeters: precisao,
+      }),
+    );
+    expect(e.status).toBe(400);
+    expect(e.message).toBe("Precisão de localização inválida.");
+    await nadaGravado(s);
+  });
+
+  it("ACC-C07a · 50,0 m — exatamente o limite — confirma", async () => {
+    const limite = await atendimento();
+    const r = await confirmar(limite, {
+      observedLatitude: P.latitude,
+      observedLongitude: P.longitude,
+      observedAccuracyMeters: 50,
+    });
+    expect(r.location.verified).toBe(true);
+  });
+
+  it("ACC-C07b · 50,1 m não confirma — e a mensagem não escreve '50 m'", async () => {
+    const acima = await atendimento();
+    const e = await erro(
+      confirmar(acima, {
+        observedLatitude: P.latitude,
+        observedLongitude: P.longitude,
+        observedAccuracyMeters: 50.1,
+      }),
+    );
+    expect(e.status).toBe(400);
+    expect(e.message).toContain("50,1 m");
+    await nadaGravado(acima);
+  });
+
+  it("ACC-C08 · o caso físico: precisão 2000 m (posição APROXIMADA do Android) no próprio ponto: 400", async () => {
+    const s = await atendimento();
+    const e = await erro(
+      confirmar(s, {
+        observedLatitude: P.latitude,
+        observedLongitude: P.longitude,
+        observedAccuracyMeters: 2000,
+      }),
+    );
+    expect(e.status).toBe(400);
+    expect(e.message).toContain("2000 m");
+    await nadaGravado(s);
+  });
+
+  it("a ordem do contrato continua: técnico que não é o dono, com precisão ruim, recebe o 404 da OS", async () => {
+    // A precisão não pode virar um oráculo: quem não pode mexer na OS não
+    // descobre, pela mensagem de GPS, que existe um ponto do outro lado.
+    const s = await atendimento();
+    const e = await erro(
+      confirmar(
+        s,
+        { observedLatitude: P.latitude, observedLongitude: P.longitude, observedAccuracyMeters: 1500 },
+        fixture.techB.id,
+      ),
+    );
+    expect(e.status).toBe(404);
+    await nadaGravado(s);
+  });
+
+  it("o limite vigente fica registrado no evento, ao lado do de distância", async () => {
+    const s = await atendimento();
+    await confirmar(s, {
+      observedLatitude: P.latitude,
+      observedLongitude: P.longitude,
+      observedAccuracyMeters: 18.4,
+    });
+    const evento = await prisma.serviceOrderEvent.findFirstOrThrow({
+      where: { serviceOrderId: s.order.id, event: "LOCATION_CONFIRMED" },
+    });
+    const meta = evento.metadata as Record<string, unknown>;
+    expect(meta.gpsMaxAccuracyMeters).toBe(50);
+    // A coluna guarda metro inteiro; a regra foi decidida sobre o valor bruto.
+    expect(meta.accuracyMeters).toBe(18);
+  });
+});
+
+describe("RC-1C-HOTFIX — pela rota: um cliente sabotado não contorna a precisão", () => {
+  function pedir(orderId: string, token: string, body: Record<string, unknown>) {
+    return confirmRoute(
+      fieldRequest(`/api/field/v1/service-orders/${orderId}/location/confirm`, {
+        method: "POST",
+        token,
+        idempotencyKey: `hotfix-${Date.now()}-${Math.random()}`,
+        body,
+      }),
+      { params: { id: orderId } },
+    );
+  }
+
+  it("coordenada válida NO ponto com precisão 1500 m: 400 VALIDATION_ERROR, nada gravado", async () => {
+    const s = await atendimento();
+    const { token } = await registerTestDevice(fixture.techA.id);
+    const r = await pedir(s.order.id, token, {
+      expectedVersion: s.location.version,
+      observedLatitude: P.latitude,
+      observedLongitude: P.longitude,
+      observedAccuracyMeters: 1500,
+    });
+    expect(r.status).toBe(400);
+    const b = await corpo(r);
+    expect(b.error?.code).toBe("VALIDATION_ERROR");
+    expect(b.error?.retryable).toBe(false);
+    expect(b.error?.message).toBe(
+      "Precisão do GPS insuficiente: 1500 m. Aguarde alguns segundos em um local mais aberto e tente novamente.",
+    );
+    await nadaGravado(s);
+  });
+
+  it("um APK que não manda precisão: 400, nada gravado", async () => {
+    const s = await atendimento();
+    const { token } = await registerTestDevice(fixture.techA.id);
+    const r = await pedir(s.order.id, token, {
+      expectedVersion: s.location.version,
+      observedLatitude: P.latitude,
+      observedLongitude: P.longitude,
+    });
+    expect(r.status).toBe(400);
+    await nadaGravado(s);
+  });
+
+  it("controle positivo: a mesma requisição com 9 m confirma", async () => {
+    const s = await atendimento();
+    const { token } = await registerTestDevice(fixture.techA.id);
+    const r = await pedir(s.order.id, token, {
+      expectedVersion: s.location.version,
+      observedLatitude: P.latitude,
+      observedLongitude: P.longitude,
+      observedAccuracyMeters: 9,
+    });
+    expect(r.status).toBe(200);
+  });
+
+  it("o pacote de execução diz ao aplicativo qual é o limite de precisão", async () => {
+    const s = await atendimento();
+    const { token } = await registerTestDevice(fixture.techA.id);
+    const r = await executionRoute(
+      fieldRequest(`/api/field/v1/service-orders/${s.order.id}/execution`, { token }),
+      { params: { id: s.order.id } },
+    );
+    const b = await corpo(r);
+    expect((b.data?.location as Record<string, unknown>).gpsMaxAccuracyMeters).toBe(50);
   });
 });

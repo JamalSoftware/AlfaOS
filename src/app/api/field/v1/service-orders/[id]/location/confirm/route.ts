@@ -20,6 +20,11 @@ import { clientMutationId, fieldExpectedVersion } from "@/lib/field/route";
  * `400` — a saída é `correct`. Sem GPS, também `400`: confirmar sem medir é o
  * defeito que a fase fechou.
  *
+ * **A precisão também é obrigatória (RC-1C-HOTFIX):** `observedAccuracyMeters`
+ * ausente, zero ou acima de `LOCATION_GPS_MAX_ACCURACY_M` (50 m) é `400`, antes
+ * de a distância ser calculada. É o que recusa a posição APROXIMADA do Android
+ * (2000 m), que um APK anterior à hotfix enviaria sem hesitar.
+ *
  * O schema continua aceitando `null`/ausente e o domínio recusa com a mensagem
  * certa — forma aqui, regra no domínio. Um `.min()` no zod devolveria o
  * "Dados inválidos" genérico a um técnico que só está sem sinal.

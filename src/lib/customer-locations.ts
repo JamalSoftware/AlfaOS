@@ -8,14 +8,12 @@ import type {
 import { prisma } from "./prisma";
 import { logAudit } from "./audit";
 import { badRequest, conflict, isUniqueConstraintError, notFound } from "./errors";
-import {
-  assertValidAccuracy,
-  assertValidCoordinate,
-  distanceInMeters,
-  type Coordinate,
-} from "./geo";
+import { assertValidCoordinate, distanceInMeters, type Coordinate } from "./geo";
 import { coordenadaValida } from "./map-links";
-import { formatDistanceMeters } from "./customer-location-presentation";
+import {
+  formatAccuracyMeters,
+  formatDistanceMeters,
+} from "./customer-location-presentation";
 import {
   loadOwnedServiceOrder,
   resolveActingTechnician,
@@ -462,6 +460,76 @@ export function isConfirmDistanceAllowed(distanceMeters: number): boolean {
 }
 
 /**
+ * A pior precisão de GPS que ainda serve para CONFIRMAR ou MOVER o ponto —
+ * RC-1C-HOTFIX.
+ *
+ * Decisão do dono (2026-09-15), depois da validação física da RC-1C: no mesmo
+ * telefone, o Google Maps pôs o aparelho no lugar certo e o AlfaOS gravou um
+ * ponto a mais de 1 km dali. O aparelho tinha só a permissão de localização
+ * APROXIMADA, e o Android entrega posição aproximada com precisão de 2000 m —
+ * o número que ficou gravado. Nada recusava: a precisão era registrada e
+ * mostrada, nunca exigida.
+ *
+ * **Regra independente da distância.** Precisão diz o quanto a posição do
+ * aparelho merece crédito; a distância diz o quanto ela está longe do ponto. A
+ * precisão vem ANTES: com 220 m de incerteza, "está a 10 m do ponto" não
+ * significa nada, e a distância nem chega a ser calculada.
+ *
+ * **Sobre o valor REAL, sem arredondar.** 50,6 m não vira 50 para passar — ao
+ * contrário da distância, cujo metro arredondado é o que o técnico vê. Aqui o
+ * número chega do aparelho, e arredondá-lo seria afrouxar a regra.
+ *
+ * Mora no servidor e viaja no pacote de execução (`gpsMaxAccuracyMeters`),
+ * como o limite de distância: o aplicativo usa o número para não enviar uma
+ * posição que seria recusada, e quem recusa é esta regra. Um APK anterior à
+ * hotfix — ou hostil — não passa por ela.
+ */
+export const LOCATION_GPS_MAX_ACCURACY_M = 50;
+
+/** A regra da precisão, isolada: `true` quando a posição pode ser usada. */
+export function isGpsAccuracyAllowed(accuracyMeters: number): boolean {
+  return accuracyMeters <= LOCATION_GPS_MAX_ACCURACY_M;
+}
+
+/**
+ * A precisão que confirmar e corrigir com GPS EXIGEM — ou a recusa.
+ *
+ * Ausente é recusa, e não "sem limite": sem a precisão não há como saber se a
+ * posição é a de um GPS ou a de uma estimativa aproximada que o Android
+ * espalha por quilômetros. O aplicativo desta fase sempre a envia; o que chega
+ * sem ela é um cliente que não segue o contrato.
+ *
+ * Zero é recusa também: é o valor que o plugin de GPS devolve quando a
+ * plataforma não mediu nada (`Position.accuracy` sem `hasAccuracy`).
+ *
+ * Devolve o metro arredondado, que é o que a coluna guarda — a regra já foi
+ * decidida sobre o valor bruto.
+ */
+function requireGpsAccuracy(
+  accuracyMeters: number | null | undefined,
+  acao: "confirmar" | "corrigir a coordenada",
+): number {
+  if (accuracyMeters === null || accuracyMeters === undefined) {
+    throw badRequest(
+      `Não é possível ${acao} sem a precisão do GPS. Obtenha a posição novamente e tente outra vez.`,
+    );
+  }
+  if (
+    typeof accuracyMeters !== "number" ||
+    !Number.isFinite(accuracyMeters) ||
+    accuracyMeters <= 0
+  ) {
+    throw badRequest("Precisão de localização inválida.");
+  }
+  if (!isGpsAccuracyAllowed(accuracyMeters)) {
+    throw badRequest(
+      `Precisão do GPS insuficiente: ${formatAccuracyMeters(accuracyMeters)}. Aguarde alguns segundos em um local mais aberto e tente novamente.`,
+    );
+  }
+  return Math.round(accuracyMeters);
+}
+
+/**
  * A posição do aparelho que a confirmação exige — ou a recusa.
  *
  * Ausente, pela metade ou fora do planeta, é o mesmo desfecho: sem GPS válido
@@ -516,9 +584,12 @@ export interface ConfirmLocationResult {
  * ```text
  * técnico → OS dele → OS em atendimento (sob trava)   quem e quando
  * ponto existe → versão → ainda não verificado       o que há para confirmar
- * GPS válido → distância no servidor → ≤ 100 m        se dá para confirmar
+ * GPS válido → precisão ≤ 50 m → distância ≤ 100 m    se dá para confirmar
  * só então: verified = true, trilha, evento, auditoria
  * ```
+ *
+ * A precisão é da RC-1C-HOTFIX: sem ela, uma posição APROXIMADA do Android
+ * (2000 m de incerteza) era medida contra o ponto como se fosse GPS.
  *
  * Quem não pode mexer nesta OS recebe o 404 da OS antes de qualquer pergunta
  * sobre GPS — a recusa não conta que existe um ponto do outro lado. E a regra
@@ -567,7 +638,12 @@ export async function confirmCustomerLocation(
     }
 
     const observed = requireObservedPosition(input);
-    const observedAccuracy = assertValidAccuracy(input.observedAccuracyMeters);
+    // A precisão antes da distância (RC-1C-HOTFIX): uma posição que não merece
+    // crédito não é medida contra o ponto.
+    const observedAccuracy = requireGpsAccuracy(
+      input.observedAccuracyMeters,
+      "confirmar",
+    );
 
     // Calculada AQUI, a partir do ponto gravado. Distância enviada pelo
     // aparelho seria o aparelho avaliando a si mesmo (PRD §167).
@@ -658,6 +734,7 @@ export async function confirmCustomerLocation(
           observedLatitude: observed.latitude,
           observedLongitude: observed.longitude,
           confirmMaxDistanceMeters: LOCATION_CONFIRM_MAX_DISTANCE_M,
+          gpsMaxAccuracyMeters: LOCATION_GPS_MAX_ACCURACY_M,
           source: current.source,
         },
       },
@@ -769,7 +846,15 @@ export async function correctCustomerLocation(
       );
     }
     coordinate = assertValidCoordinate(input.latitude, input.longitude);
-    accuracy = assertValidAccuracy(input.accuracyMeters);
+    /*
+      Precisão ≤ 50 m para MOVER o ponto — RC-1C-HOTFIX.
+
+      Recusar aqui, e não trocar por uma correção só de endereço: quem mandou
+      coordenada escolheu "usar minha localização atual", e aplicar o endereço
+      descartando a posição em silêncio faria o técnico achar que moveu o ponto
+      — o mesmo raciocínio da meia coordenada, logo acima.
+    */
+    accuracy = requireGpsAccuracy(input.accuracyMeters, "corrigir a coordenada");
   }
 
   const hasAddress =

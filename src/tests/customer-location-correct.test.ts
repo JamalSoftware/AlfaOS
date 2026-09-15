@@ -506,3 +506,140 @@ describe("DISPATCHER e ADMIN não ganham escrita de localização", () => {
     ]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// RC-1C-HOTFIX — mover o ponto exige precisão ≤ 50 m
+// ---------------------------------------------------------------------------
+
+/**
+ * O defeito da validação física foi exatamente este caminho: "Corrigir
+ * localização" com "Usar minha localização atual", e o aparelho só com a
+ * permissão APROXIMADA. A posição chegou com 2000 m de precisão, foi gravada
+ * como GPS do técnico, verificada — e o ponto ficou a mais de 1 km do lugar.
+ */
+describe("RC-1C-HOTFIX — corrigir com GPS exige precisão ≤ 50 m", () => {
+  it("ACC-R01 · precisão 18 m: o ponto muda, com a precisão gravada", async () => {
+    const s = await atendimento();
+    await corrigirComGps(s, B, { accuracyMeters: 18 });
+    const ponto = await prisma.customerLocation.findUniqueOrThrow({ where: { id: s.location!.id } });
+    expect(Number(ponto.latitude)).toBeCloseTo(B.latitude, 7);
+    expect(ponto.accuracyMeters).toBe(18);
+    expect(ponto.verified).toBe(true);
+  });
+
+  it("ACC-R02 · precisão 1200 m: o ponto NÃO muda — nem a autoridade, nem a trilha, nem o mapa", async () => {
+    const s = await atendimento();
+    const e = await erro(corrigirComGps(s, B, { accuracyMeters: 1200 }));
+    expect(e.status).toBe(400);
+    expect(e.message).toBe(
+      "Precisão do GPS insuficiente: 1200 m. Aguarde alguns segundos em um local mais aberto e tente novamente.",
+    );
+    await pontoIntacto(s);
+    expect((await marcadorNoMapa(s.customer.id))?.latitude).toBeCloseTo(A.latitude, 7);
+    expect(
+      await prisma.serviceOrderEvent.count({
+        where: { serviceOrderId: s.order.id, event: "LOCATION_CORRECTED" },
+      }),
+    ).toBe(0);
+  });
+
+  it("ACC-R03 · precisão ausente com coordenada: 400 — não há correção por GPS sem precisão", async () => {
+    const s = await atendimento();
+    const e = await erro(corrigirComGps(s, B, { accuracyMeters: null }));
+    expect(e.status).toBe(400);
+    expect(e.message).toBe(
+      "Não é possível corrigir a coordenada sem a precisão do GPS. Obtenha a posição novamente e tente outra vez.",
+    );
+    await pontoIntacto(s);
+  });
+
+  it("ACC-R04 · GPS ruim + endereço no mesmo corpo: 400, e o endereço NÃO é aplicado sozinho", async () => {
+    // Quem mandou coordenada escolheu mover o ponto. Aplicar o endereço e
+    // descartar a posição em silêncio faria o técnico achar que moveu.
+    const s = await atendimento();
+    const e = await erro(
+      corrigirComGps(s, B, {
+        accuracyMeters: 900,
+        address: { address: "Rua Que Não Pode Entrar" },
+      }),
+    );
+    expect(e.status).toBe(400);
+    await pontoIntacto(s);
+    const c = await prisma.customer.findUniqueOrThrow({ where: { id: s.customer.id } });
+    expect(c.address).toBe("Rua QA");
+  });
+
+  it("ACC-R05 · só endereço (GPS desligado) continua sem pedir precisão", async () => {
+    const s = await atendimento();
+    const r = await correctCustomerLocation(s.companyId, fixture.techA.id, s.order.id, {
+      expectedVersion: s.location!.version,
+      reason: "INCORRECT_ADDRESS",
+      address: { address: "Rua Sem GPS QA" },
+    });
+    expect(r.kind).toBe("ADDRESS");
+    const c = await prisma.customer.findUniqueOrThrow({ where: { id: s.customer.id } });
+    expect(c.address).toBe("Rua Sem GPS QA");
+    const ponto = await prisma.customerLocation.findUniqueOrThrow({ where: { id: s.location!.id } });
+    expect(ponto.version).toBe(s.location!.version);
+    expect(ponto.verified).toBe(false);
+  });
+
+  it("ACC-R06 · 50,0 m move; 50,1 m não — sem arredondar para liberar", async () => {
+    const limite = await atendimento();
+    await corrigirComGps(limite, B, { accuracyMeters: 50 });
+    expect(
+      Number(
+        (await prisma.customerLocation.findUniqueOrThrow({ where: { id: limite.location!.id } }))
+          .latitude,
+      ),
+    ).toBeCloseTo(B.latitude, 7);
+
+    const acima = await atendimento();
+    expect((await erro(corrigirComGps(acima, B, { accuracyMeters: 50.1 }))).status).toBe(400);
+    await pontoIntacto(acima);
+  });
+
+  it.each([
+    ["zero", 0],
+    ["negativa", -3],
+  ])("ACC-R07 · precisão %s: 400, nada muda", async (_label, precisao) => {
+    const s = await atendimento();
+    expect((await erro(corrigirComGps(s, B, { accuracyMeters: precisao }))).status).toBe(400);
+    await pontoIntacto(s);
+  });
+
+  it("ACC-R08 · o caso físico: cliente SEM ponto e precisão 2000 m — nenhum ponto é criado", async () => {
+    const s = await atendimento({ comPonto: false });
+    expect((await erro(corrigirComGps(s, B, { accuracyMeters: 2000 }))).status).toBe(400);
+    expect(await prisma.customerLocation.count({ where: { customerId: s.customer.id } })).toBe(0);
+    expect(await prisma.customerLocationHistory.count({ where: { customerId: s.customer.id } })).toBe(0);
+    const c = await prisma.customer.findUniqueOrThrow({ where: { id: s.customer.id } });
+    expect(c.latitude).toBeNull();
+    expect(await marcadorNoMapa(s.customer.id)).toBeNull();
+  });
+
+  it("pela rota: um cliente sabotado com coordenada válida e precisão 1500 m recebe 400, nada muda", async () => {
+    const s = await atendimento();
+    const { token } = await registerTestDevice(fixture.techA.id);
+    const r = await correctRoute(
+      fieldRequest(`/api/field/v1/service-orders/${s.order.id}/location/correct`, {
+        method: "POST",
+        token,
+        idempotencyKey: `hotfix-corr-${Math.random()}`,
+        body: {
+          expectedVersion: s.location!.version,
+          reason: "INCORRECT_LOCATION",
+          latitude: B.latitude,
+          longitude: B.longitude,
+          accuracyMeters: 1500,
+          source: "TECHNICIAN_GPS",
+        },
+      }),
+      { params: { id: s.order.id } },
+    );
+    expect(r.status).toBe(400);
+    const b = (await r.json()) as { error?: { code: string } };
+    expect(b.error?.code).toBe("VALIDATION_ERROR");
+    await pontoIntacto(s);
+  });
+});

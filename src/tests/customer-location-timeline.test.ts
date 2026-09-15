@@ -163,6 +163,7 @@ describe("RC-LOC-02 — distância da confirmação na timeline do cliente", () 
       expectedVersion: s.location.version,
       observedLatitude: o.latitude,
       observedLongitude: o.longitude,
+      observedAccuracyMeters: 8,
     });
     const { timeline } = await linhaDeConfirmacao(s.customer.id);
     const texto = JSON.stringify(timeline.items.map((i) => ({ i, p: presentTimelineItem(i) })));
@@ -178,6 +179,7 @@ describe("RC-LOC-02 — distância da confirmação na timeline do cliente", () 
       reason: "CUSTOMER_MOVED",
       latitude: aNorte(400).latitude,
       longitude: P.longitude,
+      accuracyMeters: 8,
       source: "TECHNICIAN_GPS",
     });
     const timeline = await getCustomerTimeline(
@@ -197,6 +199,7 @@ describe("RC-LOC-02 — distância da confirmação na timeline do cliente", () 
       expectedVersion: s.location.version,
       observedLatitude: o.latitude,
       observedLongitude: o.longitude,
+      observedAccuracyMeters: 8,
     });
     const linha = await prisma.customerLocationHistory.findFirstOrThrow({
       where: { customerId: s.customer.id },

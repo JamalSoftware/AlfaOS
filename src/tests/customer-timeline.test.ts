@@ -800,6 +800,8 @@ describe("TL-SRC — cada fonte aparece, com conteúdo, instante e dono certos",
         expectedVersion: await versao(),
         observedLatitude: -3.11,
         observedLongitude: -60.03,
+        // e a precisão, que a RC-1C-HOTFIX passou a exigir
+        observedAccuracyMeters: 8,
       }),
     );
     // 4. a importação traz outro ponto, longe — a verificada é PRESERVADA, e a
@@ -819,6 +821,7 @@ describe("TL-SRC — cada fonte aparece, com conteúdo, instante e dono certos",
         reason: "INCORRECT_LOCATION",
         latitude: -3.12,
         longitude: -60.04,
+        accuracyMeters: 8,
       }),
     );
     await passo("ADDRESS_CORRECTED", ordem.id, async () =>
@@ -834,6 +837,7 @@ describe("TL-SRC — cada fonte aparece, com conteúdo, instante e dono certos",
         reason: "CUSTOMER_MOVED",
         latitude: -3.13,
         longitude: -60.05,
+        accuracyMeters: 8,
         address: { address: "Avenida QA TL" },
       }),
     );
@@ -864,6 +868,7 @@ describe("TL-SRC — cada fonte aparece, com conteúdo, instante e dono certos",
       reason: "INCOMPLETE_REGISTRATION",
       latitude: -3.14,
       longitude: -60.06,
+      accuracyMeters: 8,
     });
     const versao = (
       await prisma.customerLocation.findFirstOrThrow({ where: { customerId: clienteA.id } })
@@ -874,6 +879,7 @@ describe("TL-SRC — cada fonte aparece, com conteúdo, instante e dono certos",
       note: "conferido de novo",
       latitude: -3.14,
       longitude: -60.06,
+      accuracyMeters: 8,
     });
 
     expect(kinds((await timeline()).items)).toEqual(["LOCATION_CORRECTED", "LOCATION_CORRECTED"]);

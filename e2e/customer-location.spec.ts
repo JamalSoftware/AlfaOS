@@ -493,6 +493,64 @@ test.describe("RC-1C — confirmar pelo servidor real", () => {
     await expect(page.getByTestId("customer-location-verified")).toHaveText("Não");
   });
 
+  test("RC-1C-HOTFIX · cliente sabotado com precisão 1500 m: não confirma NO ponto, não move, e o cartão continua igual", async ({
+    playwright,
+    baseURL,
+    page,
+  }) => {
+    // O caso físico, pelo servidor real: um APK que envia a posição APROXIMADA
+    // do Android (precisão de quilômetros) como se fosse GPS. Com a coordenada
+    // exatamente no ponto, a distância seria zero — e mesmo assim não passa.
+    const api = await playwright.request.newContext({ baseURL });
+    try {
+      const token = await tokenDoTecnico(api);
+      const confirmar = await comandoDoCampo(
+        api,
+        token,
+        `/api/field/v1/service-orders/${ids.longe.os}/location/confirm`,
+        {
+          expectedVersion: await versaoDoPonto(ids.longe.cliente),
+          observedLatitude: C.latitude,
+          observedLongitude: C.longitude,
+          observedAccuracyMeters: 1500,
+        },
+      );
+      expect(confirmar.status).toBe(400);
+      expect((confirmar.body.error as { message: string }).message).toBe(
+        "Precisão do GPS insuficiente: 1500 m. Aguarde alguns segundos em um local mais aberto e tente novamente.",
+      );
+
+      const corrigir = await comandoDoCampo(
+        api,
+        token,
+        `/api/field/v1/service-orders/${ids.longe.os}/location/correct`,
+        {
+          expectedVersion: await versaoDoPonto(ids.longe.cliente),
+          reason: "INCORRECT_LOCATION",
+          latitude: B.latitude,
+          longitude: B.longitude,
+          accuracyMeters: 1500,
+          source: "TECHNICIAN_GPS",
+        },
+      );
+      expect(corrigir.status).toBe(400);
+    } finally {
+      await api.dispose();
+    }
+
+    const ponto = await prisma.customerLocation.findUniqueOrThrow({
+      where: { customerId: ids.longe.cliente },
+    });
+    expect(ponto.verified).toBe(false);
+    expect(Number(ponto.latitude)).toBeCloseTo(C.latitude, 7);
+    expect(ponto.source).toBe("IMPORTED");
+
+    await entrar(page, EMAIL_ADMIN);
+    await page.goto(`/clientes/${ids.longe.cliente}/editar`);
+    await expect(page.getByTestId("customer-location-latitude")).toHaveText(C.latitude.toFixed(7));
+    await expect(page.getByTestId("customer-location-verified")).toHaveText("Não");
+  });
+
   test("LOC-C02 + RC-LOC-02 · perto (40 m): confirma; o cartão diz verificada e a timeline diz a distância", async ({
     playwright,
     baseURL,

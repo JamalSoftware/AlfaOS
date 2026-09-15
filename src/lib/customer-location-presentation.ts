@@ -24,6 +24,27 @@ export function formatDistanceMeters(meters: number): string {
   return `${km} km`;
 }
 
+/**
+ * A precisão do GPS como uma pessoa lê — RC-1C-HOTFIX.
+ *
+ * Arredondada PARA CIMA: abaixo de 100 m, ao décimo ("50,1 m"); a partir dele,
+ * ao metro ("184 m"). Para cima porque é o lado seguro de uma recusa: 50,04 m
+ * está acima do limite de 50 m, e escrever "50 m" na mensagem que recusa faria
+ * a regra parecer errada na frente do técnico. O `1e-9` absorve o ruído de
+ * ponto flutuante (`18.3 * 10` é `183.00000000000003`), que sem ele viraria
+ * "18,4 m".
+ *
+ * O aplicativo tem a mesma função (`formatAccuracyMeters`, em Dart): a tela que
+ * mede e a mensagem que recusa escrevem o mesmo número.
+ */
+export function formatAccuracyMeters(meters: number): string {
+  if (meters >= 100) return `${Math.ceil(meters - 1e-9)} m`;
+  const decimo = Math.ceil(meters * 10 - 1e-9) / 10;
+  return Number.isInteger(decimo)
+    ? `${decimo} m`
+    : `${decimo.toFixed(1).replace(".", ",")} m`;
+}
+
 /** De onde a coordenada veio — o eixo `source`, que não é o `verified`. */
 export const LOCATION_SOURCE_LABELS: Record<CustomerLocationSource, string> = {
   TECHNICIAN_GPS: "Técnico em campo (GPS do aparelho)",

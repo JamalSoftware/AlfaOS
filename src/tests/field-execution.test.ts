@@ -294,6 +294,7 @@ describe("Importação × localização verificada", () => {
       reason: "INCORRECT_LOCATION",
       latitude: -23.5505,
       longitude: -46.6333,
+      accuracyMeters: 8,
       source: "TECHNICIAN_GPS",
     });
 
@@ -334,6 +335,7 @@ describe("Importação × localização verificada", () => {
       reason: "INCORRECT_LOCATION",
       latitude: -23.5505,
       longitude: -46.6333,
+      accuracyMeters: 8,
       source: "TECHNICIAN_GPS",
     });
 
@@ -470,6 +472,7 @@ describe("Correção de localização e endereço", () => {
       reason: "CUSTOMER_MOVED",
       latitude: -23.4,
       longitude: -46.5,
+      accuracyMeters: 8,
       source: "TECHNICIAN_GPS",
       address: { address: "Rua Nova Ficticia", number: "42" },
     });
@@ -613,6 +616,9 @@ describe("Posse e tenancy na correção de cadastro", () => {
             reason: "INCORRECT_LOCATION",
             latitude: -23.4,
             longitude: -46.5,
+            // Corpo VÁLIDO de propósito (RC-1C-HOTFIX exige precisão): só a
+            // posse pode recusar — senão o 400 da precisão passaria por ela.
+            accuracyMeters: 8,
           },
         ),
       404,
@@ -628,6 +634,7 @@ describe("Posse e tenancy na correção de cadastro", () => {
           reason: "INCORRECT_LOCATION",
           latitude: -23.4,
           longitude: -46.5,
+          accuracyMeters: 8,
         }),
       404,
     );
@@ -646,6 +653,7 @@ describe("Posse e tenancy na correção de cadastro", () => {
           reason: "INCORRECT_LOCATION",
           latitude: -23.4,
           longitude: -46.5,
+          accuracyMeters: 8,
         }),
       409,
     );

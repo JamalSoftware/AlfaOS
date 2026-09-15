@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { COMMITTED_EVIDENCE } from "@/lib/service-order-closing";
 import {
   LOCATION_CONFIRM_MAX_DISTANCE_M,
+  LOCATION_GPS_MAX_ACCURACY_M,
   getCustomerLocationView,
   type LocationStatus,
 } from "@/lib/customer-locations";
@@ -74,6 +75,14 @@ export interface FieldExecutionBundle {
      * (`confirmCustomerLocation`); um APK que ignore este campo recebe o 400.
      */
     confirmMaxDistanceMeters: number;
+    /**
+     * A pior precisão de GPS que confirmar e corrigir aceitam (RC-1C-HOTFIX).
+     *
+     * Viaja pelo mesmo motivo do limite de distância: o aplicativo espera por
+     * uma leitura dentro dele em vez de enviar uma que seria recusada. Quem
+     * recusa é o servidor (`requireGpsAccuracy`).
+     */
+    gpsMaxAccuracyMeters: number;
   };
   checkIn: {
     id: string;
@@ -239,6 +248,7 @@ export async function getFieldExecutionBundle(
       reference: locationView.location?.reference ?? null,
       version: locationView.location?.version ?? null,
       confirmMaxDistanceMeters: LOCATION_CONFIRM_MAX_DISTANCE_M,
+      gpsMaxAccuracyMeters: LOCATION_GPS_MAX_ACCURACY_M,
     },
     checkIn: checkIn
       ? {

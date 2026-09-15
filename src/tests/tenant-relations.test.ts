@@ -224,6 +224,9 @@ describe("localização — confirmação e correção por quem não é o dono (
           reason: "INCORRECT_LOCATION",
           latitude: -20.31,
           longitude: -40.31,
+          // Corpo válido (RC-1C-HOTFIX exige precisão): a recusa tem de ser a
+          // do ESTADO da OS, não a da entrada.
+          accuracyMeters: 8,
         }),
       ),
     ).toBe(409);
@@ -268,11 +271,13 @@ describe("localização — confirmação e correção por quem não é o dono (
   it("controle positivo: o dono, com a OS em atendimento, confirma", async () => {
     const { order, location } = await atendimentoComPonto();
     await startServiceOrder(fixture.companyA.id, fixture.techA.id, order.id, await versao(order.id));
-    // No ponto, com o GPS do aparelho — a RC-1C passou a exigir os dois.
+    // No ponto, com o GPS do aparelho — a RC-1C passou a exigir os dois — e com
+    // a precisão dentro do limite da RC-1C-HOTFIX.
     const r = await confirmCustomerLocation(fixture.companyA.id, fixture.techA.id, order.id, {
       expectedVersion: location.version,
       observedLatitude: -20.3,
       observedLongitude: -40.3,
+      observedAccuracyMeters: 8,
     });
     expect(r.location.verified).toBe(true);
   });

@@ -153,6 +153,7 @@ describe("RC-LOC-03 — o cartão lê a autoridade", () => {
       expectedVersion: antes.version,
       observedLatitude: A.latitude,
       observedLongitude: A.longitude,
+      observedAccuracyMeters: 8,
     });
     const card = await getCustomerLocationCard(fixture.companyA.id, c.id);
     if (card?.state !== "PRESENT") throw new Error("esperava PRESENT");

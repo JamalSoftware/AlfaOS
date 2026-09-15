@@ -126,13 +126,15 @@ type Comando = (orderId: string, locationVersion: number) => Promise<unknown>;
 const COMANDOS: Array<[string, Comando]> = [
   [
     "confirmar",
-    // Com o GPS do aparelho no ponto (RC-1C). Sem ele o comando é recusado
-    // ANTES de chegar à escrita do ponto, e a corrida nunca aconteceria.
+    // Com o GPS do aparelho no ponto (RC-1C) e com precisão dentro do limite
+    // (RC-1C-HOTFIX). Sem eles o comando é recusado ANTES de chegar à escrita
+    // do ponto, e a corrida nunca aconteceria.
     (orderId, v) =>
       confirmCustomerLocation(fixture.companyA.id, fixture.techA.id, orderId, {
         expectedVersion: v,
         observedLatitude: -20.3,
         observedLongitude: -40.3,
+        observedAccuracyMeters: 8,
       }),
   ],
   [
@@ -143,6 +145,7 @@ const COMANDOS: Array<[string, Comando]> = [
         reason: "INCORRECT_LOCATION",
         latitude: -20.31,
         longitude: -40.31,
+        accuracyMeters: 8,
         source: "TECHNICIAN_GPS",
       }),
   ],
@@ -227,6 +230,7 @@ describe("RC-LOC-06 — localização × conclusão", () => {
       expectedVersion: location.version,
       observedLatitude: -20.3,
       observedLongitude: -40.3,
+      observedAccuracyMeters: 8,
     }).then(
       () => "gravou" as const,
       (e: unknown) => e,
