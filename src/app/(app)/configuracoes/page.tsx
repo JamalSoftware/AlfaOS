@@ -59,8 +59,15 @@ export default async function SettingsPage() {
             </div>
           ))}
         </dl>
+        {/*
+          RC-1D: aqui prometia-se "mais opções nas próximas versões" — uma
+          promessa sem data numa tela de produto. O que a tela pode dizer é o
+          que é verdade hoje: estes dados são somente leitura, e quem os altera
+          é o suporte.
+        */}
         <p className="mt-4 rounded-lg bg-surface-subtle px-3 py-2 text-xs text-fg-muted">
-          Mais opções de configuração serão adicionadas nas próximas versões.
+          Estes dados são somente leitura. Para corrigir o nome ou o documento
+          da empresa, fale com o suporte do AlfaOS.
         </p>
       </div>
     </div>

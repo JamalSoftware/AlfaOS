@@ -158,7 +158,7 @@ export default async function IntegrationsPage() {
             </div>
             {!semErpConfigurado && (
               <p className="mt-0.5 text-xs text-fg-muted">
-                Provedor: {integration?.provider ?? "MOCK"}
+                Provedor: {PROVIDER_LABEL[integration?.provider ?? "MOCK"]}
               </p>
             )}
           </div>

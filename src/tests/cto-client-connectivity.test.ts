@@ -183,8 +183,8 @@ async function caixaDoRoteiro() {
   };
 }
 
-function porPorta(customers: { portNumber: number }[]) {
-  return new Map(customers.map((c) => [c.portNumber, c]));
+function porPorta<T extends { portNumber: number }>(customers: T[]) {
+  return new Map(customers.map((c) => [c.portNumber, c] as const));
 }
 
 describe("CTO-CONN — a conectividade de cada porta vem da autoridade", () => {
@@ -364,7 +364,8 @@ describe("CTO-COUNT — o resumo e as contagens", () => {
   it("CTO-COUNT-01 · 6 ocupadas (4 online, 1 offline, 1 sem leitura): 6 clientes, 8 de capacidade, 2 livres", async () => {
     const estados = ["ONLINE", "ONLINE", "ONLINE", "ONLINE", "OFFLINE", null] as const;
     const clientes = [];
-    for (const [i, estado] of estados.entries()) {
+    for (let i = 0; i < estados.length; i += 1) {
+      const estado = estados[i];
       const c = await criarCliente(`CONTA ${i}`);
       if (estado) await gravarLeitura(c.id, estado, new Date());
       clientes.push(c);

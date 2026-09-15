@@ -72,6 +72,8 @@ export function ErpCredentialForm({
   const [testResult, setTestResult] = useState<{
     ok: boolean;
     code: string;
+    /** A frase que a API já manda em português — RC-1D. */
+    message: string;
     latencyMs: number;
     at: string;
   } | null>(null);
@@ -104,6 +106,10 @@ export function ErpCredentialForm({
       setTestResult({
         ok: result?.ok === true,
         code: payload?.data?.code ?? (result?.ok ? "OK" : "UNAVAILABLE"),
+        message:
+          typeof result?.message === "string" && result.message.trim()
+            ? result.message
+            : "Não foi possível autenticar com o ERP.",
         latencyMs: typeof result?.latencyMs === "number" ? result.latencyMs : 0,
         at: new Date().toISOString(),
       });
@@ -299,10 +305,15 @@ export function ErpCredentialForm({
               : "border-warning-border bg-warning-bg text-warning-fg"
           }`}
         >
-          <p className="font-semibold">
+          {/*
+            A frase, nunca o código (RC-1D). "Falha — AUTHENTICATION_FAILED"
+            era o código interno na cara do operador, e a API já manda o texto
+            em português. O código fica no `title`, para quem investiga.
+          */}
+          <p className="font-semibold" title={testResult.code}>
             {testResult.ok
               ? `Conexão OK — ${testResult.latencyMs} ms`
-              : `Falha — ${testResult.code}`}
+              : `Falha — ${testResult.message}`}
           </p>
           <p className="mt-0.5 text-xs opacity-80">
             Último teste: {formatDate(testResult.at)}

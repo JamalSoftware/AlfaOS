@@ -36,6 +36,7 @@ import { ServiceOrderExecutionForm } from "@/components/ServiceOrderExecutionFor
 import { StartServiceOrderButton } from "@/components/StartServiceOrderButton";
 import { ServiceOrderClosingPanel } from "@/components/ServiceOrderClosingPanel";
 import { ServiceOrderClosingReadOnly } from "@/components/ServiceOrderClosingReadOnly";
+import { serviceOrderEventLabel } from "@/lib/service-order-event-labels";
 
 export const metadata: Metadata = {
   title: "Detalhes da OS",
@@ -62,15 +63,6 @@ function Card({
   );
 }
 
-const EVENT_LABELS: Record<string, string> = {
-  SERVICE_ORDER_CREATED: "OS criada",
-  SERVICE_ORDER_IMPORTED: "OS importada do ERP",
-  TECHNICIAN_ASSIGNED: "Técnico atribuído",
-  TECHNICIAN_CHANGED: "Técnico alterado",
-  SERVICE_ORDER_STATUS_CHANGED: "Status alterado",
-  OS_STARTED: "Atendimento iniciado",
-  OS_COMPLETED: "Atendimento concluído",
-};
 
 /** Elapsed time between start and close, shown on a closed order. */
 function formatDuration(start: Date | null, end: Date | null): string | null {
@@ -849,8 +841,13 @@ export default async function OrderDetailPage({
                 {order.events.map((event) => (
                   <li key={event.id} className="relative">
                     <span className="absolute -left-[31px] flex h-3 w-3 items-center justify-center rounded-full border-2 border-focus bg-surface" />
-                    <p className="text-sm font-medium text-fg">
-                      {EVENT_LABELS[event.event] ?? event.event}
+                    {/*
+                      A frase em português (RC-1D). O código cru fica no
+                      `title`, para quem investiga — a mesma escolha da
+                      "Atividade recente" do painel.
+                    */}
+                    <p className="text-sm font-medium text-fg" title={event.event}>
+                      {serviceOrderEventLabel(event.event)}
                     </p>
                     <p className="text-xs text-fg-muted">
                       {event.userName ?? "Sistema"} · {formatDate(event.createdAt)}
@@ -895,14 +892,6 @@ export default async function OrderDetailPage({
             </div>
           )}
 
-          {isExecuting && (
-            <div className="rounded-2xl border border-warning-border bg-warning-bg p-4">
-              <p className="text-sm text-warning-fg">
-                O fechamento da OS (fotos, materiais e assinatura) será
-                habilitado na próxima versão do AlfaOS.
-              </p>
-            </div>
-          )}
         </div>
       </div>
     </div>

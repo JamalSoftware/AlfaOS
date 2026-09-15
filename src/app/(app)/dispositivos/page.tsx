@@ -4,6 +4,17 @@ import { listCompanyMobileDevices } from "@/lib/mobile-devices";
 import { EmptyState } from "@/components/EmptyState";
 import { RevokeDeviceButton } from "@/components/RevokeDeviceButton";
 
+/**
+ * Como a plataforma é escrita para gente — RC-1D.
+ *
+ * O DTO entrega `platform` como texto, então o mapa é aberto: uma plataforma
+ * desconhecida aparece como veio, em vez de sumir da tabela.
+ */
+const PLATFORM_LABELS: Record<string, string> = {
+  ANDROID: "Android",
+  IOS: "iOS",
+};
+
 export const metadata: Metadata = {
   title: "Dispositivos",
 };
@@ -76,8 +87,9 @@ export default async function MobileDevicesPage() {
                   </td>
                   <td className="px-4 py-3 text-fg-secondary">
                     {device.deviceName ?? "—"}
+                    {/* O nome da plataforma, não o código do enum (RC-1D). */}
                     <div className="text-xs text-fg-muted">
-                      {device.platform}
+                      {PLATFORM_LABELS[device.platform] ?? device.platform}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-fg-secondary">

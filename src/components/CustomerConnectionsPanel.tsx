@@ -30,6 +30,16 @@ interface ConnectionRow {
  * Não é enfeite: é o que diz ao operador se “Restaurar padrão” vai
  * descartar uma senha que alguém definiu para aquele cliente.
  */
+/**
+ * O tipo de conexão como o protocolo se escreve — RC-1D.
+ *
+ * `type` é `string` no DTO (o enum tem um valor só hoje), então o mapa é aberto
+ * e um tipo novo aparece como veio, em vez de sumir da tela.
+ */
+const CONNECTION_TYPE_LABELS: Record<string, string> = {
+  PPPOE: "PPPoE",
+};
+
 const USERNAME_SOURCE_LABEL: Record<ConnectionRow["usernameSource"], string> = {
   MANUAL: "Manual",
   RECEITANET_CALLCENTER: "ReceitaNet (CallCenter)",
@@ -197,8 +207,9 @@ export function CustomerConnectionsPanel({
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs font-medium uppercase tracking-wide text-fg-muted">
-                    {connection.type}
+                  {/* "PPPoE", como o protocolo se escreve — não o enum cru. */}
+                  <p className="text-xs font-medium tracking-wide text-fg-muted">
+                    {CONNECTION_TYPE_LABELS[connection.type] ?? connection.type}
                   </p>
                   <p className="mt-0.5 truncate font-medium text-fg">
                     {connection.username}

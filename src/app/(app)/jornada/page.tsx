@@ -72,9 +72,9 @@ function time(value: Date | null, timeZone: string): string {
 
 const ENTRY_LABEL: Record<string, string> = {
   CLOCK_IN: "entrada",
-  BREAK_START: "inicio do intervalo",
+  BREAK_START: "início do intervalo",
   BREAK_END: "retorno do intervalo",
-  CLOCK_OUT: "saida",
+  CLOCK_OUT: "saída",
 };
 
 export default async function TeamWorkdayPage() {

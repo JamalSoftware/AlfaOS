@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { providerLabel } from "@/lib/provider-labels";
 
 interface TestResult {
   ok: boolean;
@@ -103,9 +104,10 @@ export function TestConnectionButton({
               : "border-danger-border bg-danger-bg text-danger-fg"
           }`}
         >
+          {/* O NOME do provedor, não o código do enum (RC-1D). */}
           <p className="font-medium">
             {result.ok ? "Conexão OK" : "Falha na conexão"} (
-            {result.provider}, {result.latencyMs}ms)
+            {providerLabel(result.provider)}, {result.latencyMs}ms)
           </p>
           <p className="mt-1">{result.message}</p>
         </div>

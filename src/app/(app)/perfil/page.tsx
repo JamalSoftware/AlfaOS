@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { requirePageSession } from "@/lib/guards";
+import { PROFILE_LABELS } from "@/lib/navigation";
 import { prisma } from "@/lib/prisma";
 
 export const metadata: Metadata = {
@@ -30,7 +31,9 @@ export default async function ProfilePage() {
     { label: "Nome", value: user.name },
     { label: "E-mail", value: user.email },
     { label: "Empresa", value: user.company.name },
-    { label: "Perfil de acesso", value: user.profile },
+    // O NOME do perfil, não o código do enum (RC-1D) — a mesma tabela da
+    // listagem de usuários e do menu.
+    { label: "Perfil de acesso", value: PROFILE_LABELS[user.profile] },
     { label: "Membro desde", value: formatDate(user.createdAt) },
   ];
 
