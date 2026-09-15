@@ -342,11 +342,14 @@ void main() {
         A regra do §13: pedido de permissão é CONTEXTUAL. Login e abertura não
         podem depender de câmera nem de GPS.
 
-        Quem pede no aplicativo são exatamente dois pontos, e nenhum está na
+        Quem pede no aplicativo são exatamente estes pontos, e nenhum está na
         subida: `GeolocatorLocationService.current()`, chamado pelo ponto e pelo
-        check-in, e o `PushCoordinator`, chamado DEPOIS do primeiro login. A
-        câmera não aparece aqui porque quem pede é o `image_picker`, no
-        momento em que a foto é acionada.
+        check-in; `GeolocatorPositionSource`, a captura de Confirmar e Corrigir
+        (RC-1C-HOTFIX), chamada quando o técnico toca numa dessas ações — e é
+        dali que sai o pedido de "localização precisa" do Android 12+ quando
+        só a aproximada foi concedida; e o `PushCoordinator`, chamado DEPOIS do
+        primeiro login. A câmera não aparece aqui porque quem pede é o
+        `image_picker`, no momento em que a foto é acionada.
       */
       final dart = Directory('lib')
           .listSync(recursive: true)
@@ -362,6 +365,7 @@ void main() {
 
       expect(pedintes..sort(), [
         'lib/core/location/location_service.dart',
+        'lib/core/location/operational_position.dart',
         'lib/core/push/field_push_service.dart',
         'lib/core/push/push_coordinator.dart',
       ]);

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/api/field_api_client.dart';
 import '../core/location/location_service.dart';
+import '../core/location/operational_position.dart';
 import '../core/media/photo_capture.dart';
 import '../core/storage/session_store.dart';
 import '../features/auth/data/auth_repository.dart';
@@ -91,6 +92,14 @@ final executionRepositoryProvider = Provider<ExecutionRepository>((ref) {
 /// — que é a mais importante do aplicativo — seria a única intestável.
 final locationServiceProvider = Provider<LocationService>((ref) {
   return const GeolocatorLocationService();
+});
+
+/// O GPS de Confirmar e Corrigir (RC-1C-HOTFIX): leituras novas, julgadas uma
+/// a uma pela precisão e pela idade. Fronteira separada de
+/// `locationServiceProvider` porque o check-in e o ponto continuam aceitando
+/// a leitura que vier — lá a coordenada informa e nunca bloqueia.
+final positionSourceProvider = Provider<PositionSource>((ref) {
+  return const GeolocatorPositionSource();
 });
 
 final photoCaptureProvider = Provider<PhotoCapture>((ref) {
