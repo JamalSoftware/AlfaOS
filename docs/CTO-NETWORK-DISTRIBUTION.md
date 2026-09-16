@@ -6237,6 +6237,36 @@ envelhece em público em vez de afirmar um estado que ninguém confirmou.
 > automaticamente**, e afirmar o contrário seria descrever um sistema que não
 > está no ar.
 
+### 48.4.0. O que é configurável, e o que é decisão
+
+```text
+env, validado   DIAGNOSTICS_REFRESH_TARGET_MS       padrão 300000 (5 min)
+env, validado   DIAGNOSTICS_REFRESH_BATCH_LIMIT     padrão 300
+env, validado   DIAGNOSTICS_REFRESH_CONCURRENCY     padrão 6
+constante       CONNECTIVITY_REFRESH_LEASE_MS       60 s
+constante       CONNECTIVITY_STALE_CHECK_MS         2 × o alvo contratado
+pré-existente   DIAGNOSTIC_TIMEOUT_MS               8 s, por chamada
+```
+
+Valor de ambiente inválido — não numérico, zero ou negativo — **derruba a subida
+do comando**, em vez de virar `NaN` e desligar o teto em silêncio. É a mesma
+regra que a `RC-1B` aplicou às variáveis de login.
+
+A reserva **não** é env: ela precisa ser maior que o deadline de uma chamada
+(8 s) e muito menor que o alvo (5 min), e expor esse número convida um valor que
+quebra os dois lados de uma vez. O deadline por chamada é pré-existente e
+compartilhado com o refresh manual da OS — mexer nele mudaria comportamento já
+aprovado, e ficou fora.
+
+> **Limitação declarada:** o limiar do aviso da TELA é derivado do alvo
+> **contratado** (5 min × 2 = 10 min), e não da variável que o worker lê. Um
+> operador que alongue `DIAGNOSTICS_REFRESH_TARGET_MS` para 15 minutos verá a
+> tela avisando "Verificação atrasada" aos 10 — a tela continuaria certa sobre o
+> contrato e errada sobre aquele ambiente. Amarrar as duas exigiria que a
+> apresentação lesse configuração de worker, o que acopla camadas que hoje não
+> se conhecem; a saída, se o alvo mudar de verdade, é mudar o contrato, não a
+> variável.
+
 ### 48.4.1. O que evita a rajada — e o que NÃO existe
 
 O objetivo é não disparar 600 chamadas às 10:00:00. O que impede isso:
