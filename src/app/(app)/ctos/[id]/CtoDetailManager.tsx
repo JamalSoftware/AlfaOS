@@ -576,37 +576,64 @@ export function CtoDetailManager({
         Ocupação é das PORTAS: as contagens vêm de `summarizePortCounts`, sobre
         o vínculo ativo real. As pessoas estão na seção seguinte.
       */}
-      <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
-        <h2 className="mb-4 text-base font-semibold text-fg">Ocupação</h2>
-        <dl className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-          <div>
+      {/*
+        NO CELULAR O CARD É COMPACTO — RC-1D, decisão do dono na validação.
+
+        Cinco blocos de duas linhas empilhados dois a dois ocupavam quase uma
+        tela inteira antes da primeira porta, e a lista é o que o técnico veio
+        ver. Nenhuma contagem sumiu: no celular a linha principal é capacidade,
+        ocupadas e livres; reservadas e danificadas vão numa linha menor, com
+        rótulo e número lado a lado. No desktop (`sm:`) nada muda — os mesmos
+        cinco blocos, na mesma ordem visual de antes.
+
+        A ordem do DOM é a do celular, que é também a de leitura ("8 portas, 6
+        ocupadas, 2 livres…"); `sm:order-*` devolve ao desktop a ordem que o dono
+        aprovou. Cada número continua em par `dt`/`dd`, então o leitor de tela
+        nunca recebe um número sem o nome dele.
+
+        É SÓ LAYOUT: as contagens continuam vindo de `cto.summary`, sem conta
+        nenhuma aqui.
+      */}
+      <section
+        className="rounded-2xl border border-border bg-surface p-4 shadow-sm sm:p-5"
+        data-testid="cto-occupancy"
+      >
+        <h2 className="mb-2 text-base font-semibold text-fg sm:mb-4">Ocupação</h2>
+        <dl className="grid grid-cols-6 gap-x-3 gap-y-2 sm:grid-cols-5 sm:gap-4">
+          <div className="col-span-2 sm:order-1 sm:col-span-1" data-testid="cto-occupancy-capacity">
             <dt className="text-xs text-fg-muted">Capacidade</dt>
-            <dd className="text-xl font-semibold text-fg">
+            <dd className="text-lg font-semibold text-fg sm:text-xl">
               {cto.summary.capacity}
             </dd>
           </div>
-          <div>
+          <div className="col-span-2 sm:order-5 sm:col-span-1" data-testid="cto-occupancy-occupied">
+            <dt className="text-xs text-fg-muted">Ocupadas</dt>
+            <dd className="text-lg font-semibold text-fg sm:text-xl">
+              {cto.summary.occupied}
+            </dd>
+          </div>
+          <div className="col-span-2 sm:order-2 sm:col-span-1" data-testid="cto-occupancy-free">
             <dt className="text-xs text-fg-muted">Livres</dt>
-            <dd className="text-xl font-semibold text-fg" data-testid="cto-free">
+            <dd className="text-lg font-semibold text-fg sm:text-xl" data-testid="cto-free">
               {cto.summary.free}
             </dd>
           </div>
-          <div>
+          <div
+            className="col-span-3 flex items-baseline gap-1.5 sm:order-3 sm:col-span-1 sm:block"
+            data-testid="cto-occupancy-reserved"
+          >
             <dt className="text-xs text-fg-muted">Reservadas</dt>
-            <dd className="text-xl font-semibold text-fg">
+            <dd className="text-sm font-semibold text-fg sm:text-xl">
               {cto.summary.reserved}
             </dd>
           </div>
-          <div>
+          <div
+            className="col-span-3 flex items-baseline gap-1.5 sm:order-4 sm:col-span-1 sm:block"
+            data-testid="cto-occupancy-damaged"
+          >
             <dt className="text-xs text-fg-muted">Danificadas</dt>
-            <dd className="text-xl font-semibold text-fg">
+            <dd className="text-sm font-semibold text-fg sm:text-xl">
               {cto.summary.damaged}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-fg-muted">Ocupadas</dt>
-            <dd className="text-xl font-semibold text-fg">
-              {cto.summary.occupied}
             </dd>
           </div>
         </dl>
@@ -617,8 +644,16 @@ export function CtoDetailManager({
           das quatro pode passar da capacidade. Sem esta linha, quem lê "4 de 4"
           somando as colunas conclui que há erro — e um gráfico de fatias
           exclusivas estaria simplesmente errado.
+
+          No celular ela sai da TELA (decisão do dono: duas linhas de texto num
+          card que precisa ser curto), mas não do leitor de tela — `sr-only`, e
+          não `hidden`, porque para quem ouve os números a frase continua sendo
+          o que explica uma soma maior que a capacidade.
         */}
-        <p className="mt-3 text-xs text-fg-muted">
+        <p
+          className="sr-only text-xs text-fg-muted sm:not-sr-only sm:mt-3 sm:block"
+          data-testid="cto-occupancy-overlap-note"
+        >
           Uma porta pode estar em mais de uma categoria — danificada e ocupada,
           por exemplo. A soma pode passar da capacidade.
         </p>
@@ -843,13 +878,21 @@ export function CtoDetailManager({
                       estado de contrato que ninguém gravou.
                     */}
                     {/*
-                      VERIFICAÇÃO ATRASADA — `DIAG-AUTO-1`.
+                      LEITURA DESATUALIZADA — `DIAG-AUTO-1`.
 
                       Não é um estado do cliente: o selo de conectividade ao
                       lado continua dizendo Online, Offline ou Sem leitura, e
                       nada no banco mudou. O que este aviso diz é que a
-                      CONFIRMAÇÃO envelheceu além do dobro do alvo de 5 minutos
-                      — o worker parou, o ERP não responde, a credencial caiu.
+                      CONFIRMAÇÃO envelheceu além do limiar da política de
+                      frescor — o worker parou, o ERP não responde, a
+                      credencial caiu. Quem decide é o servidor
+                      (`verificationIsStale`); a tela só apresenta.
+
+                      A copy era "Verificação atrasada" e mudou por decisão do
+                      dono (RC-1D): aquilo soava como TAREFA atrasada de alguém.
+                      "Leitura desatualizada" diz o que é — o último estado
+                      conhecido existe e não foi confirmado recentemente. Só a
+                      palavra mudou; o campo, a política e o limiar não.
 
                       Sem ele, um cliente cuja verificação falha há uma hora
                       apareceria exatamente igual a um verificado agora, e a
@@ -858,10 +901,10 @@ export function CtoDetailManager({
                     {ocupante?.verificationIsStale && (
                         <span
                           className="rounded-full border border-warning-border bg-warning-bg px-2 py-0.5 text-xs font-medium text-warning-fg"
-                          title="A última verificação passou do dobro do intervalo esperado."
+                          title="Este é o último estado conhecido, e ele não foi confirmado recentemente."
                           data-testid={`cto-port-stale-${port.number}`}
                         >
-                          Verificação atrasada
+                          Leitura desatualizada
                         </span>
                       )}
                     {ocupante && !ocupante.customerActive && (

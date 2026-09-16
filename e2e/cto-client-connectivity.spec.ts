@@ -292,14 +292,14 @@ test("UX-06/07 · 'Online há 9 d' vem de statusSince; 'Verificado há 2 min' ve
   await expect(page.getByTestId("cto-port-checked-3")).toHaveCount(0);
 });
 
-test("UX-08 · verificação atrasada aparece como AVISO, sem mudar o estado", async ({
+test("UX-08 · leitura desatualizada aparece como AVISO, sem mudar o estado", async ({
   page,
 }) => {
   await login(page, ADMIN);
   await abrirCaixa(page);
 
-  // A porta 7 foi verificada há 37 min — mais que o dobro do alvo de 5.
-  await expect(page.getByTestId("cto-port-stale-7")).toHaveText("Verificação atrasada");
+  // A porta 7 foi verificada há 37 min — além do limiar de frescor.
+  await expect(page.getByTestId("cto-port-stale-7")).toHaveText("Leitura desatualizada");
   // O estado NÃO virou outra coisa: continua o último conhecido.
   await expect(page.getByTestId("cto-port-connectivity-7")).toHaveText(/Online/);
   await expect(page.getByTestId("cto-port-reading-7")).toHaveText("Online há 5 d");
@@ -310,6 +310,201 @@ test("UX-08 · verificação atrasada aparece como AVISO, sem mudar o estado", a
   await expect(page.getByTestId("cto-port-stale-6")).toHaveCount(0);
   // E "sem leitura" não é "atrasado": são coisas diferentes.
   await expect(page.getByTestId("cto-port-stale-3")).toHaveCount(0);
+});
+
+test("STALE-COPY-01 · o aviso diz 'Leitura desatualizada' — a copy antiga não aparece", async ({
+  page,
+}) => {
+  await login(page, ADMIN);
+  await abrirCaixa(page);
+
+  /*
+    Decisão do dono: "Verificação atrasada" soava como tarefa atrasada. O campo
+    continua `verificationIsStale` e o limiar é o mesmo — só a palavra mudou.
+    Por isso a porta 7 é a mesma do UX-08, e a varredura é da TELA inteira:
+    um segundo lugar com a copy velha também derruba o teste.
+  */
+  await expect(page.getByTestId("cto-port-stale-7")).toHaveText("Leitura desatualizada");
+  await expect(page.getByText(/Verificação atrasada/i)).toHaveCount(0);
+  // E o aviso não é um estado: não diz Offline, não diz queda.
+  await expect(page.getByTestId("cto-port-stale-7")).not.toContainText(/Offline|queda|falha/i);
+});
+
+/** O card de Ocupação e os cinco pares rótulo/número dele. */
+const METRICAS_OCUPACAO = [
+  { chave: "capacity", rotulo: "Capacidade", valor: "10" },
+  { chave: "occupied", rotulo: "Ocupadas", valor: "8" },
+  { chave: "free", rotulo: "Livres", valor: "2" },
+  { chave: "reserved", rotulo: "Reservadas", valor: "0" },
+  { chave: "damaged", rotulo: "Danificadas", valor: "0" },
+] as const;
+
+/**
+ * Teto de altura do card no celular. Com o layout antigo (cinco blocos de duas
+ * linhas, dois a dois, mais a frase explicativa) ele media bem mais que isto;
+ * o compacto fica abaixo com folga. Um teto, e não "menor que antes", porque o
+ * "antes" não existe mais para ser medido na mesma execução.
+ */
+const OCUPACAO_MOBILE_MAX_ALTURA = 170;
+
+for (const largura of [375, 390]) {
+  test(`OCC-MOB-01 · ${largura} px: o card Ocupação não transborda e nenhum rótulo é cortado`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: largura, height: 812 });
+    await login(page, ADMIN);
+    await abrirCaixa(page);
+
+    const card = page.getByTestId("cto-occupancy");
+    const medida = await card.evaluate((el) => {
+      const caixa = el.getBoundingClientRect();
+      const filhos = Array.from(el.querySelectorAll("dt, dd")).map((f) => {
+        const r = f.getBoundingClientRect();
+        return {
+          texto: f.textContent,
+          esquerda: r.left,
+          direita: r.right,
+          cortado: f.scrollWidth > f.clientWidth + 1,
+        };
+      });
+      return {
+        rolagemPagina: document.documentElement.scrollWidth,
+        telaPagina: document.documentElement.clientWidth,
+        esquerda: caixa.left,
+        direita: caixa.right,
+        rolagem: el.scrollWidth,
+        largura: el.clientWidth,
+        filhos,
+      };
+    });
+    expect(medida.rolagemPagina).toBeLessThanOrEqual(medida.telaPagina);
+    expect(medida.esquerda).toBeGreaterThanOrEqual(0);
+    expect(medida.direita).toBeLessThanOrEqual(largura);
+    expect(medida.rolagem).toBeLessThanOrEqual(medida.largura);
+    expect(medida.filhos).toHaveLength(10);
+    for (const filho of medida.filhos) {
+      expect(filho.esquerda, filho.texto ?? "").toBeGreaterThanOrEqual(medida.esquerda);
+      expect(filho.direita, filho.texto ?? "").toBeLessThanOrEqual(medida.direita);
+      expect(filho.cortado, filho.texto ?? "").toBe(false);
+    }
+  });
+
+  test(`OCC-MOB-02 · ${largura} px: as CINCO métricas aparecem, em duas linhas, e o card é compacto`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: largura, height: 812 });
+    await login(page, ADMIN);
+    await abrirCaixa(page);
+
+    const card = page.getByTestId("cto-occupancy");
+    const caixas: Record<string, { x: number; y: number; width: number; height: number }> = {};
+    for (const m of METRICAS_OCUPACAO) {
+      const bloco = page.getByTestId(`cto-occupancy-${m.chave}`);
+      await expect(bloco.locator("dt")).toBeVisible();
+      await expect(bloco.locator("dt")).toHaveText(m.rotulo);
+      await expect(bloco.locator("dd")).toBeVisible();
+      await expect(bloco.locator("dd")).toHaveText(m.valor);
+      const fonte = await bloco
+        .locator("dd")
+        .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      // Número legível: nunca menor que o corpo de texto.
+      expect(fonte, m.rotulo).toBeGreaterThanOrEqual(14);
+      caixas[m.chave] = (await bloco.boundingBox())!;
+    }
+
+    // Linha principal: capacidade, ocupadas e livres, lado a lado, nessa ordem.
+    const { capacity, occupied, free, reserved, damaged } = caixas;
+    expect(Math.abs(capacity.y - occupied.y)).toBeLessThan(2);
+    expect(Math.abs(capacity.y - free.y)).toBeLessThan(2);
+    expect(capacity.x).toBeLessThan(occupied.x);
+    expect(occupied.x).toBeLessThan(free.x);
+    // Linha secundária, ABAIXO: reservadas e danificadas.
+    expect(Math.abs(reserved.y - damaged.y)).toBeLessThan(2);
+    expect(reserved.y).toBeGreaterThanOrEqual(capacity.y + capacity.height - 1);
+    expect(reserved.x).toBeLessThan(damaged.x);
+    // Na secundária rótulo e número dividem a mesma linha — não são dois blocos.
+    for (const chave of ["reserved", "damaged"]) {
+      const bloco = page.getByTestId(`cto-occupancy-${chave}`);
+      const rotulo = (await bloco.locator("dt").boundingBox())!;
+      const numero = (await bloco.locator("dd").boundingBox())!;
+      // As duas caixas se sobrepõem na vertical (mesma linha)…
+      expect(numero.y, chave).toBeLessThan(rotulo.y + rotulo.height);
+      expect(rotulo.y, chave).toBeLessThan(numero.y + numero.height);
+      // …e o número vem DEPOIS do rótulo, à direita.
+      expect(numero.x, chave).toBeGreaterThan(rotulo.x + rotulo.width - 1);
+    }
+
+    const alturaCard = (await card.boundingBox())!.height;
+    expect(alturaCard).toBeLessThanOrEqual(OCUPACAO_MOBILE_MAX_ALTURA);
+
+    /*
+      O leitor de tela recebe cada número COM o nome dele, na ordem de leitura
+      do celular — nunca uma fileira de números soltos.
+    */
+    const arvore = await card.ariaSnapshot();
+    let desde = 0;
+    for (const m of METRICAS_OCUPACAO) {
+      const rotulo = arvore.indexOf(m.rotulo, desde);
+      expect(rotulo, `${m.rotulo} na árvore de acessibilidade`).toBeGreaterThanOrEqual(0);
+      const valor = arvore.indexOf(m.valor, rotulo + m.rotulo.length);
+      expect(valor, `${m.rotulo} seguido do número`).toBeGreaterThan(rotulo);
+      desde = valor;
+    }
+  });
+
+  test(`OCC-MOB-03 · ${largura} px: a frase longa sai da tela, mas não do leitor de tela`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: largura, height: 812 });
+    await login(page, ADMIN);
+    await abrirCaixa(page);
+
+    const nota = page.getByTestId("cto-occupancy-overlap-note");
+    // Continua no documento — é ela que explica uma soma maior que a capacidade.
+    await expect(nota).toHaveText(/pode passar da capacidade/);
+    const arvore = await page.getByTestId("cto-occupancy").ariaSnapshot();
+    expect(arvore).toContain("pode passar da capacidade");
+    // Mas não ocupa altura nenhuma na tela: recortada a um pixel.
+    const caixa = (await nota.boundingBox())!;
+    expect(caixa.height).toBeLessThanOrEqual(1);
+    expect(caixa.width).toBeLessThanOrEqual(1);
+  });
+}
+
+test("OCC-DESK-01 · desktop: o card Ocupação continua como o dono aprovou", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await login(page, ADMIN);
+  await abrirCaixa(page);
+
+  // Os cinco blocos numa linha só, na ordem visual de antes da compactação.
+  const ordemDesktop = ["capacity", "free", "reserved", "damaged", "occupied"];
+  const caixas = [];
+  for (const chave of ordemDesktop) {
+    const bloco = page.getByTestId(`cto-occupancy-${chave}`);
+    const m = METRICAS_OCUPACAO.find((x) => x.chave === chave)!;
+    await expect(bloco.locator("dt")).toHaveText(m.rotulo);
+    await expect(bloco.locator("dd")).toHaveText(m.valor);
+    // Rótulo EM CIMA do número, com o número grande — o bloco de antes.
+    const rotulo = (await bloco.locator("dt").boundingBox())!;
+    const numero = (await bloco.locator("dd").boundingBox())!;
+    expect(numero.y, chave).toBeGreaterThanOrEqual(rotulo.y + rotulo.height - 1);
+    const fonte = await bloco
+      .locator("dd")
+      .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    expect(fonte, chave).toBe(20);
+    caixas.push((await bloco.boundingBox())!);
+  }
+  for (let i = 1; i < caixas.length; i += 1) {
+    expect(Math.abs(caixas[i].y - caixas[0].y)).toBeLessThan(2);
+    expect(caixas[i].x).toBeGreaterThan(caixas[i - 1].x);
+  }
+
+  // E a frase explicativa continua VISÍVEL no desktop.
+  const nota = page.getByTestId("cto-occupancy-overlap-note");
+  await expect(nota).toBeVisible();
+  const caixaNota = (await nota.boundingBox())!;
+  expect(caixaNota.height).toBeGreaterThan(10);
+  expect(caixaNota.y).toBeGreaterThan(caixas[0].y + caixas[0].height);
 });
 
 test("RC1D-CTO-03 · porta LIVRE não tem conectividade — nem 'Sem leitura'", async ({ page }) => {

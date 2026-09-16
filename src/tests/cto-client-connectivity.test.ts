@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
@@ -478,6 +478,42 @@ describe("CTO-CONSIST — o detalhe diz o que o popup diz", () => {
     expect(Object.values(CTO_PORT_FILTER_LABELS).join(" ")).not.toMatch(
       /Desativ|Stale|STALE/,
     );
+  });
+
+  it("STALE-COPY-01 · o aviso de frescor diz 'Leitura desatualizada' — a copy antiga não volta a nenhuma tela", () => {
+    /*
+      Decisão do dono (RC-1D): "Verificação atrasada" soava como TAREFA
+      atrasada. Só a palavra mudou — o campo continua `verificationIsStale`, e a
+      política de frescor é a mesma.
+
+      A varredura é sobre CÓDIGO de tela, sem comentários: o comentário que
+      registra a copy antiga é histórico, não texto exibido.
+    */
+    const raiz = process.cwd();
+    const codigo = (arquivo: string) =>
+      readFileSync(path.join(raiz, arquivo), "utf8").replace(
+        /\{\/\*[\s\S]*?\*\/\}|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g,
+        "",
+      );
+    const manager = codigo("src/app/(app)/ctos/[id]/CtoDetailManager.tsx");
+    expect(manager).toContain("Leitura desatualizada");
+    // O selo continua preso ao veredito do servidor, não a uma conta local.
+    expect(manager).toMatch(/verificationIsStale\s*&&[\s\S]{0,900}Leitura desatualizada/);
+
+    const telas: string[] = [];
+    const varrer = (dir: string) => {
+      for (const entrada of readdirSync(path.join(raiz, dir), { withFileTypes: true })) {
+        const relativo = path.posix.join(dir, entrada.name);
+        if (entrada.isDirectory()) varrer(relativo);
+        else if (/\.tsx?$/.test(entrada.name)) telas.push(relativo);
+      }
+    };
+    varrer("src/app");
+    varrer("src/components");
+    expect(telas.length).toBeGreaterThan(20);
+    for (const arquivo of telas) {
+      expect(codigo(arquivo), arquivo).not.toMatch(/Verifica(ç|c)(ã|a)o atrasada/i);
+    }
   });
 });
 
