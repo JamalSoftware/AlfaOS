@@ -6425,3 +6425,60 @@ leitura, e cada número continua num par `dt`/`dd`.
 
 Testes: `STALE-COPY-01` (Vitest, varredura das telas; e E2E), `OCC-MOB-01/02/03`
 em 375 e 390 px e `OCC-DESK-01` em 1280 px.
+
+### 48.8. "Sem leitura" é só o texto
+
+Nota do dono: o selo dizia **`? Sem leitura`**, e o `?` saiu. Online e Offline
+precisam do glifo (`●`, `×`) porque duas palavras curtas em cores vizinhas se
+confundem de relance; "Sem leitura" não tem par com que se confundir — o texto
+já é o sinal, e o `?` só repetia a dúvida. Por isso ele virou **`null`**, e não
+outro símbolo.
+
+**A regra mora na tabela única** (`CONNECTIVITY_PRESENTATION.UNKNOWN.glyph =
+null`, `src/lib/connectivity-presentation.ts`). O selo não é componente
+compartilhado — cada tela monta o seu —, mas todos leem o glifo dali:
+
+| Selo | Onde |
+|---|---|
+| detalhe da CTO, desktop e celular | `CtoDetailManager.tsx` |
+| popup do cliente e popup da OS | `OperationalMarkers.tsx` |
+| "Ver clientes" da caixa | `CtoMapLayer.tsx` |
+| coluna de conectividade | `clientes/page.tsx` — só mostra o recorte OFFLINE, então nunca exibiu `UNKNOWN` |
+
+**Os três do Mapa Operacional foram incluídos por decisão explícita do dono**,
+com o mapa `FROZEN`: a mudança neles é só a guarda do glifo, e o "Ver clientes"
+é a MESMA lista da tela da CTO (`getCtoPortCustomers`) — sem isso, os mesmos
+clientes diriam "Sem leitura" numa tela e "? Sem leitura" na outra. **Não
+mudou:** `UNKNOWN`, `connectivityStatus`, rótulos, filtros, contagens, tom
+`neutral` e cores, autoridade do diagnóstico, e os marcadores do mapa — que
+carregam `UNKNOWN` pela **forma** (tracejado), nunca por este glifo. Os glifos
+da caixa (`+ 0 ! ×`, PRD §367) são outra tabela e não foram tocados.
+
+**A armadilha: `null` desenhado compila.** `<span aria-hidden>{null}</span>`
+some com o caractere e deixa o span vazio, e o `gap` do `inline-flex` continua
+empurrando o texto — um espaço fantasma que nenhum tipo acusa, porque `null` é
+`ReactNode` válido. Todo ponto guarda o glifo (`{glyph && (...)}`), e os testes
+afirmam a **ausência do span**, não só a do caractere.
+
+Testes: `NOGLYPH-DATA-01/02/03` (o dado; online e offline mantêm glifo e tom),
+`NOGLYPH-STRUCT-01/02` (varredura: todo selo de conectividade guarda o glifo, e
+a varredura prova que enxergou os selos), `UX-09` (tela da CTO em 1280 e 375 px)
+e `NOGLYPH-01` (popups da OS e do cliente no mapa). Os dois E2E têm **controle
+positivo** — o selo com leitura precisa continuar com o glifo, senão "zero spans"
+passaria também com um seletor cego.
+
+Nove sabotagens, nove detectadas, cada uma pelo teste que existe para ela:
+devolver o `?` derruba o dado e os dois E2E (`Received: "?Sem leitura"` — o
+defeito do dono, em número); tirar a guarda da CTO derruba a varredura e **só**
+o `UX-09`; tirar a do popup, a varredura e **só** o `NOGLYPH-01`; tirar a do
+"Ver clientes", **só a varredura** — limite declarado: a caixa da fixture do
+mapa não tem cliente `UNKNOWN`, e pôr um mudaria as contagens congeladas da
+`LAYER-13/14`; zerar o glifo do Online e mudar o tom do `UNKNOWN` derrubam o
+dado.
+
+**Um teste meu era instável, e a causa foi provada:** o controle do popup do
+cliente clicava o cliente ONLINE, que na fixture está na **mesma coordenada da
+"CAMADA CAIXA"** — 2 de 4 execuções morriam com `CAMADA CAIXA … intercepts
+pointer events`. É o empate CTO↔cliente que segue aberto (PRD §371). O controle
+passou a ser o cliente OFFLINE, afastado: 6 de 6. Antes da troca, essa
+instabilidade chegou a parecer detecção numa sabotagem que não tocava o mapa.
