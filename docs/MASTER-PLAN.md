@@ -661,6 +661,24 @@ E2E do mapa — MAPEDIT-05/06/07 intermitente (achado na TL-1, 13/09/2026)
   aberto   se é corrida da medição ou o marcador voltando ao ponto gravado
   fase     investigação própria; o mapa está FROZEN e só reabre por defeito provado
 
+Vitest — login-flood sensível a CARGA (achado na DIAG-AUTO-1, 16/09/2026)
+  o quê    "flood em voo não impede o login legítimo disparado junto" dispara 13
+           logins concorrentes pagando bcrypt de verdade. Numa rodada da suíte
+           inteira, UMA das 12 requisições do flood voltou 500 em vez de 401 —
+           a rota lançou
+  medido   isolado: 3 de 3 passa. Junto do arquivo do ciclo de conectividade:
+           2 de 2 passa. Suíte inteira: 1 falha em 4 rodadas (2915/2915,
+           2922/2923, 2923/2923 e a das sabotagens). PICO de conexões no
+           Postgres durante a suíte: 19 de 100 — pressão de pool DESCARTADA
+  alcance  a DIAG-AUTO-1 não toca login, sessão nem limitador. Ela acrescentou
+           transações interativas à suíte (o advisory lock da primeira
+           verificação segura uma conexão enquanto o refresh usa outra), e foi
+           por isso que a medição de pico foi feita em vez de suposta
+  aberto   o que produz o 500 sob contenção de CPU. Não foi reproduzido em
+           nenhum recorte menor, então a causa não está isolada
+  fase     investigação própria, na área de autenticação — não se corrige um
+           teste que falha 1 em 4 sem saber por quê
+
 Fotos gravadas antes do PC-1 com GPS no arquivo (achado na EV-1, 13/09/2026)
   o quê    a limpeza de EXIF (PC-1, 06/09) roda no UPLOAD; a foto gravada antes
            dela continua com os bytes originais. No banco de dev: 1 de 1 foto
