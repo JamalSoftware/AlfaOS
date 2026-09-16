@@ -316,8 +316,19 @@ function stripPng(data: Buffer): Buffer {
     throw new UnparseableImageError("PNG sem assinatura.");
   }
 
+  /*
+    O primeiro chunk é o IHDR, sempre — é a especificação, e é o que separa uma
+    imagem de uma assinatura seguida de qualquer coisa. Sem esta regra, oito
+    bytes de assinatura e lixo curto viravam um "PNG" de oito bytes aceito e
+    gravado (achado pelo `PURGE-02` da `RC-1E`).
+  */
+  if (data.length < 16 || data.toString("ascii", 12, 16) !== "IHDR") {
+    throw new UnparseableImageError("PNG sem IHDR.");
+  }
+
   const saida: Buffer[] = [data.subarray(0, 8)];
   let i = 8;
+  let terminou = false;
 
   while (i + 8 <= data.length) {
     const tamanho = data.readUInt32BE(i);
@@ -331,7 +342,15 @@ function stripPng(data: Buffer): Buffer {
     }
     i = fim;
     // Depois do IEND não há imagem: o que vier é anexo, e anexo não fica.
-    if (tipo === "IEND") break;
+    if (tipo === "IEND") {
+      terminou = true;
+      break;
+    }
+  }
+
+  // Sobra que não chega a ser chunk, ANTES do fim da imagem, é arquivo truncado.
+  if (!terminou && i !== data.length) {
+    throw new UnparseableImageError("chunk PNG truncado.");
   }
 
   return Buffer.concat(saida);
@@ -453,6 +472,13 @@ function stripWebp(data: Buffer): Buffer {
   const fimDoRiff = 8 + data.readUInt32LE(4);
   if (fimDoRiff < 12 || fimDoRiff > data.length) {
     throw new UnparseableImageError("RIFF declara um tamanho que o arquivo não tem.");
+  }
+
+  // O primeiro chunk descreve a imagem. Um RIFF "WEBP" que começa por outra
+  // coisa não é imagem que algum decodificador abra.
+  const primeiro = fimDoRiff >= 20 ? data.toString("ascii", 12, 16) : "";
+  if (primeiro !== "VP8 " && primeiro !== "VP8L" && primeiro !== "VP8X") {
+    throw new UnparseableImageError("WebP sem chunk de imagem.");
   }
 
   const pedacos = chunksRiff(data, 12, fimDoRiff, WEBP_CHUNKS_PERMITIDOS);

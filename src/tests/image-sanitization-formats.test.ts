@@ -165,6 +165,26 @@ describe("PHOTO-NEW-04 · arquivo disfarçado de imagem é recusado", () => {
     const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>', "utf8");
     expect(recusa(() => processImageUpload(svg, "image/svg+xml", POLITICA))).toBe("não é imagem");
   });
+
+  it("assinatura certa e nada de imagem: PNG sem IHDR, PNG com sobra truncada, WebP sem chunk de imagem", () => {
+    /*
+      Achado do PURGE-02: oito bytes de assinatura de PNG seguidos de lixo curto
+      atravessavam a limpeza e eram gravados como um "PNG" de oito bytes. O
+      sniff só olha a assinatura; quem precisa recusar é a estrutura.
+    */
+    const assinaturaPng = montarPngReal(2, 2).subarray(0, 8);
+    const soAssinatura = Buffer.concat([assinaturaPng, Buffer.from([0, 0, 0, 99, 73, 72])]);
+    expect(recusa(() => processImageUpload(soAssinatura, "image/png", POLITICA))).toBe("corrompido");
+
+    const semIhdr = Buffer.concat([assinaturaPng, montarPngReal(2, 2).subarray(33)]);
+    expect(recusa(() => processImageUpload(semIhdr, "image/png", POLITICA))).toBe("corrompido");
+
+    const comSobra = Buffer.concat([montarPngReal(2, 2).subarray(0, 33), Buffer.from([1, 2, 3])]);
+    expect(recusa(() => processImageUpload(comSobra, "image/png", POLITICA))).toBe("corrompido");
+
+    const semImagem = riff(riffChunk("LOCN", Buffer.from("12.34,-56.78")));
+    expect(recusa(() => processImageUpload(semImagem, "image/webp", POLITICA))).toBe("corrompido");
+  });
 });
 
 describe("PHOTO-NEW-05 · tipo declarado e bytes precisam concordar", () => {
