@@ -12546,9 +12546,12 @@ que ninguém definiu, aplicada a um provider cuja cadência ninguém mediu.
 > o mesmo estado preserva `statusSince`; mudar de estado o move.
 >
 > **`STALE` continua não existindo.** Quando a confirmação passa do dobro do
-> alvo, a tela mostra o aviso *"Verificação atrasada"* **ao lado** do estado —
+> alvo, a tela mostra o aviso *"Leitura desatualizada"* **ao lado** do estado —
 > que continua sendo o último conhecido. É um aviso sobre a nossa confirmação,
-> nunca um estado do cliente, e nada disso é persistido.
+> nunca um estado do cliente, e nada disso é persistido. *(A copy era
+> "Verificação atrasada" e mudou na validação do dono da `RC-1D`: soava como
+> tarefa atrasada. Só a palavra mudou — o campo `verificationIsStale` e a
+> política de frescor são os mesmos.)*
 
 ## A regra que já é invariante do código
 
@@ -13834,7 +13837,7 @@ alvo          reconferir cada cliente ligado a cada ~5 minutos
 autoridade    CustomerDiagnosticSnapshot — a MESMA (§370)
 duração       statusSince, campo novo; NUNCA derivada de observedAt
 falha         continua sem escrever nada — nem estado, nem observedAt
-STALE         continua não existindo; "Verificação atrasada" é aviso de tela
+STALE         continua não existindo; "Leitura desatualizada" é aviso de tela
 navegador     continua sem chamar provider (§370, §373)
 teto de 10/min o ciclo NÃO passa por ele — é worker, não usuário (§337)
 ```
@@ -15371,7 +15374,7 @@ Online há 18 min · verificado há 2 min
 
 **`ConnectivityStatus` continua com três valores** — `ONLINE`, `OFFLINE`,
 `UNKNOWN`. "Instabilidade" **não é** um quarto valor: é derivada do histórico,
-apresentada ao lado do estado, exatamente como "Verificação atrasada" é um aviso
+apresentada ao lado do estado, exatamente como "Leitura desatualizada" é um aviso
 sobre a nossa confirmação e não um estado do cliente.
 
 Superfícies onde ela caberia, todas sem implementação:

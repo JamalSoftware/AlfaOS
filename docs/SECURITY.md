@@ -3048,7 +3048,7 @@ chama sistemas externos em nome de várias empresas. O que o protege:
 - **Falha de provider não vira estado do cliente.** Nem `OFFLINE`, nem
   `observedAt` novo: o caminho de erro retorna antes de qualquer escrita, e isso
   é estrutural, não convenção. Uma integração quebrada envelhece em público
-  ("Verificação atrasada") em vez de afirmar que o cliente caiu.
+  ("Leitura desatualizada") em vez de afirmar que o cliente caiu.
 - **O log não tem dado pessoal.** O ciclo imprime contagens — elegíveis,
   processados, online, offline, sem leitura, falhas, duração. Nome, documento,
   coordenada e payload do provider não têm onde caber, e o resultado é um objeto

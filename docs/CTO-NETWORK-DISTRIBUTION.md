@@ -6164,7 +6164,7 @@ as de `getCtoOperationalSummaries` — a autoridade do popup —, número a núm
 ### 48.2. A hierarquia da porta
 
 ```text
-01  [Ocupada] [Online] [Cadastro inativo] [Verificação atrasada]
+01  [Ocupada] [Online] [Cadastro inativo] [Leitura desatualizada]
     NOME DO CLIENTE
     Online há 9 d · Verificado há 2 min   [1 OS aberta]
     [ações]
@@ -6225,7 +6225,7 @@ mesmo `logServerError`, mesma disciplina de log só com contagens.
 
 **Consequência declarada:** a cadência de 5 minutos depende de alguém agendar o
 comando. Sem isso nada se atualiza sozinho — e a tela **avisa**, porque a
-verificação envelhece e o selo "Verificação atrasada" aparece. O sistema
+verificação envelhece e o selo "Leitura desatualizada" aparece. O sistema
 envelhece em público em vez de afirmar um estado que ninguém confirmou.
 
 > **`DIAG-AUTO-1 code complete` · `production scheduler activation PENDING`.**
@@ -6303,7 +6303,7 @@ precisa enxergar, e ignorá-lo esconderia equipamento em campo.
 **Nenhuma escrita própria.** O ciclo chama o MESMO `refreshCustomerDiagnostic`
 do botão da OS, então falha de provider continua não escrevendo nada — nem
 estado, nem `observedAt`. É por isso que a tela consegue dizer *"Online há 5
-dias · Verificação atrasada · verificado há 37 min"* em vez de inventar um
+dias · Leitura desatualizada · verificado há 37 min"* em vez de inventar um
 estado novo.
 
 ### 48.5. Duas coisas foram MEDIDAS antes de serem afirmadas
@@ -6395,3 +6395,33 @@ navegador continua lendo só o snapshot já gravado.
 
 O mapa não precisou de nada: ele já relê o recorte a cada `moveend`/`zoomend`
 com 350 ms de debounce, e o snapshot novo entra na leitura seguinte.
+
+### 48.7. Validação do dono — os dois últimos ajustes
+
+A validação manual deu `PASS` para a CTO no desktop, os filtros, a organização
+das portas, o layout das portas no celular e o popup do mapa. Dois ajustes
+foram aprovados, e os dois são de apresentação — nenhuma contagem, campo,
+política ou migration mudou.
+
+**A copy do aviso de frescor virou "Leitura desatualizada".** "Verificação
+atrasada" soava como tarefa atrasada de alguém. O novo texto diz o que o aviso
+é: o último estado conhecido existe e não foi confirmado recentemente — não é
+offline, não é queda, não é falha confirmada. Internamente continua
+`verificationIsStale`, decidido no servidor pela política de frescor.
+
+**O card "Ocupação" ficou compacto só no celular.** Cinco blocos de duas linhas,
+dois a dois, mais a frase sobre categorias que se sobrepõem, empurravam a lista
+de portas para baixo. Agora a linha principal é capacidade · ocupadas · livres,
+e reservadas · danificadas vão numa linha menor, com rótulo e número lado a
+lado. Medido na caixa de 10 portas do E2E: o card foi de **306 px para 138 px**
+em 375 e 390 px, e a primeira porta subiu de `y=731` para `y=563`. No desktop
+nada mudou — **154 px** de card e a primeira porta em `y=455`, antes e depois —,
+e `sm:order-*` preserva a ordem visual aprovada.
+
+A frase sobre categorias sai da **tela** no celular e **não** do leitor de tela
+(`sr-only`, nunca `hidden`): para quem ouve os números, é ela que explica uma
+soma maior que a capacidade. A ordem do DOM é a do celular, que é também a de
+leitura, e cada número continua num par `dt`/`dd`.
+
+Testes: `STALE-COPY-01` (Vitest, varredura das telas; e E2E), `OCC-MOB-01/02/03`
+em 375 e 390 px e `OCC-DESK-01` em 1280 px.

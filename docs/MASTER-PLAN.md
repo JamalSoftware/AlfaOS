@@ -801,7 +801,7 @@ filtros                  uma faixa que quebra linha, duas unidades separadas
 hierarquia da porta      "Ocupada" e o estado do cliente na MESMA linha
 "Cadastro ativo"         não é mais dito; só a exceção aparece
 duração × frescor        statusSince (novo) × observedAt — dois campos
-verificação atrasada     aviso de tela, NUNCA um estado; STALE não existe
+leitura desatualizada    aviso de tela, NUNCA um estado; STALE não existe
 ciclo automático         npm run diagnostics:refresh, alvo ~5 min
 ```
 
@@ -834,4 +834,4 @@ há Dockerfile, CI, Procfile nem cron versionado —, e a infraestrutura de
 produção é decisão aberta do dono desde a `RC-1A` (junto com o storage de
 produção). O contrato de agendamento está em `.env.example`. Até alguém
 agendá-lo, **a produção não verifica nada automaticamente**, e a tela diz isso
-com "Verificação atrasada".
+com "Leitura desatualizada".
