@@ -99,7 +99,9 @@ RC-1   Release Candidate / Hardening                     ← em andamento
        RC-1C-HOTFIX  captura de GPS · precisão ≤ 50 m    ← CLOSED (reprovada no frescor → HOTFIX-2)
        RC-1C-HOTFIX-2  frescor pela idade da leitura     ← CLOSED (noAccuracy → HOTFIX-3)
        RC-1C-HOTFIX-3  precisão perdida no plugin        ← APPROVED · CLOSED (validação física PASS)
-       RC-1D  UX · copy · observabilidade da CTO        ← READY FOR OWNER VALIDATION
+       RC-1D  UX · copy · observabilidade da CTO        ← APPROVED · CLOSED (2026-09-16)
+       DIAG-AUTO-1  verificação automática            ← CODE APPROVED · CLOSED
+                                                           scheduler PENDING RC-1F
    ↓
 LANÇAMENTO V1 — produção e piloto real
    ↓
@@ -679,6 +681,17 @@ Vitest — login-flood sensível a CARGA (achado na DIAG-AUTO-1, 16/09/2026)
   fase     investigação própria, na área de autenticação — não se corrige um
            teste que falha 1 em 4 sem saber por quê
 
+E2E do mapa — ZOOMVIS-08/09 intermitente (gates da DIAG-AUTO-1, 16/09/2026)
+  o quê    "a escala não move a coordenada nem o transform do Leaflet" falhou
+           UMA vez na suíte inteira — "a área de clique encolheu junto com o
+           desenho", Expected: 32
+  medido   isolado: 1 de 1 passa; na suíte inteira seguinte, 351/351
+  alcance  nenhum arquivo do caminho de /mapa mudou na DIAG-AUTO-1; não é o
+           MAPEDIT (causa provada e resolvida na RC-1D, §13)
+  aberto   causa não isolada — uma observação só não classifica
+  fase     investigação própria; o mapa está FROZEN e só reabre por defeito
+           provado
+
 Fotos gravadas antes do PC-1 com GPS no arquivo (achado na EV-1, 13/09/2026)
   o quê    a limpeza de EXIF (PC-1, 06/09) roda no UPLOAD; a foto gravada antes
            dela continua com os bytes originais. No banco de dev: 1 de 1 foto
@@ -744,8 +757,9 @@ foram registrados — PRD §253 (jornada), as notas técnicas de cada trilha e
 
 ## 13. `RC-1D` — UX, copy e observabilidade da CTO
 
-**Estado: `READY FOR OWNER VALIDATION` (15/09/2026).** Commits locais, sem tag e
-sem push. **Zero migration, zero dependência, zero rota nova, zero Dart.**
+**Estado: `APPROVED` / `CLOSED` (validação do dono em 16/09/2026; entregue em
+15/09/2026).** Sem tag; publicação autorizada pelo dono no fechamento, só
+fast-forward. **Zero migration, zero dependência, zero rota nova, zero Dart.**
 
 Ela recebeu os débitos de UX do §12 e uma melhoria pequena aprovada pelo dono na
 abertura: ao abrir uma CTO, enxergar como estão os clientes dela.
@@ -785,9 +799,13 @@ servidor, o botão "Sincronizar Mock ERP", a busca por telefone com máscara, o
 
 ## 14. `RC-1D` — o addendum de UX e o `DIAG-AUTO-1`
 
-**Estado: `READY FOR OWNER VALIDATION` (15/09/2026).** Commits locais, sem tag e
-sem push. **Uma migration aditiva (duas colunas), zero dependência, zero rota
-nova, zero Dart.**
+**Estado: `RC-1D` `APPROVED` / `CLOSED`; `DIAG-AUTO-1` `CODE APPROVED` /
+`CLOSED` (validação do dono em 16/09/2026; entregue em 15/09/2026).** Sem tag;
+publicação autorizada pelo dono no fechamento, só fast-forward.
+**`PRODUCTION SCHEDULER` continua `PENDING RC-1F`** —
+o código está aprovado, e a verificação automática **não** está ativa em
+produção. **Duas migrations aditivas (uma coluna cada), zero dependência, zero
+rota nova, zero Dart.**
 
 A validação da §13 aprovou o conceito de conectividade na CTO e reprovou a
 organização visual. No mesmo passo, o dono apontou uma lacuna operacional real:

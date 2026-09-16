@@ -6482,3 +6482,17 @@ cliente clicava o cliente ONLINE, que na fixture está na **mesma coordenada da
 pointer events`. É o empate CTO↔cliente que segue aberto (PRD §371). O controle
 passou a ser o cliente OFFLINE, afastado: 6 de 6. Antes da troca, essa
 instabilidade chegou a parecer detecção numa sabotagem que não tocava o mapa.
+
+### 48.9. Fechamento
+
+**`RC-1D` — `APPROVED` / `CLOSED`. `DIAG-AUTO-1` — `CODE APPROVED` / `CLOSED`.**
+Validação do dono em 16/09/2026: a tela da CTO no desktop e no celular, os
+filtros, a organização das portas, o card "Ocupação" compacto no celular, o
+aviso "Leitura desatualizada", "Sem leitura" sem glifo e o popup da caixa no
+mapa preservado.
+
+**O que está fechado é o código.** `PRODUCTION SCHEDULER` continua
+**`PENDING RC-1F`**: nenhum agendador existe no repositório, nenhum ciclo real foi
+executado contra o provedor, e a verificação automática **não** está ativa em
+produção. A capacidade do provedor real continua **`NOT YET MEASURED`** (§48.5).
+Nenhum requisito mudou no fechamento.
