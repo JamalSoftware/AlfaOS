@@ -12,6 +12,22 @@ export interface StoredFile {
   mimeType: string;
 }
 
+/**
+ * Uma entrada encontrada ao percorrer o storage (`RC-1E`).
+ *
+ * `recognized` é `true` só para caminho que casa com `STORAGE_KEY_PATTERN` —
+ * uma chave que o AlfaOS pode ter escrito. Todo o resto (temporário de gravação
+ * interrompida, arquivo colocado à mão, link simbólico) aparece com
+ * `recognized: false`, para ser CONTADO, nunca lido nem apagado.
+ */
+export interface StorageListingEntry {
+  /** Caminho relativo à raiz, com `/`. Só vira chave quando `recognized`. */
+  key: string;
+  recognized: boolean;
+  sizeBytes: number;
+  modifiedAt: Date;
+}
+
 export interface FileStorageContract {
   /**
    * Persists `data` under a key the CALLER generated with `buildStorageKey`.
@@ -22,6 +38,11 @@ export interface FileStorageContract {
   get(storageKey: string): Promise<Buffer>;
   delete(storageKey: string): Promise<void>;
   exists(storageKey: string): Promise<boolean>;
+  /**
+   * Percorre o storage inteiro. Só leitura. Existe para a auditoria de órfãos:
+   * sem ele, "arquivo que nenhuma linha referencia" não tem como ser encontrado.
+   */
+  list(): AsyncIterable<StorageListingEntry>;
 }
 
 /**

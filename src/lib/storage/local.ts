@@ -3,7 +3,9 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import {
   assertSafeStorageKey,
+  STORAGE_KEY_PATTERN,
   type FileStorageContract,
+  type StorageListingEntry,
   type StoredFile,
 } from "./contract";
 
@@ -93,6 +95,42 @@ export class LocalFileStorageAdapter implements FileStorageContract {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Percorre a raiz sem sair dela.
+   *
+   * `lstat`, e não `stat`: um link simbólico NÃO é seguido — ele poderia apontar
+   * para fora da raiz, e a auditoria leria (ou um expurgo apagaria) o que não é
+   * do AlfaOS. O link aparece como entrada não reconhecida, e só.
+   */
+  async *list(): AsyncIterable<StorageListingEntry> {
+    const pilha: string[] = [this.root];
+    while (pilha.length > 0) {
+      const dir = pilha.pop()!;
+      let nomes: string[];
+      try {
+        nomes = await fs.readdir(dir);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      for (const nome of nomes.sort()) {
+        const cheio = path.join(dir, nome);
+        const info = await fs.lstat(cheio);
+        if (info.isDirectory()) {
+          pilha.push(cheio);
+          continue;
+        }
+        const key = path.relative(this.root, cheio).split(path.sep).join("/");
+        yield {
+          key,
+          recognized: info.isFile() && STORAGE_KEY_PATTERN.test(key),
+          sizeBytes: info.size,
+          modifiedAt: info.mtime,
+        };
+      }
     }
   }
 }

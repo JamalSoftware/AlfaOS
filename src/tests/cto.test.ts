@@ -57,6 +57,11 @@ beforeEach(async () => {
     async exists(storageKey) {
       return arquivos.has(storageKey);
     },
+    async *list() {
+      for (const [key, f] of Array.from(arquivos.entries())) {
+        yield { key, recognized: true, sizeBytes: f.data.byteLength, modifiedAt: new Date() };
+      }
+    },
   });
 });
 

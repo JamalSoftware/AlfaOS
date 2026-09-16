@@ -47,6 +47,7 @@
     "scripts/evidence-cleanup.ts",
     "scripts/dispatch-queue-backfill.ts",
     "scripts/connectivity-refresh.ts",
+    "scripts/photo-storage-audit.ts",
     "src/lib/dispatch-queue.ts",
     "src/lib/dispatch-queue-backfill.ts",
     "src/lib/field/evidence-cleanup.ts",

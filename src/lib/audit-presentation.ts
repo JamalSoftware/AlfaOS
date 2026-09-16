@@ -90,6 +90,7 @@ export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   "CTO.UPDATED": "CTO atualizada",
   "CTO.CAPACITY_CHANGED": "Capacidade da CTO alterada",
   "CTO.PHOTO_UPDATED": "Foto da CTO atualizada",
+  "STORAGE.PHOTO_RESANITIZED": "Foto antiga limpa de metadado",
   "CTO.PORT_STATE_CHANGED": "Estado de porta alterado",
   "CTO.ACTIVATED": "CTO reativada",
   "CTO.INACTIVATED": "CTO inativada",

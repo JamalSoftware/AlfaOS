@@ -16,6 +16,7 @@
     "dispatch:backfill": "node dist/scripts/dispatch-queue-backfill.js",
     "diagnostics:refresh": "node dist/scripts/connectivity-refresh.js",
     "diagnostics:dry-run": "node dist/scripts/connectivity-refresh.js --dry-run",
+    "storage:audit": "node dist/scripts/photo-storage-audit.js",
     "build:worker": "tsc -p tsconfig.worker.json"
   },
   "dependencies": {

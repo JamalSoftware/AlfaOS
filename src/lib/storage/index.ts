@@ -10,7 +10,7 @@ export {
   STORAGE_KEY_PATTERN,
   MIME_EXTENSIONS,
 } from "./contract";
-export type { FileStorageContract, StoredFile } from "./contract";
+export type { FileStorageContract, StorageListingEntry, StoredFile } from "./contract";
 export { LocalFileStorageAdapter } from "./local";
 
 let instance: FileStorageContract | null = null;

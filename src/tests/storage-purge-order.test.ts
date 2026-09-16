@@ -195,6 +195,7 @@ describe("PURGE-03 · a gravação da nova falha", () => {
       get: (k) => real.get(k),
       delete: (k) => real.delete(k),
       exists: (k) => real.exists(k),
+      list: () => real.list(),
     };
     setFileStorage(quebrado);
 
