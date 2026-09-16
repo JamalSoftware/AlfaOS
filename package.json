@@ -15,6 +15,7 @@
     "evidence:cleanup": "node dist/scripts/evidence-cleanup.js",
     "dispatch:backfill": "node dist/scripts/dispatch-queue-backfill.js",
     "diagnostics:refresh": "node dist/scripts/connectivity-refresh.js",
+    "diagnostics:dry-run": "node dist/scripts/connectivity-refresh.js --dry-run",
     "build:worker": "tsc -p tsconfig.worker.json"
   },
   "dependencies": {

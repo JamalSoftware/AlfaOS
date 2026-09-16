@@ -41,6 +41,7 @@
  */
 
 import {
+  findConnectionsDueForCheck,
   runConnectivityRefreshCycle,
   CONNECTIVITY_REFRESH_BATCH_LIMIT,
   CONNECTIVITY_REFRESH_CONCURRENCY,
@@ -77,6 +78,31 @@ async function main(): Promise<void> {
     "DIAGNOSTICS_REFRESH_CONCURRENCY",
     CONNECTIVITY_REFRESH_CONCURRENCY,
   );
+
+  /*
+    `--dry-run`: diz QUANTOS seriam consultados, e não consulta ninguém.
+
+    Existe por segurança operacional. O ciclo fala com o ERP real da empresa, e
+    a primeira execução num ambiente novo é justamente aquela em que ninguém
+    sabe quantas chamadas vão sair — nem se o provider ali é um sandbox ou a
+    instalação de produção de um provedor de verdade. Uma prévia transforma esse
+    primeiro disparo numa decisão informada.
+
+    Ele NÃO reserva, NÃO escreve e NÃO chama provider: roda só a seleção.
+  */
+  if (process.argv.includes("--dry-run")) {
+    const { scanned, due } = await findConnectionsDueForCheck(
+      new Date(),
+      targetMs,
+      limit,
+    );
+    console.info(
+      `[diagnostics] SIMULACAO — nada foi consultado nem escrito: ` +
+        `vinculos=${scanned} elegiveis=${due.length} ` +
+        `alvo=${Math.round(targetMs / 1000)}s teto=${limit}`,
+    );
+    return;
+  }
 
   console.info(
     `[diagnostics] ciclo iniciado alvo=${Math.round(targetMs / 1000)}s teto=${limit} concorrencia=${concurrency}`,

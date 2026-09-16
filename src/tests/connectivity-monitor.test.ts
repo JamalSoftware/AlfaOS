@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import {
@@ -600,6 +602,35 @@ describe("SCHED — o ciclo", () => {
 // ---------------------------------------------------------------------------
 // O que o técnico lê na tela
 // ---------------------------------------------------------------------------
+
+describe("SCHED — a prévia segura", () => {
+  /*
+    `--dry-run` existe para que o primeiro disparo num ambiente novo seja uma
+    decisão informada: ele diz quantos SERIAM consultados sem consultar ninguém.
+    Se alguém reordenar o comando e a simulação passar a cair no ciclo, ela vira
+    exatamente o oposto — um disparo surpresa contra o ERP de um provedor real.
+
+    O teste é estrutural porque o alvo é a ORDEM do comando, não um resultado.
+  */
+  it("SCHED-14 · a simulação retorna ANTES do ciclo, e não chama o provider", () => {
+    const fonte = readFileSync(
+      path.join(process.cwd(), "scripts/connectivity-refresh.ts"),
+      "utf8",
+    );
+    const simulacao = fonte.indexOf('process.argv.includes("--dry-run")');
+    const retorno = fonte.indexOf("return;", simulacao);
+    const ciclo = fonte.indexOf("await runConnectivityRefreshCycle(");
+
+    expect(simulacao).toBeGreaterThan(-1);
+    expect(retorno).toBeGreaterThan(simulacao);
+    // O `return` da simulação vem antes da única chamada que consulta provider.
+    expect(retorno).toBeLessThan(ciclo);
+    // E a simulação usa a seleção, que é leitura pura.
+    expect(
+      fonte.slice(simulacao, retorno).includes("findConnectionsDueForCheck("),
+    ).toBe(true);
+  });
+});
 
 describe("AUTO-CONFUSAO — duração e frescor são coisas diferentes", () => {
   /*

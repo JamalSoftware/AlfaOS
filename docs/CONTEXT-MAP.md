@@ -13,6 +13,25 @@ Regra geral: leia a seção "Sempre" em toda sessão nova, depois **só** as se�
 
 ## Um servidor de dev por vez — e nunca durante um build
 
+**Interromper a execução dos gates NÃO mata o `vitest` que ela iniciou.** A
+mesma família de armadilha, com outro recurso compartilhado: o **banco de
+teste**. Um `vitest run` órfão continua sedeando e limpando `alfaos_test`, e uma
+suíte iniciada em paralelo falha em lugares que não têm relação com a mudança —
+`user.deleteMany()` batendo em `technicians_userId_fkey`, `company.deleteMany()`
+batendo em `audit_logs_companyId_fkey` — com contagens diferentes a cada
+execução. O sintoma parece defeito de teste; é duas limpezas se cruzando.
+
+Antes de acusar instabilidade, procure o processo:
+
+```text
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+  Where-Object { $_.CommandLine -match 'vitest|playwright' }
+```
+
+E lembre que o órfão pode estar no **worktree isolado**, não no repositório —
+foi exatamente assim que ele passou despercebido. Matar o processo e truncar
+`alfaos_test` devolve o ambiente; a suíte volta a passar inteira.
+
 **`next dev`, `next build` e o Playwright compartilham o MESMO diretório
 `.next`.** Rodar dois deles ao mesmo tempo corrompe o que o outro está
 servindo, e o sintoma não se parece com um conflito: parece um defeito da
