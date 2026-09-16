@@ -285,16 +285,37 @@ function exifApenasComOrientacao(orientacao: number): Buffer {
 const PNG_ASSINATURA = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
 /**
+ * Os chunks de PNG que FICAM — e só eles (`RC-EXIF-09`).
+ *
+ * A versão anterior era lista de PROIBIDOS (`eXIf` e os três de texto), e a
+ * auditoria da `RC-1A` mostrou o furo que toda lista de proibidos tem: o que
+ * ninguém imaginou passa. `tIME` passava, chunks privados passavam, e um
+ * chunk com nome inventado carregando coordenada atravessava a limpeza no mesmo
+ * arquivo em que o `eXIf` era removido. A pergunta passou a ser a do JPEG —
+ * "é exatamente algo que a imagem precisa para aparecer?".
+ *
+ * Ficam os críticos (`IHDR`, `PLTE`, `IDAT`, `IEND`) e os auxiliares que mudam
+ * como a imagem APARECE: transparência, cor, gama, perfil ICC (o mesmo motivo
+ * de o `APP2`/ICC ficar no JPEG), densidade, fundo, histograma e os três da
+ * animação APNG. Sai todo o resto — `eXIf`, `tEXt`, `iTXt`, `zTXt`, `tIME`,
+ * `sPLT` e qualquer chunk desconhecido ou privado.
+ */
+const PNG_CHUNKS_PERMITIDOS = new Set([
+  "IHDR", "PLTE", "IDAT", "IEND",
+  "tRNS", "cHRM", "gAMA", "iCCP", "sBIT", "sRGB", "cICP", "mDCV", "cLLI",
+  "bKGD", "pHYs", "hIST",
+  "acTL", "fcTL", "fdAT",
+]);
+
+/**
  * PNG não guarda orientação — a especificação não tem essa tag —, então aqui
- * não há nada a reinjetar. Saem o `eXIf` (que pode carregar GPS igualzinho ao
- * do JPEG) e os blocos de texto.
+ * não há nada a reinjetar.
  */
 function stripPng(data: Buffer): Buffer {
   if (data.length < 8 || !data.subarray(0, 8).equals(PNG_ASSINATURA)) {
     throw new UnparseableImageError("PNG sem assinatura.");
   }
 
-  const descartar = new Set(["eXIf", "tEXt", "iTXt", "zTXt"]);
   const saida: Buffer[] = [data.subarray(0, 8)];
   let i = 8;
 
@@ -305,10 +326,11 @@ function stripPng(data: Buffer): Buffer {
     if (fim > data.length) {
       throw new UnparseableImageError("chunk PNG truncado.");
     }
-    if (!descartar.has(tipo)) {
+    if (PNG_CHUNKS_PERMITIDOS.has(tipo)) {
       saida.push(data.subarray(i, fim));
     }
     i = fim;
+    // Depois do IEND não há imagem: o que vier é anexo, e anexo não fica.
     if (tipo === "IEND") break;
   }
 
@@ -325,6 +347,92 @@ function stripPng(data: Buffer): Buffer {
  * e XMP. Remover os pedaços sem apagar os bits deixaria um arquivo que se
  * descreve errado.
  */
+/**
+ * Os chunks de WebP que FICAM (`RC-EXIF-09`) — a mesma virada do PNG, de lista
+ * de proibidos para lista de permitidos.
+ *
+ * Ficam o bitstream (`VP8 `, `VP8L`), o cabeçalho estendido (`VP8X`), o canal
+ * alfa (`ALPH`), o perfil de cor (`ICCP`) e a animação (`ANIM`, `ANMF`). Saem
+ * `EXIF`, `XMP ` e qualquer chunk desconhecido.
+ */
+const WEBP_CHUNKS_PERMITIDOS = new Set([
+  "VP8 ", "VP8L", "VP8X", "ALPH", "ICCP", "ANIM", "ANMF",
+]);
+
+/** Dentro de um quadro `ANMF`, só os dados do próprio quadro. */
+const WEBP_CHUNKS_DO_QUADRO = new Set(["VP8 ", "VP8L", "ALPH"]);
+
+/** Cabeçalho fixo do `ANMF`: posição, dimensões, duração e flags. */
+const ANMF_CABECALHO = 16;
+
+/**
+ * Percorre chunks RIFF de `inicio` até `fim`, devolvendo os PERMITIDOS.
+ *
+ * `fim` é o limite declarado pelo contêiner, e não o fim do buffer: é isso que
+ * impede um bloco anexado depois do RIFF de ser lido como chunk.
+ */
+function chunksRiff(
+  data: Buffer,
+  inicio: number,
+  fim: number,
+  permitidos: Set<string>,
+): Buffer[] {
+  const pedacos: Buffer[] = [];
+  let i = inicio;
+
+  while (i + 8 <= fim) {
+    const tamanho = data.readUInt32LE(i + 4);
+    const comPadding = tamanho + (tamanho % 2); // RIFF alinha em 2 bytes
+    const termino = i + 8 + comPadding;
+    if (termino > fim) {
+      throw new UnparseableImageError("chunk WebP truncado.");
+    }
+    const tipo = data.toString("ascii", i, i + 4);
+
+    if (permitidos.has(tipo)) {
+      if (tipo === "ANMF") {
+        pedacos.push(quadroSemMetadado(data, i, tamanho));
+      } else {
+        const bloco = Buffer.from(data.subarray(i, termino));
+        if (tipo === "VP8X" && bloco.length >= 9) {
+          // Pela especificação: bit 2 = XMP, bit 3 = EXIF. A máscara zera os dois.
+          bloco[8] &= ~0b00001100;
+        }
+        pedacos.push(bloco);
+      }
+    }
+    i = termino;
+  }
+  return pedacos;
+}
+
+/**
+ * Um quadro de animação é um contêiner dentro do contêiner: depois dos 16 bytes
+ * fixos vêm chunks. Copiá-lo inteiro deixaria um chunk desconhecido atravessar
+ * escondido dentro de um permitido — a lista valeria só no primeiro nível.
+ */
+function quadroSemMetadado(data: Buffer, inicio: number, tamanho: number): Buffer {
+  if (tamanho < ANMF_CABECALHO) {
+    throw new UnparseableImageError("quadro ANMF truncado.");
+  }
+  const dados = inicio + 8;
+  const internos = chunksRiff(
+    data,
+    dados + ANMF_CABECALHO,
+    dados + tamanho,
+    WEBP_CHUNKS_DO_QUADRO,
+  );
+  const carga = Buffer.concat([
+    data.subarray(dados, dados + ANMF_CABECALHO),
+    ...internos,
+  ]);
+  const cabecalho = Buffer.alloc(8);
+  cabecalho.write("ANMF", 0, "ascii");
+  cabecalho.writeUInt32LE(carga.length, 4);
+  const padding = carga.length % 2 === 1 ? Buffer.alloc(1) : Buffer.alloc(0);
+  return Buffer.concat([cabecalho, carga, padding]);
+}
+
 function stripWebp(data: Buffer): Buffer {
   if (
     data.length < 12 ||
@@ -334,29 +442,20 @@ function stripWebp(data: Buffer): Buffer {
     throw new UnparseableImageError("WebP sem cabeçalho RIFF.");
   }
 
-  const descartar = new Set(["EXIF", "XMP "]);
-  const pedacos: Buffer[] = [];
-  let i = 12;
+  /*
+    O contêiner termina onde o RIFF DIZ que termina (`RC-EXIF-09`).
 
-  while (i + 8 <= data.length) {
-    const tamanho = data.readUInt32LE(i + 4);
-    const comPadding = tamanho + (tamanho % 2); // RIFF alinha em 2 bytes
-    const fim = i + 8 + comPadding;
-    if (fim > data.length) {
-      throw new UnparseableImageError("chunk WebP truncado.");
-    }
-    const tipo = data.toString("ascii", i, i + 4);
-
-    if (!descartar.has(tipo)) {
-      const bloco = Buffer.from(data.subarray(i, fim));
-      if (tipo === "VP8X" && bloco.length >= 9) {
-        // Pela especificação: bit 2 = XMP, bit 3 = EXIF. A máscara zera os dois.
-        bloco[8] &= ~0b00001100;
-      }
-      pedacos.push(bloco);
-    }
-    i = fim;
+    A versão anterior ignorava o tamanho declarado e seguia lendo até o fim do
+    buffer, então bytes anexados DEPOIS do RIFF — o mesmo lugar em que a Motion
+    Photo do JPEG escondia um MP4 — sobreviviam se tivessem forma de chunk.
+    Declarar mais bytes do que existem é arquivo truncado, e é recusado.
+  */
+  const fimDoRiff = 8 + data.readUInt32LE(4);
+  if (fimDoRiff < 12 || fimDoRiff > data.length) {
+    throw new UnparseableImageError("RIFF declara um tamanho que o arquivo não tem.");
   }
+
+  const pedacos = chunksRiff(data, 12, fimDoRiff, WEBP_CHUNKS_PERMITIDOS);
 
   const corpo = Buffer.concat(pedacos);
   const cabecalho = Buffer.alloc(12);
