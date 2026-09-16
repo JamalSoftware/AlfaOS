@@ -110,6 +110,11 @@ export async function purgeTemporaryEvidenceCandidate(
   storage: FileStorageContract,
   candidate: TemporaryEvidenceCandidate,
   now: Date,
+  /**
+   * Chamado depois da conferência de vínculo e antes da exclusão — o intervalo
+   * em que a corrida da `RC-STO-06` acontecia. Só o teste o usa.
+   */
+  afterLinkCheck?: () => Promise<void>,
 ): Promise<"deleted" | "kept"> {
   /*
     Conferência explícita de vínculo, mesmo o filtro já a tornando
@@ -127,6 +132,8 @@ export async function purgeTemporaryEvidenceCandidate(
   if (linked > 0) {
     return "kept";
   }
+
+  await afterLinkCheck?.();
 
   let removed: { count: number };
   try {

@@ -309,19 +309,24 @@ describe("PURGE-05 · a corrida do expurgo de etiqueta (RC-STO-06)", () => {
     return { ctx, candidato: { id: linha.id, storageKey: linha.storageKey } };
   }
 
-  it("candidato lido, etiqueta promovida no intervalo: a foto do equipamento NÃO some", async () => {
+  it("promovida DEPOIS da conferência de vínculo e antes da exclusão: a foto do equipamento NÃO some", async () => {
+    /*
+      A corrida exata da RC-STO-06. Promover ANTES de chamar o expurgo não a
+      exercita: a conferência de vínculo já veria o equipamento e devolveria
+      "kept" — medido, a sabotagem que volta a apagar o arquivo antes da linha
+      passava por um teste montado assim. A promoção precisa acontecer DEPOIS da
+      conferência, que é quando só a ordem linha→arquivo protege a foto.
+    */
     const { ctx, candidato } = await etiquetaTemporaria();
-
-    // A varredura já leu o candidato. Agora a promoção vence.
-    await addServiceOrderEquipment(ctx.companyId, ctx.userId, ctx.orderId, {
-      expectedOrderVersion: await versao(ctx.orderId),
-      equipmentType: "ONU",
-      labelEvidenceId: candidato.id,
-    });
-
-    // O expurgo roda com o candidato velho e um relógio muito depois do prazo.
     const depois = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
-    const desfecho = await purgeTemporaryEvidenceCandidate(getFileStorage(), candidato, depois);
+
+    const desfecho = await purgeTemporaryEvidenceCandidate(getFileStorage(), candidato, depois, async () => {
+      await addServiceOrderEquipment(ctx.companyId, ctx.userId, ctx.orderId, {
+        expectedOrderVersion: await versao(ctx.orderId),
+        equipmentType: "ONU",
+        labelEvidenceId: candidato.id,
+      });
+    });
 
     expect(desfecho).toBe("kept");
     const linha = await prisma.serviceOrderEvidence.findUniqueOrThrow({ where: { id: candidato.id } });
