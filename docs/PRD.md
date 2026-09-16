@@ -15285,3 +15285,149 @@ Nenhuma resolvida em silêncio. Cada uma pesa quando a fase for aberta:
 ```
 
 ---
+
+# PARTE XX — INSTABILIDADE DE CONECTIVIDADE E INCIDENTES
+
+> **`PLANNED` · `POST-V1` · `NOT IMPLEMENTED`.** Aprovado pelo dono em
+> 15/09/2026 para ficar **registrado**, junto com a `DIAG-AUTO-1`. Nada disto
+> existe em código, e a §119 vale linha por linha: estar descrito aqui não é
+> autorização para implementar.
+
+# 422. POR QUE ESTA PARTE NASCE AGORA
+
+A `DIAG-AUTO-1` fez o AlfaOS passar a **observar a rede com regularidade**.
+Antes dela, uma leitura só acontecia quando alguém clicava — e uma sequência de
+leituras esparsas, tiradas em momentos escolhidos por pessoas, não sustenta
+nenhuma afirmação sobre estabilidade.
+
+Com o ciclo reconferindo de tempos em tempos, as **transições** passam a ser
+observáveis. Isso abre uma pergunta que a operação faz o tempo todo e que o
+produto ainda não responde: *este cliente está mal, ou caiu uma vez?*
+
+Esta Parte registra a resposta futura. **Ela não é a `DIAG-AUTO-1`**, e não
+deve ser confundida com ela.
+
+# 423. O QUE SE QUER DETECTAR — INSTABILIDADE INDIVIDUAL
+
+Clientes que apresentam **múltiplas TRANSIÇÕES REAIS** numa janela:
+
+```text
+ONLINE → OFFLINE → ONLINE      isto é uma queda
+ONLINE → ONLINE → ONLINE       isto NÃO é nada
+```
+
+**Reconsultar o mesmo estado não é queda.** É exatamente por isso que a
+`DIAG-AUTO-1` separou `statusSince` de `observedAt` (§370): sem essa distinção,
+"quantas vezes verificamos" e "quantas vezes mudou" seriam o mesmo número, e o
+ciclo de cinco minutos produziria uma epidemia de instabilidade inexistente.
+
+# 424. O QUE NÃO CONTA COMO QUEDA
+
+```text
+timeout do provider          NÃO é queda
+exceção do provider          NÃO é queda
+rate limit                   NÃO é queda
+falha de autenticação        NÃO é queda
+ausência de resposta         NÃO é queda
+```
+
+Nenhum deles é `OFFLINE`, nenhum deles é transição, e nenhum deles pode entrar
+numa contagem de quedas. É a §370 aplicada a uma métrica: **falha de integração
+é afirmação sobre a integração, nunca sobre o cliente** — e uma métrica que
+confundisse as duas transformaria um ERP instável num parque de clientes
+instáveis.
+
+O corolário operacional: num período em que o provider esteve fora, a resposta
+honesta sobre instabilidade é *"não sabemos"*, e não *"zero quedas"*.
+
+# 425. MÉTRICAS POSSÍVEIS — SEM LIMIAR DEFINIDO
+
+```text
+quedas na última 1 h
+quedas nas últimas 6 h
+quedas nas últimas 24 h
+número de reconexões
+duração média do período offline
+maior período offline
+tempo total offline na janela
+```
+
+**Nenhum limiar é definido aqui, de propósito.** Quantas quedas em quantas horas
+fazem um cliente "instável" é uma pergunta que só tem resposta com dados reais —
+e o AlfaOS ainda não tem série histórica nenhuma. Escolher um número agora seria
+calibrar no escuro e depois defender o número em vez do cliente.
+
+# 426. APRESENTAÇÃO FUTURA — DERIVADA, NUNCA UM ESTADO
+
+Exemplo conceitual:
+
+```text
+[Online] [Possível instabilidade]
+
+CLIENTE XYZ
+Online há 18 min · verificado há 2 min
+4 quedas nas últimas 6 h
+```
+
+**`ConnectivityStatus` continua com três valores** — `ONLINE`, `OFFLINE`,
+`UNKNOWN`. "Instabilidade" **não é** um quarto valor: é derivada do histórico,
+apresentada ao lado do estado, exatamente como "Verificação atrasada" é um aviso
+sobre a nossa confirmação e não um estado do cliente.
+
+Superfícies onde ela caberia, todas sem implementação:
+
+```text
+Mapa Operacional   filtro "Possível instabilidade"
+tela da CTO        01 [Ocupada] [Online] [Instabilidade] · 5 quedas em 24 h
+ficha do cliente   seção "Saúde da conectividade"
+```
+
+A seção do cliente reuniria estado atual, `statusSince`, última verificação,
+número de quedas, tempo offline e o histórico de transições — uma leitura só,
+derivada, como a Timeline e o Pacote Técnico já são.
+
+# 427. `FUTURE — NETWORK INCIDENT CORRELATION`
+
+Uma segunda evolução, **separada** da anterior e igualmente não implementada.
+
+Vários clientes da mesma **CTO**, **PON** ou **região** ficando offline em
+período semelhante provavelmente não são vários problemas individuais: são um
+incidente compartilhado. Perceber isso muda o que a operação faz — em vez de
+abrir N atendimentos, ela despacha um.
+
+Isto é vizinho do que a §388 já classificou como V2 (falha coletiva, incidentes,
+NOC) e **não** o promove. Fica aqui como o registro de que a `DIAG-AUTO-1` é a
+fundação de dados que ele exigiria.
+
+# 428. O QUE FALTA NO MODELO — E QUE NÃO SE CRIA POR ANTECIPAÇÃO
+
+`CustomerDiagnosticSnapshot` guarda o **estado atual**, uma linha por cliente e
+provider. Ele responde "como está agora" e "desde quando" — e **não** responde
+"quantas vezes mudou".
+
+Contar quedas exigirá um **histórico de transições**: uma linha por mudança
+observada, e não por verificação (senão o ciclo de cinco minutos gravaria
+milhares de linhas por dia dizendo que nada aconteceu).
+
+**Essa tabela NÃO deve ser criada agora.** Criar estrutura para uma
+funcionalidade não aprovada é custo garantido em troca de benefício hipotético —
+e uma tabela que ninguém lê envelhece sem ninguém perceber que ela está errada.
+Ela nasce junto com a fase que a consome, ou não nasce.
+
+# 429. O QUE ESTA PARTE NÃO AUTORIZA
+
+```text
+StabilityScore                    NÃO
+enum de flapping                  NÃO
+motor de incidentes               NÃO
+alerta automático de queda        NÃO
+push / WhatsApp de queda          NÃO
+OS automática de instabilidade    NÃO
+correlação por PON ou CTO         NÃO
+tabela de histórico "por enquanto" NÃO
+```
+
+O que existe hoje, e é o único compromisso assumido: a `DIAG-AUTO-1` preserva
+**semântica suficiente** para que a detecção futura seja possível —
+`statusSince` data cada transição observada, e falha de provider não escreve
+nada. Nada além disso foi construído.

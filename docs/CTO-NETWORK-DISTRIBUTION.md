@@ -6228,6 +6228,37 @@ comando. Sem isso nada se atualiza sozinho — e a tela **avisa**, porque a
 verificação envelhece e o selo "Verificação atrasada" aparece. O sistema
 envelhece em público em vez de afirmar um estado que ninguém confirmou.
 
+> **`DIAG-AUTO-1 code complete` · `production scheduler activation PENDING`.**
+> Não existe agendador em lugar nenhum do repositório — nem Dockerfile, nem CI,
+> nem Procfile, nem cron versionado —, e a infraestrutura de produção é decisão
+> aberta do dono desde a `RC-1A`, ao lado do storage de produção. O contrato
+> está escrito em `.env.example`; o caminho real do deploy só existe quando o
+> ambiente existir. **Enquanto ninguém agendar, a produção não verifica nada
+> automaticamente**, e afirmar o contrário seria descrever um sistema que não
+> está no ar.
+
+### 48.4.1. O que evita a rajada — e o que NÃO existe
+
+O objetivo é não disparar 600 chamadas às 10:00:00. O que impede isso:
+
+```text
+teto por execução      no máximo 300 conexões por volta (configurável)
+concorrência limitada  no máximo 6 chamadas ao provider ao mesmo tempo
+fila compartilhada     N trabalhadores puxam do mesmo ponteiro até acabar
+```
+
+A chamada 601 nunca existe numa volta, e a sétima chamada simultânea nunca
+existe: o ciclo é uma **janela deslizante de seis**, não um disparo em bloco.
+
+**O que NÃO existe, e não deve ser descrito como se existisse:** não há
+*jitter*, não há distribuição por *buckets* de hash, não há horário-alvo por
+cliente. A distribuição é consequência da concorrência limitada, e só.
+
+**Ciclo anterior ainda rodando:** o novo simplesmente encontra menos trabalho —
+quem já foi verificado saiu da faixa de elegibilidade, e quem está reservado é
+pulado (contado em `claimedByOther`, que é trabalho de outro ciclo, não trabalho
+perdido).
+
 **Elegibilidade é conexão física, não cadastro.** Quem entra tem
 `CustomerNetworkConnection` ativa. `Customer.active` **não** filtra: um cliente
 cadastralmente inativo que continua ligado é exatamente o caso que a operação
@@ -6265,13 +6296,37 @@ ciclo (conc. 6)   6,9 s para 600 · 5.252/min
 ciclo (conc. 12)  5,1 s para 600 · 7.095/min
 ```
 
-O provider do teste responde em 10 ms, então esses números medem a
-**orquestração**, não o ERP real. O que eles provam é que o custo de banco não é
-o gargalo; o gargalo é a latência do provider, e a conta é direta: com
-concorrência 6, a vazão é `360 / L` por minuto, com `L` em segundos. Para 600
-clientes em 5 minutos são necessários 120/min, o que a concorrência 6 sustenta
-até `L ≈ 3 s`. Acima disso é decisão de operação — subir a concorrência ou
-encurtar o intervalo do cron —, medida contra o provider real.
+**Estas medições são SINTÉTICAS, e a distinção não é detalhe.** O provider foi o
+`MockERPAdapter`, em processo, com 10 ms de latência simulada. Elas provam
+**banco, seleção, reserva, concorrência e overhead de orquestração** — e **não**
+provam 600 chamadas reais a um ERP em 6,9 s. Quem ler o número solto concluirá a
+segunda coisa, que é falsa.
+
+**A capacidade do provider real NÃO foi medida** (`PROVIDER CAPACITY — NOT YET
+MEASURED`). O único provider configurado no ambiente é o **ReceitaNet de
+produção de um provedor real**; não existe sandbox, e disparar carga contra ele é
+decisão do dono, não iniciativa de implementação. Consequência: **concorrência 6
+é configuração inicial conservadora, não capacidade comprovada**, e a calibração
+fica para a `RC-1F`/piloto.
+
+A conta que substitui o benchmark ausente é direta. Com concorrência `C` e
+latência média `L` por chamada, um ciclo de `N` clientes leva ≈ `N × L / C`:
+
+```text
+600 clientes · concorrência 6 · janela de 300 s
+latência média máxima para fechar o ciclo:  300 × 6 / 600 ≈ 3 s por chamada
+
+L = 1 s   →  ~100 s      cabe
+L = 2 s   →  ~200 s      cabe
+L = 3 s   →  ~300 s      no limite
+L = 5 s   →  ~500 s      NÃO cabe
+L = 8 s   →  ~800 s      NÃO cabe (8 s é o deadline de cada chamada)
+```
+
+**Isto é estimativa, não benchmark.** Se a latência real ficar acima de ~3 s, as
+saídas são de operação e estão previstas: subir a concorrência, encurtar o
+intervalo do agendador, ou aceitar cadência maior que o alvo — e o comando já
+avisa no log quando o teto foi atingido e sobrou trabalho.
 
 ### 48.6. A tela aberta acompanha o ciclo
 

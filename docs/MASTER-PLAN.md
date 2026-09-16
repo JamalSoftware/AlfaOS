@@ -805,4 +805,15 @@ criar um daemon para isto foi recusado pelos mesmos motivos escritos em
 **avisa**, em vez de afirmar um estado que ninguém confirmou.
 
 **Continua fora:** flapping e métricas de queda, alerta automático, WhatsApp,
-NOC, e os demais itens do §12 que não são de UX.
+NOC, e os demais itens do §12 que não são de UX. A detecção de instabilidade e a
+correlação de incidentes ficaram **registradas** na PRD Parte XX (§422–§429),
+`PLANNED` / `POST-V1` / `NOT IMPLEMENTED` — inclusive a decisão de **não**
+criar agora a tabela de histórico de transições que elas exigiriam.
+
+**Agendamento em produção: PENDENTE, e não é defeito de código.** O ciclo é um
+comando pronto para ser agendado; nenhum agendador existe no repositório — não
+há Dockerfile, CI, Procfile nem cron versionado —, e a infraestrutura de
+produção é decisão aberta do dono desde a `RC-1A` (junto com o storage de
+produção). O contrato de agendamento está em `.env.example`. Até alguém
+agendá-lo, **a produção não verifica nada automaticamente**, e a tela diz isso
+com "Verificação atrasada".

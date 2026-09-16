@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import {
+  getConnectivityForCustomers,
   refreshCustomerDiagnostic,
   resolveStatusSince,
 } from "@/lib/customer-diagnostics";
 import {
+  claimCustomerForCheck,
   findConnectionsDueForCheck,
   runConnectivityRefreshCycle,
 } from "@/lib/connectivity-monitor";
@@ -491,6 +493,69 @@ describe("SCHED — o ciclo", () => {
     expect(linhas).toHaveLength(6);
     for (const l of linhas) expect(l.connectivityStatus).toBe("ONLINE");
   }, 30_000);
+
+  /*
+    O ciclo morre no meio, depois de reservar e antes de o provider responder.
+
+    Sem prazo, aquele cliente ficaria reservado para sempre e nunca mais seria
+    verificado — o worker teria criado, sozinho, um ponto cego permanente. É o
+    mesmo motivo pelo qual a reivindicação do outbox tem lease de 5 minutos.
+  */
+  it("SCHED-12 · a reserva EXPIRA: um ciclo que morre não tranca o cliente", async () => {
+    const c = await cliente("-ONLINE");
+    await ligarNaPorta(c.id, 1);
+    const velha = new Date(Date.now() - 30 * MIN);
+    await leituraAntiga(c.id, "ONLINE", velha, velha);
+
+    // O ciclo que "morreu": reservou e não escreveu nada.
+    const reservado = await claimCustomerForCheck(
+      fixture.companyA.id,
+      c.id,
+      new Date(),
+    );
+    expect(reservado).toBe(true);
+
+    // Enquanto o prazo vale, ninguém mais pega — e nada é consultado.
+    const durante = await runConnectivityRefreshCycle();
+    expect(durante.processed).toBe(0);
+    expect(durante.claimedByOther).toBe(1);
+    // A leitura continua velha: o ciclo morto não conferiu nada.
+    expect((await snapshotDe(c.id)).observedAt.getTime()).toBe(velha.getTime());
+
+    // Vencido o prazo, o cliente volta à fila.
+    await prisma.customerDiagnosticSnapshot.updateMany({
+      where: { customerId: c.id },
+      data: { refreshLeaseUntil: new Date(Date.now() - MIN) },
+    });
+    const depois = await runConnectivityRefreshCycle();
+    expect(depois.processed).toBe(1);
+    expect((await snapshotDe(c.id)).observedAt.getTime()).toBeGreaterThan(
+      velha.getTime(),
+    );
+  });
+
+  it("SCHED-13 · a reserva não é estado de conectividade", async () => {
+    const c = await cliente("-ONLINE");
+    await ligarNaPorta(c.id, 1);
+    const velha = new Date(Date.now() - 30 * MIN);
+    await leituraAntiga(c.id, "OFFLINE", velha, velha);
+
+    await claimCustomerForCheck(fixture.companyA.id, c.id, new Date());
+
+    /*
+      Reservar NÃO muda o que o cliente é. Se algum dia a reserva vazar para a
+      leitura, a tela passaria a depender de infraestrutura de worker para dizer
+      se alguém está no ar.
+    */
+    const s = await snapshotDe(c.id);
+    expect(s.connectivityStatus).toBe("OFFLINE");
+    expect(s.statusSince.getTime()).toBe(velha.getTime());
+    expect(s.observedAt.getTime()).toBe(velha.getTime());
+
+    const vista = await getConnectivityForCustomers(fixture.companyA.id, [c.id]);
+    expect(vista.get(c.id)!.connectivityStatus).toBe("OFFLINE");
+    expect(Object.keys(vista.get(c.id)!)).not.toContain("refreshLeaseUntil");
+  });
 
   it("SCHED-10 · o ciclo conta o que verificou, e não vaza dado pessoal", async () => {
     const online = await cliente("-ONLINE");
