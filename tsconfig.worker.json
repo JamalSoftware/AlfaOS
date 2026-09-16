@@ -15,7 +15,16 @@
   // `moduleResolution: bundler` — feito para o compilador do Next, que nunca
   // escreve arquivo. Aqui o objetivo é exatamente escrever.
   "compilerOptions": {
-    "lib": ["esnext"],
+    // `dom` entra só pelos TIPOS de `fetch`.
+    //
+    // O ciclo de diagnóstico (`DIAG-AUTO-1`) alcança os clientes HTTP das
+    // integrações, e eles passam `cache: "no-store"` — uma extensão que o Next
+    // declara e que o `RequestInit` do Node não conhece. Sem esta linha o build
+    // do worker quebra em código que já roda em produção há meses.
+    //
+    // É biblioteca de tipos, não de runtime: nada de `window` ou `document`
+    // aparece no JavaScript emitido.
+    "lib": ["esnext", "dom"],
     "target": "es2022",
     "module": "commonjs",
     "moduleResolution": "node",
@@ -37,12 +46,14 @@
     "scripts/outbox-worker.ts",
     "scripts/evidence-cleanup.ts",
     "scripts/dispatch-queue-backfill.ts",
+    "scripts/connectivity-refresh.ts",
     "src/lib/dispatch-queue.ts",
     "src/lib/dispatch-queue-backfill.ts",
     "src/lib/field/evidence-cleanup.ts",
     "src/lib/storage.ts",
     "src/lib/outbox.ts",
     "src/lib/outbox-handlers.ts",
+    "src/lib/connectivity-monitor.ts",
     "src/lib/prisma.ts",
     "src/lib/env.ts",
     "src/lib/safe-log.ts",
