@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import { allocateServiceOrderNumber } from "../src/lib/service-order-number";
 import { assertTestDatabase } from "./test-db-guard";
 
 /**
@@ -88,7 +89,6 @@ test.beforeAll(async () => {
     { chave: "onlineOs", nome: "QA RC1D ONLINE COM OS", porta: 4, leitura: { status: "ONLINE", minutos: 5 }, os: ["ASSIGNED", "COMPLETED"] },
     { chave: "offline2Os", nome: "QA RC1D OFFLINE COM 2 OS", porta: 5, leitura: { status: "OFFLINE", minutos: 40 }, os: ["PENDING", "IN_PROGRESS", "CANCELLED"] },
   ];
-  let numero = 9100;
   for (const caso of casos) {
     const cliente = await prisma.customer.create({ data: { companyId, name: caso.nome } });
     clientes[caso.chave] = cliente.id;
@@ -104,11 +104,11 @@ test.beforeAll(async () => {
       });
     }
     for (const status of caso.os) {
-      numero += 1;
       await prisma.serviceOrder.create({
         data: {
           companyId,
-          number: numero,
+          // O número vem do contador da empresa, nunca de um literal (DEV-DATA-01).
+          number: await allocateServiceOrderNumber(prisma, companyId),
           customerId: cliente.id,
           type: "Manutenção",
           description: "OS de QA RC-1D",

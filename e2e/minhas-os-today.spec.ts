@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import { allocateServiceOrderNumber } from "../src/lib/service-order-number";
 import { assertTestDatabase } from "./test-db-guard";
 
 /**
@@ -32,11 +33,12 @@ const FUSO_EMPRESA = "Asia/Tokyo";
 // O `next dev` do Playwright roda nesta mesma máquina, com o mesmo fuso.
 const FUSO_SERVIDOR = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-const NUMERO_HOJE_EMPRESA = 9101;
-const NUMERO_HOJE_SERVIDOR = 9102;
-const NUMERO_ATRASADA = 9103;
-const NUMERO_PROXIMA = 9104;
-const NUMERO_SEM_AGENDA = 9105;
+/**
+ * Os números vêm do CONTADOR da empresa, nunca de literais (DEV-DATA-01):
+ * número gravado por fora deixa o contador para trás, e a próxima OS criada
+ * pela aplicação colide.
+ */
+const numeros: Record<string, number> = {};
 
 /**
  * A OS que é "hoje" só no relógio do SERVIDOR cai em "Próximas" ou em
@@ -112,18 +114,19 @@ test.beforeAll(async () => {
   ehFuturo = y.getTime() > agora.getTime();
 
   const TRES_DIAS = 3 * 24 * 60 * 60_000;
-  for (const [numero, scheduledAt] of [
-    [NUMERO_HOJE_EMPRESA, x],
-    [NUMERO_HOJE_SERVIDOR, y],
+  for (const [chave, scheduledAt] of [
+    ["hojeEmpresa", x],
+    ["hojeServidor", y],
     // RC-1D: uma OS de cada seção nova.
-    [NUMERO_ATRASADA, new Date(agora.getTime() - TRES_DIAS)],
-    [NUMERO_PROXIMA, new Date(agora.getTime() + TRES_DIAS)],
-    [NUMERO_SEM_AGENDA, null],
+    ["atrasada", new Date(agora.getTime() - TRES_DIAS)],
+    ["proxima", new Date(agora.getTime() + TRES_DIAS)],
+    ["semAgenda", null],
   ] as const) {
+    numeros[chave] = await allocateServiceOrderNumber(prisma, empresaId);
     await prisma.serviceOrder.create({
       data: {
         companyId: empresaId,
-        number: numero,
+        number: numeros[chave],
         customerId: cliente.id,
         technicianId: tecnico.id,
         type: "INSTALACAO",
@@ -167,7 +170,7 @@ test("FIELD-TODAY-E2E-01 · /minhas-os: 'Hoje' segue o dia civil da empresa, nã
   const proximas = secao(page, "Próximas");
 
   // Só a OS do dia da EMPRESA em "Hoje".
-  await expect(hoje.getByTestId("order-number")).toHaveText([`OS Nº ${NUMERO_HOJE_EMPRESA}`]);
+  await expect(hoje.getByTestId("order-number")).toHaveText([`OS Nº ${numeros.hojeEmpresa}`]);
 
   /*
     A que só é "hoje" no relógio do servidor NÃO some — e desde a RC-1D ela vai
@@ -175,7 +178,7 @@ test("FIELD-TODAY-E2E-01 · /minhas-os: 'Hoje' segue o dia civil da empresa, nã
   */
   const destino = ehFuturo ? proximas : secao(page, "Atrasadas");
   await expect(destino.getByTestId("order-number")).toContainText([
-    `OS Nº ${NUMERO_HOJE_SERVIDOR}`,
+    `OS Nº ${numeros.hojeServidor}`,
   ]);
 });
 
@@ -188,23 +191,23 @@ test("RC1D-MINHAS-OS · atrasada, próxima e sem agendamento têm seção própr
 
   await expect(
     secao(page, "Atrasadas").getByTestId("order-number"),
-  ).toContainText([`OS Nº ${NUMERO_ATRASADA}`]);
+  ).toContainText([`OS Nº ${numeros.atrasada}`]);
   await expect(secao(page, "Atrasadas")).toContainText(
     "Agendadas para antes de hoje e ainda não iniciadas",
   );
 
   await expect(
     secao(page, "Próximas").getByTestId("order-number"),
-  ).toContainText([`OS Nº ${NUMERO_PROXIMA}`]);
+  ).toContainText([`OS Nº ${numeros.proxima}`]);
 
   const semAgenda = secao(page, "Sem agendamento");
   await expect(semAgenda.getByTestId("order-number")).toHaveText([
-    `OS Nº ${NUMERO_SEM_AGENDA}`,
+    `OS Nº ${numeros.semAgenda}`,
   ]);
   await expect(semAgenda).toContainText("ainda sem data marcada");
 
   // E nenhuma delas ficou em "Próximas" junto das futuras.
   const proximas = await secao(page, "Próximas").getByTestId("order-number").allTextContents();
-  expect(proximas).not.toContain(`OS Nº ${NUMERO_ATRASADA}`);
-  expect(proximas).not.toContain(`OS Nº ${NUMERO_SEM_AGENDA}`);
+  expect(proximas).not.toContain(`OS Nº ${numeros.atrasada}`);
+  expect(proximas).not.toContain(`OS Nº ${numeros.semAgenda}`);
 });
