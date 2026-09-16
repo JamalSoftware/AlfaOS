@@ -252,7 +252,9 @@ function SeloDeConectividade({
         data-testid="map-connectivity"
         data-status={status}
       >
-        <span aria-hidden="true">{apresentacao.glyph}</span>
+        {apresentacao.glyph && (
+          <span aria-hidden="true">{apresentacao.glyph}</span>
+        )}
         {apresentacao.customerLabel}
       </span>
       {idade ? (
@@ -354,7 +356,9 @@ function LinhaDeEstado({
         data-testid="map-connectivity"
         data-status={status}
       >
-        <span aria-hidden="true">{apresentacao.glyph}</span>
+        {apresentacao.glyph && (
+          <span aria-hidden="true">{apresentacao.glyph}</span>
+        )}
         {/* "Sem leitura" para UNKNOWN — nunca "Offline". */}
         {apresentacao.mapLabel}
       </p>

@@ -1473,7 +1473,9 @@ function ClientesDaCaixa({
                       data-testid="cto-customers-connectivity"
                       data-status={cliente.connectivityStatus}
                     >
-                      <span aria-hidden="true">{apresentacao.glyph}</span>
+                      {apresentacao.glyph && (
+                        <span aria-hidden="true">{apresentacao.glyph}</span>
+                      )}
                       {apresentacao.mapLabel}
                     </span>
                     {idade ? (

@@ -65,13 +65,18 @@ export interface ConnectivityPresentation {
    */
   customerLabel: string;
   /**
-   * O glifo. Estado nunca viaja só como cor.
+   * O glifo que acompanha o rótulo no selo. Estado nunca viaja só como cor.
    *
    * Um mapa que distinguisse online de offline apenas por matiz seria ilegível
    * para quem tem daltonismo, sob sol, ou impresso — a mesma regra que o
    * marcador de CTO já segue.
+   *
+   * **`null` significa "o selo não tem glifo"**, e quem desenha precisa
+   * guardar: `{glyph && <span aria-hidden>{glyph}</span>}`. Desenhar o span
+   * vazio compila, some com o caractere e deixa o `gap` do `inline-flex`
+   * empurrando o texto — um espaço fantasma que nenhum tipo acusa.
    */
-  glyph: string;
+  glyph: string | null;
   tone: ConnectivityTone;
 }
 
@@ -100,7 +105,19 @@ export const CONNECTIVITY_PRESENTATION: Record<
     label: "Desconhecido",
     mapLabel: "Sem leitura",
     customerLabel: "Sem leitura",
-    glyph: "?",
+    /*
+      SEM glifo, por decisão do dono (RC-1D, validação da CTO).
+
+      Online e Offline precisam do glifo porque duas palavras curtas em cores
+      vizinhas se confundem de relance. "Sem leitura" não tem par com que se
+      confundir: o texto já é o sinal, e o "?" na frente só repetia a dúvida.
+      Trocá-lo por outro símbolo seria o mesmo ruído com outra cara — por isso
+      é `null`, e não um caractere diferente.
+
+      Tom e rótulo NÃO mudam: continua `neutral`, continua "Sem leitura", e
+      `UNKNOWN` continua nunca sendo `OFFLINE`.
+    */
+    glyph: null,
     tone: "neutral",
   },
 };

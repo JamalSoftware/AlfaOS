@@ -5900,6 +5900,83 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     ).toContainText("1 OS aberta");
   });
 
+  test("NOGLYPH-01 · 'Sem leitura' nos popups é só o texto — sem '?' e sem glifo", async ({
+    page,
+  }) => {
+    /*
+      Decisão do dono (RC-1D): o "?" antes de "Sem leitura" saiu da tabela
+      única, e a regra vale nos popups do mapa porque eles leem a mesma tabela.
+
+      A OS 8802 é do cliente SEM LEITURA e fica no mesmo ponto dele — com a
+      camada de OS ligada o clique abre o popup DA OS (a OS vence o empate), e
+      desligada abre o DO CLIENTE. Um teste, os dois selos.
+
+      Cada selo tem controle positivo: um cliente com leitura precisa CONTINUAR
+      mostrando o glifo. Sem isso, "zero spans de glifo" passaria também se o
+      seletor não enxergasse glifo nenhum.
+    */
+    const semGlifo = async (selo: import("@playwright/test").Locator) => {
+      await expect(selo).toHaveAttribute("data-status", "UNKNOWN");
+      await expect(selo).toHaveText("Sem leitura");
+      await expect(selo).not.toContainText("?");
+      await expect(selo.locator('[aria-hidden="true"]')).toHaveCount(0);
+    };
+    const fechar = async () => {
+      await page.locator(".leaflet-popup-close-button").first().click();
+      await expect(page.locator(".leaflet-popup")).toHaveCount(0);
+    };
+
+    await abrirCamadas(page);
+    await page.getByTestId("map-layer-customers").check();
+
+    // Popup da OS, com a conectividade do cliente sem leitura.
+    const os8802 = page.locator('.leaflet-marker-icon[title^="OS número 8802"]');
+    await expect(os8802).toBeVisible({ timeout: 15_000 });
+    await os8802.click();
+    await semGlifo(page.getByTestId("order-map-popup").getByTestId("map-connectivity"));
+    await fechar();
+
+    // Controle: a OS do cliente OFFLINE mantém o "×".
+    await page
+      .locator(`.leaflet-marker-icon[title^="OS número ${camadas.ordemNumero}"]`)
+      .click();
+    await expect(
+      page
+        .getByTestId("order-map-popup")
+        .getByTestId("map-connectivity")
+        .locator('[aria-hidden="true"]'),
+    ).toHaveText("×");
+    await fechar();
+
+    // Popup do cliente: sem a camada de OS, o clique chega nele.
+    await page.getByTestId("map-layer-orders").uncheck();
+    await expect(page.locator(".leaflet-marker-pane svg.cto-order")).toHaveCount(0);
+    await page
+      .locator('.leaflet-marker-icon[title^="CAMADA CLIENTE SEM LEITURA"]')
+      .click();
+    await semGlifo(page.getByTestId("customer-map-popup").getByTestId("map-connectivity"));
+    await fechar();
+
+    /*
+      Controle: o cliente OFFLINE mantém o "×".
+
+      NÃO o cliente ONLINE: na fixture ele está na MESMA coordenada da
+      "CAMADA CAIXA", e o marcador da caixa intercepta o clique — medido,
+      2 de 4 execuções morriam em timeout com "CAMADA CAIXA … intercepts
+      pointer events". É o empate CTO↔cliente que segue aberto como decisão do
+      dono (PRD §371), e um controle não pode depender dele.
+    */
+    await page
+      .locator('.leaflet-marker-icon[title^="CAMADA CLIENTE OFFLINE"]')
+      .click();
+    await expect(
+      page
+        .getByTestId("customer-map-popup")
+        .getByTestId("map-connectivity")
+        .locator('[aria-hidden="true"]'),
+    ).toHaveText("×");
+  });
+
   test("LAYER-15/16 · a busca acha cliente e OS, e centraliza", async ({
     page,
   }) => {

@@ -54,7 +54,9 @@ function ConnectivityCell({
       <span
         className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${CONNECTIVITY_BADGE_CLASS[apresentacao.tone]}`}
       >
-        <span aria-hidden="true">{apresentacao.glyph}</span>
+        {apresentacao.glyph && (
+          <span aria-hidden="true">{apresentacao.glyph}</span>
+        )}
         {apresentacao.label}
       </span>
       {idade && (

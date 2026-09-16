@@ -858,7 +858,9 @@ export function CtoDetailManager({
                         data-testid={`cto-port-connectivity-${port.number}`}
                         data-status={ocupante.connectivityStatus}
                       >
-                        <span aria-hidden="true">{conectividade.glyph}</span>
+                        {conectividade.glyph && (
+                          <span aria-hidden="true">{conectividade.glyph}</span>
+                        )}
                         {conectividade.mapLabel}
                       </span>
                     )}

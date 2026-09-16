@@ -330,6 +330,46 @@ test("STALE-COPY-01 · o aviso diz 'Leitura desatualizada' — a copy antiga nã
   await expect(page.getByTestId("cto-port-stale-7")).not.toContainText(/Offline|queda|falha/i);
 });
 
+test("UX-09 · 'Sem leitura' é só o texto — sem '?' e sem glifo, no desktop e no celular", async ({
+  page,
+}) => {
+  await login(page, ADMIN);
+  await abrirCaixa(page);
+
+  /*
+    Decisão do dono: o "?" antes de "Sem leitura" repetia a dúvida que o texto
+    já diz. A porta 3 é a do cliente sem diagnóstico nenhum (UNKNOWN).
+
+    `toHaveText` com string é comparação EXATA — "? Sem leitura" não passa. E
+    a ausência do caractere não basta: um `<span aria-hidden>` vazio deixado
+    para trás some com o "?" e mantém o `gap`, empurrando o texto. Por isso o
+    teste conta os spans de glifo, e não só lê o texto.
+  */
+  for (const largura of [1280, 375]) {
+    await page.setViewportSize({ width: largura, height: 900 });
+
+    const semLeitura = page.getByTestId("cto-port-connectivity-3");
+    await expect(semLeitura).toHaveAttribute("data-status", "UNKNOWN");
+    await expect(semLeitura).toHaveText("Sem leitura");
+    await expect(semLeitura).not.toContainText("?");
+    await expect(semLeitura.locator('[aria-hidden="true"]')).toHaveCount(0);
+    // A cor não é parte da decisão: continua o tom neutro.
+    await expect(semLeitura).toHaveClass(/bg-neutral-bg/);
+
+    /*
+      Controle positivo: online e offline MANTÊM o glifo. Prova que a regra é
+      do UNKNOWN e não uma remoção geral — e que o seletor de glifo acima de
+      fato enxerga um glifo quando ele existe.
+    */
+    await expect(
+      page.getByTestId("cto-port-connectivity-1").locator('[aria-hidden="true"]'),
+    ).toHaveText("●");
+    await expect(
+      page.getByTestId("cto-port-connectivity-2").locator('[aria-hidden="true"]'),
+    ).toHaveText("×");
+  }
+});
+
 /** O card de Ocupação e os cinco pares rótulo/número dele. */
 const METRICAS_OCUPACAO = [
   { chave: "capacity", rotulo: "Capacidade", valor: "10" },
