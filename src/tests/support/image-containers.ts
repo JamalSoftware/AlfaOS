@@ -284,7 +284,13 @@ export function webpComMetadado(
   ]);
   return Buffer.concat([
     riff(corpo),
-    // Anexo DEPOIS do RIFF declarado, com forma de chunk.
+    /*
+      Anexo DEPOIS do RIFF declarado, com forma de chunk — e de um tipo
+      PERMITIDO. Só um chunk permitido prova o corte no tamanho do RIFF: um
+      `EXIF` anexado cairia pela lista de permitidos mesmo que o corte sumisse,
+      e o teste passaria sem enxergar a regressão.
+    */
+    riffChunk("ICCP", Buffer.from("12.34,-56.78", "utf8")),
     riffChunk("EXIF", tiffComGps()),
   ]);
 }
