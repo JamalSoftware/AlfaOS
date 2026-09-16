@@ -211,6 +211,7 @@ test("provider indisponível: página segue funcional e último estado é preser
       externalProvider: "MOCK",
       connectivityStatus: "ONLINE",
       observedAt: new Date(),
+      statusSince: new Date(),
     },
   });
 

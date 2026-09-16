@@ -7,12 +7,12 @@ import {
   supportsDiagnostics,
   withIntegrationTimeout,
   type ERPCustomerRef,
-} from "@/integrations/diagnostics";
+} from "../integrations/diagnostics";
 import {
   IntegrationError,
   isIntegrationError,
   type IntegrationErrorCode,
-} from "@/integrations/errors";
+} from "../integrations/errors";
 
 // ---------------------------------------------------------------------------
 // Public shapes
@@ -25,13 +25,47 @@ import {
  */
 export interface CustomerDiagnostic {
   connectivityStatus: ConnectivityStatus;
+  /**
+   * Quando conferimos pela última vez.
+   *
+   * NÃO é "há quanto tempo está assim": reconfirmar o mesmo estado reescreve
+   * este campo. Derivar duração daqui é o defeito que a `DIAG-AUTO-1` fecha.
+   */
   observedAt: Date;
+  /** Desde quando o estado ATUAL começou. Só anda quando o estado muda. */
+  statusSince: Date;
   sourceUpdatedAt: Date | null;
   provider: ERPProvider;
   /** Código cru de tecnologia do provider, quando informado. */
   technology: string | null;
   /** Servidor do cliente em manutenção, quando o provider informa. */
   serverMaintenance: boolean | null;
+}
+
+/**
+ * Desde quando o estado que acabou de ser observado começou — `DIAG-AUTO-1`.
+ *
+ * É a regra inteira da fase, e ela cabe em duas linhas:
+ *
+ * - **o estado se repetiu** → a duração NÃO reinicia; vale o começo que já
+ *   estava gravado;
+ * - **o estado mudou**, ou é a primeira observação deste cliente → a transição
+ *   é agora, e é `observedAt` que a data.
+ *
+ * Função pura e exportada de propósito: é o ponto exato onde um descuido faria
+ * a verificação de 5 em 5 minutos transformar "offline há nove dias" em
+ * "offline há cinco minutos", e um teste que a ataca diretamente pega isso sem
+ * depender de provider, de banco nem de relógio.
+ */
+export function resolveStatusSince(
+  anterior: { connectivityStatus: ConnectivityStatus; statusSince: Date } | null,
+  estadoObservado: ConnectivityStatus,
+  observedAt: Date,
+): Date {
+  if (anterior && anterior.connectivityStatus === estadoObservado) {
+    return anterior.statusSince;
+  }
+  return observedAt;
 }
 
 /**
@@ -72,6 +106,7 @@ export async function getCustomerDiagnostic(
   return {
     connectivityStatus: snapshot.connectivityStatus,
     observedAt: snapshot.observedAt,
+    statusSince: snapshot.statusSince,
     sourceUpdatedAt: snapshot.sourceUpdatedAt,
     provider: snapshot.externalProvider,
     technology: snapshot.technology,
@@ -133,6 +168,7 @@ export async function getConnectivityForCustomers(
     resultado.set(customerId, {
       connectivityStatus: linha.connectivityStatus,
       observedAt: linha.observedAt,
+      statusSince: linha.statusSince,
       sourceUpdatedAt: linha.sourceUpdatedAt,
       provider: linha.externalProvider,
       technology: linha.technology,
@@ -258,8 +294,25 @@ async function resolveProvider(companyId: string): Promise<ERPProvider | null> {
  */
 export async function refreshCustomerDiagnostic(
   companyId: string,
-  actorUserId: string,
+  /**
+   * Quem pediu. `null` quando não foi ninguém — o ciclo automático da
+   * `DIAG-AUTO-1` não tem sessão, e inventar um usuário para ele faria a
+   * auditoria atribuir a uma pessoa uma ação que ela não tomou.
+   */
+  actorUserId: string | null,
   customerId: string,
+  options: {
+    /**
+     * Gravar `CUSTOMER_DIAGNOSTIC.REFRESHED`.
+     *
+     * Ligado para a ação humana, que é rara e vale rastrear. DESLIGADO para o
+     * ciclo automático: a cada cinco minutos, por cliente conectado, ele
+     * encheria a auditoria com milhares de linhas por dia e enterraria
+     * justamente os eventos que alguém quer encontrar. O que o ciclo registra
+     * são contagens, no log do worker.
+     */
+    audit?: boolean;
+  } = {},
 ): Promise<DiagnosticRefreshResult> {
   const customer = await prisma.customer.findFirst({
     where: { id: customerId, companyId },
@@ -396,6 +449,7 @@ export async function refreshCustomerDiagnostic(
       snapshot: {
         connectivityStatus: existing.connectivityStatus,
         observedAt: existing.observedAt,
+        statusSince: existing.statusSince,
         sourceUpdatedAt: existing.sourceUpdatedAt,
         provider,
         technology: existing.technology,
@@ -404,57 +458,127 @@ export async function refreshCustomerDiagnostic(
     };
   }
 
-  const saved = await prisma.customerDiagnosticSnapshot.upsert({
-    where: {
-      companyId_customerId_externalProvider: {
+  /*
+    DESDE QUANDO — `DIAG-AUTO-1`.
+
+    Reconfirmar o mesmo estado NÃO reinicia a duração: `statusSince` é
+    preservado e só `observedAt` anda. É essa a diferença entre "offline há
+    nove dias" e "offline há cinco minutos", e sem ela a verificação automática
+    destruiria justamente a informação que ela existe para manter viva.
+  */
+  const statusSince = resolveStatusSince(existing, observation.status, observedAt);
+
+  /*
+    A escrita é MONOTÔNICA por `observedAt`, e a condição está no WHERE.
+
+    Duas verificações concorrentes — o refresh manual de um operador e o ciclo
+    automático, por exemplo — carimbam `observedAt` quando a resposta do
+    provider chega, e podem alcançar o banco fora de ordem. Sem a condição, a
+    resposta mais VELHA escreveria por cima da mais nova e o cliente apareceria
+    no estado errado, com a idade errada, até a próxima volta.
+
+    `updateMany` aceita o predicado ao lado da chave; o banco serializa o
+    `UPDATE`, e quem chega com observação mais velha casa zero linhas e desiste.
+    É o mesmo compare-and-set que o outbox usa para reivindicar evento.
+
+    Os três campos — estado, início do estado e instante da conferência — vão
+    na MESMA instrução, então não existe janela em que o estado mudou e a data
+    da transição ficou para trás.
+  */
+  let saved: NonNullable<typeof existing>;
+  if (existing) {
+    const escrita = await prisma.customerDiagnosticSnapshot.updateMany({
+      where: {
         companyId,
         customerId,
         externalProvider: provider,
+        observedAt: { lte: observedAt },
       },
-    },
-    create: {
-      companyId,
-      customerId,
-      externalProvider: provider,
-      connectivityStatus: observation.status,
-      observedAt,
-      sourceUpdatedAt: observation.sourceUpdatedAt,
-      technology: observation.technology ?? null,
-      serverMaintenance: observation.serverMaintenance ?? null,
-    },
-    update: {
-      connectivityStatus: observation.status,
-      observedAt,
-      sourceUpdatedAt: observation.sourceUpdatedAt,
-      /**
-       * Os extras acompanham a observação nova, inclusive quando vêm nulos.
-       * Manter um valor antigo aqui faria a tela exibir uma tecnologia que a
-       * leitura atual não confirmou — informação velha apresentada como
-       * recente é pior que ausência de informação.
-       */
-      technology: observation.technology ?? null,
-      serverMaintenance: observation.serverMaintenance ?? null,
-    },
-  });
+      data: {
+        connectivityStatus: observation.status,
+        observedAt,
+        statusSince,
+        sourceUpdatedAt: observation.sourceUpdatedAt,
+        /**
+         * Os extras acompanham a observação nova, inclusive quando vêm nulos.
+         * Manter um valor antigo aqui faria a tela exibir uma tecnologia que a
+         * leitura atual não confirmou — informação velha apresentada como
+         * recente é pior que ausência de informação.
+         */
+        technology: observation.technology ?? null,
+        serverMaintenance: observation.serverMaintenance ?? null,
+      },
+    });
+    /*
+      `count === 0` significa que uma observação MAIS NOVA já está gravada. Não
+      é erro: é a proteção funcionando. Relemos para devolver o que vale.
+    */
+    saved =
+      escrita.count === 1
+        ? { ...existing, connectivityStatus: observation.status, observedAt, statusSince }
+        : await prisma.customerDiagnosticSnapshot.findUniqueOrThrow({
+            where: {
+              companyId_customerId_externalProvider: {
+                companyId,
+                customerId,
+                externalProvider: provider,
+              },
+            },
+          });
+  } else {
+    /*
+      Primeira observação deste cliente neste provider. Uma corrida pode ter
+      criado a linha entre a leitura de `existing` e aqui — a unique recusa a
+      segunda, e nesse caso a linha que venceu é a que vale.
+    */
+    try {
+      saved = await prisma.customerDiagnosticSnapshot.create({
+        data: {
+          companyId,
+          customerId,
+          externalProvider: provider,
+          connectivityStatus: observation.status,
+          observedAt,
+          statusSince,
+          sourceUpdatedAt: observation.sourceUpdatedAt,
+          technology: observation.technology ?? null,
+          serverMaintenance: observation.serverMaintenance ?? null,
+        },
+      });
+    } catch {
+      saved = await prisma.customerDiagnosticSnapshot.findUniqueOrThrow({
+        where: {
+          companyId_customerId_externalProvider: {
+            companyId,
+            customerId,
+            externalProvider: provider,
+          },
+        },
+      });
+    }
+  }
 
   // High-value event only: a manual refresh that actually produced a new
   // observation. Reads that merely render an existing snapshot are not audited
   // — auditing every page view would bury the events that matter in noise.
   // No document, no phone, no payload: provider, customer id and outcome.
-  await logAudit({
-    companyId,
-    userId: actorUserId,
-    action: "CUSTOMER_DIAGNOSTIC.REFRESHED",
-    entity: "Customer",
-    entityId: customerId,
-    details: `Diagnóstico atualizado via ${provider}: ${observation.status}`,
-  });
+  if (options.audit ?? true) {
+    await logAudit({
+      companyId,
+      userId: actorUserId,
+      action: "CUSTOMER_DIAGNOSTIC.REFRESHED",
+      entity: "Customer",
+      entityId: customerId,
+      details: `Diagnóstico atualizado via ${provider}: ${observation.status}`,
+    });
+  }
 
   return {
     ok: true,
     snapshot: {
       connectivityStatus: saved.connectivityStatus,
       observedAt: saved.observedAt,
+      statusSince: saved.statusSince,
       sourceUpdatedAt: saved.sourceUpdatedAt,
       provider: saved.externalProvider,
       technology: saved.technology,

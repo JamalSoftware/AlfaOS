@@ -3232,6 +3232,7 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
           externalProvider: "MOCK",
           connectivityStatus: status,
           observedAt: new Date(),
+          statusSince: new Date(),
         },
       });
     }
@@ -6136,6 +6137,7 @@ test.describe("Mapa Operacional — ativos próximos, primeiro nome e o fluxo do
           externalProvider: "MOCK",
           connectivityStatus: status,
           observedAt: new Date(),
+          statusSince: new Date(),
         },
       });
     }

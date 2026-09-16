@@ -135,6 +135,7 @@ async function leitura(
       externalProvider: opcoes.provider ?? "MOCK",
       connectivityStatus: status,
       observedAt: opcoes.observedAt ?? AGORA,
+      statusSince: opcoes.observedAt ?? AGORA,
       technology: "1",
     },
   });

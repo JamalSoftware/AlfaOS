@@ -194,7 +194,16 @@ export interface CtoPortCustomer {
   /** Situação CADASTRAL. Não confundir com conectividade. */
   customerActive: boolean;
   connectivityStatus: ConnectivityStatus;
+  /** Quando foi VERIFICADO pela última vez. Nunca é a duração do estado. */
   connectivityObservedAt: string | null;
+  /**
+   * Desde quando o estado atual começou — `DIAG-AUTO-1`.
+   *
+   * Viaja separado de `connectivityObservedAt` porque as duas perguntas são
+   * diferentes, e com verificação automática de 5 em 5 minutos confundi-las
+   * transformaria "offline há nove dias" em "offline há cinco minutos".
+   */
+  connectivityStatusSince: string | null;
   openServiceOrderCount: number;
 }
 
@@ -689,6 +698,7 @@ export async function getCtoPortCustomers(
         customerActive: vinculo.customer.active,
         connectivityStatus: leitura?.connectivityStatus ?? "UNKNOWN",
         connectivityObservedAt: leitura?.observedAt.toISOString() ?? null,
+        connectivityStatusSince: leitura?.statusSince.toISOString() ?? null,
         openServiceOrderCount: osAbertas.get(vinculo.customerId)?.total ?? 0,
       };
     })

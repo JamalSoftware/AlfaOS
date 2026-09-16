@@ -1,8 +1,8 @@
 import type { ERPCredentialKind, ERPProvider } from "@prisma/client";
-import { getERPAdapter } from "@/integrations";
-import type { ERPIntegrationContract } from "@/integrations/contract";
-import { IntegrationError } from "@/integrations/errors";
-import { ReceitanetChatbotClient } from "@/integrations/receitanet/ChatbotClient";
+import { getERPAdapter } from "../integrations";
+import type { ERPIntegrationContract } from "../integrations/contract";
+import { IntegrationError } from "../integrations/errors";
+import { ReceitanetChatbotClient } from "../integrations/receitanet/ChatbotClient";
 import { getCredentialFor } from "./erp-credential-store";
 import { prisma } from "./prisma";
 

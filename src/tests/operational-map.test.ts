@@ -115,6 +115,7 @@ async function gravarLeitura(
       externalProvider: "MOCK",
       connectivityStatus: status,
       observedAt,
+      statusSince: observedAt,
       technology: "1",
     },
   });
@@ -227,6 +228,7 @@ describe("CONN-MAP-01..09 — a leitura em lote amplia a autoridade", () => {
         externalProvider: "RECEITANET",
         connectivityStatus: "OFFLINE",
         observedAt: antiga,
+        statusSince: antiga,
       },
     });
     await gravarLeitura(cliente.id, "ONLINE");

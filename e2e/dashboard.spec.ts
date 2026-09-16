@@ -139,6 +139,7 @@ test.beforeAll(async () => {
         externalProvider: "MOCK",
         connectivityStatus: status,
         observedAt: agora,
+        statusSince: agora,
         technology: "1",
       },
     });

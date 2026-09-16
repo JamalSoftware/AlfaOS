@@ -547,7 +547,26 @@ model CustomerDiagnosticSnapshot {
   externalProvider   ERPProvider
   connectivityStatus ConnectivityStatus
   /// When AlfaOS observed this state.
+  ///
+  /// Reescrito a CADA verificação bem-sucedida, inclusive quando o estado não
+  /// mudou: ele responde "quando conferimos pela última vez", nunca "há quanto
+  /// tempo está assim". Confundir os dois é o defeito que a `DIAG-AUTO-1`
+  /// existe para impedir — com verificação automática de 5 em 5 minutos, um
+  /// cliente offline há nove dias passaria a dizer "offline há 5 minutos".
   observedAt         DateTime
+  /// Desde quando o estado ATUAL começou — `DIAG-AUTO-1`.
+  ///
+  /// Só anda quando `connectivityStatus` MUDA. Reconfirmar o mesmo estado
+  /// atualiza `observedAt` e deixa este campo onde está, e é essa separação que
+  /// permite a tela dizer as duas coisas: "Online há 9 dias · verificado há
+  /// 2 min".
+  ///
+  /// Não é uma segunda autoridade de estado: o estado continua sendo
+  /// `connectivityStatus`, e este campo só data a transição dele. Linha legada
+  /// nasceu com `statusSince = observedAt` no backfill, porque é o único
+  /// instante em que se sabe que o estado já era aquele — o começo real,
+  /// anterior a ele, ninguém registrou e não se inventa.
+  statusSince        DateTime
   /// When the PROVIDER says the state last changed, if it reports that.
   sourceUpdatedAt    DateTime?
   /// Tecnologia informada pelo provider, gravada como CODIGO CRU.
@@ -558,6 +577,15 @@ model CustomerDiagnosticSnapshot {
   technology         String?
   /// Servidor do cliente em manutencao, quando o provider informa.
   serverMaintenance  Boolean?
+  /// Até quando este cliente está reservado por um ciclo de verificação.
+  ///
+  /// NÃO é estado, não é histórico e nada na tela o lê: é a reserva que impede
+  /// dois ciclos simultâneos de consultarem o MESMO cliente no provider. A
+  /// reivindicação é um `updateMany` com o prazo no predicado — o banco
+  /// arbitra, e quem perde não chama ninguém. É o mesmo compare-and-set que o
+  /// outbox usa para reivindicar evento, e o prazo existe para que um processo
+  /// morto não tranque o cliente para sempre.
+  refreshLeaseUntil  DateTime?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
