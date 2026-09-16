@@ -12827,6 +12827,14 @@ Porta 04   Ana Lima       Ativo · Sem leitura
 `disconnectedAt IS NULL`), e a conectividade vem da autoridade da §370. Ela é
 aberta pela ação **Ver clientes** do popup da caixa (§373), e é `ADMIN` (§376).
 
+> **Atualização — `RC-1D` (15/09/2026): a tela da CTO mostra o mesmo.** Abrir
+> `/ctos/[id]` passou a trazer este resumo e esta lista por porta, com a idade
+> da última leitura e as OS abertas de cada cliente, pelas **mesmas funções** do
+> popup — nenhuma contagem nova, nenhuma autoridade nova. É observabilidade:
+> só leitura, sem consultar provider e sem escrever nada. O contrato acima não
+> muda; o que muda é onde ele aparece. Detalhe técnico:
+> `docs/CTO-NETWORK-DISTRIBUTION.md` §47.
+
 **Histórico encerrado não é vínculo atual.** Um cliente que saiu da porta — por
 desconexão ou por mudança para outra caixa — não aparece nesta lista nem entra
 nas contagens; a história dele continua inteira no backend (`CTO-2`).

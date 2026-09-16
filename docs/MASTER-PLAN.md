@@ -57,7 +57,9 @@ GPS — precisão ≤ 50 m (`RC-1C-HOTFIX`), frescor pela idade da leitura
 (`RC-1C-HOTFIX-2`) e a precisão que o plugin do Android perdia
 (`RC-1C-HOTFIX-3`) —, a validação física final do dono passou. Contrato final
 congelado em `docs/TECHNICIAN-EXECUTION.md` §13.8; §12, `docs/SECURITY.md`
-§8.22 e §8.22.1. A próxima é a `RC-1D`, não iniciada.
+§8.22 e §8.22.1. Depois dela, a **`RC-1D`** (UX, copy e observabilidade da CTO)
+está **`READY FOR OWNER VALIDATION`** — §13, `docs/CTO-NETWORK-DISTRIBUTION.md`
+§47, `docs/SECURITY.md` §8.23.
 
 O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e o estado
 de cada item está em **§386**. O contrato final do mapa é a **PRD §392**.
@@ -97,7 +99,7 @@ RC-1   Release Candidate / Hardening                     ← em andamento
        RC-1C-HOTFIX  captura de GPS · precisão ≤ 50 m    ← CLOSED (reprovada no frescor → HOTFIX-2)
        RC-1C-HOTFIX-2  frescor pela idade da leitura     ← CLOSED (noAccuracy → HOTFIX-3)
        RC-1C-HOTFIX-3  precisão perdida no plugin        ← APPROVED · CLOSED (validação física PASS)
-       RC-1D  copy · timeline da OS · acessibilidade     ← próxima recomendada, não iniciada
+       RC-1D  UX · copy · observabilidade da CTO        ← READY FOR OWNER VALIDATION
    ↓
 LANÇAMENTO V1 — produção e piloto real
    ↓
@@ -711,3 +713,44 @@ O `HOTFIX-FIELD-01` corrigiu **só** o fuso de "Hoje" em `/minhas-os`; a
 semântica de "Próximas" não é continuação dele. Os demais INFO continuam onde
 foram registrados — PRD §253 (jornada), as notas técnicas de cada trilha e
 `docs/SECURITY.md` — e esta lista não os substitui.
+
+---
+
+## 13. `RC-1D` — UX, copy e observabilidade da CTO
+
+**Estado: `READY FOR OWNER VALIDATION` (15/09/2026).** Commits locais, sem tag e
+sem push. **Zero migration, zero dependência, zero rota nova, zero Dart.**
+
+Ela recebeu os débitos de UX do §12 e uma melhoria pequena aprovada pelo dono na
+abertura: ao abrir uma CTO, enxergar como estão os clientes dela.
+
+```text
+CTO — clientes da caixa      docs/CTO-NETWORK-DISTRIBUTION.md §47, PRD §372
+timeline da OS — código cru  RESOLVIDO (rótulo central + varredura do fonte)
+copy antiga                  RESOLVIDA (fechamento da OS, "próximas versões",
+                             provedor, perfil, plataforma, tipo de conexão)
+/minhas-os — "Próximas"      RESOLVIDO (docs/TECHNICIAN-EXECUTION.md §9)
+MAPEDIT intermitente         RESOLVIDO (causa provada, §47.6)
+acessibilidade               auditoria em e2e/accessibility.spec.ts + 10 campos
+                             que só tinham placeholder
+```
+
+**A CTO não ganhou autoridade nova.** O resumo é a MESMA função do popup do mapa
+e a lista por porta é a MESMA de "Ver clientes" — detalhe e popup não têm como
+divergir, e há teste comparando número a número. Nada é persistido, nada é
+consultado no provedor, nada é escrito, e as consultas são constantes.
+
+**O MAPEDIT tinha uma causa só para os dois sintomas:** o react-leaflet compara
+`position` por REFERÊNCIA, e o array era recriado a cada render — uma releitura
+do recorte que chegasse no meio do arrasto devolvia a caixa ao ponto gravado, e
+o `dragend` lia o ponto antigo. Reproduzido de forma determinística (`MAPEDIT-15`,
+segurando a resposta com o botão do mouse apertado) antes de qualquer correção.
+
+**"Próximas" virou o que o nome diz.** A seção juntava futuro, sem data e
+vencido; agora são cinco seções exclusivas, com "Hoje" na frente de "Atrasadas"
+(o contrato do `HOTFIX-FIELD-01` continua intacto) e a regra de atrasada vinda do
+painel — a mesma, em SQL e em memória, com teste comparando as duas.
+
+**Continua fora:** o storage legado com EXIF, as datas gerais no fuso do
+servidor, o botão "Sincronizar Mock ERP", a busca por telefone com máscara, o
+`RC-LOC-04` e os demais itens do §12 que não são de UX.

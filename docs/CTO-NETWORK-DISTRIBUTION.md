@@ -6042,3 +6042,92 @@ Recuperação — inadimplência, patrimônio em risco, recolhimento, risco de c
 cobrança e WhatsApp — é a **PRD Parte XVII (§394–§401)**. Ela não é fase desta
 especificação, não tem versão atribuída, e **não** acrescenta camada ao mapa
 congelado (PRD §401).
+
+---
+
+## 47. `RC-1D` — os clientes da caixa na tela da CTO (observabilidade, só leitura)
+
+**Melhoria aprovada pelo dono na abertura da `RC-1D`.** A tela da CTO respondia
+bem *"como estão as portas?"* e mal *"como estão os clientes desta caixa?"*.
+Agora, ao abrir a caixa, o `ADMIN` vê o resumo de clientes — ativos, online,
+offline, sem leitura e OS abertas — e, em cada porta ocupada, o cadastro ao lado
+da conectividade, a idade da última leitura e quantas OS abertas o cliente tem.
+
+**Isto NÃO é autoridade de rede nova.** Nada foi persistido, nada foi
+recalculado e nenhuma decisão de conexão, ocupação, capacidade ou movimentação
+mudou. A fase é de **apresentação**.
+
+### 47.1. As autoridades reusadas — não copiadas
+
+```text
+resumo        getCtoOperationalSummaries   a MESMA função do popup da caixa
+por porta     getCtoPortCustomers          a MESMA função de "Ver clientes"
+conectividade CustomerDiagnosticSnapshot   pela leitura em LOTE (§370 da PRD)
+OS aberta     OPEN_SERVICE_ORDER_STATUSES  o predicado derivado dos terminais
+portas        summarizePortCounts          livre e ocupada, como a CTO-2.2 conta
+```
+
+`src/lib/cto-client-connectivity.ts` só compõe as duas leituras; a semântica é a
+da **PRD §372**: "clientes ativos" são os de cadastro ativo com vínculo ativo na
+caixa, e online, offline e sem leitura contam **esses**. Por isso o detalhe e o
+popup não têm como divergir — um teste compara os dois número a número, e outro
+compara as contagens dos filtros com as do resumo.
+
+`UNKNOWN` é **"Sem leitura"**, nunca "Offline" e nunca "Desativado": ausência de
+leitura não é estado do link, e estado do link não é situação cadastral. Não
+existe `STALE`, e a idade sai de `observedAt` pelo formatador único
+(`connectivityAge`).
+
+### 47.2. O que a tela não faz
+
+* **não chama provider**: abrir a caixa é leitura de banco. Um teste espia o
+  `fetch` e outro lê o fonte — de `customer-diagnostics` só a leitura em lote é
+  usada, e o grafo de import alcançar `src/integrations` é fato medido e
+  declarado (a leitura e a atualização moram no mesmo módulo);
+* **não escreve**: um retrato de snapshot, vínculo, porta, CTO, OS e auditoria é
+  comparado depois de duas aberturas;
+* **não consulta por cliente**: as consultas são constantes — duas portas ou
+  seis custam as mesmas leituras;
+* **não amplia acesso**: a tela continua `ADMIN` com a capability de rede, na
+  ordem capability → perfil da `CTO-1`; o `DISPATCHER` segue sem ela.
+
+### 47.3. Os filtros, em duas unidades
+
+```text
+PORTAS     Todas · Livres · Ocupadas            conta POSIÇÃO
+CLIENTES   Online · Offline · Sem leitura ·     conta CLIENTE ATIVO
+           Com OS aberta
+```
+
+Locais, sobre o que a página já trouxe — filtrar é apresentação, e o servidor já
+decidiu o que aquela pessoa pode ver. As duas unidades nunca viram parcelas da
+mesma soma (PRD §373), e cada contagem de filtro é igual à do resumo que ela
+espelha. **Porta livre não tem conectividade** e nunca diz "Sem leitura".
+
+### 47.4. Estado nunca é só cor
+
+Cada selo tem glifo, rótulo em texto e tom — a mesma regra do marcador do mapa.
+Os botões de filtro carregam `aria-pressed`, funcionam pelo teclado e mostram
+foco; a lista anuncia "Mostrando N de M portas".
+
+### 47.5. O mapa continua `FROZEN`
+
+O popup aprovado **não foi redesenhado**. A única mudança no código do mapa na
+`RC-1D` é a correção do `MAPEDIT` intermitente (§47.6), que é defeito provado.
+
+### 47.6. `MAPEDIT` — a caixa que voltava sozinha
+
+O E2E intermitente registrado em `docs/MASTER-PLAN.md` §12 tinha **uma** causa
+para os dois sintomas (painel com par novo e marcador no ponto gravado; Salvar
+gravando o ponto de antes do arrasto): o react-leaflet 4 reposiciona um marcador
+quando a prop `position` muda de **referência**, e o array era recriado a cada
+render. Toda releitura do recorte que chegasse entre o último movimento do mouse
+e o soltar chamava `setLatLng(par gravado)` no marcador que estava na mão, e o
+`dragend` lia o ponto antigo de volta.
+
+Reproduzido sem sorte (`MAPEDIT-15`): a resposta de `/api/ctos/map` é segurada
+pela rota e liberada com o botão ainda apertado — desvio 0 no código antigo.
+A correção é `stablePosition`: o mesmo array enquanto o par não muda, então só
+movimento real chega ao Leaflet. E, no sucesso do salvamento, a camada aplica o
+par que o **servidor** devolveu antes de limpar o rascunho (`MAPEDIT-16`), em
+vez de deixar a caixa voltar ao ponto antigo até a releitura chegar.

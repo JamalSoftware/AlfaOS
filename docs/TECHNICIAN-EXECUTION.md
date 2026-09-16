@@ -246,25 +246,48 @@ Implementação: `listServiceOrdersForTechnician` (`src/lib/service-orders.ts`);
 prova: `src/tests/minhas-os-today.test.ts` (empresa em `Asia/Tokyo` contra o fuso
 do processo, dias de 23 h e 25 h) e `e2e/minhas-os-today.spec.ts`.
 
-**Débito registrado — a semântica de "Próximas". NÃO corrigido.** "Próximas" é,
+**Contrato das seções — `RC-1D` (15/09/2026), débito abaixo RESOLVIDO.** A fila
+tem cinco seções exclusivas, nesta ordem de decisão:
+
+```text
+Em atendimento   status IN_PROGRESS — status vence agendamento
+Hoje             agendada no dia civil da EMPRESA (contrato acima)
+Atrasadas        agendada, vencida e ainda não iniciada (PRD §380), fora de hoje
+Próximas         agendada para DEPOIS de hoje
+Sem agendamento  atribuída e sem data — não finge ter data
+```
+
+"Hoje" vem **antes** de "Atrasadas" de propósito: um agendamento de hoje às 8h,
+lido às 10h, continua sendo o trabalho de hoje. A regra de atrasada é a do
+painel, e não uma segunda — `isOverdueServiceOrder` mora ao lado de
+`serviceOrderSliceWhere("atrasadas")` em `src/lib/service-order-slices.ts`, e um
+teste compara as duas sobre as mesmas linhas. "Atrasadas" e "Sem agendamento" só
+aparecem quando têm conteúdo. Provas: `src/tests/minhas-os-today.test.ts`
+(`RC1D-FILA-01..04`) e `e2e/minhas-os-today.spec.ts`.
+
+**O débito que isso fechou (registro).** "Próximas" era,
 na prática, *tudo o que está atribuído e não é "Em atendimento" nem "Hoje"*: OS
 com agendamento futuro, OS sem agendamento e OS com agendamento **já vencido**.
 Na validação do dono em 13/09/2026, a seção mostrou OS agendadas para
 06/09/2026 — elas pertencem corretamente à fila, mas não são literalmente
-"próximas". Caminhos futuros, **sem decisão**:
+"próximas". Os caminhos registrados então — e o **B foi o escolhido na `RC-1D`**,
+pela PRD: a §171 já separa "Atrasadas" de "Próximas" na agenda do técnico, e a
+§380 já define "atrasada" com decisão do dono:
 
 ```text
 A   renomear "Próximas" para "Aguardando atendimento"
-B   separar em Atrasadas · Hoje · Próximas · Sem agendamento
+B   separar em Atrasadas · Hoje · Próximas · Sem agendamento   ← ESCOLHIDO (RC-1D)
 C   outra estrutura, definida pela fase correta do fluxo do técnico
 ```
 
 Referências já escritas, que não decidem nada: a PRD §171 (agenda do técnico no
 Field) já separa "Atrasadas" de "Próximas"; e "OS atrasada" já tem definição do
 dono na PRD §380 (agendada, vencida, não iniciada) — um recorte de atrasadas
-aqui reutilizaria essa regra, nunca uma segunda. **Este débito não reabre o
-`HOTFIX-FIELD-01`**, que tratou só o fuso de "Hoje": nome, agrupamento, query e
-status de `/minhas-os` ficam como estão até a fase do fluxo do técnico.
+aqui reutilizaria essa regra, nunca uma segunda — e foi exatamente o que a
+`RC-1D` fez. **O `HOTFIX-FIELD-01` não foi reaberto**: o contrato de "Hoje"
+continua palavra por palavra como ele o deixou, e o que mudou foi o destino do
+que NÃO é de hoje. O status da fila (`ASSIGNED` + `IN_PROGRESS`) e a consulta
+também seguem iguais: a divisão acontece sobre as mesmas linhas.
 
 ### `/ordens/[id]`
 

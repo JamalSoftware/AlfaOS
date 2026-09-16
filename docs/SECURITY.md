@@ -2988,3 +2988,36 @@ até o teto de sanidade de 100 km.
   linha crua `raw_position` (tipo, `hasAccuracy`, `accuracy` bruta, idade) segue
   as mesmas regras do gancho acima: só em build de depuração, nunca coordenada,
   e o teste estrutural cobre também as classes que a montam.
+
+## 8.23. `RC-1D` — observabilidade da CTO, e o que ela não abre
+
+> **Estado: `READY FOR OWNER VALIDATION`** (15/09/2026). Só leitura; nenhuma
+> migration, nenhuma dependência, nenhuma rota nova, nenhuma permissão nova.
+> Detalhe técnico: `docs/CTO-NETWORK-DISTRIBUTION.md` §47; contrato de produto:
+> PRD §372.
+
+A tela da CTO passou a mostrar como estão os clientes da caixa. Uma tela que
+acrescenta dado de cliente é uma superfície nova de exposição, e por isso ela
+foi construída **sem ampliar nada**:
+
+- **O acesso é o que já era.** `/ctos/[id]` continua exigindo `ADMIN` **e** a
+  capability de rede da empresa, nessa ordem — capability antes do perfil
+  (§8.19), para que a empresa sem o módulo receba `404` em vez de um `403` que
+  conta que o módulo existe. O `DISPATCHER` não ganhou a tela, e o `TECHNICIAN`
+  não ganhou superfície administrativa nenhuma.
+- **O tenant está em cada predicado.** Vínculo, snapshot de conectividade e
+  contagem de OS filtram por `companyId`; um snapshot ou uma OS de outra empresa
+  apontando para um cliente desta — o vetor de FK simples da `DQ-7.1` — não
+  conta, e a caixa de outra empresa não abre. Há teste para os três casos.
+- **Nada é consultado fora do banco.** Abrir a caixa não fala com ERP, OLT nem
+  provider, e não dispara atualização de diagnóstico: o teto de 10 por minuto
+  por `(empresa, usuário, capability)` não é tocado. Provas: espião no `fetch` e
+  leitura do fonte — de `customer-diagnostics` só a leitura em LOTE é usada.
+- **Nada é escrito.** Um retrato de snapshot, vínculo, porta, CTO, OS e
+  auditoria é comparado depois de duas aberturas da tela.
+- **O filtro é da tela, e não é controle de acesso.** Ele esconde linhas que o
+  servidor já decidiu que aquela pessoa pode ver; nenhum dado novo chega por
+  causa dele, e nenhum dado deixa de ser autorizado por ele.
+- **`UNKNOWN` continua "Sem leitura"** — nunca "Offline", nunca "Desativado".
+  Ausência de leitura não é estado do link, e estado do link não é situação
+  cadastral (PRD §370).
