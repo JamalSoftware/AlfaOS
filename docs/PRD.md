@@ -12527,6 +12527,29 @@ confiável de freshness"* — ela **não possui**. O que existe é `observedAt`,
 (§337). Idade é um número honesto; um limiar de "velho demais" seria uma regra
 que ninguém definiu, aplicada a um provider cuja cadência ninguém mediu.
 
+> **Atualização — `DIAG-AUTO-1` (15/09/2026): DURAÇÃO e FRESCOR são duas
+> coisas, e agora são dois campos.**
+>
+> ```text
+> observedAt   quando conferimos pela última vez
+> statusSince  desde quando o estado ATUAL começou
+> ```
+>
+> A distinção passou a ser obrigatória porque a verificação virou automática:
+> com o ciclo reconferindo de cinco em cinco minutos, `observedAt` é reescrito
+> o tempo todo, e uma tela que derivasse duração dele diria "offline há cinco
+> minutos" para um cliente offline há nove dias. A frase da tela é
+> *"Online há 9 dias · verificado há 2 min"*.
+>
+> `statusSince` **não é uma segunda autoridade de estado**: o estado continua
+> sendo `connectivityStatus`, e a coluna só data a transição dele. Reconfirmar
+> o mesmo estado preserva `statusSince`; mudar de estado o move.
+>
+> **`STALE` continua não existindo.** Quando a confirmação passa do dobro do
+> alvo, a tela mostra o aviso *"Verificação atrasada"* **ao lado** do estado —
+> que continua sendo o último conhecido. É um aviso sobre a nossa confirmação,
+> nunca um estado do cliente, e nada disso é persistido.
+
 ## A regra que já é invariante do código
 
 > **Falha de integração é uma afirmação sobre a integração, nunca sobre o
@@ -12828,12 +12851,20 @@ Porta 04   Ana Lima       Ativo · Sem leitura
 aberta pela ação **Ver clientes** do popup da caixa (§373), e é `ADMIN` (§376).
 
 > **Atualização — `RC-1D` (15/09/2026): a tela da CTO mostra o mesmo.** Abrir
-> `/ctos/[id]` passou a trazer este resumo e esta lista por porta, com a idade
-> da última leitura e as OS abertas de cada cliente, pelas **mesmas funções** do
-> popup — nenhuma contagem nova, nenhuma autoridade nova. É observabilidade:
-> só leitura, sem consultar provider e sem escrever nada. O contrato acima não
-> muda; o que muda é onde ele aparece. Detalhe técnico:
-> `docs/CTO-NETWORK-DISTRIBUTION.md` §47.
+> `/ctos/[id]` passou a trazer esta lista por porta, com o estado de cada
+> cliente, há quanto tempo ele está nesse estado, quando foi verificado e as OS
+> abertas — pela **mesma função** do popup. Nenhuma contagem nova, nenhuma
+> autoridade nova. É observabilidade: só leitura, sem consultar provider e sem
+> escrever nada. O contrato acima não muda; o que muda é onde ele aparece.
+>
+> **O RESUMO em bloco não ficou na tela.** Na validação o dono removeu o card
+> "Clientes": ele repetia no topo números que a lista já carrega linha a linha e,
+> no celular, empurrava as portas para baixo da dobra. O resumo rápido continua
+> onde ele é rápido — o **popup da caixa no mapa** (§373), que não foi tocado.
+> Na tela da caixa, as contagens vivem nos filtros, derivadas da mesma lista, e
+> um teste as compara com as do popup número a número.
+>
+> Detalhe técnico: `docs/CTO-NETWORK-DISTRIBUTION.md` §47 e §48.
 
 **Histórico encerrado não é vínculo atual.** Um cliente que saiu da porta — por
 desconexão ou por mudança para outra caixa — não aparece nesta lista nem entra
@@ -13783,6 +13814,36 @@ distância são regras independentes. O motivo foi a validação física: a posi
 aproximada do Android (2000 m de precisão) gravou um ponto a mais de 1 km do
 lugar. Também sem coluna, tabela ou migration.
 
+## `DIAG-AUTO-01` — `DECISION UPDATED`
+
+A ideia de o diagnóstico se atualizar sozinho foi **adiada** em 13/09/2026
+(`DEFERRED BY PRD SCOPE`, §393): a §337 e a §370 descrevem o refresh como ação
+explícita com gatilho na OS, e pelo critério da §393 aquilo não era bloqueador
+da operação V1.
+
+**Atualização, decidida pelo dono na `RC-1D` (2026-09-15):** ela entra, como
+**`DIAG-AUTO-1`**. O que mudou não foi o critério, foi um fato operacional que
+a validação da tela da CTO tornou visível — *"Online · última leitura há 9
+dias"* não prova que o cliente continua online, e a tela apresentava isso com a
+mesma cara de uma leitura recente.
+
+O adiamento fica registrado, não apagado. O que a decisão autoriza:
+
+```text
+alvo          reconferir cada cliente ligado a cada ~5 minutos
+autoridade    CustomerDiagnosticSnapshot — a MESMA (§370)
+duração       statusSince, campo novo; NUNCA derivada de observedAt
+falha         continua sem escrever nada — nem estado, nem observedAt
+STALE         continua não existindo; "Verificação atrasada" é aviso de tela
+navegador     continua sem chamar provider (§370, §373)
+teto de 10/min o ciclo NÃO passa por ele — é worker, não usuário (§337)
+```
+
+O teto de 10 por minuto por `(empresa, usuário, capability)` continua valendo
+para a **ação humana**, e o ciclo não o consome nem o contorna: ele não tem
+sessão. A política dele é própria — teto por execução e concorrência
+controlada — e está na nota técnica.
+
 ## Freeze do Mapa Operacional V1 — 2026-09-12
 
 O dono validou a `CTO-3.2.2e` na interface real (§392). O que o contrato de
@@ -14032,8 +14093,10 @@ incidentes coletivos                      V2 (§388)
 FiberMap                                  V3 (§389)
 NOC                                       V2 (§388)
 IA de diagnóstico                         backlog, sem seção própria
-auto-atualização do diagnóstico na OS     backlog (DIAG-AUTO-01) — o refresh é
-                                          ação explícita (§337, §370)
+auto-atualização do diagnóstico           IMPLEMENTADA na RC-1D (DIAG-AUTO-1),
+                                          por decisão do dono — §390. O refresh
+                                          MANUAL da OS continua sendo ação
+                                          explícita (§337)
 busca de equipamento por série/MAC        FUTURE, fora da V1 (GS-1) — o
                                           equipamento não é entidade própria
                                           (§384)

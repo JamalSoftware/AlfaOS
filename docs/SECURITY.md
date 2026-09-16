@@ -3021,3 +3021,50 @@ foi construída **sem ampliar nada**:
 - **`UNKNOWN` continua "Sem leitura"** — nunca "Offline", nunca "Desativado".
   Ausência de leitura não é estado do link, e estado do link não é situação
   cadastral (PRD §370).
+
+## 8.24. `DIAG-AUTO-1` — um worker que fala com provider, e o que ele não abre
+
+> **Estado: `READY FOR OWNER VALIDATION`** (15/09/2026). Migration aditiva
+> (duas colunas), nenhuma dependência, nenhuma rota, nenhuma permissão nova.
+> Contrato de produto: PRD §370 e §390. Detalhe técnico:
+> `docs/CTO-NETWORK-DISTRIBUTION.md` §48.
+
+A conectividade dos clientes ligados passou a ser reconferida por um ciclo
+automático. Isso acrescenta uma superfície nova: um processo **sem sessão** que
+chama sistemas externos em nome de várias empresas. O que o protege:
+
+- **Não é rota.** É um comando (`npm run diagnostics:refresh`), como o worker do
+  outbox. **Não existe endpoint público de "atualizar todos"** — ele seria um
+  amplificador: uma requisição anônima viraria centenas de chamadas ao ERP do
+  cliente. Quem dispara é o cron do operador, dentro da máquina.
+- **O tenant vem do vínculo, nunca de entrada.** Cada item do ciclo carrega o
+  `companyId` da própria `CustomerNetworkConnection`, e é com ele que o provider
+  é resolvido (`ERPIntegration` da empresa) e que a escrita é filtrada. Não há
+  parâmetro, corpo ou variável de ambiente que escolha empresa.
+- **Credencial continua por empresa, e não passa perto do ciclo.** O adapter é
+  montado por `resolveCompanyAdapter`, que lê e decifra a credencial da própria
+  empresa; o ciclo não vê segredo nenhum e não os repassa. Duas empresas no
+  mesmo ciclo usam adapters distintos.
+- **Falha de provider não vira estado do cliente.** Nem `OFFLINE`, nem
+  `observedAt` novo: o caminho de erro retorna antes de qualquer escrita, e isso
+  é estrutural, não convenção. Uma integração quebrada envelhece em público
+  ("Verificação atrasada") em vez de afirmar que o cliente caiu.
+- **O log não tem dado pessoal.** O ciclo imprime contagens — elegíveis,
+  processados, online, offline, sem leitura, falhas, duração. Nome, documento,
+  coordenada e payload do provider não têm onde caber, e o resultado é um objeto
+  só de números.
+- **A auditoria não é inundada.** `CUSTOMER_DIAGNOSTIC.REFRESHED` continua sendo
+  gravada para a ação HUMANA e é desligada no ciclo: uma linha por cliente a
+  cada cinco minutos enterraria os eventos que alguém procura.
+- **O teto de 10/min por `(empresa, usuário, capability)` não é contornado, e
+  também não é consumido.** Ele vive nas rotas e é chaveado por usuário; o ciclo
+  não tem sessão e não passa por ali. A política dele é própria — teto por
+  execução e concorrência limitada — e um worker que herdasse o balde do
+  operador tiraria dele a capacidade de atualizar a OS na mão.
+- **Duas execuções não multiplicam as chamadas externas.** A reserva
+  (`refreshLeaseUntil`) é reivindicada por `updateMany` com o prazo no
+  predicado; quem perde não chama ninguém. Sem ela, dois ciclos simultâneos
+  chamavam o provider duas vezes por cliente — medido, não suposto.
+- **O navegador continua sem falar com provider.** Abrir a caixa, o mapa ou a
+  ficha lê snapshot gravado. A releitura automática da tela da CTO é o mesmo
+  `router.refresh()` das ações dela, e há teste espiando `fetch`.

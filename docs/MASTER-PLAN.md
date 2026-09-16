@@ -373,6 +373,14 @@ de negócio do SGP**.
 
 Elas continuam sob a §119: estar no PRD não é autorização para implementar.
 
+> **SUPERADO em 15/09/2026 — o dono autorizou, e ela foi implementada como
+> `DIAG-AUTO-1` na `RC-1D`.** O adiamento abaixo fica como registro de por que
+> ela não entrou antes, e continua correto sobre o refresh MANUAL da OS, que
+> segue sendo ação explícita. O que mudou não foi o critério: foi um fato
+> operacional que a validação da tela da CTO tornou visível — "Online · última
+> leitura há 9 dias" não prova que o cliente continua online. Contrato em
+> PRD §370 e §390; nota técnica em `docs/CTO-NETWORK-DISTRIBUTION.md` §48.
+
 **Atualização automática do diagnóstico na OS aberta — `DIAG-AUTO-01`,
 `DEFERRED BY PRD SCOPE` (sugestão do dono, 13/09/2026).** Hoje o
 "Atualizar diagnóstico" é um clique; a ideia é repetir a leitura sozinha,
@@ -754,3 +762,47 @@ painel — a mesma, em SQL e em memória, com teste comparando as duas.
 **Continua fora:** o storage legado com EXIF, as datas gerais no fuso do
 servidor, o botão "Sincronizar Mock ERP", a busca por telefone com máscara, o
 `RC-LOC-04` e os demais itens do §12 que não são de UX.
+
+---
+
+## 14. `RC-1D` — o addendum de UX e o `DIAG-AUTO-1`
+
+**Estado: `READY FOR OWNER VALIDATION` (15/09/2026).** Commits locais, sem tag e
+sem push. **Uma migration aditiva (duas colunas), zero dependência, zero rota
+nova, zero Dart.**
+
+A validação da §13 aprovou o conceito de conectividade na CTO e reprovou a
+organização visual. No mesmo passo, o dono apontou uma lacuna operacional real:
+*"Online · última leitura há 9 dias"* não prova que o cliente continua online.
+
+```text
+card "Clientes"          REMOVIDO — repetia a lista e enterrava as portas
+                         no celular; o resumo rápido é o popup do MAPA
+filtros                  uma faixa que quebra linha, duas unidades separadas
+                         por um traço em vez de dois blocos titulados
+hierarquia da porta      "Ocupada" e o estado do cliente na MESMA linha
+"Cadastro ativo"         não é mais dito; só a exceção aparece
+duração × frescor        statusSince (novo) × observedAt — dois campos
+verificação atrasada     aviso de tela, NUNCA um estado; STALE não existe
+ciclo automático         npm run diagnostics:refresh, alvo ~5 min
+```
+
+**A regra que atravessa a fase:** duração do estado e idade da verificação são
+perguntas diferentes. Com o ciclo reconferindo de cinco em cinco minutos,
+derivar a primeira de `observedAt` faria todo cliente parecer ter mudado de
+estado agora há pouco — e a tela continuaria plausível. É por isso que o teste
+central da fase não é de worker, é o de **confusão do técnico**.
+
+**Duas coisas foram medidas antes de serem afirmadas:** dois ciclos simultâneos
+duplicavam o trabalho inteiro (seis conexões, doze chamadas ao provider), o que
+produziu a reserva; e a capacidade com 600 conexões elegíveis — seleção em 85 ms
+com duas consultas, ciclo completo em 6,9 s com concorrência 6.
+
+**Limite declarado, e ele é de operação:** a cadência de 5 minutos depende de o
+operador agendar o comando. O repositório não tem agendador — nunca teve —, e
+criar um daemon para isto foi recusado pelos mesmos motivos escritos em
+`scripts/outbox-worker.ts`. Sem o cron, nada se atualiza sozinho e a tela
+**avisa**, em vez de afirmar um estado que ninguém confirmou.
+
+**Continua fora:** flapping e métricas de queda, alerta automático, WhatsApp,
+NOC, e os demais itens do §12 que não são de UX.

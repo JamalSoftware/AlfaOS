@@ -6131,3 +6131,154 @@ A correção é `stablePosition`: o mesmo array enquanto o par não muda, então
 movimento real chega ao Leaflet. E, no sucesso do salvamento, a camada aplica o
 par que o **servidor** devolveu antes de limpar o rascunho (`MAPEDIT-16`), em
 vez de deixar a caixa voltar ao ponto antigo até a releitura chegar.
+
+---
+
+## 48. `RC-1D` — a tela enxuta da CTO, e o `DIAG-AUTO-1`
+
+**Validação do dono sobre a §47:** o conceito de conectividade foi aprovado, a
+organização visual foi reprovada — e junto veio uma lacuna operacional real,
+que virou a fase `DIAG-AUTO-1`.
+
+### 48.1. O que saiu da tela
+
+O card **"Clientes"** foi removido inteiro. Ele repetia, num bloco grande no
+topo, números que a lista de portas já carrega linha a linha, e no celular
+empurrava as portas — a informação que a pessoa veio ver — para baixo da dobra.
+
+O resumo rápido continua existindo onde ele é rápido: o **popup da caixa no
+mapa**, que o dono aprovou e que não foi tocado (`FROZEN`).
+
+Com o card fora, a leitura do resumo virou consulta morta e saiu junto:
+
+```text
+antes   6 consultas por abertura (resumo + lista)
+depois  3 consultas — só a lista
+```
+
+A garantia de que detalhe e popup não divergem **não** saiu com ela: virou um
+teste mais forte. Antes, os dois lados vinham da mesma chamada e concordar era
+tautológico; agora `CTO-CONSIST-01` compara as contagens derivadas da lista com
+as de `getCtoOperationalSummaries` — a autoridade do popup —, número a número.
+
+### 48.2. A hierarquia da porta
+
+```text
+01  [Ocupada] [Online] [Cadastro inativo] [Verificação atrasada]
+    NOME DO CLIENTE
+    Online há 9 d · Verificado há 2 min   [1 OS aberta]
+    [ações]
+```
+
+Três decisões:
+
+* **ocupação e conectividade na MESMA linha.** São lidas juntas; a
+  conectividade estava três linhas abaixo, depois do nome. A prova é
+  geométrica, não estrutural — `UX-02/03` compara o topo dos dois selos em
+  1280 px e em 375 px, e pega quem os separe de novo mexendo só no CSS;
+* **"Cadastro ativo" deixou de ser dito.** O normal não se anuncia; repetido em
+  oito linhas, competia com o que muda. Só a exceção aparece, e ela é
+  **"Cadastro inativo"** — o que o dado realmente diz. Não existe "cancelado"
+  nem "suspenso" no modelo, e inventá-los a partir de um booleano seria afirmar
+  um estado de contrato que ninguém gravou;
+* **porta livre continua sem conectividade**, e nunca diz "Sem leitura".
+
+Os filtros viraram **uma faixa** que quebra linha. As duas unidades continuam
+separadas — porta conta posição, cliente conta cliente (PRD §373) —, agora por
+um traço fino em vez de dois blocos titulados.
+
+### 48.3. `DIAG-AUTO-1` — duração não é frescor
+
+O dono viu *"Online · última leitura há 9 dias"* e apontou o que isso não
+prova. A correção tem duas metades, e a segunda é a que sustenta a primeira.
+
+**A metade visível:** a tela passou a dizer as duas coisas.
+
+**A metade que a torna possível:** `observedAt` responde *"quando conferimos"* e
+é reescrito a cada verificação bem-sucedida — inclusive quando nada mudou. Com
+o ciclo automático rodando de cinco em cinco minutos, derivar duração dele faria
+todo cliente parecer ter mudado de estado agora há pouco. Entrou `statusSince`,
+que só anda quando `connectivityStatus` muda.
+
+```text
+observedAt   quando conferimos pela última vez
+statusSince  desde quando o estado ATUAL começou
+```
+
+**Não é uma segunda autoridade de estado.** O estado continua sendo
+`connectivityStatus`; a coluna só data a transição dele. A regra inteira mora
+numa função pura e exportada (`resolveStatusSince`), que é o ponto exato onde um
+descuido reiniciaria toda duração da tela — e é ela que os testes atacam
+diretamente.
+
+**Migration aditiva, backfill conservador:** linha legada nasceu com
+`statusSince = observedAt`, porque é o único instante em que se SABE que o
+estado já era aquele. O começo real pode ser anterior, ninguém o registrou, e
+inventar uma data mais antiga seria afirmar uma duração que nunca foi medida.
+
+### 48.4. O ciclo, e o que ele não é
+
+**Não é um daemon, e não é um segundo worker.** O repositório inteiro não tem
+agendador: o worker do outbox é um lote único chamado por cron do operador, e é
+esse o padrão que `npm run diagnostics:refresh` segue — mesmo `tsconfig.worker.json`,
+mesmo `logServerError`, mesma disciplina de log só com contagens.
+
+**Consequência declarada:** a cadência de 5 minutos depende de alguém agendar o
+comando. Sem isso nada se atualiza sozinho — e a tela **avisa**, porque a
+verificação envelhece e o selo "Verificação atrasada" aparece. O sistema
+envelhece em público em vez de afirmar um estado que ninguém confirmou.
+
+**Elegibilidade é conexão física, não cadastro.** Quem entra tem
+`CustomerNetworkConnection` ativa. `Customer.active` **não** filtra: um cliente
+cadastralmente inativo que continua ligado é exatamente o caso que a operação
+precisa enxergar, e ignorá-lo esconderia equipamento em campo.
+
+**Nenhuma escrita própria.** O ciclo chama o MESMO `refreshCustomerDiagnostic`
+do botão da OS, então falha de provider continua não escrevendo nada — nem
+estado, nem `observedAt`. É por isso que a tela consegue dizer *"Online há 5
+dias · Verificação atrasada · verificado há 37 min"* em vez de inventar um
+estado novo.
+
+### 48.5. Duas coisas foram MEDIDAS antes de serem afirmadas
+
+**Dois ciclos simultâneos duplicavam o trabalho inteiro.** Sem reserva, cada um
+processou as seis conexões elegíveis — doze chamadas ao provider para seis
+clientes. A elegibilidade sozinha não protege: os dois leem a lista antes de
+qualquer escrita.
+
+Entrou `claimCustomerForCheck`, um `updateMany` com o prazo no predicado — o
+mesmo compare-and-set que o outbox usa para reivindicar evento, e não um
+mecanismo novo. O prazo existe para que um processo morto devolva o cliente à
+fila em vez de trancá-lo.
+
+> **Janela declarada:** quem nunca foi verificado não tem linha onde ser
+> reservado, e dois ciclos simultâneos podem consultá-lo. Acontece no máximo uma
+> vez por cliente, e o banco continua coerente porque a escrita é monotônica.
+> Inventar uma linha com um estado que ninguém observou, só para ter onde
+> travar, seria pior que a janela.
+
+**Capacidade, com 600 conexões elegíveis:**
+
+```text
+seleção           85 ms · 2 consultas (nunca uma por cliente)
+ciclo (conc. 6)   6,9 s para 600 · 5.252/min
+ciclo (conc. 12)  5,1 s para 600 · 7.095/min
+```
+
+O provider do teste responde em 10 ms, então esses números medem a
+**orquestração**, não o ERP real. O que eles provam é que o custo de banco não é
+o gargalo; o gargalo é a latência do provider, e a conta é direta: com
+concorrência 6, a vazão é `360 / L` por minuto, com `L` em segundos. Para 600
+clientes em 5 minutos são necessários 120/min, o que a concorrência 6 sustenta
+até `L ≈ 3 s`. Acima disso é decisão de operação — subir a concorrência ou
+encurtar o intervalo do cron —, medida contra o provider real.
+
+### 48.6. A tela aberta acompanha o ciclo
+
+`/ctos/[id]` relê a cada 45 s pelo MESMO `router.refresh()` de toda ação da
+página: o server component roda de novo e as props chegam novas. Nenhum endpoint
+novo, nenhum polling contra API própria e **nenhuma chamada a provider** — o
+navegador continua lendo só o snapshot já gravado.
+
+O mapa não precisou de nada: ele já relê o recorte a cada `moveend`/`zoomend`
+com 350 ms de debounce, e o snapshot novo entra na leitura seguinte.
