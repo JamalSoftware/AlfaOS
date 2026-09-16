@@ -1,5 +1,7 @@
 import { prisma } from "../prisma";
 import { getFileStorage } from "../storage";
+import type { FileStorageContract } from "../storage/contract";
+import { discardBlobIfUnreferenced } from "../storage/references";
 
 /**
  * # Expurgo de etiqueta temporária vencida
@@ -20,16 +22,28 @@ import { getFileStorage } from "../storage";
  * ## Idempotente por construção
  *
  * Duas execuções simultâneas são seguras. Cada linha é deletada por `id` com o
- * status ainda no predicado, então o perdedor da corrida apaga zero linhas e
- * segue. O arquivo é removido do storage antes, e o storage já trata "não
- * existe" como sucesso — rodar duas vezes não produz erro nem contagem dupla.
+ * status e o vencimento ainda no predicado, então o perdedor da corrida apaga
+ * zero linhas e segue — e não toca no arquivo.
  *
- * ## Ordem: arquivo, depois linha
+ * ## Ordem: LINHA, depois arquivo (`RC-1E`, `RC-STO-06`)
  *
- * O inverso deixaria arquivo órfão sem nada apontando para ele, invisível para
- * qualquer varredura futura. Nesta ordem, a falha no meio deixa a LINHA viva
- * apontando para um arquivo que já não existe — visível, e recolhida na
- * próxima passada.
+ * A ordem antiga era a inversa, e tinha uma corrida que perdia foto de
+ * identificação. A varredura lia a etiqueta vencida; nesse intervalo, o
+ * registro do equipamento — que decide o vencimento com o relógio lido ANTES da
+ * própria transação — promovia a mesma etiqueta a `COMMITTED`; a varredura
+ * apagava o ARQUIVO, e só então tentava a linha, que já não era temporária. A
+ * linha sobrevivia, ligada ao equipamento, apontando para um arquivo que não
+ * existia mais.
+ *
+ * Agora quem arbitra é o banco: o `DELETE` com `status: TEMPORARY` no
+ * predicado espera o lock da promoção e reavalia a linha depois dela. Se a
+ * promoção venceu, a contagem é zero e o arquivo não é tocado. Se a varredura
+ * venceu, a linha já não existe e a promoção falha — sem vínculo a um arquivo
+ * que vai sumir.
+ *
+ * A falha no meio, nesta ordem, deixa um arquivo SEM linha — órfão, que custa
+ * disco e que a auditoria de storage (`npm run storage:audit`) enxerga. O
+ * inverso custava a foto.
  */
 
 export interface EvidenceCleanupResult {
@@ -69,32 +83,8 @@ export async function purgeExpiredTemporaryEvidence(
   let skipped = 0;
 
   for (const candidate of candidates) {
-    /*
-      Conferência explícita de vínculo, mesmo o filtro já a tornando
-      impossível.
-
-      Uma etiqueta vinculada é `COMMITTED` e não chega até aqui. A conferência
-      existe porque o custo dela é uma consulta e o custo de errar é apagar a
-      prova de identidade de um equipamento instalado — e porque uma promoção
-      futura escrita fora deste caminho não pode transformar o expurgo em
-      destruidor de evidência.
-    */
-    const linked = await prisma.serviceOrderEquipment.count({
-      where: { labelEvidenceId: candidate.id },
-    });
-    if (linked > 0) {
-      skipped += 1;
-      continue;
-    }
-
-    await storage.delete(candidate.storageKey).catch(() => undefined);
-
-    const removed = await prisma.serviceOrderEvidence.deleteMany({
-      // O status no predicado é o que torna a corrida segura: promovida entre
-      // a leitura e agora, esta linha não é mais apagável.
-      where: { id: candidate.id, status: "TEMPORARY" },
-    });
-    if (removed.count === 1) {
+    const outcome = await purgeTemporaryEvidenceCandidate(storage, candidate, now);
+    if (outcome === "deleted") {
       deleted += 1;
     } else {
       skipped += 1;
@@ -102,4 +92,67 @@ export async function purgeExpiredTemporaryEvidence(
   }
 
   return { found: candidates.length, deleted, skipped };
+}
+
+export interface TemporaryEvidenceCandidate {
+  id: string;
+  storageKey: string;
+}
+
+/**
+ * Um candidato lido pela varredura — possivelmente já VELHO quando chega aqui.
+ *
+ * Exportado porque a corrida da `RC-STO-06` só é testável de forma determinística
+ * com a leitura e a exclusão separadas: o teste lê o candidato, promove a
+ * etiqueta, e só então chama esta etapa com o candidato envelhecido.
+ */
+export async function purgeTemporaryEvidenceCandidate(
+  storage: FileStorageContract,
+  candidate: TemporaryEvidenceCandidate,
+  now: Date,
+): Promise<"deleted" | "kept"> {
+  /*
+    Conferência explícita de vínculo, mesmo o filtro já a tornando
+    impossível.
+
+    Uma etiqueta vinculada é `COMMITTED` e não chega até aqui. A conferência
+    existe porque o custo dela é uma consulta e o custo de errar é apagar a
+    prova de identidade de um equipamento instalado — e porque uma promoção
+    futura escrita fora deste caminho não pode transformar o expurgo em
+    destruidor de evidência.
+  */
+  const linked = await prisma.serviceOrderEquipment.count({
+    where: { labelEvidenceId: candidate.id },
+  });
+  if (linked > 0) {
+    return "kept";
+  }
+
+  let removed: { count: number };
+  try {
+    removed = await prisma.serviceOrderEvidence.deleteMany({
+      /*
+        Status E vencimento no predicado, reavaliados pelo banco depois de
+        qualquer escrita concorrente na linha. O status cobre a promoção; o
+        vencimento cobre a etiqueta que foi promovida e REBAIXADA no intervalo
+        (remover o equipamento a devolve a `TEMPORARY` com prazo novo) — ela
+        voltou a valer, e não é mais deste expurgo.
+      */
+      where: {
+        id: candidate.id,
+        status: "TEMPORARY",
+        expiresAt: { not: null, lte: now },
+      },
+    });
+  } catch {
+    // FK `Restrict` do equipamento: alguém a ligou fora da promoção. Fica.
+    return "kept";
+  }
+  if (removed.count !== 1) {
+    return "kept";
+  }
+
+  // A linha já não existe: agora, e só agora, o arquivo pode sair.
+  await discardBlobIfUnreferenced(storage, candidate.storageKey, "expurgo-etiqueta");
+  return "deleted";
 }

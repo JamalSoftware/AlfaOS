@@ -19,6 +19,7 @@ import {
   loadInProgressOwnedOrder,
 } from "./service-order-child-mutation";
 import { buildStorageKey, getFileStorage } from "./storage";
+import { discardBlobIfUnreferenced } from "./storage/references";
 import { processImageUpload } from "./media/image-upload";
 
 // ---------------------------------------------------------------------------
@@ -303,8 +304,14 @@ export async function addEvidence(
 
     return toPublicEvidence(created);
   } catch (error) {
+    /*
+      Erro não prova que a transação voltou (`RC-STO-07`). O COMMIT pode ter
+      efetivado e a confirmação se perder no caminho; apagar o blob aí deixaria
+      a linha gravada apontando para um arquivo que não existe. Quem decide é o
+      banco: só sai o blob que nenhuma linha referencia.
+    */
     if (wrote) {
-      await storage.delete(storageKey).catch(() => undefined);
+      await discardBlobIfUnreferenced(storage, storageKey, "evidencia-falhou");
     }
     throw error;
   }
@@ -760,8 +767,14 @@ export async function putSignature(
 
     return toPublicSignature(saved);
   } catch (error) {
+    /*
+      A mesma regra da evidência (`RC-STO-07`), com um agravante: numa
+      substituição, apagar o blob NOVO depois de um COMMIT efetivado deixaria a
+      assinatura sem arquivo nenhum — a linha já aponta para a chave nova, e a
+      anterior nunca é apagada por este caminho de erro.
+    */
     if (wrote) {
-      await storage.delete(storageKey).catch(() => undefined);
+      await discardBlobIfUnreferenced(storage, storageKey, "assinatura-falhou");
     }
     throw error;
   }

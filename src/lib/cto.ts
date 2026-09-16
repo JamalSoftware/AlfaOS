@@ -4,6 +4,7 @@ import { badRequest, conflict, isUniqueConstraintError, notFound } from "./error
 import { processImageUpload } from "./media/image-upload";
 import { prisma } from "./prisma";
 import { buildStorageKey, getFileStorage } from "./storage";
+import { discardBlobIfUnreferenced } from "./storage/references";
 
 /**
  * # CTOs e rede de distribuição — domínio (CTO-1)
@@ -1220,22 +1221,35 @@ export async function setCtoPhoto(
     Um coletor de órfãos é trabalho próprio, com política própria, e não nasce
     de carona numa fase de cadastro.
   */
-  const updated = await prisma.$transaction(async (tx) => {
-    await tx.cTO.updateMany({
-      where: { id: ctoId, companyId },
-      data: { photoStorageKey: storageKey },
+  /*
+    O blob NOVO sai se a ligação falhar (`RC-STO-05`) — e só ele, e só se
+    nenhuma linha o referencia. Antes, uma transação que falhasse deixava o
+    arquivo recém-gravado sem dono e sem ninguém para recolhê-lo. A foto
+    ANTERIOR nunca é tocada aqui: se a ligação falhou, ela continua sendo a foto
+    da caixa.
+  */
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      await tx.cTO.updateMany({
+        where: { id: ctoId, companyId },
+        data: { photoStorageKey: storageKey },
+      });
+      await logAuditWithin(tx, {
+        companyId,
+        userId: actorUserId,
+        action: "CTO.PHOTO_UPDATED",
+        entity: "CTO",
+        entityId: ctoId,
+        // Nem a chave, nem bytes, nem metadado: só o fato e o tamanho gravado.
+        details: `Foto da CTO atualizada (${data.byteLength} bytes)`,
+      });
+      return tx.cTO.findFirstOrThrow({ where: { id: ctoId, companyId } });
     });
-    await logAuditWithin(tx, {
-      companyId,
-      userId: actorUserId,
-      action: "CTO.PHOTO_UPDATED",
-      entity: "CTO",
-      entityId: ctoId,
-      // Nem a chave, nem bytes, nem metadado: só o fato e o tamanho gravado.
-      details: `Foto da CTO atualizada (${data.byteLength} bytes)`,
-    });
-    return tx.cTO.findFirstOrThrow({ where: { id: ctoId, companyId } });
-  });
+  } catch (error) {
+    await discardBlobIfUnreferenced(storage, storageKey, "foto-cto-falhou");
+    throw error;
+  }
 
   return toPublicCto(updated);
 }

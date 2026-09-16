@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import {
@@ -5,6 +6,9 @@ import {
   type FileStorageContract,
   type StoredFile,
 } from "./contract";
+
+/** Sufixo do arquivo temporário de uma gravação em andamento. */
+export const TEMP_SUFFIX = ".tmp";
 
 /**
  * Filesystem-backed storage for development and tests.
@@ -39,6 +43,17 @@ export class LocalFileStorageAdapter implements FileStorageContract {
     return full;
   }
 
+  /**
+   * Gravação ATÔMICA: temporário ao lado, depois `rename` (`RC-1E`).
+   *
+   * `writeFile` direto na chave final deixava, num processo que morresse no
+   * meio, um arquivo pela metade exatamente no nome que uma linha passaria a
+   * apontar — e ninguém distinguiria uma foto truncada de uma inteira. Com o
+   * `rename` (atômico no mesmo sistema de arquivos), a chave final ou não
+   * existe, ou tem o arquivo inteiro. O temporário de uma escrita interrompida
+   * não casa com `STORAGE_KEY_PATTERN`: nenhuma leitura o alcança, e a auditoria
+   * de storage o lista à parte.
+   */
   async put(
     storageKey: string,
     data: Buffer,
@@ -46,7 +61,14 @@ export class LocalFileStorageAdapter implements FileStorageContract {
   ): Promise<StoredFile> {
     const full = this.resolvePath(storageKey);
     await fs.mkdir(path.dirname(full), { recursive: true });
-    await fs.writeFile(full, data);
+    const temporario = `${full}.${randomUUID()}${TEMP_SUFFIX}`;
+    try {
+      await fs.writeFile(temporario, data, { flag: "wx" });
+      await fs.rename(temporario, full);
+    } catch (error) {
+      await fs.unlink(temporario).catch(() => undefined);
+      throw error;
+    }
     return { storageKey, sizeBytes: data.byteLength, mimeType };
   }
 
