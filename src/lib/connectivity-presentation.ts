@@ -146,41 +146,6 @@ export function connectivityAge(
 }
 
 /**
- * Quanto tempo pode passar sem verificação antes de a tela avisar —
- * `DIAG-AUTO-1`.
- *
- * O alvo do ciclo é 5 minutos. O dobro dele é o limiar do aviso: uma volta
- * perdida é operação normal (a fila atrasou, o provider demorou), duas seguidas
- * significam que alguma coisa parou — o worker não está rodando, o ERP não
- * responde, a credencial caiu.
- *
- * **Isto NÃO é um estado.** Não existe `STALE` no banco, e o estado continua
- * sendo `ONLINE`/`OFFLINE`/`UNKNOWN`: o que o aviso diz é que a CONFIRMAÇÃO
- * está velha, não que o cliente mudou. É exatamente a distinção que a §370 da
- * PRD protege — falha de infraestrutura nunca vira afirmação sobre o cliente.
- */
-export const CONNECTIVITY_CHECK_TARGET_MS = 5 * 60_000;
-export const CONNECTIVITY_STALE_CHECK_MS = 2 * CONNECTIVITY_CHECK_TARGET_MS;
-
-/**
- * A verificação está atrasada?
- *
- * Nunca verificado (`null`) **não** é atraso: é ausência de leitura, que a tela
- * já diz com todas as letras. Marcar de atrasado quem nunca foi lido somaria um
- * aviso a um estado que já é explícito.
- */
-export function isConnectivityCheckStale(
-  observedAt: string | null,
-  now: Date = new Date(),
-  limiteMs: number = CONNECTIVITY_STALE_CHECK_MS,
-): boolean {
-  if (!observedAt) return false;
-  const instante = new Date(observedAt).getTime();
-  if (Number.isNaN(instante)) return false;
-  return now.getTime() - instante > limiteMs;
-}
-
-/**
  * "Online há 9 dias" — a DURAÇÃO do estado, que sai de `statusSince`.
  *
  * Existe separada de `connectivityAge` para que o tipo force a distinção no

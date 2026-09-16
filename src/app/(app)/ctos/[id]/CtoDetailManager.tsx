@@ -7,7 +7,6 @@ import {
   connectivityAge,
   connectivityPresentation,
   connectivityStatusDuration,
-  isConnectivityCheckStale,
   type ConnectivityTone,
 } from "@/lib/connectivity-presentation";
 import type { CtoClientConnectivity } from "@/lib/cto-client-connectivity";
@@ -856,11 +855,7 @@ export function CtoDetailManager({
                       apareceria exatamente igual a um verificado agora, e a
                       tela afirmaria um estado que ninguém confirmou.
                     */}
-                    {ocupante &&
-                      isConnectivityCheckStale(
-                        ocupante.connectivityObservedAt,
-                        relogio,
-                      ) && (
+                    {ocupante?.verificationIsStale && (
                         <span
                           className="rounded-full border border-warning-border bg-warning-bg px-2 py-0.5 text-xs font-medium text-warning-fg"
                           title="A última verificação passou do dobro do intervalo esperado."

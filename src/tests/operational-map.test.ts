@@ -1122,6 +1122,9 @@ describe("PORTCLIENT-01..08 — clientes por porta da CTO", () => {
       "customerName",
       "openServiceOrderCount",
       "portNumber",
+      // O veredito de frescor é decidido no SERVIDOR pela política única: a
+      // tela não compara idade com limiar.
+      "verificationIsStale",
     ]);
   });
 });

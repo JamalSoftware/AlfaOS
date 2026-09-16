@@ -1,6 +1,6 @@
 import { prisma } from "./prisma";
 import { refreshCustomerDiagnostic } from "./customer-diagnostics";
-import { CONNECTIVITY_CHECK_TARGET_MS } from "./connectivity-presentation";
+import { resolveConnectivityPolicy } from "./connectivity-policy";
 
 /**
  * # `DIAG-AUTO-1` — a conectividade se reconfere sozinha
@@ -61,7 +61,8 @@ import { CONNECTIVITY_CHECK_TARGET_MS } from "./connectivity-presentation";
  */
 
 /** O alvo: cada conexão elegível reconferida a cada ~5 minutos. */
-export const CONNECTIVITY_REFRESH_TARGET_MS = CONNECTIVITY_CHECK_TARGET_MS;
+export const CONNECTIVITY_REFRESH_TARGET_MS =
+  resolveConnectivityPolicy().refreshTargetMs;
 
 /**
  * Quantas verificações correm ao mesmo tempo.
@@ -145,6 +146,87 @@ export async function claimCustomerForCheck(
     data: { refreshLeaseUntil: new Date(now.getTime() + leaseMs) },
   });
   return reivindicado.count > 0;
+}
+
+/**
+ * Quanto tempo a transição da PRIMEIRA verificação pode durar.
+ *
+ * Folga sobre o deadline de uma chamada ao provider (8 s). Se a chamada estourar
+ * o prazo dela, o domínio já devolveu erro muito antes disto.
+ */
+const FIRST_CHECK_LOCK_TIMEOUT_MS = 20_000;
+/** Espera por uma conexão do pool antes de desistir da arbitragem. */
+const FIRST_CHECK_LOCK_MAX_WAIT_MS = 10_000;
+
+/**
+ * A PRIMEIRA verificação da vida de um cliente, sob exclusão mútua.
+ *
+ * ## O buraco que isto fecha
+ *
+ * A reserva de `claimCustomerForCheck` mora no snapshot. Quem nunca foi
+ * verificado não tem snapshot, logo não tinha onde ser reservado — e dois ciclos
+ * simultâneos chamavam o provider duas vezes para o mesmo cliente. Medido:
+ * `processed=1` nos dois ciclos, **duas** chamadas, um snapshot. O banco ficava
+ * coerente, e é por isso que nenhuma asserção sobre estado final via o defeito.
+ *
+ * ## Por que um lock do Postgres, e não uma coluna nova
+ *
+ * Não existe linha onde gravar a reserva, e **fabricar uma seria pior**: um
+ * snapshot criado só para ter onde travar afirmaria uma observação que não
+ * aconteceu, e `CustomerDiagnosticSnapshot` significa "isto foi observado".
+ *
+ * `IdempotencyRecord` foi avaliada e não serve: exige `userId` não-nulo (o ciclo
+ * não tem sessão) e memoriza o sucesso para replay — o oposto do que uma
+ * verificação periódica quer.
+ *
+ * O advisory lock é o mecanismo que o Postgres já oferece e que este
+ * repositório já usa (`lockStock`, em `inventory.ts`). A variante **`xact`** é
+ * deliberada: ela é liberada no commit e na queda da conexão, então um ciclo que
+ * morra no meio não deixa ninguém trancado — sem prazo, sem expiração, sem
+ * estado preso. É também a variante que sobrevive a pooler em modo transação,
+ * ao contrário do lock de sessão.
+ *
+ * ## O preço, declarado
+ *
+ * A transação fica aberta durante a chamada ao provider — no máximo o deadline
+ * dela. Isso vale **só para a primeira verificação de cada cliente**, que
+ * acontece uma vez na vida dele; do segundo ciclo em diante existe snapshot e a
+ * reserva por coluna assume, sem segurar transação nenhuma. `try` e não `lock`:
+ * quem perde a disputa volta na hora e segue para o próximo, sem bloquear.
+ */
+export async function withFirstCheckLock<T>(
+  companyId: string,
+  customerId: string,
+  trabalho: () => Promise<T>,
+): Promise<{ obtido: boolean; resultado?: T }> {
+  return prisma.$transaction(
+    async (tx) => {
+      const linhas = await tx.$queryRaw<Array<{ obtido: boolean }>>`
+        SELECT pg_try_advisory_xact_lock(
+          hashtext(${companyId}),
+          hashtext(${`primeira-verificacao:${customerId}`})
+        ) AS obtido
+      `;
+      if (!linhas[0]?.obtido) return { obtido: false };
+
+      /*
+        Reconferência DENTRO do lock: o ciclo que ganhou a disputa anterior pode
+        ter acabado de gravar a primeira leitura. Sem isto, o segundo a entrar
+        consultaria o provider por um cliente que já tem snapshot — trocando uma
+        corrida por uma chamada desnecessária.
+      */
+      const jaTem = await tx.customerDiagnosticSnapshot.count({
+        where: { companyId, customerId },
+      });
+      if (jaTem > 0) return { obtido: false };
+
+      return { obtido: true, resultado: await trabalho() };
+    },
+    {
+      timeout: FIRST_CHECK_LOCK_TIMEOUT_MS,
+      maxWait: FIRST_CHECK_LOCK_MAX_WAIT_MS,
+    },
+  );
 }
 
 /**
@@ -276,6 +358,23 @@ export async function runConnectivityRefreshCycle(options: {
         não consulta, e não conta como processado: o trabalho é de outro ciclo,
         não trabalho perdido.
       */
+      const verificar = () =>
+        refreshCustomerDiagnostic(alvo.companyId, null, alvo.customerId, {
+          audit: false,
+        });
+
+      /*
+        DUAS arbitragens, porque as duas situações são diferentes.
+
+        Com snapshot: a reserva mora na linha e não segura transação nenhuma —
+        é o caso de regime, o que roda a cada cinco minutos para a carteira
+        inteira.
+
+        Sem snapshot: não há linha onde reservar, e o advisory lock do Postgres
+        arbitra a primeira verificação da vida do cliente. Acontece uma vez por
+        cliente.
+      */
+      let r;
       if (alvo.hasSnapshot) {
         const meu = await claimCustomerForCheck(
           alvo.companyId,
@@ -287,14 +386,19 @@ export async function runConnectivityRefreshCycle(options: {
           resultado.claimedByOther += 1;
           continue;
         }
+        r = await verificar();
+      } else {
+        const arbitragem = await withFirstCheckLock(
+          alvo.companyId,
+          alvo.customerId,
+          verificar,
+        );
+        if (!arbitragem.obtido || !arbitragem.resultado) {
+          resultado.claimedByOther += 1;
+          continue;
+        }
+        r = arbitragem.resultado;
       }
-
-      const r = await refreshCustomerDiagnostic(
-        alvo.companyId,
-        null,
-        alvo.customerId,
-        { audit: false },
-      );
       resultado.processed += 1;
 
       if (!r.ok) {

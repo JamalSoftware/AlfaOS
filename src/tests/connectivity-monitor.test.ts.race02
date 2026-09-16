@@ -1,0 +1,23 @@
+  it("FIRST-DIAG-RACE-02 · a reserva do primeiro diagnóstico EXPIRA", async () => {
+    const c = await cliente("-ONLINE");
+    await ligarNaPorta(c.id, 1);
+
+    /*
+      Um ciclo que morre entre reivindicar e escrever não pode deixar o cliente
+      sem primeira leitura para sempre. Com a reserva vencida, a volta seguinte
+      o pega.
+    */
+    const agora = new Date();
+    expect(await claimFirstCheck(fixture.companyA.id, c.id, agora, 60_000)).toBe(
+      true,
+    );
+    const durante = await runConnectivityRefreshCycle({ now: agora });
+    expect(durante.processed).toBe(0);
+
+    const depois = await runConnectivityRefreshCycle({
+      now: new Date(agora.getTime() + 61_000),
+    });
+    expect(depois.processed).toBe(1);
+  }, 20_000);
+});
+

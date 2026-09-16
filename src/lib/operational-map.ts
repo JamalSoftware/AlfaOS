@@ -2,6 +2,10 @@ import type { ConnectivityStatus, ServiceOrderPriority,
   ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "./prisma";
 import { getConnectivityForCustomers } from "./customer-diagnostics";
+import {
+  isVerificationStale,
+  resolveConnectivityPolicy,
+} from "./connectivity-policy";
 import { OPEN_SERVICE_ORDER_STATUSES } from "./service-order-labels";
 import type { BoundingBox } from "./cto-map";
 
@@ -204,6 +208,16 @@ export interface CtoPortCustomer {
    * transformaria "offline há nove dias" em "offline há cinco minutos".
    */
   connectivityStatusSince: string | null;
+  /**
+   * A confirmação envelheceu? — `DIAG-AUTO-1`.
+   *
+   * Decidido no SERVIDOR, pela política única (`connectivity-policy.ts`). A tela
+   * NÃO compara idade com limiar: se comparasse, um operador que alongasse o
+   * alvo por ambiente veria o aviso cedo demais — a tela certa sobre o contrato
+   * e errada sobre aquele ambiente, sem nada no código denunciando a
+   * divergência.
+   */
+  verificationIsStale: boolean;
   openServiceOrderCount: number;
 }
 
@@ -688,6 +702,14 @@ export async function getCtoPortCustomers(
     contarOsAbertasPorCliente(companyId, customerIds),
   ]);
 
+  /*
+    A política é resolvida UMA vez por leitura, e o relógio também: com uma
+    chamada por cliente, duas portas da mesma caixa poderiam receber vereditos
+    diferentes por causa de milissegundos.
+  */
+  const politica = resolveConnectivityPolicy();
+  const agora = new Date();
+
   return vinculos
     .map((vinculo) => {
       const leitura = conectividade.get(vinculo.customerId);
@@ -699,6 +721,11 @@ export async function getCtoPortCustomers(
         connectivityStatus: leitura?.connectivityStatus ?? "UNKNOWN",
         connectivityObservedAt: leitura?.observedAt.toISOString() ?? null,
         connectivityStatusSince: leitura?.statusSince.toISOString() ?? null,
+        verificationIsStale: isVerificationStale(
+          leitura?.observedAt ?? null,
+          agora,
+          politica,
+        ),
         openServiceOrderCount: osAbertas.get(vinculo.customerId)?.total ?? 0,
       };
     })

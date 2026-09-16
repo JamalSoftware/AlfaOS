@@ -6239,33 +6239,39 @@ envelhece em público em vez de afirmar um estado que ninguém confirmou.
 
 ### 48.4.0. O que é configurável, e o que é decisão
 
+**A política vive num módulo só** — `src/lib/connectivity-policy.ts` —, e são
+DUAS grandezas distintas:
+
 ```text
-env, validado   DIAGNOSTICS_REFRESH_TARGET_MS       padrão 300000 (5 min)
-env, validado   DIAGNOSTICS_REFRESH_BATCH_LIMIT     padrão 300
-env, validado   DIAGNOSTICS_REFRESH_CONCURRENCY     padrão 6
-constante       CONNECTIVITY_REFRESH_LEASE_MS       60 s
-constante       CONNECTIVITY_STALE_CHECK_MS         2 × o alvo contratado
-pré-existente   DIAGNOSTIC_TIMEOUT_MS               8 s, por chamada
+DIAGNOSTICS_REFRESH_TARGET_MS   de quanto em quanto RECONFERIMOS   padrão  5 min
+DIAGNOSTICS_STALE_AFTER_MS      quando a confirmação está VELHA    padrão 10 min
+DIAGNOSTICS_REFRESH_BATCH_LIMIT teto por execução                  padrão 300
+DIAGNOSTICS_REFRESH_CONCURRENCY chamadas simultâneas               padrão 6
+constante   CONNECTIVITY_REFRESH_LEASE_MS   60 s
+pré-existente DIAGNOSTIC_TIMEOUT_MS         8 s, por chamada
 ```
 
-Valor de ambiente inválido — não numérico, zero ou negativo — **derruba a subida
-do comando**, em vez de virar `NaN` e desligar o teto em silêncio. É a mesma
-regra que a `RC-1B` aplicou às variáveis de login.
+**O ciclo e a tela leem as DUAS primeiras do mesmo lugar**, e isso corrige uma
+divergência real que a fase anterior tinha declarado como limitação: o worker
+obedecia à variável de ambiente e a tela derivava o limiar de uma constante
+compilada. Um operador que alongasse o alvo para 15 minutos veria a tela avisando
+aos 10 — certa sobre o contrato e errada sobre aquele ambiente, sem nada no
+código denunciando a divergência.
+
+**A tela não decide nada.** O read model entrega `verificationIsStale` já
+resolvido no DTO por porta; nenhum componente compara idade com limiar. Um teste
+lê o fonte do módulo de apresentação e exige que ele não conheça limiar nenhum.
+
+Valor inválido — não numérico, zero, negativo, fracionário ou absurdo (acima de
+24 h) — **derruba a subida**, em vez de virar padrão silencioso. E o limiar do
+aviso **não pode ser menor que o alvo**: se fosse, toda verificação nasceria
+atrasada, o aviso perderia sentido e a operação aprenderia a ignorá-lo. É uma
+relação entre as duas, então só pode ser conferida onde as duas existem juntas.
 
 A reserva **não** é env: ela precisa ser maior que o deadline de uma chamada
-(8 s) e muito menor que o alvo (5 min), e expor esse número convida um valor que
-quebra os dois lados de uma vez. O deadline por chamada é pré-existente e
-compartilhado com o refresh manual da OS — mexer nele mudaria comportamento já
-aprovado, e ficou fora.
-
-> **Limitação declarada:** o limiar do aviso da TELA é derivado do alvo
-> **contratado** (5 min × 2 = 10 min), e não da variável que o worker lê. Um
-> operador que alongue `DIAGNOSTICS_REFRESH_TARGET_MS` para 15 minutos verá a
-> tela avisando "Verificação atrasada" aos 10 — a tela continuaria certa sobre o
-> contrato e errada sobre aquele ambiente. Amarrar as duas exigiria que a
-> apresentação lesse configuração de worker, o que acopla camadas que hoje não
-> se conhecem; a saída, se o alvo mudar de verdade, é mudar o contrato, não a
-> variável.
+(8 s) e muito menor que o alvo, e expor esse número convida um valor que quebra
+os dois lados de uma vez. O deadline por chamada é pré-existente e compartilhado
+com o refresh manual da OS — mexer nele mudaria comportamento já aprovado.
 
 ### 48.4.1. O que evita a rajada — e o que NÃO existe
 
@@ -6312,11 +6318,33 @@ mesmo compare-and-set que o outbox usa para reivindicar evento, e não um
 mecanismo novo. O prazo existe para que um processo morto devolva o cliente à
 fila em vez de trancá-lo.
 
-> **Janela declarada:** quem nunca foi verificado não tem linha onde ser
-> reservado, e dois ciclos simultâneos podem consultá-lo. Acontece no máximo uma
-> vez por cliente, e o banco continua coerente porque a escrita é monotônica.
-> Inventar uma linha com um estado que ninguém observou, só para ter onde
-> travar, seria pior que a janela.
+**A janela do PRIMEIRO diagnóstico foi fechada, e ela também foi medida.** Quem
+nunca foi verificado não tem snapshot, logo não tinha onde ser reservado: dois
+ciclos simultâneos chamavam o provider **duas vezes** para o mesmo cliente
+(`processed=1` nos dois, duas chamadas, um snapshot). O banco ficava coerente — e
+é por isso que nenhuma asserção sobre estado final via o defeito. O que o
+denuncia é contar **chamadas ao provider**, que é a única grandeza perdida.
+
+A arbitragem é um **advisory lock do Postgres** (`pg_try_advisory_xact_lock`), o
+mesmo mecanismo que `lockStock` já usa neste repositório, e **nenhuma coluna
+nova**:
+
+* **fabricar um snapshot para ter onde travar foi recusado** — um registro com
+  `UNKNOWN` criado só para isso afirmaria uma observação que não aconteceu, e
+  `CustomerDiagnosticSnapshot` significa "isto foi observado";
+* `IdempotencyRecord` foi avaliada e não serve: exige `userId` não-nulo (o ciclo
+  não tem sessão) e memoriza o sucesso para replay — o oposto do que uma
+  verificação periódica quer;
+* a variante **`xact`** é deliberada: solta no commit e na queda da conexão, de
+  modo que um ciclo que morra **não deixa ninguém trancado** — sem prazo, sem
+  expiração, sem estado preso. É também a variante que sobrevive a pooler em
+  modo transação.
+
+**O preço, declarado:** a transação fica aberta durante a chamada ao provider, no
+máximo o deadline dela (8 s). Vale só para a **primeira verificação de cada
+cliente**, uma vez na vida dele; do segundo ciclo em diante existe snapshot e a
+reserva por coluna assume, sem segurar transação nenhuma. `try` e não `lock`:
+quem perde a disputa volta na hora, sem bloquear.
 
 **Capacidade, com 600 conexões elegíveis:**
 

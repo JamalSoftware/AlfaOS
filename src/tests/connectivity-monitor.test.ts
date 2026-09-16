@@ -15,9 +15,15 @@ import {
 import {
   connectivityAge,
   connectivityStatusDuration,
-  isConnectivityCheckStale,
 } from "@/lib/connectivity-presentation";
+import {
+  CONNECTIVITY_POLICY_DEFAULTS,
+  isVerificationStale,
+  resolveConnectivityPolicy,
+} from "@/lib/connectivity-policy";
 import { createCto } from "@/lib/cto";
+import { getCtoClientConnectivity } from "@/lib/cto-client-connectivity";
+import { MockERPAdapter } from "@/integrations/MockERPAdapter";
 import { seedTestData, type TestFixture } from "./helpers";
 
 /**
@@ -603,6 +609,109 @@ describe("SCHED — o ciclo", () => {
 // O que o técnico lê na tela
 // ---------------------------------------------------------------------------
 
+describe("FIRST-DIAG-RACE — o cliente que nunca foi verificado", () => {
+  /*
+    O caso que a reserva por coluna NÃO cobria.
+
+    `refreshLeaseUntil` mora no snapshot. Quem nunca foi verificado não tem
+    snapshot, logo não tem onde ser reservado — e dois ciclos simultâneos
+    chamavam o provider duas vezes para o mesmo cliente.
+
+    O teste conta CHAMADAS AO PROVIDER, não linhas gravadas: o banco sempre
+    ficou coerente (a unique e a escrita monotônica cuidam disso), e por isso o
+    defeito era invisível para qualquer asserção sobre estado final. O que se
+    perde é uma chamada externa — a única grandeza que prova a duplicidade.
+  */
+  it("FIRST-DIAG-RACE-01 · dois ciclos, cliente sem leitura: UMA chamada ao provider", async () => {
+    const c = await cliente("-ONLINE");
+    await ligarNaPorta(c.id, 1);
+    expect(
+      await prisma.customerDiagnosticSnapshot.count({ where: { customerId: c.id } }),
+    ).toBe(0);
+
+    const espiao = vi.spyOn(
+      MockERPAdapter.prototype,
+      "fetchCustomerConnectivity",
+    );
+    let chamadas = 0;
+    try {
+      await Promise.all([
+        runConnectivityRefreshCycle(),
+        runConnectivityRefreshCycle(),
+      ]);
+      /*
+        A leitura das chamadas acontece ANTES de restaurar o espião.
+        `mockRestore()` limpa `mock.calls`, e a primeira versão deste teste
+        media zero — dizendo que nada tinha sido chamado justamente quando duas
+        chamadas haviam saído.
+      */
+      chamadas = espiao.mock.calls.filter(
+        ([ref]) => ref.externalId === c.externalId,
+      ).length;
+    } finally {
+      espiao.mockRestore();
+    }
+    expect(chamadas).toBe(1);
+    expect(
+      await prisma.customerDiagnosticSnapshot.count({ where: { customerId: c.id } }),
+    ).toBe(1);
+  }, 20_000);
+
+  it("FIRST-DIAG-RACE-02 · a arbitragem não deixa NADA preso quando o provider falha", async () => {
+    const c = await cliente("-FAIL");
+    await ligarNaPorta(c.id, 1);
+
+    /*
+      O ciclo ganha a disputa, o provider falha e nada é gravado — então o
+      cliente continua sem snapshot. Se o lock ficasse preso, ele nunca mais
+      seria verificado: o worker teria criado um ponto cego permanente com a
+      própria proteção.
+
+      O advisory lock `xact` é liberado no commit e na queda da conexão, então
+      não há prazo a esperar nem estado a limpar. A volta seguinte tenta de novo.
+    */
+    const um = await runConnectivityRefreshCycle();
+    expect(um.processed).toBe(1);
+    expect(um.providerFailures).toBe(1);
+    expect(
+      await prisma.customerDiagnosticSnapshot.count({ where: { customerId: c.id } }),
+    ).toBe(0);
+
+    const dois = await runConnectivityRefreshCycle();
+    expect(dois.processed).toBe(1);
+    expect(dois.claimedByOther).toBe(0);
+  }, 20_000);
+
+  it("FIRST-DIAG-RACE-03 · depois da primeira leitura, a reserva por COLUNA assume", async () => {
+    const c = await cliente("-ONLINE");
+    await ligarNaPorta(c.id, 1);
+
+    // Primeira volta: arbitrada pelo lock, grava a leitura.
+    await runConnectivityRefreshCycle();
+    const s = await snapshotDe(c.id);
+    expect(s.refreshLeaseUntil).toBeNull();
+
+    /*
+      Envelhece a leitura para o cliente voltar a ser elegível. A partir daqui
+      existe linha, e a arbitragem é a reserva da coluna — sem transação aberta
+      durante a chamada ao provider.
+    */
+    const velha = new Date(Date.now() - 30 * MIN);
+    await prisma.customerDiagnosticSnapshot.updateMany({
+      where: { customerId: c.id },
+      data: { observedAt: velha, statusSince: velha },
+    });
+
+    const [a, b] = await Promise.all([
+      runConnectivityRefreshCycle(),
+      runConnectivityRefreshCycle(),
+    ]);
+    expect(a.processed + b.processed).toBe(1);
+    expect(a.claimedByOther + b.claimedByOther).toBe(1);
+    expect((await snapshotDe(c.id)).refreshLeaseUntil).not.toBeNull();
+  }, 20_000);
+});
+
 describe("SCHED — a prévia segura", () => {
   /*
     `--dry-run` existe para que o primeiro disparo num ambiente novo seja uma
@@ -650,19 +759,106 @@ describe("AUTO-CONFUSAO — duração e frescor são coisas diferentes", () => {
     expect(connectivityStatusDuration(statusSince, agora)).not.toBe("há 3 min");
   });
 
-  it("AUTO-STALE-01 · a verificação atrasa só depois do DOBRO do alvo", () => {
-    const agora = new Date("2026-09-15T12:00:00.000Z");
-    const recente = new Date(agora.getTime() - 4 * MIN).toISOString();
-    const noLimite = new Date(agora.getTime() - 10 * MIN).toISOString();
-    const atrasada = new Date(agora.getTime() - 37 * MIN).toISOString();
-
-    expect(isConnectivityCheckStale(recente, agora)).toBe(false);
-    expect(isConnectivityCheckStale(noLimite, agora)).toBe(false);
-    expect(isConnectivityCheckStale(atrasada, agora)).toBe(true);
-  });
-
   it("AUTO-STALE-02 · nunca verificado NÃO é 'atrasado' — é sem leitura", () => {
-    expect(isConnectivityCheckStale(null)).toBe(false);
+    expect(
+      isVerificationStale(null, new Date(), CONNECTIVITY_POLICY_DEFAULTS),
+    ).toBe(false);
     expect(connectivityStatusDuration(null)).toBeNull();
   });
+});
+
+// ---------------------------------------------------------------------------
+// A política de frescor — uma só, do servidor
+// ---------------------------------------------------------------------------
+
+describe("FRESH — a política de frescor", () => {
+  const agora = new Date("2026-09-15T12:00:00.000Z");
+  const haQuanto = (ms: number) => new Date(agora.getTime() - ms);
+
+  it("FRESH-01 · alvo 5, atraso 10: verificado há 9m59s ainda é FRESCO", () => {
+    const politica = resolveConnectivityPolicy({} as unknown as NodeJS.ProcessEnv);
+    expect(politica).toEqual({ refreshTargetMs: 5 * MIN, staleAfterMs: 10 * MIN });
+    expect(
+      isVerificationStale(haQuanto(9 * MIN + 59_000), agora, politica),
+    ).toBe(false);
+  });
+
+  it("FRESH-02 · passado o limiar, está ATRASADO", () => {
+    const politica = resolveConnectivityPolicy({} as unknown as NodeJS.ProcessEnv);
+    expect(isVerificationStale(haQuanto(10 * MIN), agora, politica)).toBe(false);
+    expect(isVerificationStale(haQuanto(10 * MIN + 1), agora, politica)).toBe(true);
+    expect(isVerificationStale(haQuanto(37 * MIN), agora, politica)).toBe(true);
+  });
+
+  /*
+    A prova de que NINGUÉM tem 10 minutos escrito no código.
+
+    Era exatamente esta a limitação declarada antes da política: o worker lia o
+    alvo do ambiente e a tela derivava o limiar de uma constante compilada. Com
+    o limiar em 20 minutos, uma verificação de 15 tem de ser fresca — se alguma
+    camada ainda decidisse por conta própria, ela diria "atrasada".
+  */
+  it("FRESH-03 · limiar configurado para 20 min: verificado há 15 min é FRESCO", () => {
+    const politica = resolveConnectivityPolicy({
+      DIAGNOSTICS_STALE_AFTER_MS: String(20 * MIN),
+    } as unknown as NodeJS.ProcessEnv);
+    expect(politica.staleAfterMs).toBe(20 * MIN);
+    expect(isVerificationStale(haQuanto(15 * MIN), agora, politica)).toBe(false);
+    expect(isVerificationStale(haQuanto(21 * MIN), agora, politica)).toBe(true);
+  });
+
+  it("FRESH-04 · configuração inválida DERRUBA, em vez de virar padrão", () => {
+    for (const valor of ["0", "-1", "abc", "5.5", "NaN", ""]) {
+      const env = { DIAGNOSTICS_REFRESH_TARGET_MS: valor } as unknown as NodeJS.ProcessEnv;
+      if (valor === "") {
+        // Vazio é "não configurado", e cai no padrão — isso é legítimo.
+        expect(resolveConnectivityPolicy(env).refreshTargetMs).toBe(5 * MIN);
+        continue;
+      }
+      expect(() => resolveConnectivityPolicy(env)).toThrow(
+        /DIAGNOSTICS_REFRESH_TARGET_MS inválido/,
+      );
+    }
+
+    // Absurdo também é recusado: acima de 24 h é erro de digitação.
+    expect(() =>
+      resolveConnectivityPolicy({
+        DIAGNOSTICS_STALE_AFTER_MS: String(48 * 60 * MIN),
+      } as unknown as NodeJS.ProcessEnv),
+    ).toThrow(/teto de sanidade/);
+  });
+
+  it("FRESH-05 · limiar MENOR que o alvo é recusado — tudo nasceria atrasado", () => {
+    expect(() =>
+      resolveConnectivityPolicy({
+        DIAGNOSTICS_REFRESH_TARGET_MS: String(10 * MIN),
+        DIAGNOSTICS_STALE_AFTER_MS: String(5 * MIN),
+      } as unknown as NodeJS.ProcessEnv),
+    ).toThrow(/não pode ser menor/);
+  });
+
+  it("FRESH-06 · a TELA não decide: o veredito chega pronto do servidor", async () => {
+    const c = await cliente("-ONLINE");
+    const velha = new Date(Date.now() - 40 * MIN);
+    await leituraAntiga(c.id, "ONLINE", velha, velha);
+    const recente = await cliente("-ONLINE");
+    await leituraAntiga(recente.id, "ONLINE", new Date(), new Date());
+    const cto = await ligarNaPorta(c.id, 1);
+    await ligarNaPorta(recente.id, 2, fixture.companyA.id, cto);
+
+    const vista = await getCtoClientConnectivity(fixture.companyA.id, cto);
+    const porta = new Map(vista.customers.map((x) => [x.portNumber, x]));
+    expect(porta.get(1)!.verificationIsStale).toBe(true);
+    expect(porta.get(2)!.verificationIsStale).toBe(false);
+
+    /*
+      E o componente não tem como decidir por conta própria: nada em
+      `connectivity-presentation` — o módulo que a tela importa — conhece limiar.
+    */
+    const apresentacao = readFileSync(
+      path.join(process.cwd(), "src/lib/connectivity-presentation.ts"),
+      "utf8",
+    );
+    expect(apresentacao).not.toMatch(/staleAfter|STALE_CHECK|10 \* 60_000/);
+  }, 20_000);
 });

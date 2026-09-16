@@ -45,8 +45,8 @@ import {
   runConnectivityRefreshCycle,
   CONNECTIVITY_REFRESH_BATCH_LIMIT,
   CONNECTIVITY_REFRESH_CONCURRENCY,
-  CONNECTIVITY_REFRESH_TARGET_MS,
 } from "../src/lib/connectivity-monitor";
+import { resolveConnectivityPolicy } from "../src/lib/connectivity-policy";
 import { prisma } from "../src/lib/prisma";
 import { logServerError } from "../src/lib/safe-log";
 
@@ -66,10 +66,16 @@ function numeroDoAmbiente(nome: string, padrao: number): number {
 }
 
 async function main(): Promise<void> {
-  const targetMs = numeroDoAmbiente(
-    "DIAGNOSTICS_REFRESH_TARGET_MS",
-    CONNECTIVITY_REFRESH_TARGET_MS,
-  );
+  /*
+    O alvo vem da POLÍTICA, não de uma leitura própria do ambiente.
+
+    Ele é a mesma grandeza que decide o aviso "Verificação atrasada" na tela, e
+    duas leituras independentes da mesma variável foi exatamente o que produziu
+    a divergência anterior: o worker obedecia ao ambiente e a tela obedecia a uma
+    constante. Aqui o comando apenas consome o que a política resolveu — e uma
+    configuração inválida derruba a subida, que é o que se quer.
+  */
+  const { refreshTargetMs: targetMs, staleAfterMs } = resolveConnectivityPolicy();
   const limit = numeroDoAmbiente(
     "DIAGNOSTICS_REFRESH_BATCH_LIMIT",
     CONNECTIVITY_REFRESH_BATCH_LIMIT,
@@ -105,7 +111,8 @@ async function main(): Promise<void> {
   }
 
   console.info(
-    `[diagnostics] ciclo iniciado alvo=${Math.round(targetMs / 1000)}s teto=${limit} concorrencia=${concurrency}`,
+    `[diagnostics] ciclo iniciado alvo=${Math.round(targetMs / 1000)}s ` +
+      `atrasoApos=${Math.round(staleAfterMs / 1000)}s teto=${limit} concorrencia=${concurrency}`,
   );
 
   const r = await runConnectivityRefreshCycle({ targetMs, limit, concurrency });
