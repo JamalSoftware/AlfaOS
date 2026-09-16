@@ -668,7 +668,17 @@ export function CtoDetailManager({
         <div className="mb-4 space-y-2" data-testid="cto-port-filters">
           <div
             role="group"
-            aria-label="Filtrar as portas desta caixa"
+            /*
+              O nome acessível NÃO repete "Portas", e isso não é estilo.
+
+              O campo de capacidade desta mesma página já se chama "Portas". Dois
+              elementos cujo nome contém a mesma palavra deixam de ser
+              distinguíveis por nome — quem navega por leitor de tela procurando
+              "Portas" recebe dois alvos de naturezas diferentes, um formulário e
+              uma barra de filtros. Foram os testes de navegador que mostraram a
+              ambiguidade, ao resolverem "Portas" para dois elementos.
+            */
+            aria-label="Filtrar a lista desta caixa"
             className="flex flex-wrap items-center gap-1.5"
           >
             <span className="mr-0.5 text-[11px] font-semibold uppercase tracking-wide text-fg-muted">

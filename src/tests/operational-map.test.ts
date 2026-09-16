@@ -1113,6 +1113,10 @@ describe("PORTCLIENT-01..08 — clientes por porta da CTO", () => {
     expect(Object.keys(proprio[0]).sort()).toEqual([
       "connectivityObservedAt",
       "connectivityStatus",
+      // `DIAG-AUTO-1`: a duração do estado viaja SEPARADA da idade da
+      // verificação. Quem juntar as duas de novo cai aqui e no teste de
+      // confusão do técnico.
+      "connectivityStatusSince",
       "customerActive",
       "customerId",
       "customerName",
