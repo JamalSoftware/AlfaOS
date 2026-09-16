@@ -396,10 +396,10 @@ test("RC1D-CTO-06 · o detalhe diz os MESMOS números do popup da caixa no mapa"
     popup divergirem, a caixa passa a dizer duas coisas sobre os mesmos
     clientes, que é o defeito que a fase existe para impedir.
   */
-  const soNumero = async (testId: string) =>
-    (await page.getByTestId(testId).innerText()).replace(/D/g, "").slice(-1) === ""
-      ? ""
-      : (await page.getByTestId(testId).innerText()).match(/((d+))/)?.[1] ?? "?";
+  const soNumero = async (testId: string) => {
+    const texto = await page.getByTestId(testId).innerText();
+    return texto.match(/\((\d+)\)/)?.[1] ?? `sem numero em "${texto}"`;
+  };
   const detalhe = {
     online: await soNumero("cto-port-filter-online"),
     offline: await soNumero("cto-port-filter-offline"),
