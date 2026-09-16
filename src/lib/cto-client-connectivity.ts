@@ -1,9 +1,4 @@
-import {
-  getCtoOperationalSummaries,
-  getCtoPortCustomers,
-  type CtoOperationalSummary,
-  type CtoPortCustomer,
-} from "./operational-map";
+import { getCtoPortCustomers, type CtoPortCustomer } from "./operational-map";
 
 /**
  * # RC-1D — os clientes da caixa, na tela da CTO
@@ -13,13 +8,19 @@ import {
  *
  * ## Nenhuma autoridade nova
  *
- * As duas perguntas já tinham resposta no Mapa Operacional, e a tela reusa as
- * MESMAS funções — não uma cópia delas:
+ * A pergunta já tinha resposta no Mapa Operacional, e a tela reusa a MESMA
+ * função — não uma cópia dela:
  *
  * ```text
- * resumo     getCtoOperationalSummaries   o que o popup da caixa mostra
- * por porta  getCtoPortCustomers          o que "Ver clientes" do popup lista
+ * por porta  getCtoPortCustomers   o que "Ver clientes" do popup já lista
  * ```
+ *
+ * O RESUMO deixou de ser lido aqui na revisão de UX da `RC-1D`: o card grande
+ * de "Clientes" saiu da tela por decisão do dono, e uma consulta que ninguém
+ * renderiza é só custo. O que a tela mostra agora — as contagens dos filtros —
+ * é derivado desta mesma lista, e a garantia de que ela não diverge do popup do
+ * mapa virou teste (`CTO-CONSIST-01/02`): as contagens derivadas da lista são
+ * comparadas com as de `getCtoOperationalSummaries`, número a número.
  *
  * Por isso o detalhe e o popup não têm como divergir: é a mesma função, sobre o
  * mesmo vínculo (`CustomerNetworkConnection` ativa), o mesmo snapshot
@@ -49,8 +50,6 @@ import {
  */
 
 export interface CtoClientConnectivity {
-  /** O MESMO resumo do popup da caixa no mapa. */
-  summary: CtoOperationalSummary;
   /** Quem está em cada porta agora, com cadastro, conectividade e OS abertas. */
   customers: CtoPortCustomer[];
 }
@@ -59,18 +58,5 @@ export async function getCtoClientConnectivity(
   companyId: string,
   ctoId: string,
 ): Promise<CtoClientConnectivity> {
-  const [leitura, customers] = await Promise.all([
-    getCtoOperationalSummaries(companyId, [ctoId]),
-    getCtoPortCustomers(companyId, ctoId),
-  ]);
-  return {
-    summary: leitura.summaries.get(ctoId) ?? {
-      activeCustomerCount: 0,
-      onlineCount: 0,
-      offlineCount: 0,
-      unknownCount: 0,
-      openServiceOrderCount: 0,
-    },
-    customers,
-  };
+  return { customers: await getCtoPortCustomers(companyId, ctoId) };
 }

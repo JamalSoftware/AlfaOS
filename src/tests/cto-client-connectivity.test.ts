@@ -78,6 +78,7 @@ async function gravarLeitura(
       externalProvider: "MOCK",
       connectivityStatus: status,
       observedAt,
+      statusSince: observedAt,
     },
   });
 }
@@ -326,8 +327,11 @@ describe("CTO-CONN — a conectividade de cada porta vem da autoridade", () => {
       const pequena = await medir(2, "N1 DUAS");
       const grande = await medir(6, "N1 SEIS");
       expect(grande).toEqual(pequena);
-      // Resumo + lista: uma de cada tipo por leitura, nunca uma por cliente.
-      expect(grande).toEqual({ vinculos: 2, snapshots: 2, os: 2, porCliente: 0 });
+      /*
+        UMA de cada tipo, nunca uma por cliente — e nunca duas, como era quando
+        a tela também lia o resumo do popup para o card que o dono removeu.
+      */
+      expect(grande).toEqual({ vinculos: 1, snapshots: 1, os: 1, porCliente: 0 });
     } finally {
       for (const e of [espiaoVinculo, espiaoSnapshot, espiaoOs, espiaoCliente, espiaoSnapUnico]) {
         e.mockRestore();
@@ -346,16 +350,9 @@ describe("CTO-CONN — a conectividade de cada porta vem da autoridade", () => {
     expect(portas.get(3)!.connectivityStatus).toBe("UNKNOWN");
     expect(portas.get(1)!.openServiceOrderCount).toBe(0);
 
-    // A empresa B pedindo a caixa da A: nada, nem contagem.
+    // A empresa B pedindo a caixa da A: nada, nem uma linha.
     const cruzada = await getCtoClientConnectivity(fixture.companyB.id, r.cto.id);
     expect(cruzada.customers).toEqual([]);
-    expect(cruzada.summary).toEqual({
-      activeCustomerCount: 0,
-      onlineCount: 0,
-      offlineCount: 0,
-      unknownCount: 0,
-      openServiceOrderCount: 0,
-    });
     expect(await getOperationalCtoDetail(fixture.companyB.id, r.cto.id)).toBeNull();
   });
 });
@@ -377,30 +374,27 @@ describe("CTO-COUNT — o resumo e as contagens", () => {
 
     const vista = await getCtoClientConnectivity(fixture.companyA.id, cto.id);
     const detalhe = (await getOperationalCtoDetail(fixture.companyA.id, cto.id))!;
+    const filtros = countPortFilters(detalhe.ports, vista.customers);
 
-    expect(vista.summary).toEqual({
-      activeCustomerCount: 6,
-      onlineCount: 4,
-      offlineCount: 1,
-      unknownCount: 1,
-      openServiceOrderCount: 0,
-    });
+    expect(filtros.ONLINE).toBe(4);
+    expect(filtros.OFFLINE).toBe(1);
+    expect(filtros.UNKNOWN).toBe(1);
+    expect(filtros.OPEN_OS).toBe(0);
     // Portas e clientes são dimensões separadas.
     expect(detalhe.summary.capacity).toBe(8);
     expect(detalhe.summary.occupied).toBe(6);
     expect(detalhe.summary.free).toBe(2);
   });
 
-  it("CTO-COUNT-02 · o roteiro: ativos 6, online 2, offline 2, sem leitura 2, OS abertas 3 — o inativo e a OS encerrada fora", async () => {
+  it("CTO-COUNT-02 · o roteiro: online 2, offline 2, sem leitura 2, com OS 2 — o inativo e a OS encerrada fora", async () => {
     const r = await caixaDoRoteiro();
     const vista = await getCtoClientConnectivity(fixture.companyA.id, r.cto.id);
-    expect(vista.summary).toEqual({
-      activeCustomerCount: 6,
-      onlineCount: 2,
-      offlineCount: 2,
-      unknownCount: 2,
-      openServiceOrderCount: 3,
-    });
+    const detalhe = (await getOperationalCtoDetail(fixture.companyA.id, r.cto.id))!;
+    const filtros = countPortFilters(detalhe.ports, vista.customers);
+    expect(filtros.ONLINE).toBe(2);
+    expect(filtros.OFFLINE).toBe(2);
+    expect(filtros.UNKNOWN).toBe(2);
+    expect(filtros.OPEN_OS).toBe(2);
     const portas = porPorta(vista.customers);
     // OS abertas pelo predicado canônico: concluída e cancelada não contam.
     expect(portas.get(4)!.openServiceOrderCount).toBe(1);
@@ -412,19 +406,43 @@ describe("CTO-COUNT — o resumo e as contagens", () => {
 });
 
 describe("CTO-CONSIST — o detalhe diz o que o popup diz", () => {
-  it("CTO-CONSIST-01 · o resumo do detalhe é o do popup da caixa no mapa, número a número", async () => {
+  /*
+    O card de "Clientes" saiu da tela na revisão de UX da RC-1D, e com ele a
+    leitura do resumo. A garantia de que detalhe e popup não divergem NÃO saiu
+    junto: ela passou a ser afirmada aqui, contra a autoridade do popup
+    (`getCtoOperationalSummaries`, a mesma que o mapa chama), sobre as contagens
+    que a tela realmente mostra hoje — as dos filtros, derivadas da lista.
+
+    É um teste mais forte que o anterior: antes, os dois lados vinham da mesma
+    chamada e concordar era tautológico; agora, um erro em `countPortFilters`
+    aparece.
+  */
+  it("CTO-CONSIST-01 · as contagens da tela são as do popup da caixa no mapa, número a número", async () => {
     const r = await caixaDoRoteiro();
     const vista = await getCtoClientConnectivity(fixture.companyA.id, r.cto.id);
+    const detalhe = (await getOperationalCtoDetail(fixture.companyA.id, r.cto.id))!;
+    const filtros = countPortFilters(detalhe.ports, vista.customers);
+
     const mapa = await getCtoMapView(fixture.companyA.id, { bbox: BBOX });
     const popup = mapa.markers.find((m) => m.id === r.cto.id)!;
-    expect(vista.summary).toEqual(popup.operational);
+
+    expect(filtros.ONLINE).toBe(popup.operational.onlineCount);
+    expect(filtros.OFFLINE).toBe(popup.operational.offlineCount);
+    expect(filtros.UNKNOWN).toBe(popup.operational.unknownCount);
+    // "Com OS aberta" conta CLIENTES; a soma das OS deles é o número do popup.
+    const comOs = vista.customers.filter(
+      (c) => c.customerActive && c.openServiceOrderCount > 0,
+    );
+    expect(filtros.OPEN_OS).toBe(comOs.length);
+    expect(comOs.reduce((s, c) => s + c.openServiceOrderCount, 0)).toBe(
+      popup.operational.openServiceOrderCount,
+    );
 
     // E as portas do popup são as do detalhe.
-    const detalhe = (await getOperationalCtoDetail(fixture.companyA.id, r.cto.id))!;
     expect(popup.summary).toEqual(detalhe.summary);
   });
 
-  it("CTO-CONSIST-02 · o número de cada filtro é o do resumo — nenhuma segunda contagem", async () => {
+  it("CTO-CONSIST-02 · o filtro de PORTA conta posição, e bate com o resumo de portas", async () => {
     const r = await caixaDoRoteiro();
     const vista = await getCtoClientConnectivity(fixture.companyA.id, r.cto.id);
     const detalhe = (await getOperationalCtoDetail(fixture.companyA.id, r.cto.id))!;
@@ -433,17 +451,6 @@ describe("CTO-CONSIST — o detalhe diz o que o popup diz", () => {
     expect(filtros.ALL).toBe(detalhe.ports.length);
     expect(filtros.FREE).toBe(detalhe.summary.free);
     expect(filtros.OCCUPIED).toBe(detalhe.summary.occupied);
-    expect(filtros.ONLINE).toBe(vista.summary.onlineCount);
-    expect(filtros.OFFLINE).toBe(vista.summary.offlineCount);
-    expect(filtros.UNKNOWN).toBe(vista.summary.unknownCount);
-    // "Com OS aberta" conta CLIENTES; a soma das OS deles é o resumo.
-    const comOs = vista.customers.filter(
-      (c) => c.customerActive && c.openServiceOrderCount > 0,
-    );
-    expect(filtros.OPEN_OS).toBe(comOs.length);
-    expect(comOs.reduce((s, c) => s + c.openServiceOrderCount, 0)).toBe(
-      vista.summary.openServiceOrderCount,
-    );
   });
 
   it("CTO-FILTER-01 · cada filtro mostra só o que diz, e 'Todas' devolve tudo", async () => {

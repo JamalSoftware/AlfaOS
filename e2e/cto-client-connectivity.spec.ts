@@ -68,11 +68,11 @@ test.beforeAll(async () => {
 
   // A caixa do roteiro do dono: portas 1–5 com os casos, 6–8 livres.
   const cto = await prisma.cTO.create({
-    data: { companyId, name: "CTO QA RC1D", code: "RC1D-01", capacity: 8, ...LOCAL },
+    data: { companyId, name: "CTO QA RC1D", code: "RC1D-01", capacity: 10, ...LOCAL },
   });
   ctoId = cto.id;
   await prisma.cTOPort.createMany({
-    data: Array.from({ length: 8 }, (_, i) => ({ ctoId, companyId, number: i + 1 })),
+    data: Array.from({ length: 10 }, (_, i) => ({ ctoId, companyId, number: i + 1 })),
   });
 
   const agora = Date.now();
@@ -80,7 +80,20 @@ test.beforeAll(async () => {
     chave: string;
     nome: string;
     porta: number;
-    leitura: { status: "ONLINE" | "OFFLINE"; minutos: number } | null;
+    /**
+     * `minutos` é a idade da VERIFICAÇÃO; `desdeMin`, a do ESTADO.
+     *
+     * Quando os dois são iguais a fixture não distingue nada — foi por isso que
+     * o caso do dono (online há nove dias, verificado há dois minutos) precisou
+     * de um campo próprio: sem ele, um teste que derivasse duração de
+     * `observedAt` continuaria passando.
+     */
+    leitura: {
+      status: "ONLINE" | "OFFLINE";
+      minutos: number;
+      desdeMin?: number;
+    } | null;
+    ativo?: boolean;
     os: Array<"PENDING" | "ASSIGNED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED">;
   }> = [
     { chave: "online", nome: "QA RC1D ONLINE", porta: 1, leitura: { status: "ONLINE", minutos: 2 }, os: [] },
@@ -88,9 +101,17 @@ test.beforeAll(async () => {
     { chave: "semLeitura", nome: "QA RC1D SEM LEITURA", porta: 3, leitura: null, os: [] },
     { chave: "onlineOs", nome: "QA RC1D ONLINE COM OS", porta: 4, leitura: { status: "ONLINE", minutos: 5 }, os: ["ASSIGNED", "COMPLETED"] },
     { chave: "offline2Os", nome: "QA RC1D OFFLINE COM 2 OS", porta: 5, leitura: { status: "OFFLINE", minutos: 40 }, os: ["PENDING", "IN_PROGRESS", "CANCELLED"] },
+    // O caso que o dono levantou: online HÁ NOVE DIAS, verificado agora há pouco.
+    { chave: "longo", nome: "QA RC1D ONLINE LONGO", porta: 6, leitura: { status: "ONLINE", minutos: 2, desdeMin: 9 * 24 * 60 }, os: [] },
+    // Verificação atrasada: o estado é conhecido, a confirmação envelheceu.
+    { chave: "atrasado", nome: "QA RC1D ATRASADO", porta: 7, leitura: { status: "ONLINE", minutos: 37, desdeMin: 5 * 24 * 60 }, os: [] },
+    // Cadastro inativo e fisicamente ONLINE — o cabo continua no poste.
+    { chave: "inativo", nome: "QA RC1D INATIVO", porta: 8, leitura: { status: "ONLINE", minutos: 1, desdeMin: 2 * 24 * 60 }, ativo: false, os: [] },
   ];
   for (const caso of casos) {
-    const cliente = await prisma.customer.create({ data: { companyId, name: caso.nome } });
+    const cliente = await prisma.customer.create({
+      data: { companyId, name: caso.nome, active: caso.ativo ?? true },
+    });
     clientes[caso.chave] = cliente.id;
     if (caso.leitura) {
       await prisma.customerDiagnosticSnapshot.create({
@@ -100,6 +121,9 @@ test.beforeAll(async () => {
           externalProvider: "MOCK",
           connectivityStatus: caso.leitura.status,
           observedAt: new Date(agora - caso.leitura.minutos * MIN),
+          statusSince: new Date(
+            agora - (caso.leitura.desdeMin ?? caso.leitura.minutos) * MIN,
+          ),
         },
       });
     }
@@ -159,72 +183,146 @@ async function login(page: Page, email: string) {
 
 async function abrirCaixa(page: Page) {
   await page.goto(`/ctos/${ctoId}`);
-  await expect(page.getByTestId("cto-clients-summary")).toBeVisible();
+  await expect(page.getByTestId("cto-port-filters")).toBeVisible();
 }
 
 const linhas = (page: Page) => page.getByTestId("cto-port-row");
 
 /** O número de cada porta visível, na ordem da lista. */
 async function portasVisiveis(page: Page) {
-  const textos = await linhas(page).locator("span.w-16").allTextContents();
+  const textos = await linhas(page)
+    .locator('[data-testid^="cto-port-number-"]')
+    .allTextContents();
   return textos.map((t) => Number(t.trim()));
 }
 
-test("RC1D-CTO-01 · o resumo de clientes: ativos, online, offline, sem leitura e OS abertas", async ({ page }) => {
+test("UX-01 · o card 'Clientes' NÃO existe mais na tela da caixa", async ({ page }) => {
   await login(page, ADMIN);
   await abrirCaixa(page);
 
-  await expect(page.getByTestId("cto-clients-active")).toHaveText("5");
-  await expect(page.getByTestId("cto-clients-online")).toHaveText("2");
-  await expect(page.getByTestId("cto-clients-offline")).toHaveText("2");
-  await expect(page.getByTestId("cto-clients-unknown")).toHaveText("1");
-  // 1 + 2: a OS concluída e a cancelada não contam.
-  await expect(page.getByTestId("cto-clients-open-orders")).toHaveText("3");
+  /*
+    O dono removeu o bloco inteiro: ele repetia, no topo, números que a lista já
+    carrega linha a linha, e no celular empurrava as portas para baixo da dobra.
+  */
+  await expect(page.getByTestId("cto-clients-summary")).toHaveCount(0);
+  await expect(page.getByTestId("cto-clients-active")).toHaveCount(0);
+  await expect(page.getByTestId("cto-clients-open-orders")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Clientes" })).toHaveCount(0);
 
-  // Portas e clientes continuam separados.
-  await expect(page.getByTestId("cto-free")).toHaveText("3");
-  await expect(page.getByTestId("cto-clients-summary")).toContainText(
-    "Abrir esta página não consulta o provedor",
+  // E o que importava sobreviveu: as contagens estão nos filtros.
+  await expect(page.getByTestId("cto-port-filter-online")).toHaveText("Online(4)");
+  await expect(page.getByTestId("cto-port-filter-open_os")).toHaveText(
+    "Com OS aberta(2)",
   );
 });
 
-test("RC1D-CTO-02 · cada porta ocupada diz o cadastro, o estado, a idade da leitura e as OS — em TEXTO", async ({ page }) => {
+test("UX-02/03 · 'Ocupada' e o estado do cliente ficam LADO A LADO, no desktop e no celular", async ({
+  page,
+}) => {
   await login(page, ADMIN);
   await abrirCaixa(page);
 
-  const online = page.getByTestId("cto-port-connectivity-1");
-  await expect(online).toHaveText(/Online/);
-  await expect(online).toHaveAttribute("data-status", "ONLINE");
-  await expect(page.getByTestId("cto-port-registration-1")).toHaveText("Cadastro ativo");
-  await expect(page.getByTestId("cto-port-reading-1")).toHaveText(/^Última leitura há 2 min$/);
+  /*
+    A regra é de LEITURA: os dois selos são lidos juntos, então precisam estar
+    na mesma faixa horizontal. Antes, a conectividade ficava numa terceira linha,
+    debaixo do nome do cliente.
 
-  await expect(page.getByTestId("cto-port-connectivity-2")).toHaveText(/Offline/);
-  await expect(page.getByTestId("cto-port-reading-2")).toHaveText("Última leitura há 18 min");
+    A prova é geométrica, não estrutural: comparar o topo dos dois elementos
+    pega o caso em que alguém os separa de novo mudando o layout sem mexer no
+    JSX que o teste inspeciona.
+  */
+  for (const largura of [1280, 375]) {
+    await page.setViewportSize({ width: largura, height: 900 });
+    const ocupada = await page.getByTestId("cto-port-state-1").boundingBox();
+    const estado = await page.getByTestId("cto-port-connectivity-1").boundingBox();
+    expect(ocupada).not.toBeNull();
+    expect(estado).not.toBeNull();
+    // Mesma linha: a diferença de topo é menor que a altura de um selo.
+    expect(Math.abs(ocupada!.y - estado!.y)).toBeLessThan(ocupada!.height);
+    expect(estado!.x).toBeGreaterThan(ocupada!.x);
+  }
+});
 
-  // Sem snapshot: "Sem leitura", nunca "Offline".
-  await expect(page.getByTestId("cto-port-connectivity-3")).toHaveText(/Sem leitura/);
-  await expect(page.getByTestId("cto-port-connectivity-3")).not.toHaveText(/Offline/);
-  await expect(page.getByTestId("cto-port-reading-3")).toHaveText("Nenhuma leitura disponível");
+test("UX-04/05 · 'Cadastro ativo' não é dito; 'Cadastro inativo' é", async ({ page }) => {
+  await login(page, ADMIN);
+  await abrirCaixa(page);
 
-  await expect(page.getByTestId("cto-port-open-orders-4")).toHaveText("1 OS aberta");
-  await expect(page.getByTestId("cto-port-open-orders-5")).toHaveText("2 OS abertas");
-  await expect(page.getByTestId("cto-port-open-orders-1")).toHaveCount(0);
+  // O normal não se anuncia: repetido em oito linhas, era só ruído.
+  for (const n of [1, 2, 3, 4, 5, 6, 7]) {
+    await expect(page.getByTestId(`cto-port-registration-${n}`)).toHaveCount(0);
+  }
+  await expect(linhas(page).first()).not.toContainText("Cadastro ativo");
 
-  // O estado não é só cor: a porta 1 e a 2 têm o rótulo escrito, diferente.
-  const texto1 = await page.getByTestId("cto-port-connectivity-1").innerText();
-  const texto2 = await page.getByTestId("cto-port-connectivity-2").innerText();
-  expect(texto1).not.toBe(texto2);
+  // A exceção, sim — o cabo continua no poste.
+  await expect(page.getByTestId("cto-port-registration-8")).toHaveText(
+    "Cadastro inativo",
+  );
+  // E ela convive com a conectividade: inativo e ONLINE ao mesmo tempo.
+  await expect(page.getByTestId("cto-port-connectivity-8")).toHaveText(/Online/);
+});
+
+test("UX-06/07 · 'Online há 9 d' vem de statusSince; 'Verificado há 2 min' vem de observedAt", async ({
+  page,
+}) => {
+  await login(page, ADMIN);
+  await abrirCaixa(page);
+
+  /*
+    O TESTE DE CONFUSÃO DO TÉCNICO, na tela real.
+
+    A porta 6 está online há nove dias e foi verificada há dois minutos. Se
+    alguém voltar a derivar a duração de `observedAt`, esta linha passa a dizer
+    "Online há 2 min" e o teste cai — que é exatamente o defeito que a
+    verificação automática de 5 em 5 minutos introduziria em silêncio.
+  */
+  await expect(page.getByTestId("cto-port-reading-6")).toHaveText("Online há 9 d");
+  await expect(page.getByTestId("cto-port-reading-6")).not.toContainText("há 2 min");
+  await expect(page.getByTestId("cto-port-checked-6")).toHaveText("Verificado há 2 min");
+
+  // O mesmo para o offline: duração e frescor são campos diferentes.
+  await expect(page.getByTestId("cto-port-reading-2")).toHaveText("Offline há 18 min");
+  await expect(page.getByTestId("cto-port-checked-2")).toHaveText(
+    "Verificado há 18 min",
+  );
+
+  // Sem leitura nenhuma: nada de "há 0 min".
+  await expect(page.getByTestId("cto-port-reading-3")).toHaveText(
+    "Sem diagnóstico disponível",
+  );
+  await expect(page.getByTestId("cto-port-checked-3")).toHaveCount(0);
+});
+
+test("UX-08 · verificação atrasada aparece como AVISO, sem mudar o estado", async ({
+  page,
+}) => {
+  await login(page, ADMIN);
+  await abrirCaixa(page);
+
+  // A porta 7 foi verificada há 37 min — mais que o dobro do alvo de 5.
+  await expect(page.getByTestId("cto-port-stale-7")).toHaveText("Verificação atrasada");
+  // O estado NÃO virou outra coisa: continua o último conhecido.
+  await expect(page.getByTestId("cto-port-connectivity-7")).toHaveText(/Online/);
+  await expect(page.getByTestId("cto-port-reading-7")).toHaveText("Online há 5 d");
+  await expect(page.getByTestId("cto-port-checked-7")).toHaveText("Verificado há 37 min");
+
+  // Quem foi verificado agora há pouco não recebe o aviso.
+  await expect(page.getByTestId("cto-port-stale-1")).toHaveCount(0);
+  await expect(page.getByTestId("cto-port-stale-6")).toHaveCount(0);
+  // E "sem leitura" não é "atrasado": são coisas diferentes.
+  await expect(page.getByTestId("cto-port-stale-3")).toHaveCount(0);
 });
 
 test("RC1D-CTO-03 · porta LIVRE não tem conectividade — nem 'Sem leitura'", async ({ page }) => {
   await login(page, ADMIN);
   await abrirCaixa(page);
 
-  for (const n of [6, 7, 8]) {
+  for (const n of [9, 10]) {
     await expect(page.getByTestId(`cto-port-state-${n}`)).toHaveText("Livre");
     await expect(page.getByTestId(`cto-port-client-${n}`)).toHaveCount(0);
+    await expect(page.getByTestId(`cto-port-connectivity-${n}`)).toHaveCount(0);
+    await expect(page.getByTestId(`cto-port-checked-${n}`)).toHaveCount(0);
   }
-  const livre = linhas(page).filter({ has: page.getByTestId("cto-port-state-6") });
+  const livre = linhas(page).filter({ has: page.getByTestId("cto-port-state-9") });
   await expect(livre).not.toContainText("Sem leitura");
 });
 
@@ -232,11 +330,13 @@ test("RC1D-CTO-04 · filtros: Offline, Sem leitura, Livres, Com OS aberta — e 
   await login(page, ADMIN);
   await abrirCaixa(page);
 
-  await expect(page.getByTestId("cto-port-filter-all")).toHaveText("Todas(8)");
-  await expect(page.getByTestId("cto-port-filter-online")).toHaveText("Online(2)");
+  await expect(page.getByTestId("cto-port-filter-all")).toHaveText("Todas(10)");
+  // O INATIVO da porta 8 está online e NÃO entra: filtro de cliente conta
+  // cliente de cadastro ativo, que é a mesma unidade do popup do mapa.
+  await expect(page.getByTestId("cto-port-filter-online")).toHaveText("Online(4)");
   await expect(page.getByTestId("cto-port-filter-offline")).toHaveText("Offline(2)");
   await expect(page.getByTestId("cto-port-filter-unknown")).toHaveText("Sem leitura(1)");
-  await expect(page.getByTestId("cto-port-filter-free")).toHaveText("Livres(3)");
+  await expect(page.getByTestId("cto-port-filter-free")).toHaveText("Livres(2)");
   await expect(page.getByTestId("cto-port-filter-open_os")).toHaveText("Com OS aberta(2)");
 
   await page.getByTestId("cto-port-filter-offline").click();
@@ -244,24 +344,24 @@ test("RC1D-CTO-04 · filtros: Offline, Sem leitura, Livres, Com OS aberta — e 
   await expect(page.getByTestId("cto-port-filter-all")).toHaveAttribute("aria-pressed", "false");
   expect(await portasVisiveis(page)).toEqual([2, 5]);
   await expect(page.getByTestId("cto-port-filter-status")).toHaveText(
-    "Mostrando 2 de 8 portas — Offline.",
+    "Mostrando 2 de 10 portas — Offline.",
   );
 
   await page.getByTestId("cto-port-filter-unknown").click();
   expect(await portasVisiveis(page)).toEqual([3]);
 
   await page.getByTestId("cto-port-filter-online").click();
-  expect(await portasVisiveis(page)).toEqual([1, 4]);
+  expect(await portasVisiveis(page)).toEqual([1, 4, 6, 7]);
 
   await page.getByTestId("cto-port-filter-open_os").click();
   expect(await portasVisiveis(page)).toEqual([4, 5]);
 
   await page.getByTestId("cto-port-filter-free").click();
-  expect(await portasVisiveis(page)).toEqual([6, 7, 8]);
+  expect(await portasVisiveis(page)).toEqual([9, 10]);
   await expect(page.getByTestId("cto-port-filters").locator("..")).not.toContainText("Sem leitura disponível");
 
   await page.getByTestId("cto-port-filter-all").click();
-  expect(await portasVisiveis(page)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(await portasVisiveis(page)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 });
 
 test("RC1D-CTO-05 · o filtro funciona pelo TECLADO, e o foco é visível", async ({ page }) => {
@@ -290,12 +390,20 @@ test("RC1D-CTO-05 · o filtro funciona pelo TECLADO, e o foco é visível", asyn
 test("RC1D-CTO-06 · o detalhe diz os MESMOS números do popup da caixa no mapa", async ({ page }) => {
   await login(page, ADMIN);
   await abrirCaixa(page);
+  /*
+    O card saiu, e a consistência com o popup continua sendo afirmada — agora
+    sobre as contagens que a tela REALMENTE mostra: as dos filtros. Se elas e o
+    popup divergirem, a caixa passa a dizer duas coisas sobre os mesmos
+    clientes, que é o defeito que a fase existe para impedir.
+  */
+  const soNumero = async (testId: string) =>
+    (await page.getByTestId(testId).innerText()).replace(/D/g, "").slice(-1) === ""
+      ? ""
+      : (await page.getByTestId(testId).innerText()).match(/((d+))/)?.[1] ?? "?";
   const detalhe = {
-    ativos: await page.getByTestId("cto-clients-active").innerText(),
-    online: await page.getByTestId("cto-clients-online").innerText(),
-    offline: await page.getByTestId("cto-clients-offline").innerText(),
-    semLeitura: await page.getByTestId("cto-clients-unknown").innerText(),
-    os: await page.getByTestId("cto-clients-open-orders").innerText(),
+    online: await soNumero("cto-port-filter-online"),
+    offline: await soNumero("cto-port-filter-offline"),
+    semLeitura: await soNumero("cto-port-filter-unknown"),
   };
 
   await page.goto(`/mapa?lat=${LOCAL.latitude}&lng=${LOCAL.longitude}&z=17`);
@@ -309,11 +417,9 @@ test("RC1D-CTO-06 · o detalhe diz os MESMOS números do popup da caixa no mapa"
     texto.match(new RegExp(`${rotulo} (\\d+)`))?.[1] ?? "?";
 
   expect({
-    ativos: numero("Ativos"),
     online: numero("Online"),
     offline: numero("Offline"),
     semLeitura: numero("Sem leitura"),
-    os: numero("OS abertas"),
   }).toEqual(detalhe);
 });
 
@@ -325,8 +431,8 @@ test("RC1D-CTO-07 · recarregar mantém os números — nada foi gravado ao abri
   await login(page, ADMIN);
   await abrirCaixa(page);
   await page.reload();
-  await expect(page.getByTestId("cto-clients-online")).toHaveText("2");
-  await expect(page.getByTestId("cto-port-reading-2")).toHaveText(/Última leitura há 1[89] min/);
+  await expect(page.getByTestId("cto-port-filter-online")).toHaveText("Online(4)");
+  await expect(page.getByTestId("cto-port-reading-2")).toHaveText(/Offline há 1[89] min/);
   expect(
     await prisma.customerDiagnosticSnapshot.findMany({ where: { companyId }, orderBy: { id: "asc" } }),
   ).toEqual(antes);
@@ -366,7 +472,7 @@ test("RC1D-CTO-09 · 375 px: filtros quebram linha, e a página não rola de lad
 test("RC1D-CTO-10 · DISPATCHER não abre a tela da CTO — o acesso não foi ampliado", async ({ page }) => {
   await login(page, DESPACHO);
   await page.goto(`/ctos/${ctoId}`);
-  await expect(page.getByTestId("cto-clients-summary")).toHaveCount(0);
+  await expect(page.getByTestId("cto-port-filters")).toHaveCount(0);
   expect(new URL(page.url()).pathname).not.toBe(`/ctos/${ctoId}`);
 });
 
@@ -374,10 +480,11 @@ test("RC1D-CTO-11 · a caixa de outra empresa não abre, mesmo com o id conhecid
   await login(page, OUTRO_ADMIN);
   const resposta = await page.goto(`/ctos/${ctoId}`);
   expect(resposta?.status()).toBe(404);
-  await expect(page.getByTestId("cto-clients-summary")).toHaveCount(0);
+  await expect(page.getByTestId("cto-port-filters")).toHaveCount(0);
   await expect(page.getByText("QA RC1D ONLINE")).toHaveCount(0);
 
-  // E a própria caixa dela abre, vazia de clientes.
+  // E a própria caixa dela abre, sem cliente nenhum.
   await page.goto(`/ctos/${ctoAlheiaId}`);
-  await expect(page.getByTestId("cto-clients-active")).toHaveText("0");
+  await expect(page.getByTestId("cto-port-filter-online")).toHaveText("Online(0)");
+  await expect(page.getByTestId("cto-port-filter-occupied")).toHaveText("Ocupadas(0)");
 });
