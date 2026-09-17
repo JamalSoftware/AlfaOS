@@ -175,13 +175,24 @@ const VARIAVEIS = [
   "TRUSTED_PROXY_HOPS",
   "CUSTOMER_CREDENTIAL_ENCRYPTION_KEY",
   "ERP_CREDENTIAL_ENCRYPTION_KEY",
+  "STORAGE_ROOT",
 ] as const;
+
+/*
+  Produção exige raiz de armazenamento absoluta e fora da aplicação
+  (`RC-1F-B`, `STO-PROD`). Este arquivo simula produção para exercitar as
+  OUTRAS variáveis, então a raiz entra como fixture — sem ela, todo teste daqui
+  falharia pelo motivo errado, e os comandos filhos herdariam a mesma lacuna.
+  A regra da raiz é testada em `storage-production-root.test.ts`.
+*/
+const RAIZ_FIXTURE = path.resolve("/srv/alfaos-storage-fixture");
 const ORIGINAL = Object.fromEntries(VARIAVEIS.map((k) => [k, env[k]]));
 
 beforeEach(() => {
   env.NODE_ENV = "production";
   env.DATABASE_URL = "postgresql://user:pass@localhost:5432/db";
   env.AUTH_SECRET = "a-production-secret-that-is-long-enough-123";
+  env.STORAGE_ROOT = RAIZ_FIXTURE;
   delete env.TRUSTED_PROXY_HOPS;
   delete env.CUSTOMER_CREDENTIAL_ENCRYPTION_KEY;
   delete env.ERP_CREDENTIAL_ENCRYPTION_KEY;

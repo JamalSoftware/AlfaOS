@@ -8,6 +8,7 @@ import {
   type StorageListingEntry,
   type StoredFile,
 } from "./contract";
+import { resolveStorageRoot } from "./root";
 
 /** Sufixo do arquivo temporário de uma gravação em andamento. */
 export const TEMP_SUFFIX = ".tmp";
@@ -15,16 +16,23 @@ export const TEMP_SUFFIX = ".tmp";
 /**
  * Filesystem-backed storage for development and tests.
  *
- * Files land under `STORAGE_ROOT` (default `./.storage`), which is NOT served
- * by Next.js — there is no public URL for an evidence photo. Reads go through
+ * Files land under the root that `resolveStorageRoot` decides — `./.storage`
+ * outside production, an absolute path outside the application in production —
+ * which is NOT served by Next.js: there is no public URL for an evidence photo.
+ * Reads go through
  * an authorized route handler, so tenant and ownership are checked before a
  * single byte is returned.
  */
 export class LocalFileStorageAdapter implements FileStorageContract {
   private readonly root: string;
 
+  /**
+   * `root` explícito é o seio de teste (uma suíte aponta para um temporário).
+   * Sem ele, a raiz vem da autoridade única — que em produção exige caminho
+   * absoluto e fora da aplicação (`resolveStorageRoot`, `RC-1F-B`).
+   */
   constructor(root?: string) {
-    this.root = path.resolve(root ?? process.env.STORAGE_ROOT ?? ".storage");
+    this.root = root === undefined ? resolveStorageRoot() : path.resolve(root);
   }
 
   /**

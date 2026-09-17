@@ -5,6 +5,8 @@
  * missing or insecure. Never prints the contents of secrets.
  */
 
+import { resolveStorageRoot } from "./storage/root";
+
 const DEFAULT_AUTH_SECRET = "change-me-to-a-long-random-string";
 const MIN_AUTH_SECRET_LENGTH = 32;
 
@@ -155,6 +157,24 @@ export function validateEnv(): ValidatedEnv {
     0,
     { min: 0, max: Number.MAX_SAFE_INTEGER },
   );
+
+  /*
+    `STORAGE_ROOT` (`RC-1F-B`, `RC-STO-03`).
+
+    A regra vive em `resolveStorageRoot`, que é a autoridade do adapter; aqui ela
+    é só ANTECIPADA, para a subida do web e de todo comando (todos importam
+    `prisma`, que chama esta função) falhar dizendo o que está errado — em vez de
+    o defeito aparecer no primeiro upload de um técnico, em campo.
+
+    A EXCEÇÃO é a compilação: `next build` roda com `NODE_ENV=production` e não
+    grava arquivo nenhum, então exigir a raiz ali impediria compilar em qualquer
+    máquina de desenvolvimento. A fase é a própria constante do Next, e o erro
+    de uma futura mudança dela é conservador: a compilação passaria a exigir a
+    variável e diria exatamente qual — nunca o contrário.
+  */
+  if (nodeEnv === "production" && process.env.NEXT_PHASE !== "phase-production-build") {
+    resolveStorageRoot();
+  }
 
   return { nodeEnv, databaseUrl, authSecret, loginLimits };
 }
