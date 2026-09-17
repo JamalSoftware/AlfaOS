@@ -3047,6 +3047,11 @@ chama sistemas externos em nome de várias empresas. O que o protege:
   `companyId` da própria `CustomerNetworkConnection`, e é com ele que o provider
   é resolvido (`ERPIntegration` da empresa) e que a escrita é filtrada. Não há
   parâmetro, corpo ou variável de ambiente que escolha empresa.
+- **`--customer-id` só estreita (17/09/2026).** O comando aceita o id interno de
+  um cliente para validação e suporte. Ele filtra a seleção e não escolhe
+  tenant — o `companyId` continua vindo do vínculo — nem contorna reserva,
+  frescor ou prazo; flag malformada sai com 2, nunca vira "sem filtro". Continua
+  sendo comando local do operador, não rota.
 - **Credencial continua por empresa, e não passa perto do ciclo.** O adapter é
   montado por `resolveCompanyAdapter`, que lê e decifra a credencial da própria
   empresa; o ciclo não vê segredo nenhum e não os repassa. Duas empresas no

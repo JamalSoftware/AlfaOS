@@ -1218,3 +1218,33 @@ PROVIDER CAPACITY       NOT YET MEASURED
 
 **Continuam abertas (§16):** hospedagem, storage, backup, escopo da `RC-1F`, CLI
 do Prisma, tiles e a primeira validação real do provider.
+
+### 17.2. Diagnóstico de um cliente e a primeira validação real (17/09/2026)
+
+**`--customer-id` — `APPROVED` pelo dono como ferramenta oficial de diagnóstico
+controlado.** `npm run diagnostics:refresh -- --customer-id <id interno>` roda a
+MESMA volta com a seleção estreitada em SQL a um cliente. Reserva, frescor,
+primeira verificação, prazo, cancelamento e escrita são os da volta normal; o
+filtro **não força nada** — cliente recente, reservado ou desligado não é
+consultado, e nenhum outro é escolhido no lugar. `teto=1` não servia: limita
+quantos, não QUEM. Sem nome de provider, sem id de ERP, sem busca por nome; flag
+malformada sai com 2. Testes `SINGLE-DIAG-01..05` e `CMD-ENV-04`; duas
+sabotagens, duas detectadas (filtro removido do SQL; comando que não repassa a
+flag).
+
+**REAL PROVIDER VALIDATION — RECEITANET.** Com autorização do dono, um cliente de
+validação (Ademir / QA validation), o PPPoE alternado no ERP pelo dono:
+
+```text
+ONLINE  -> OFFLINE   PASS   provider status 2 · statusSince novo
+OFFLINE -> ONLINE    PASS   provider status 1 · statusSince novo
+verificações reais   2      requisições HTTP 4 (verificar-acesso + detalhe)
+outros clientes      0      os demais snapshots idênticos antes e depois
+```
+
+Cada execução teve prévia sem rede, um guarda externo que bloquearia a terceira
+requisição, host ou caminho inesperado, e leitura do read model da CTO. A
+"primeira validação real do provider" da lista acima está feita — para UM
+cliente, nos dois sentidos. **Não está medida a capacidade**
+(`PROVIDER CAPACITY — NOT YET MEASURED`), e **`DIAGNOSTICS SCHEDULER` continua
+`CODE READY`, não `ACTIVE`.** SGP: `REAL VALIDATION — PENDING API ACCESS`.

@@ -6629,3 +6629,18 @@ feita contra o ReceitaNet nem o SGP (`SGP REAL VALIDATION — PENDING API ACCESS
 e a garantia de justiça **supõe o conjunto estável** — se clientes novos entram a
 cada tick, um candidato pode ser deslocado. Esse limite foi aceito e não será
 corrigido agora, nem com migration.
+
+### 48.12. Um cliente só, e o ReceitaNet de verdade
+
+`npm run diagnostics:refresh -- --customer-id <id interno>` roda a volta com a
+seleção estreitada a um cliente — ferramenta de validação e suporte, aprovada
+pelo dono. **Não é "forçar":** o cliente ainda precisa de vínculo ativo e de
+verificação vencida, e passa pela mesma reserva, prazo e escrita; recente,
+reservado ou desligado não é consultado, e nenhum outro entra no lugar.
+
+Com ele, a primeira validação real (17/09/2026, ReceitaNet, um cliente de QA):
+**ONLINE → OFFLINE `PASS`** e **OFFLINE → ONLINE `PASS`**, cada uma com uma
+verificação e duas requisições, `statusSince` novo a cada transição, o read model
+da caixa mostrando a porta no estado novo e não desatualizada, e **zero** outros
+clientes alterados. A tela da porta foi conferida pelo read model, não por
+navegador. Registro em `docs/MASTER-PLAN.md` §17.2.
