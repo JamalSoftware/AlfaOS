@@ -1,0 +1,18 @@
+# AlfaOS — disparo do backup diário — RC-1F-B
+#
+# 02:00 no fuso do SERVIDOR (mantido em UTC), longe do expurgo de etiqueta das
+# 03:15: os dois mexem nos mesmos arquivos, e a trava compartilhada é a segunda
+# linha de defesa, não a primeira.
+
+[Unit]
+Description=Backup diário do AlfaOS
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+# Host desligado na hora marcada roda assim que voltar, em vez de pular o dia.
+Persistent=true
+AccuracySec=1min
+Unit=alfaos-backup.service
+
+[Install]
+WantedBy=timers.target

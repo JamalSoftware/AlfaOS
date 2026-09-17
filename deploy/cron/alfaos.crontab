@@ -36,5 +36,7 @@ MAILTO=""
 # continua sendo operação manual com escopo explícito.
 15 3 * * * /opt/alfaos/bin/alfaos-job.sh evidence:cleanup 2>&1 | logger -t alfaos-evidence-cleanup
 
-# Backup diário, longe da janela do expurgo.
-0 2 * * * /opt/alfaos/bin/alfaos-backup.sh 2>&1 | logger -t alfaos-backup
+# O BACKUP NÃO ESTÁ AQUI, e é de propósito: ele PARA e SOBE o `alfaos-web` para
+# copiar banco e storage no mesmo estado, o que exige root. Ele roda por
+# `alfaos-backup.timer` (02:00, unidade de root), e o usuário de serviço
+# continua sem sudo. Ver deploy/systemd/alfaos-backup.{service,timer}.

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { CTO_PHOTO_MAX_BYTES } from "@/lib/cto";
@@ -23,8 +23,13 @@ const semComentarios = (texto: string) =>
     .split("\n")
     .filter((linha) => !/^\s*#/.test(linha))
     .join("\n");
+/** Comentário citando `storage.delete(...)` não é uma chamada. */
+const semComentariosTs = (texto: string) =>
+  texto.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 
 const UNIT = ler("deploy/systemd/alfaos-web.service");
+const BACKUP_UNIT = ler("deploy/systemd/alfaos-backup.service");
+const BACKUP_TIMER = ler("deploy/systemd/alfaos-backup.timer");
 const NGINX = ler("deploy/nginx/alfaos.conf.template");
 const CRONTAB = ler("deploy/cron/alfaos.crontab");
 const WRAPPER = ler("deploy/bin/alfaos-job.sh");
@@ -188,21 +193,29 @@ describe("OPS-CRON — o agendamento", () => {
     expect(resto.join(" ")).toBe("* * *"); // todo dia
     expect(Number(minuto)).toBeGreaterThanOrEqual(0);
     expect(Number(hora)).toBeGreaterThanOrEqual(0);
-    // Longe da janela do backup: os dois mexem nos mesmos arquivos.
-    const backup = entrada("alfaos-backup.sh")!;
-    expect(backup.agenda.split(" ")[1]).not.toBe(hora);
+    /*
+      Longe da janela do backup: os dois mexem nos mesmos arquivos, e o backup
+      PARA o web para copiar. Cruzá-los seria apagar arquivo durante a cópia —
+      a trava compartilhada é a segunda linha de defesa, não a primeira.
+    */
+    const horaBackup = /OnCalendar=\*-\*-\* (\d{2}):/.exec(BACKUP_TIMER)?.[1];
+    expect(horaBackup, "timer do backup sem OnCalendar").toBeDefined();
+    expect(horaBackup).not.toBe(hora.padStart(2, "0"));
   });
 
-  it("OPS-CRON-04 · toda entrada aponta para comando REAL", () => {
-    expect(ENTRADAS.length).toBeGreaterThanOrEqual(4);
+  it("OPS-CRON-04 · toda entrada aponta para comando REAL, e o backup NÃO está no crontab", () => {
+    expect(ENTRADAS.length).toBeGreaterThanOrEqual(3);
     for (const e of ENTRADAS) {
       const script = /alfaos-job\.sh (\S+)/.exec(e.comando)?.[1];
-      if (script) {
-        expect(Object.keys(PACKAGE.scripts), e.comando).toContain(script);
-      } else {
-        expect(e.comando, "comando desconhecido no crontab").toContain("alfaos-backup.sh");
-      }
+      expect(script, e.comando).toBeDefined();
+      expect(Object.keys(PACKAGE.scripts), e.comando).toContain(script!);
     }
+    /*
+      O backup PARA e SOBE o serviço, o que exige root. Deixá-lo no crontab do
+      usuário de serviço obrigaria a dar sudo à conta que atende a internet.
+    */
+    expect(CRONTAB).not.toMatch(/^[^#\n]*alfaos-backup\.sh/m);
+    expect(CRONTAB).toMatch(/alfaos-backup\.timer/);
   });
 
   it("OPS-CRON-05 · ambiente autoritativo, e nenhum segredo em argumento", () => {
@@ -257,8 +270,82 @@ describe("OPS-BIN — os invólucros chegam ao servidor utilizáveis", () => {
     expect(instalacao).toMatch(/-m 0755/);
     for (const script of ["alfaos-job.sh", "alfaos-backup.sh"]) {
       expect(instalacao, script).toContain(script);
-      expect(CRONTAB).toContain(`/opt/alfaos/bin/${script}`);
     }
+    // Quem chama cada um: o cron chama o invólucro; o backup é unidade de root.
+    expect(CRONTAB).toContain("/opt/alfaos/bin/alfaos-job.sh");
+    expect(diretivas(BACKUP_UNIT, "ExecStart")[0]).toContain("/opt/alfaos/bin/alfaos-backup.sh");
+  });
+});
+
+describe("OPS-BACKUP-PRIV — quem pode parar o serviço", () => {
+  it("OPS-BACKUP-PRIV-01 · o backup é unidade de root com timer, e a conta da aplicação não ganha sudo", () => {
+    expect(diretivas(BACKUP_UNIT, "User")).toEqual(["root"]);
+    expect(diretivas(BACKUP_UNIT, "Type")).toEqual(["oneshot"]);
+    expect(diretivas(BACKUP_UNIT, "EnvironmentFile")).toEqual([ENV_FILE]);
+    expect(BACKUP_TIMER).toMatch(/OnCalendar=\*-\*-\* 02:00:00/);
+    expect(BACKUP_TIMER).toMatch(/Unit=alfaos-backup\.service/);
+    /*
+      Parar e subir o serviço é de root. A alternativa seria dar sudo ao usuário
+      que atende a internet — e aí a conta comprometida mexeria em unidades do
+      sistema. Nenhum arquivo desta fase concede privilégio amplo.
+    */
+    for (const [nome, texto] of [
+      ["runbook", RUNBOOK],
+      ["crontab", CRONTAB],
+      ["unidade", BACKUP_UNIT],
+      ["script", BACKUP],
+    ] as const) {
+      expect(texto, nome).not.toMatch(/NOPASSWD|ALL=\(ALL\)/);
+    }
+    expect(RUNBOOK).toMatch(/sem sudo/i);
+  });
+});
+
+/**
+ * `OPS-BACKUP-MUTATORS` — mesma filosofia de `ORPHAN-REF-COLUMNS`.
+ *
+ * O contrato de backup depende de QUEM pode mexer no storage: o web para
+ * durante a janela, `evidence:cleanup` é excluído pela trava, e os demais
+ * workers não tocam arquivo. Uma superfície nova de mutação — um worker que
+ * apague foto, por exemplo — tornaria esse contrato falso em silêncio. Esta
+ * lista é a fronteira; ampliá-la obriga a revisar a janela e a documentá-la.
+ */
+const MUTADORES_CONHECIDOS = [
+  "src/lib/cto.ts", // foto da CTO — WEB
+  "src/lib/service-order-closing.ts", // evidência e assinatura — WEB
+  "src/lib/field/evidence-cleanup.ts", // etiqueta vencida — WORKER diário
+  "src/lib/storage/photo-audit.ts", // expurgo e re-sanitização — MANUAL
+  "src/lib/storage/references.ts", // limpeza de blob sem linha — usado pelos acima
+];
+
+describe("OPS-BACKUP-MUTATORS — a fronteira de quem escreve no storage", () => {
+  it("OPS-BACKUP-MUTATORS-01 · nenhuma superfície de mutação nova apareceu sem revisar o backup", () => {
+    const arquivos: string[] = [];
+    const varrer = (dir: string) => {
+      for (const item of readdirSync(path.join(RAIZ, dir), { withFileTypes: true })) {
+        const relativo = `${dir}/${item.name}`;
+        if (item.isDirectory()) varrer(relativo);
+        else if (item.name.endsWith(".ts")) arquivos.push(relativo);
+      }
+    };
+    varrer("src/lib");
+    varrer("src/app");
+
+    /*
+      Duas formas de apagar arquivo: a chamada direta no adapter e o auxiliar
+      compartilhado. Sem a segunda, o `evidence:cleanup` — que é worker e apaga
+      blob — ficaria de fora da lista, que é exatamente o caso que a janela de
+      manutenção precisa conhecer.
+    */
+    const mutadores = arquivos.filter((relativo) => {
+      const codigo = semComentariosTs(ler(relativo));
+      return (
+        /\b(storage|getFileStorage\(\))\s*\.\s*(put|delete)\s*\(/.test(codigo) ||
+        /\bdiscardBlobIfUnreferenced\s*\(/.test(codigo)
+      );
+    });
+
+    expect(mutadores.sort()).toEqual(MUTADORES_CONHECIDOS.sort());
   });
 });
 
@@ -294,7 +381,7 @@ describe("OPS-BACKUP — o que o backup precisa conter", () => {
   });
 
   it("OPS-BACKUP-03 · não chama cópia local de disaster recovery", () => {
-    expect(BACKUP).toMatch(/NAO e disaster recovery/);
+    expect(BACKUP).toMatch(/LOCAL BACKUP COMPLETE — DISASTER RECOVERY COPY NOT CONFIGURED/);
     expect(RUNBOOK).toMatch(/OWNER DECISION REQUIRED — OFF-SITE BACKUP DESTINATION/);
     // Nenhuma ferramenta remota entrou sozinha no repositório.
     expect(BACKUP).not.toMatch(/\b(rclone|restic|aws s3|borg)\b/);
@@ -314,8 +401,18 @@ describe("OPS-BACKUP — o que o backup precisa conter", () => {
     expect(BACKUP).not.toMatch(/ENCRYPTION_KEY/);
   });
 
-  it("OPS-BACKUP-05 · banco primeiro, storage depois — e a janela residual está declarada", () => {
-    expect(BACKUP.indexOf("pg_dump")).toBeLessThan(BACKUP.indexOf("tar --create"));
-    expect(RUNBOOK).toMatch(/janela residual/i);
+  it("OPS-BACKUP-05 · banco primeiro, storage depois, com o web parado — e o runbook explica por quê", () => {
+    const sequencia = /^travar \|\|[\s\S]*$/m.exec(BACKUP)?.[0] ?? "";
+    const ordem = ["parar_web", "dump_banco", "arquivar_storage", "restaurar_web", "copia_externa"];
+    let anterior = -1;
+    for (const passo of ordem) {
+      const posicao = sequencia.indexOf(passo);
+      expect(posicao, passo).toBeGreaterThan(anterior);
+      anterior = posicao;
+    }
+    // A afirmação antiga — "com o web no ar isso só produz órfão" — era falsa, e
+    // o documento precisa dizer por que a janela existe.
+    expect(RUNBOOK).toMatch(/removeEvidence/);
+    expect(RUNBOOK).toMatch(/estado quiescido/i);
   });
 });

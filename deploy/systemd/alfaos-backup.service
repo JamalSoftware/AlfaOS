@@ -1,0 +1,32 @@
+# AlfaOS — backup diário (janela de manutenção) — RC-1F-B
+#
+# MODELO. Instale junto com o timer:
+#
+#   install -m 0644 deploy/systemd/alfaos-backup.{service,timer} /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now alfaos-backup.timer
+#   systemctl list-timers alfaos-backup.timer
+#
+# POR QUE ROOT. O backup PARA e SOBE o `alfaos-web` — é o que torna o dump e o
+# arquivo do storage um estado só. Quem pode fazer isso é root. A alternativa
+# seria dar sudo ao usuário de serviço, e aí a conta que atende a internet
+# passaria a poder mexer em unidades do sistema. O `alfaos` continua sem sudo.
+#
+# A credencial do banco vem de /root/.pgpass (0600): nada de senha em argumento.
+
+[Unit]
+Description=AlfaOS backup (banco + storage, com janela de manutenção)
+Documentation=file:///opt/alfaos/current/docs/DEPLOYMENT.md
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/alfaos/alfaos.env
+ExecStart=/opt/alfaos/bin/alfaos-backup.sh
+# A janela é curta; se passar disso, algo está errado e o `trap` do script sobe
+# o web de volta ao ser interrompido.
+TimeoutStartSec=3600
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=alfaos-backup

@@ -63,7 +63,7 @@ adduser --system --group --home /var/lib/alfaos --shell /usr/sbin/nologin alfaos
 install -d -o alfaos -g alfaos -m 0750 /srv/alfaos/storage
 install -d -o alfaos -g alfaos -m 0750 /var/lib/alfaos
 install -d -o root   -g alfaos -m 0750 /etc/alfaos
-install -d -o alfaos -g alfaos -m 0750 /var/backups/alfaos
+install -d -o root   -g root   -m 0700 /var/backups/alfaos
 install -d -o alfaos -g alfaos -m 0755 /opt/alfaos/releases /opt/alfaos/bin
 ```
 
@@ -123,8 +123,9 @@ sudo -u postgres createdb --owner=alfaos alfaos
 - **Não exponha a porta 5432 à internet.** `listen_addresses = 'localhost'` (o
   padrão da distribuição) e regra de firewall (§11).
 - Banco e usuário dedicados, senha forte.
-- A senha do backup vai em `~alfaos/.pgpass` (`0600`), nunca em argumento de
-  processo — `ps` é legível por qualquer usuário do host.
+- A senha do backup vai em **`/root/.pgpass`** (`0600`) — o backup roda como
+  root (§9.4) —, nunca em argumento de processo: `ps` é legível por qualquer
+  usuário do host.
 
 ```text
 localhost:5432:alfaos:alfaos:<senha>
@@ -199,9 +200,10 @@ sudo systemctl restart alfaos-web
 
 ---
 
-## 9. Backup
+## 9. Backup — com janela de manutenção
 
-Script: `deploy/bin/alfaos-backup.sh`, diário às 02:00 (fuso do servidor).
+Script: `deploy/bin/alfaos-backup.sh`, disparado por `alfaos-backup.timer` às
+02:00 (fuso do servidor).
 
 **Conteúdo obrigatório:**
 
@@ -211,18 +213,99 @@ Script: `deploy/bin/alfaos-backup.sh`, diário às 02:00 (fuso do servidor).
    backup que as carrega transforma o roubo do backup no roubo das credenciais
    de ERP de todas as empresas.
 
-**Ordem e consistência.** Banco primeiro, storage depois: o arquivo é gravado
-antes da linha que o referencia e a linha é apagada antes do arquivo, então a
-cópia posterior do storage contém tudo o que o dump menciona. **Janela residual
-declarada:** uma foto enviada depois do dump e antes do `tar` entra no backup
-sem linha no banco — órfã na restauração, que `npm run storage:audit` conta. O
-caminho oposto (linha sem arquivo) não acontece. A aplicação **não é parada**
-para o backup; o único trabalho excluído é o expurgo de etiqueta, por uma trava
-compartilhada (`/var/lib/alfaos/backup.lock`).
+### 9.1 Por que a aplicação para — e a afirmação que isto corrige
 
-**Retenção:** 7 diários, 4 semanais (domingo), 3 mensais (dia 01) — cópias
-independentes, feitas com ferramentas do sistema. Nenhum pacote novo foi
-instalado para isso.
+Uma versão anterior deste documento dizia que copiar o banco primeiro e o
+storage depois, com o web no ar, só podia produzir **arquivo órfão**, nunca
+linha sem arquivo. **Isso estava errado**, e o contraexemplo é banal:
+
+```text
+T1  o dump grava a linha da evidência X, apontando para o arquivo X
+T2  o técnico apaga essa evidência pela aplicação
+T3  a aplicação apaga o arquivo X do storage      (removeEvidence)
+T4  o tar do storage roda — X não existe mais
+```
+
+Restaurar essa geração dá um banco que referencia uma foto que o backup não tem,
+e ninguém percebe até abrir a OS. O mesmo vale para a **assinatura substituída**,
+que apaga a anterior.
+
+A cura da V1 é uma **janela curta**: o processo que faz mutação interativa de
+storage fica parado entre o dump e o arquivamento, e os dois passam a
+representar **um estado quiescido**. Sem lock distribuído, sem modo de
+manutenção na aplicação, sem tabela nova, sem dependência.
+
+### 9.2 Quem mexe no storage
+
+| Superfície | Processo | Na janela |
+| --- | --- | --- |
+| evidência (criar/apagar), assinatura (criar/substituir), foto de CTO | **web** | **parado** |
+| limpeza de blob sem linha (`discardBlobIfUnreferenced`) | **web** | **parado** |
+| `evidence:cleanup` (apaga etiqueta vencida) | worker | excluído pela trava |
+| `outbox:work` | worker | **não toca storage** (verificado no código) |
+| `diagnostics:refresh` | worker | **não toca storage**; escreve só no banco |
+| expurgo de órfãos · re-sanitização legada | **manual** | **não rodar durante a janela** |
+
+Diagnóstico e outbox podem continuar: o dump é um retrato do banco num
+instante, e o que eles escreverem depois simplesmente não estará naquela
+geração. Isso é aceitável — e o agendador do diagnóstico continua inativo.
+
+### 9.3 A sequência, que É o contrato
+
+```text
+travar (exclusão com evidence:cleanup)
+  ↓ parar o alfaos-web
+  ↓ PROVAR que parou  → se não provar, ABORTA sem copiar nada
+  ↓ pg_dump
+  ↓ tar do STORAGE_ROOT
+  ↓ subir o alfaos-web e provar que subiu
+  ↓ promover a geração (manifesto por último)
+  ↓ retenção
+  ↓ cópia externa, se houver
+```
+
+**Nenhuma falha pode deixar o AlfaOS parado até de manhã.** O script tem um
+`trap` de saída que sobe o serviço em qualquer caminho — dump que falha, `tar`
+que falha, interrupção. Se o serviço **não voltar**, o script sai com código
+diferente de zero e imprime `FALHA CRITICA` com o comando que o operador precisa
+rodar. A cópia externa acontece **depois** de a aplicação estar no ar.
+
+### 9.4 Privilégio
+
+O backup roda como **root**, por `alfaos-backup.service` + `alfaos-backup.timer`
+(`deploy/systemd/`), e não pelo `cron` do usuário de serviço. Parar e subir uma
+unidade é operação de root; a alternativa seria dar sudo ao `alfaos`, e aí a
+conta que atende a internet passaria a mexer em unidades do sistema. **O
+`alfaos` continua sem sudo**, e a credencial do banco fica em `/root/.pgpass`
+(`0600`).
+
+```bash
+install -m 0644 deploy/systemd/alfaos-backup.service /etc/systemd/system/
+install -m 0644 deploy/systemd/alfaos-backup.timer   /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now alfaos-backup.timer
+systemctl list-timers alfaos-backup.timer
+```
+
+Os arquivos de backup ficam em `/var/backups/alfaos`, **de root** (`0700`): a
+aplicação não precisa lê-los, e uma conta de serviço comprometida não leva junto
+o histórico inteiro.
+
+### 9.5 Geração, manifesto e retenção
+
+Cada execução produz uma **geração** identificada pelo instante UTC, com três
+arquivos de mesmo id:
+
+```text
+alfaos-<geração>-db.sql.gz
+alfaos-<geração>-storage.tar.gz
+alfaos-<geração>.manifest     sha256 de cada um, tamanhos, status=COMPLETE
+```
+
+O manifesto é escrito **por último**: enquanto ele não existe, a geração não
+está completa. A retenção — **7 diárias, 4 semanais (domingo), 3 mensais (dia
+01)** — rotaciona **gerações completas**, então um backup interrompido nunca
+empurra a última geração boa para fora da janela. Tudo com ferramentas do
+sistema; nenhum pacote foi instalado.
 
 > **`OWNER DECISION REQUIRED — OFF-SITE BACKUP DESTINATION`.** Backup que mora
 > no mesmo VPS morre com o VPS: isso é proteção contra erro de operação, não
@@ -237,17 +320,32 @@ instalado para isso.
 
 Ordem, e ela importa:
 
+0. **Escolha UMA geração** e trabalhe só com ela. Banco de uma geração com
+   storage de outra é um banco que referencia arquivos que aquela cópia do
+   storage não tem — **nunca misture gerações**. Confira o manifesto e os
+   checksums antes de restaurar qualquer coisa:
+
+   ```bash
+   G=20260918T020000Z                       # a geração escolhida
+   cat  /var/backups/alfaos/daily/alfaos-$G.manifest
+   cd   /var/backups/alfaos/daily
+   sha256sum alfaos-$G-db.sql.gz alfaos-$G-storage.tar.gz   # bate com o manifesto?
+   grep -q '^status=COMPLETE' alfaos-$G.manifest && echo "geração completa"
+   ```
+
 1. **Host limpo** com §1 a §7 provisionados (sem cron ativo).
 2. **Segredos** — `/etc/alfaos/alfaos.env` com as MESMAS chaves de cifra do
    ambiente de origem. Sem `ERP_CREDENTIAL_ENCRYPTION_KEY` e
    `CUSTOMER_CREDENTIAL_ENCRYPTION_KEY`, o restante é inútil.
-3. **Banco** — `createdb` e `gunzip -c alfaos-db-*.sql.gz | psql`.
+3. **Banco** — `createdb` e `gunzip -c alfaos-$G-db.sql.gz | psql`.
 4. **Migrations** — `npx prisma migrate status` deve dizer que está em dia.
-5. **Storage** — `tar -xzpf alfaos-storage-*.tar.gz -C /srv/alfaos/storage`.
+5. **Storage** — `tar -xzpf alfaos-$G-storage.tar.gz -C /srv/alfaos/storage`.
 6. **Permissões** — `chown -R alfaos:alfaos /srv/alfaos/storage`.
 7. **Web** — `systemctl start alfaos-web` e conferir o `status`.
 8. **`npm run storage:audit`** — só leitura: conta referências, arquivos
-   ausentes e órfãos. É aqui que a janela do §9 aparece, se apareceu.
+   ausentes e órfãos. Com a janela de manutenção do §9, **arquivo ausente não é
+   esperado**: se aparecer, a geração foi tirada com o web no ar ou algo apagou
+   arquivo durante a janela — investigue antes de confiar naquela cópia.
 9. **Conferir três artefatos pela interface**: uma evidência de OS, uma foto de
    CTO e uma assinatura. Byte que chegou não é o mesmo que imagem que abre —
    essa distinção custou a `CTO-1.8`.
