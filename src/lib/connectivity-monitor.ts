@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { prisma } from "./prisma";
 import { refreshCustomerDiagnostic } from "./customer-diagnostics";
 import { resolveConnectivityPolicy } from "./connectivity-policy";
@@ -306,12 +305,58 @@ async function verificadoDepoisDe(
   return recente !== null;
 }
 
-/** Posição sorteada por volta: mesma entrada, mesma posição; outra volta, outra. */
-function sorteio(companyId: string, customerId: string, now: Date): number {
-  return createHash("sha256")
-    .update(`${now.getTime()}:${companyId}:${customerId}`)
-    .digest()
-    .readUInt32BE(0);
+/**
+ * O tick PLANEJADO do agendador (`RC-1F-A`): uma volta por minuto. A fila de quem
+ * nunca foi verificado gira uma janela por tick — ver `rotacaoDosNuncaVerificados`.
+ */
+export const CONNECTIVITY_SCHEDULER_TICK_MS = 60_000;
+
+function mdc(a: number, b: number): number {
+  let x = a;
+  let y = b;
+  while (y !== 0) [x, y] = [y, x % y];
+  return x;
+}
+
+/**
+ * Onde a fila de quem NUNCA foi verificado começa nesta volta, e quanto ela anda
+ * por tick (`DIAG-STARV-01`, decisão do dono C, `RC-1F-A`).
+ *
+ * ## Por que girar, e não sortear
+ *
+ * Sem leitura não há onde registrar a tentativa — fabricar um snapshot para isso
+ * está proibido —, então a ordem não pode vir do passado do cliente. Ela vem de
+ * duas coisas que não dependem de sorte: a ordem ESTÁVEL dos candidatos (por id,
+ * nunca a ordem física da tabela) e o TICK da volta. A cada tick o começo da fila
+ * anda `passo` posições.
+ *
+ * ## A garantia
+ *
+ * Toda volta que termina consome, dessa fila, pelo menos `ceil(teto / 2)`
+ * posições (a intercalação a põe em toda posição par, e só tentativa que chega
+ * ao provider gasta o teto). O passo nunca passa disso, então as janelas de
+ * ticks consecutivos se encostam sem buraco: **com uma volta por tick e o
+ * conjunto estável, todo candidato recebe uma tentativa em no máximo
+ * `ceil(N / passo)` ticks** — com teto 1, N ticks.
+ *
+ * O passo é o maior valor até a janela que é PRIMO com N. Isso não muda nada com
+ * uma volta por minuto, e protege o agendamento mais espaçado que o contrato:
+ * com uma volta a cada `k` ticks, os começos visitados ficam a
+ * `mdc(k, N)` posições uns dos outros, e basta a janela cobrir essa distância —
+ * sem o primo, um cron de 2 minutos com N = 300 e passo 150 voltaria sempre ao
+ * começo 0 e nunca veria a outra metade.
+ */
+export function rotacaoDosNuncaVerificados(
+  total: number,
+  teto: number,
+  now: Date,
+): { inicio: number; passo: number } {
+  if (total <= 0) return { inicio: 0, passo: 1 };
+  const janela = Math.max(1, Math.ceil(teto / 2));
+  let passo = Math.min(janela, total);
+  while (passo > 1 && mdc(passo, total) !== 1) passo -= 1;
+  const tick = Math.floor(now.getTime() / CONNECTIVITY_SCHEDULER_TICK_MS);
+  return { inicio: ((tick % total) * passo) % total, passo };
 }
 
 /**
@@ -338,21 +383,24 @@ function sorteio(companyId: string, customerId: string, now: Date): number {
  *               ele data a última tentativa, tenha ela dado certo ou não. Quem
  *               nunca foi reservado vem antes. Nenhuma coluna nova, e a reserva
  *               continua significando só "reservado até".
- * sem leitura   sorteada POR VOLTA. Aqui não há onde registrar a tentativa — e
- *               fabricar um snapshot para isso está proibido —, então nenhuma
- *               posição é fixa: a cada volta, cada cliente tem a mesma chance.
+ * sem leitura   ordem ESTÁVEL por id, GIRADA por tick. Aqui não há onde
+ *               registrar a tentativa — e fabricar um snapshot para isso está
+ *               proibido —, então o progresso vem do relógio da volta, não de
+ *               sorte (`rotacaoDosNuncaVerificados`, com a garantia).
  * ```
  *
  * A intercalação começa por quem nunca foi verificado (o caso mais urgente) e
  * impede que qualquer uma das duas filas tome o teto inteiro.
  *
  * `limit` só corta a LISTA. O ciclo não o usa: o teto dele conta tentativas que
- * chegam ao provider (ver `runConnectivityRefreshCycle`).
+ * chegam ao provider (ver `runConnectivityRefreshCycle`). `teto` é esse teto
+ * de tentativas, e decide quanto a fila sem leitura gira por tick.
  */
 export async function findConnectionsDueForCheck(
   now: Date,
   targetMs: number = alvoDaPolitica(),
   limit: number = Number.POSITIVE_INFINITY,
+  teto: number = CONNECTIVITY_REFRESH_BATCH_LIMIT,
 ): Promise<{ scanned: number; due: ConexaoElegivel[] }> {
   /*
     Conexão ATIVA é `disconnectedAt: null` — a mesma regra do índice parcial
@@ -405,7 +453,7 @@ export async function findConnectionsDueForCheck(
 
   const corte = now.getTime() - targetMs;
   const comLeitura: Array<ConexaoElegivel & { tentativa: number; vista: number }> = [];
-  const semLeitura: Array<ConexaoElegivel & { posicao: number }> = [];
+  const semLeitura: ConexaoElegivel[] = [];
   for (const vinculo of vinculos) {
     const vista = ultima.get(`${vinculo.companyId}:${vinculo.customerId}`);
     /*
@@ -413,11 +461,7 @@ export async function findConnectionsDueForCheck(
       ligado sobre o qual não se sabe nada.
     */
     if (!vista) {
-      semLeitura.push({
-        ...vinculo,
-        hasSnapshot: false,
-        posicao: sorteio(vinculo.companyId, vinculo.customerId, now),
-      });
+      semLeitura.push({ ...vinculo, hasSnapshot: false });
     } else if (vista.observedAt.getTime() <= corte) {
       comLeitura.push({
         ...vinculo,
@@ -437,11 +481,13 @@ export async function findConnectionsDueForCheck(
         ? a.vista - b.vista
         : desempate(a, b),
   );
-  semLeitura.sort((a, b) => a.posicao - b.posicao || desempate(a, b));
+  semLeitura.sort(desempate);
+  const { inicio } = rotacaoDosNuncaVerificados(semLeitura.length, teto, now);
+  const semLeituraGirada = [...semLeitura.slice(inicio), ...semLeitura.slice(0, inicio)];
 
   const due: ConexaoElegivel[] = [];
-  for (let i = 0; due.length < limit && (i < semLeitura.length || i < comLeitura.length); i += 1) {
-    for (const fila of [semLeitura, comLeitura]) {
+  for (let i = 0; due.length < limit && (i < semLeituraGirada.length || i < comLeitura.length); i += 1) {
+    for (const fila of [semLeituraGirada, comLeitura]) {
       const item = fila[i];
       if (item && due.length < limit) {
         due.push({
@@ -485,7 +531,12 @@ export async function runConnectivityRefreshCycle(options: {
   const teto = options.limit ?? CONNECTIVITY_REFRESH_BATCH_LIMIT;
   const corte = new Date(now.getTime() - targetMs);
   const comeco = Date.now();
-  const { scanned, due } = await findConnectionsDueForCheck(now, targetMs);
+  const { scanned, due } = await findConnectionsDueForCheck(
+    now,
+    targetMs,
+    Number.POSITIVE_INFINITY,
+    teto,
+  );
 
   const resultado: ConnectivityCycleResult = {
     connectionsScanned: scanned,

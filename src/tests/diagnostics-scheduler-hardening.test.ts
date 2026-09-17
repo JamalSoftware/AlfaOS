@@ -111,6 +111,8 @@ function espiarProvider(
     chamadas: (externalId: string | null) =>
       espiao.mock.calls.filter(([ref]) => ref.externalId === externalId).length,
     total: () => espiao.mock.calls.length,
+    /** Os externalId das chamadas, na ordem em que aconteceram. */
+    lista: () => espiao.mock.calls.map(([ref]) => ref.externalId),
     restaurar: () => espiao.mockRestore(),
   };
 }
@@ -243,10 +245,10 @@ describe("DIAG-FAIR — uma falha repetida não impede os demais", () => {
 
     /*
       Sem linha não há onde registrar a tentativa — e fabricar um snapshot para
-      isso está proibido. A ordem de quem nunca foi verificado é sorteada por
-      volta (hash do cliente com o instante da volta), então nenhuma posição
-      fixa se repete. O limite de 40 voltas deixa a chance de falso negativo em
-      2^-40.
+      isso está proibido. A fila de quem nunca foi verificado GIRA por tick
+      sobre a ordem estável (DIAG-FAIR-DETERMINISTIC): com dois candidatos e
+      teto 1, o saudável é consultado em no máximo dois ticks, qualquer que seja
+      a fase do relógio.
     */
     const base = Date.now() - 100 * MIN;
     let voltas = 0;
@@ -262,6 +264,7 @@ describe("DIAG-FAIR — uma falha repetida não impede os demais", () => {
       }
       expect(provider.chamadas(b.externalId)).toBe(1);
       expect(provider.chamadas(a.externalId)).toBe(voltas - 1);
+      expect(voltas).toBeLessThanOrEqual(2);
     } finally {
       provider.restaurar();
     }
@@ -314,6 +317,130 @@ describe("DIAG-FAIR — uma falha repetida não impede os demais", () => {
     // Quem nunca foi verificado continua sem linha: nenhum UNKNOWN inventado.
     expect(await prisma.customerDiagnosticSnapshot.count({ where: { customerId: nunca.id } })).toBe(0);
   }, 30_000);
+});
+
+// ---------------------------------------------------------------------------
+// Decisão do dono (C): justiça DETERMINÍSTICA para quem nunca foi verificado
+// ---------------------------------------------------------------------------
+
+/**
+ * Cliente nunca verificado com id ESCOLHIDO, para a ordem estável ser
+ * conhecida pelo teste. A inserção é feita na ordem inversa dos ids: se a
+ * seleção dependesse da ordem física da tabela, ela apareceria.
+ */
+async function nuncaVerificadosComId(ctoId: string, ids: string[], sufixo: (id: string) => "-ONLINE" | "-FAIL") {
+  const criados = new Map<string, { id: string; externalId: string }>();
+  for (const [indice, id] of Array.from([...ids].reverse().entries())) {
+    const externalId = `${id}${sufixo(id)}`;
+    await prisma.customer.create({
+      data: { id, companyId: fixture.companyA.id, name: `DET ${id}`, active: true, externalProvider: "MOCK", externalId },
+    });
+    const p = await prisma.cTOPort.findFirstOrThrow({ where: { ctoId, number: indice + 1 } });
+    await prisma.customerNetworkConnection.create({
+      data: { companyId: fixture.companyA.id, customerId: id, ctoPortId: p.id, source: "WEB", connectedAt: new Date() },
+    });
+    criados.set(id, { id, externalId });
+  }
+  return criados;
+}
+
+/** Um instante alinhado ao início de um minuto, no passado. */
+function minutoAlinhado(minutosAtras: number): number {
+  return Math.floor(Date.now() / MIN) * MIN - minutosAtras * MIN;
+}
+
+describe("DIAG-FAIR-DETERMINISTIC — progresso previsível, sem sorteio", () => {
+  it("DIAG-FAIR-DETERMINISTIC-01 · 5 nunca verificados, teto 1, todos falham: em 5 ticks seguidos cada um é tentado UMA vez, em rotação pela ordem estável", async () => {
+    const ctoId = await caixa(fixture.companyA.id);
+    const ids = ["rc1fa-det1-a", "rc1fa-det1-b", "rc1fa-det1-c", "rc1fa-det1-d", "rc1fa-det1-e"];
+    const clientes = await nuncaVerificadosComId(ctoId, ids, () => "-FAIL");
+    const porExterno = new Map(Array.from(clientes.values()).map((c) => [c.externalId, c.id]));
+
+    async function rodada(inicio: number): Promise<string[]> {
+      const sequencia: string[] = [];
+      const provider = espiarProvider();
+      try {
+        for (let tick = 0; tick < ids.length; tick += 1) {
+          const antes = provider.total();
+          const r = await runConnectivityRefreshCycle({ now: new Date(inicio + tick * MIN), limit: 1, concurrency: 1 });
+          expect(r.processed).toBe(1);
+          expect(provider.total() - antes).toBe(1);
+        }
+        return provider.lista().map((externo) => porExterno.get(externo ?? "") ?? "?");
+      } finally {
+        provider.restaurar();
+      }
+    }
+
+    const inicio = minutoAlinhado(200);
+    const sequencia = await rodada(inicio);
+
+    // Cobertura completa em N ticks: ninguém repetido, ninguém esquecido.
+    expect([...sequencia].sort()).toEqual(ids);
+    // E em ROTAÇÃO pela ordem estável: cada tick pega o seguinte ao anterior.
+    const posicao = sequencia.map((id) => ids.indexOf(id));
+    for (let i = 1; i < posicao.length; i += 1) {
+      expect(posicao[i]).toBe((posicao[i - 1] + 1) % ids.length);
+    }
+    // Nada foi escrito: falha não vira leitura, então o conjunto é estável.
+    expect(await prisma.customerDiagnosticSnapshot.count({ where: { customerId: { in: ids } } })).toBe(0);
+  }, 60_000);
+
+  it("DIAG-FAIR-DETERMINISTIC-02 · reprodutível: os MESMOS ticks dão a MESMA sequência, e um cliente que falha sempre não segura os saudáveis além de 2N ticks, em qualquer fase", async () => {
+    const ctoId = await caixa(fixture.companyA.id);
+
+    // Parte 1 — mesmos ticks, mesma sequência (três repetições).
+    const ids = ["rc1fa-det2-a", "rc1fa-det2-b", "rc1fa-det2-c", "rc1fa-det2-d"];
+    const clientes = await nuncaVerificadosComId(ctoId, ids, () => "-FAIL");
+    const porExterno = new Map(Array.from(clientes.values()).map((c) => [c.externalId, c.id]));
+    const inicio = minutoAlinhado(300);
+    const sequencias: string[][] = [];
+    for (let repeticao = 0; repeticao < 3; repeticao += 1) {
+      const provider = espiarProvider();
+      try {
+        for (let tick = 0; tick < 6; tick += 1) {
+          await runConnectivityRefreshCycle({ now: new Date(inicio + tick * MIN), limit: 1, concurrency: 1 });
+        }
+        sequencias.push(provider.lista().map((externo) => porExterno.get(externo ?? "") ?? "?"));
+      } finally {
+        provider.restaurar();
+      }
+    }
+    expect(sequencias[0]).toHaveLength(6);
+    expect(sequencias[1]).toEqual(sequencias[0]);
+    expect(sequencias[2]).toEqual(sequencias[0]);
+    await prisma.customerNetworkConnection.updateMany({
+      where: { customerId: { in: ids } },
+      data: { disconnectedAt: new Date() },
+    });
+
+    // Parte 2 — o primeiro da ordem estável falha sempre; os outros quatro são
+    // saudáveis. Para CADA fase do relógio, os quatro são verificados em no
+    // máximo 2N ticks.
+    for (let fase = 0; fase < 5; fase += 1) {
+      const idsFase = ["a", "b", "c", "d", "e"].map((l) => `rc1fa-det2-f${fase}-${l}`);
+      const criados = await nuncaVerificadosComId(ctoId, idsFase, (id) => (id.endsWith("-a") ? "-FAIL" : "-ONLINE"));
+      const saudaveis = idsFase.filter((id) => !id.endsWith("-a"));
+      const inicioFase = minutoAlinhado(1000) + fase * MIN;
+      let ticks = 0;
+      while (
+        ticks < 2 * idsFase.length &&
+        (await prisma.customerDiagnosticSnapshot.count({ where: { customerId: { in: saudaveis } } })) < saudaveis.length
+      ) {
+        await runConnectivityRefreshCycle({ now: new Date(inicioFase + ticks * MIN), limit: 1, concurrency: 1 });
+        ticks += 1;
+      }
+      expect(
+        await prisma.customerDiagnosticSnapshot.count({ where: { customerId: { in: saudaveis } } }),
+        `fase ${fase}`,
+      ).toBe(saudaveis.length);
+      expect(ticks, `fase ${fase}`).toBeLessThanOrEqual(2 * idsFase.length);
+      await prisma.customerNetworkConnection.updateMany({
+        where: { customerId: { in: Array.from(criados.keys()) } },
+        data: { disconnectedAt: new Date() },
+      });
+    }
+  }, 120_000);
 });
 
 // ---------------------------------------------------------------------------
