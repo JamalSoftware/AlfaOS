@@ -146,12 +146,12 @@ A fronteira: **Core** é tudo o que a PRD §386 lista como V1 MUST HAVE — nada
 * **Mock ERP só fora de produção** (`isMockErpEnabled`, na fábrica de adapters e nas telas); a linha `MOCK` continua sendo o ponto de partida de empresa sem ERP. O seed de demonstração recusa em produção (`assertSeedAllowed`).
 * **Teste não escreve no `.storage` do projeto**: `setup.ts` dá a cada arquivo um `STORAGE_ROOT` temporário, e o Playwright usa um diretório temporário próprio. Índice parcial crítico novo entra na lista de `schema-partial-indexes.test.ts`.
 
-**Regras da `RC-1E` — fotos e storage** (`docs/SECURITY.md` §8.25; `READY FOR OWNER VALIDATION`):
+**Regras da `RC-1E` — fotos e storage** (`docs/SECURITY.md` §8.25; `APPROVED` / `CLOSED` em 16/09/2026 — apply legado e expurgo **não** executados):
 
 * **Imagem só pela fronteira única** (`processImageUpload` → `stripImageMetadata`). JPEG, PNG e WebP guardam **lista de permitidos**; WebP termina no tamanho do RIFF. Formato novo, ou chunk novo mantido, entra com teste que lê a saída com leitor PRÓPRIO (`src/tests/support/image-containers.ts`) e com a prova de decodificação no Chromium (`e2e/image-sanitization-decode.spec.ts`).
 * **"Referenciado" tem uma definição** (`src/lib/storage/references.ts`): as três colunas de chave de storage, **de qualquer empresa**. Coluna nova de chave entra lá — `ORPHAN-REF-COLUMNS` lê o schema e falha se não entrar.
 * **Arquivo e linha: a linha decide.** Limpeza de falha usa `discardBlobIfUnreferenced` (nunca `storage.delete` num `catch`: erro não prova rollback); expurgo apaga a LINHA com o estado no predicado e só depois o arquivo. O preço é órfão, nunca linha sem arquivo.
-* **Auditoria de storage é só leitura** (`npm run storage:audit`). `--resanitize-legacy` e `--purge-orphans` exigem `--apply` e **ordem do dono** — nunca rodar contra storage real por iniciativa própria. A re-sanitização não sobrescreve a original.
+* **Auditoria de storage é só leitura** (`npm run storage:audit`). `--resanitize-legacy` e `--purge-orphans` exigem `--apply` e **ordem do dono** — nunca rodar contra storage real por iniciativa própria. A re-sanitização não sobrescreve a original. **O expurgo não separa resíduo de teste de fotos antigas de CTO de empresa existente**, e o dono decide os dois grupos separadamente: não rodar `--purge-orphans --apply` antes dessa separação (`docs/MASTER-PLAN.md` §12).
 * **O adapter percorre a raiz com `lstat`** e grava com temporário + `rename`. Um adapter novo (S3/R2) implementa `list()` e precisa preservar as duas garantias — ou declarar que não preserva.
 
 **Regras da `RC-1C` que não se desfazem** — `APPROVED` / `CLOSED` em 15/09/2026, contrato final congelado em `docs/TECHNICIAN-EXECUTION.md` §13.8 (`docs/TECHNICIAN-EXECUTION.md` §13, `docs/SECURITY.md` §8.22, PRD §172 `DECISION UPDATED`):

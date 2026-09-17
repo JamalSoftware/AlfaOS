@@ -102,8 +102,8 @@ RC-1   Release Candidate / Hardening                     ← em andamento
        RC-1D  UX · copy · observabilidade da CTO        ← APPROVED · CLOSED (2026-09-16)
        DIAG-AUTO-1  verificação automática            ← CODE APPROVED · CLOSED
                                                            scheduler PENDING RC-1F
-       RC-1E  fotos e storage                            ← READY FOR OWNER VALIDATION
-                                                           execução real: decisão do dono
+       RC-1E  fotos e storage                            ← APPROVED · CLOSED (2026-09-16)
+                                                           apply legado e expurgo: NÃO executados
    ↓
 LANÇAMENTO V1 — produção e piloto real
    ↓
@@ -695,7 +695,7 @@ E2E do mapa — ZOOMVIS-08/09 intermitente (gates da DIAG-AUTO-1, 16/09/2026)
            provado
 
 Fotos gravadas antes do PC-1 com GPS no arquivo (achado na EV-1, 13/09/2026)
-                                          FERRAMENTA PRONTA na RC-1E · execução aberta
+                            FERRAMENTA APROVADA na RC-1E · APPLY NÃO EXECUTADO
   o quê    a limpeza de EXIF (PC-1, 06/09) roda no UPLOAD; a foto gravada antes
            dela continua com os bytes originais. No banco de dev: 1 de 1 foto
            confirmada de OS concluída — a do piloto da OS Nº 6, de 28/08 — ainda
@@ -704,10 +704,17 @@ Fotos gravadas antes do PC-1 com GPS no arquivo (achado na EV-1, 13/09/2026)
            concluída (ServiceOrderClosingReadOnly); o pacote não amplia quem vê
   hoje     npm run storage:audit (só leitura) acha 3, não 1: a contagem acima
            olhava só OS concluída — as outras duas são etiquetas de uma OS
-           ainda em atendimento, todas de 28/08 (dry-run de 16/09/2026). A
+           ainda em atendimento, todas de 28/08. O dono rodou a auditoria duas
+           vezes em 16/09/2026, com os mesmos números (com-gps=3). A
            re-sanitização grava a versão limpa numa chave nova e NÃO sobrescreve
-           a original (docs/SECURITY.md §8.25); o hash do fechamento não muda
-  fase     executar --resanitize-legacy --apply: decisão do dono
+           a original (docs/SECURITY.md §8.25); o hash do fechamento e o
+           conteúdo assinado não mudam, porque usam id e categoria, nunca bytes
+           — o que NÃO autoriza executá-la
+  estado   LEGACY RE-SANITIZATION: DRY-RUN COMPLETE · APPLY NOT EXECUTED ·
+           PENDING OWNER OPERATIONAL DECISION
+  depois   a cópia ORIGINAL, com GPS, fica no disco sem linha. Manter ou apagar
+           essa cópia exige política explícita de retenção — nada a apaga
+           automaticamente
 
 PRD — menções antigas a comprovante em PDF (achado na EV-1)
   o quê    §34, §38 e §117 citam PDF/comprovante sem marca de superado; a §383
@@ -736,12 +743,46 @@ Storage órfão                             (1) RESOLVIDO na RC-1B · (2) polít
            suposição é como se perde evidência
   política (RC-1E) órfão = chave reconhecida que nenhuma linha de nenhuma
            empresa referencia, com mais de 24 h; o expurgo reconsulta o banco
-           antes de cada exclusão (docs/SECURITY.md §8.25). Dry-run de
-           16/09/2026: 2.057 arquivos, 2.037 candidatos — 2.032 de empresas
-           inexistentes, 5 de empresas vivas
-  execução --purge-orphans --apply: decisão do dono. As 5 de empresa viva são
-           fotos de CTO substituídas: apagá-las é decisão de retenção, não de
-           limpeza
+           antes de cada exclusão (docs/SECURITY.md §8.25). Auditoria repetida
+           pelo dono em 16/09/2026, números estáveis: 2.057 arquivos, 2.037
+           candidatos, 0 recentes sem linha, 0 não reconhecidos
+  grupos   A — 2.032 candidatos de empresas de teste que não existem mais
+           (resíduo de teste)
+           B — 5 candidatos de empresa EXISTENTE, todos sob o escopo de UMA CTO
+           dela: fotos antigas da caixa, substituídas (conferido no banco de
+           dev, só leitura, em 16/09/2026). É histórico da caixa, e decidir
+           por eles é decisão de RETENÇÃO, própria
+  estado   ORPHAN AUDIT: COMPLETE · ORPHAN PURGE: NOT EXECUTED · PENDING OWNER
+           OPERATIONAL DECISION — uma decisão por grupo, nunca uma só para os
+           2.037
+  trava    npm run storage:audit -- --purge-orphans --apply NÃO separa os
+           grupos: ele apagaria A e B juntos. Não executar enquanto o comando
+           não receber a separação, ou enquanto o dono não tiver decidido os
+           DOIS grupos — débito abaixo
+
+Expurgo de órfãos — o comando não separa os grupos (achado no fechamento da RC-1E)
+  o quê    purgeOrphanFiles / --purge-orphans --apply percorre TODOS os
+           candidatos. Os 2.037 do dev têm duas naturezas — resíduo de teste
+           (grupo A) e fotos antigas de CTO de empresa existente (grupo B) —, e
+           o dono decidiu que cada grupo tem decisão própria
+  alcance  nada foi executado; o risco só existe se o comando rodar com --apply
+  fase     antes de qualquer expurgo real: separar os grupos no comando (por
+           exemplo, só empresa inexistente), ou decisão do dono cobrindo os dois
+
+RC-IMG-DEBT — MULTIPLE EXIF ORIENTATION (achado nos testes da RC-1E)
+  status   KNOWN DEBT
+  o quê    num JPEG com mais de um bloco APP1/Exif, o sanitizador guarda a
+           Orientation do ÚLTIMO bloco lido. Se o primeiro tem Orientation e o
+           segundo não, a orientação do primeiro deixa de ser preservada, e a
+           foto pode aparecer deitada
+  medido   visto ao montar o fixture: a base dele já tinha um EXIF sem
+           orientação, e o bloco injetado antes perdia a orientação. A
+           auditoria de storage do dev não indicou ocorrência real (ela não
+           conta blocos EXIF por arquivo; não houve relato de foto deitada)
+  onde     stripJpeg em src/lib/media/image-metadata.ts
+  fase     correção própria; não bloqueia a RC-1E. A dívida irmã — FF D9
+           incidental entre scans de JPEG progressivo — está em
+           docs/SECURITY.md §8.25
 
 Busca global — telefone/documento gravados com máscara (achado na GS-1)
   o quê    o termo com máscara acha o gravado só em dígitos; o inverso —
@@ -871,10 +912,46 @@ com "Leitura desatualizada".
 
 ---
 
-## 15. `RC-1E` — fotos e storage
+## 15. `RC-1E` — PHOTOS & STORAGE HARDENING
 
-**Estado: `READY FOR OWNER VALIDATION` (16/09/2026).** Commits locais, sem tag e
-sem push. **Zero migration, zero dependência, zero rota nova, zero Dart.**
+**Estado: `APPROVED` / `CLOSED` (16/09/2026).** Commits locais, sem tag e sem
+push. **Zero migration, zero dependência, zero rota nova, zero Dart.**
+
+**Fechada NÃO significa** re-sanitização legada executada, expurgo de órfãos
+executado nem storage de produção resolvido — os três são estados separados,
+abaixo.
+
+**Escopo entregue:**
+
+- limpeza de metadado endurecida em JPEG, PNG e WebP (lista de permitidos nos
+  três; WebP até o tamanho do RIFF; estrutura mínima exigida);
+- auditoria de metadado e GPS em fotos já gravadas;
+- mecanismo seguro de re-sanitização legada (chave nova, original preservada);
+- auditoria de órfãos, com definição e carência;
+- autoridade única de "referenciado" (`src/lib/storage/references.ts`);
+- ordem de expurgo endurecida (linha antes do arquivo; limpeza verificada);
+- gravação local atômica;
+- segurança de caminho e de tenant, provada.
+
+**Validação manual do dono (16/09/2026) — `PASS`:** upload JPEG, PNG e WebP;
+exibição da imagem; `npm run storage:audit` executado duas vezes, com os mesmos
+números (referências 20 · examinadas 20 · limpas 17 · com metadado 3 · com GPS
+3 · ilegíveis 0 · arquivo ausente 0; storage: arquivos 2.057 · órfãos
+candidatos 2.037 · de empresa inexistente 2.032 · recentes sem linha 0 · não
+reconhecidos 0). **Nenhuma ação destrutiva foi executada.**
+
+```text
+STORAGE AUDIT — OWNER VALIDATION   PASS
+DRY-RUN REPEATABILITY              PASS
+LEGACY RE-SANITIZATION             DRY-RUN COMPLETE · APPLY NOT EXECUTED
+                                   PENDING OWNER OPERATIONAL DECISION
+ORPHAN AUDIT                       COMPLETE
+ORPHAN PURGE                       NOT EXECUTED · PENDING OWNER OPERATIONAL
+                                   DECISION (grupo A: 2.032 · grupo B: 5)
+PRODUCTION STORAGE                 OWNER DECISION REQUIRED · RC-1F
+SCHEDULERS (evidence:cleanup,
+  diagnostics:refresh)             PENDING RC-1F
+```
 
 O escopo não tinha seção própria nos documentos: ele veio da auditoria `RC-1A`
 (que atribuiu à `RC-1E` a re-sanitização legada, a política de órfãos, PNG/WebP
@@ -897,10 +974,12 @@ gravação local                 atômica: temporário + rename
 de assinatura de PNG com lixo curto eram aceitos e gravados como um arquivo de
 oito bytes.
 
-**O que depende do dono, e nada disso foi executado:** rodar a re-sanitização
-nas 3 fotos legadas com GPS do banco de desenvolvimento, e rodar o expurgo dos
-2.037 órfãos (2.032 de empresas de teste inexistentes, 5 fotos de CTO
-substituídas). Detalhe e contrato em `docs/SECURITY.md` §8.25.
+**O que depende do dono, e nada disso foi executado:** a re-sanitização das 3
+fotos legadas com GPS (e, depois dela, a retenção da cópia original com GPS); o
+expurgo do grupo A (2.032 arquivos de resíduo de teste); a retenção ou o
+expurgo do grupo B (5 fotos antigas de uma CTO existente) — decisão própria; e o
+storage de produção, na `RC-1F`. O comando de expurgo ainda não separa os grupos
+(§12). Detalhe e contrato em `docs/SECURITY.md` §8.25.
 
 **Gates:** 2971 Vitest (143 arquivos), 365 Playwright, lint, tsc, build,
 `build:worker`, `prisma validate`, 29 migrations — nenhuma nova. **20 sabotagens, 20

@@ -3075,7 +3075,9 @@ chama sistemas externos em nome de várias empresas. O que o protege:
 
 ## 8.25. `RC-1E` — fotos e storage: metadado legado, órfãos e a ordem de apagar
 
-> **Estado: `READY FOR OWNER VALIDATION`** (16/09/2026). Nenhuma migration,
+> **Estado: `APPROVED` / `CLOSED`** (16/09/2026, validação manual do dono
+> `PASS` — uploads JPEG, PNG e WebP, exibição, e a auditoria repetida duas vezes
+> com os mesmos números; nenhuma ação destrutiva executada). Nenhuma migration,
 > nenhuma dependência, nenhuma rota, nenhuma permissão nova. Escopo vindo da
 > auditoria `RC-1A` (`RC-EXIF-02`, `RC-EXIF-09`, `RC-STO-05`, `RC-STO-06`,
 > `RC-STO-07`) e das dívidas do `docs/MASTER-PLAN.md` §12. O storage de
@@ -3175,12 +3177,20 @@ ou não existe, ou tem o arquivo inteiro.
 
 ### O que continua aberto
 
-- **Execução real** da re-sanitização e do expurgo: decisão do dono, depois de
-  ler o relatório. No banco de desenvolvimento (16/09/2026, só leitura): 20
+- **Execução real** da re-sanitização e do expurgo: **não executadas**, decisão
+  operacional do dono, depois de ler o relatório. No banco de desenvolvimento (16/09/2026, só leitura): 20
   referências, **3 fotos com GPS** (todas de 28/08, antes do `PC-1`; uma de OS
   concluída e duas etiquetas de uma OS ainda em atendimento), 0 ilegíveis, 0
   ausentes; 2.057 arquivos, **2.037 órfãos candidatos** — 2.032 de empresas de
-  teste que não existem mais e 5 de empresas vivas.
+  teste que não existem mais (grupo A) e 5 fotos antigas de UMA CTO de empresa
+  existente (grupo B), cada grupo com decisão própria.
+- **O comando de expurgo não separa os grupos:** `--purge-orphans --apply` apagaria
+  A e B juntos. Não executar antes da separação ou da decisão do dono sobre os
+  dois (`docs/MASTER-PLAN.md` §12).
+- **Cópia original com GPS:** a re-sanitização a preserva sem linha; manter ou
+  apagar exige política explícita de retenção.
+- **Vários blocos EXIF num JPEG:** fica a orientação do último bloco
+  (`RC-IMG-DEBT`, `docs/MASTER-PLAN.md` §12).
 - **Storage de produção** — raiz absoluta, volume persistente, backup
   (`RC-STO-03`): `RC-1F`.
 - **Agendamento** de `evidence:cleanup`: `RC-1F`, como todo cron.
