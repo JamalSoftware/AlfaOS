@@ -181,6 +181,8 @@ set -a; . /etc/alfaos/alfaos.env; set +a
 sudo -u alfaos --preserve-env npx prisma migrate deploy
 sudo -u alfaos --preserve-env npm run build            # next build + build:worker
 sudo -u alfaos ln -sfn "$REL" /opt/alfaos/current
+sudo install -o root -g alfaos -m 0755 \
+  "$REL"/deploy/bin/alfaos-job.sh "$REL"/deploy/bin/alfaos-backup.sh /opt/alfaos/bin/
 sudo systemctl restart alfaos-web
 ```
 

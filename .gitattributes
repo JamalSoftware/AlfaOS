@@ -1,0 +1,9 @@
+# Arquivos que vão RODAR em Linux — RC-1F-B.
+#
+# O repositório é editado no Windows, onde `core.autocrlf` deixa CRLF na cópia de
+# trabalho. Um `.sh` com CRLF copiado direto dessa cópia para o VPS falha com
+# "bad interpreter: /usr/bin/env bash^M", e a mensagem não diz o que houve.
+# Aqui o final de linha é LF na cópia de trabalho também, então copiar o arquivo
+# à mão é seguro.
+deploy/** text eol=lf
+*.sh text eol=lf

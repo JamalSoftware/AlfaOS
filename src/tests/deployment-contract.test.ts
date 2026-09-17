@@ -248,6 +248,18 @@ describe("OPS-CRON — o agendamento", () => {
 // Backup e restauração
 // ---------------------------------------------------------------------------
 
+describe("OPS-BIN — os invólucros chegam ao servidor utilizáveis", () => {
+  it("OPS-BIN-01 · o runbook instala os dois scripts, executáveis, onde o cron os chama", () => {
+    const instalacao = /install[^\n]*deploy\/bin[\s\S]{0,200}?\/opt\/alfaos\/bin\//.exec(RUNBOOK)?.[0];
+    expect(instalacao, "runbook não instala deploy/bin").toBeDefined();
+    expect(instalacao).toMatch(/-m 0755/);
+    for (const script of ["alfaos-job.sh", "alfaos-backup.sh"]) {
+      expect(instalacao, script).toContain(script);
+      expect(CRONTAB).toContain(`/opt/alfaos/bin/${script}`);
+    }
+  });
+});
+
 describe("OPS-NET — a superfície de rede documentada", () => {
   it("OPS-NET-01 · banco e porta da aplicação não são públicos", () => {
     // A tabela de portas do runbook é a fonte; o firewall abre só 22, 80 e 443.
