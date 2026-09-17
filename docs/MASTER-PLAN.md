@@ -104,6 +104,8 @@ RC-1   Release Candidate / Hardening                     ← em andamento
                                                            scheduler PENDING RC-1F
        RC-1E  fotos e storage                            ← APPROVED · CLOSED (2026-09-16)
                                                            apply legado e expurgo: NÃO executados
+       RC-1F  produção · agendadores · storage           ← OWNER DECISION REQUIRED (descoberta,
+                                                           2026-09-17) · §16
    ↓
 LANÇAMENTO V1 — produção e piloto real
    ↓
@@ -1003,3 +1005,96 @@ antes da linha passava pelo caso "etiqueta promovida", porque a promoção era
 feita ANTES de o expurgo conferir o vínculo, e a conferência já protegia. A
 corrida real é a promoção entre a conferência e a exclusão; o teste passou a
 promovê-la exatamente ali.
+
+---
+
+## 16. `RC-1F` — PRODUCTION READINESS · descoberta
+
+**Estado: `OWNER DECISION REQUIRED` (17/09/2026).** Descoberta de escopo, **zero
+código**: nenhuma migration, nenhuma dependência, nenhum arquivo de
+infraestrutura, nenhum agendador ativado e **nenhuma chamada ao provider real**.
+
+**O escopo que os documentos dão à `RC-1F`:**
+
+- storage de produção — raiz, volume, backup (`RC-STO-03`; §15,
+  `docs/SECURITY.md` §8.25), e a decisão de adapter de objeto (§12);
+- agendamento de `diagnostics:refresh` (§14) e de `evidence:cleanup` (§15,
+  `docs/SECURITY.md` §8.25, PRD §250 `CLEANUP-01`);
+- calibração do provider real (`docs/CTO-NETWORK-DISTRIBUTION.md` §48.5).
+
+A auditoria `RC-1A` — registrada na sessão, não em documento — pôs mais itens na
+`RC-1F`: proxy e variáveis (`RC-SEC-02`), o limitador de diagnóstico em memória
+(`RC-DIAG-01`), leituras sem teto no painel e em listas (`RC-PERF-01/02`), o
+cron do outbox e o pipeline de deploy (`RC-OPS-01/02`), tiles contratados
+(`RC-MAP-02`, PRD §365), a regressão completa, o plano de validação móvel e o
+piloto. **Quais desses entram é decisão do dono.**
+
+**Não existe ambiente de produção decidido.** Nenhum documento nomeia
+hospedagem, e o repositório não tem Dockerfile, CI, Procfile, unit de systemd,
+configuração de proxy nem cron versionado. O que o código exige de qualquer
+hospedagem:
+
+```text
+runtime     Node 20+ · next build + next start (sem output standalone)
+instância   UMA — o limitador de diagnóstico e a fila do bcrypt vivem no processo
+banco       PostgreSQL 15+ · prisma migrate deploy (a CLI é devDependency)
+storage     disco persistente · STORAGE_ROOT hoje é relativo ao cwd (.storage)
+agendador   três comandos one-shot, com o MESMO .env e o MESMO storage:
+            outbox:work (1 min) · diagnostics:refresh (5 min) ·
+            evidence:cleanup (diário)
+proxy       HTTPS · limite de corpo no maior teto de upload (§8.21) ·
+            TRUSTED_PROXY_HOPS e APP_ORIGINS
+saída       HTTPS para o ERP, o FCM e o provedor de tiles
+```
+
+**Dry-run no banco de desenvolvimento (17/09/2026):** `vinculos=14
+elegiveis=14`, todos de uma empresa com ReceitaNet **de produção** e credencial;
+2 nunca verificados; **3 com `externalId`** — só esses chegariam à rede (até 6
+requisições); os outros 11 falham antes dela. Tabela de snapshots idêntica antes
+e depois.
+
+**Achados da descoberta — nenhum corrigido; o `DIAG-AUTO-1` é código aprovado:**
+
+```text
+DIAG-OVERLAP-01  a reserva confere só o prazo, não o frescor. Um ciclo cuja lista
+                 foi lida antes de outro verificar o cliente o consulta de novo
+                 depois dos 60 s da reserva: chamada duplicada ao provider.
+                 PROVADO por sonda fora do repositório. O .env.example chama o
+                 intervalo menor de seguro: é seguro para o dado, não para o
+                 número de chamadas — mais voltas sobrepostas, mais duplicatas
+DIAG-STARV-01    verificação que sempre falha (sem externalId, cliente que o ERP
+                 não conhece, erro persistente) não grava nada e continua
+                 elegível. Com a lista sem ordem e cortada no teto (300), 300
+                 desses ocupam todas as voltas e os demais nunca são visitados.
+                 PROVADO por sonda. Também inflam falhasProvider
+DIAG-CALLS-01    uma verificação ReceitaNet são DUAS requisições
+                 (verificar-acesso + /v1/cliente, a segunda best-effort): o teto
+                 de 300 é até 600 requisições, e a conta do §48.5 supõe uma.
+                 Deduzido do código
+DIAG-ORPHAN-01   o prazo de 8 s solta a vaga e não cancela a requisição, e a
+                 segunda pode sair depois do prazo: com o provider lento, há mais
+                 requisições em voo que a concorrência. Deduzido do código
+ENV-01           DIAGNOSTICS_REFRESH_BATCH_LIMIT/CONCURRENCY aceitam fração e
+                 expoente, sem teto ("60" no lugar de "6" passa);
+                 OUTBOX_BATCH_LIMIT não é validado nem documentado; STORAGE_ROOT
+                 não está no .env.example; TRUSTED_PROXY_HOPS inválido vira 0 em
+                 silêncio; CUSTOMER_CREDENTIAL_ENCRYPTION_KEY não é conferida na
+                 subida
+```
+
+**Backup — o que independe da hospedagem (proposto, não adotado):** banco e
+storage juntos, e as chaves de cifra **fora** do backup (sem
+`ERP_CREDENTIAL_ENCRYPTION_KEY` e `CUSTOMER_CREDENTIAL_ENCRYPTION_KEY`, o banco
+restaurado tem credenciais ilegíveis). A ordem é **banco primeiro, storage
+depois**: o arquivo é gravado antes da linha e a linha sai antes do arquivo, então
+a cópia posterior do storage contém tudo o que o dump referencia — menos o que
+`evidence:cleanup` ou um expurgo apagar no intervalo, por isso nenhum dos dois
+roda durante o backup. Depois de restaurar, `npm run storage:audit` (só leitura)
+conta arquivos ausentes. Frequência, retenção e local são do dono.
+
+**Decisões do dono:** hospedagem; storage de produção (disco persistente ou
+objeto); backup (frequência, retenção, local, teste de restauração); o escopo da
+`RC-1F` diante dos itens da `RC-1A`; se `DIAG-OVERLAP-01` e `DIAG-STARV-01` são
+corrigidos antes de ativar o ciclo (mexe em código aprovado); a CLI do Prisma na
+implantação; o provedor de tiles; e a primeira validação real do provider, com
+quantidade mostrada antes.
