@@ -1067,6 +1067,12 @@ DIAG-STARV-01    verificação que sempre falha (sem externalId, cliente que o E
                  elegível. Com a lista sem ordem e cortada no teto (300), 300
                  desses ocupam todas as voltas e os demais nunca são visitados.
                  PROVADO por sonda. Também inflam falhasProvider
+DIAG-CADENCE-01  com cron de 5 min e alvo de 5 min, o cliente verificado segundos
+                 depois do disparo NÃO é elegível no disparo seguinte (a última
+                 leitura é posterior ao corte): a revisita real fica em ~10 min,
+                 e o aviso "Leitura desatualizada" (> 10 min) pode acender por
+                 segundos antes da volta seguinte. PROVADO por sonda. Cron de 1
+                 min resolve a cadência e agrava DIAG-OVERLAP-01
 DIAG-CALLS-01    uma verificação ReceitaNet são DUAS requisições
                  (verificar-acesso + /v1/cliente, a segunda best-effort): o teto
                  de 300 é até 600 requisições, e a conta do §48.5 supõe uma.
@@ -1094,7 +1100,8 @@ conta arquivos ausentes. Frequência, retenção e local são do dono.
 
 **Decisões do dono:** hospedagem; storage de produção (disco persistente ou
 objeto); backup (frequência, retenção, local, teste de restauração); o escopo da
-`RC-1F` diante dos itens da `RC-1A`; se `DIAG-OVERLAP-01` e `DIAG-STARV-01` são
-corrigidos antes de ativar o ciclo (mexe em código aprovado); a CLI do Prisma na
+`RC-1F` diante dos itens da `RC-1A`; se `DIAG-OVERLAP-01`, `DIAG-STARV-01` e
+`DIAG-CADENCE-01` são corrigidos antes de ativar o ciclo (mexe em código
+aprovado); a CLI do Prisma na
 implantação; o provedor de tiles; e a primeira validação real do provider, com
 quantidade mostrada antes.
