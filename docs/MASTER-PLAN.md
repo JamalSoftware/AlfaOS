@@ -770,6 +770,19 @@ Expurgo de órfãos — o comando não separava os grupos        RESOLVIDO no ad
            apaga, active-company é recusado, não existe "todos" — commit
            2c9daf3. Nenhum expurgo real foi executado
 
+Auditoria de storage — volume e adapter futuro (registrado no fechamento da RC-1E)
+  o quê    (1) storage:audit carrega TODAS as referências das três colunas numa
+           leitura só e percorre o storage inteiro numa execução — serve para o
+           tamanho do piloto (20 referências, 2.057 arquivos no dev), não foi
+           medido em carteira grande; (2) FileStorageContract.list() e a
+           gravação atômica existem só no adapter LOCAL
+  requisito um adapter de objeto (S3/R2/MinIO) precisa implementar list(),
+           preservar "a chave final ou não existe, ou tem o arquivo inteiro" e
+           não seguir nada fora do prefixo — ou declarar o que não preserva
+           (docs/CONTEXT-MAP.md, regras da RC-1E)
+  fase     KNOWN DEBT — paginação da auditoria quando o volume pedir; adapter de
+           objeto só com a decisão de storage de produção (RC-1F)
+
 RC-IMG-DEBT — MULTIPLE EXIF ORIENTATION (achado nos testes da RC-1E)
   status   KNOWN DEBT
   o quê    num JPEG com mais de um bloco APP1/Exif, o sanitizador guarda a
