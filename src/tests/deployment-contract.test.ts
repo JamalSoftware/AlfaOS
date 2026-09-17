@@ -284,8 +284,10 @@ describe("OPS-BACKUP — o que o backup precisa conter", () => {
   });
 
   it("OPS-BACKUP-02 · inclui o storage, pela raiz de produção", () => {
-    expect(BACKUP).toMatch(/tar --create/);
-    expect(BACKUP).toMatch(/STORAGE_ROOT/);
+    // O `tar` aponta para a RAIZ DE PRODUÇÃO, não para um caminho qualquer:
+    // um backup que copia o diretório errado parece funcionar até a restauração.
+    expect(BACKUP).toMatch(/tar --create[\s\S]{0,200}--directory "\$STORAGE"/);
+    expect(BACKUP).toMatch(/STORAGE="\$\{STORAGE_ROOT:-\}"/);
     // Sem raiz não há backup útil: falha em vez de gerar um arquivo incompleto.
     expect(BACKUP).toMatch(/STORAGE_ROOT ausente ou inexistente/);
   });
@@ -298,10 +300,16 @@ describe("OPS-BACKUP — o que o backup precisa conter", () => {
   });
 
   it("OPS-BACKUP-04 · a restauração exige as chaves de cifra, e o backup não as carrega", () => {
-    // Sem elas, o banco restaurado tem credenciais de ERP e senhas PPPoE
-    // ilegíveis — e isso só aparece quando alguém tenta usá-las.
-    expect(RUNBOOK).toMatch(/ERP_CREDENTIAL_ENCRYPTION_KEY/);
-    expect(RUNBOOK).toMatch(/CUSTOMER_CREDENTIAL_ENCRYPTION_KEY/);
+    /*
+      A exigência precisa estar no RUNBOOK DE RESTAURAÇÃO, não em qualquer lugar
+      do documento: quem restaura segue os passos daquela seção, e sem as chaves
+      o banco restaurado tem credenciais de ERP e senhas PPPoE ilegíveis — o que
+      só aparece quando alguém tenta usá-las.
+    */
+    const restauracao = /## 10\. Restauração[\s\S]*?\n## 11\./.exec(RUNBOOK)?.[0];
+    expect(restauracao, "seção de restauração não encontrada").toBeDefined();
+    expect(restauracao).toMatch(/ERP_CREDENTIAL_ENCRYPTION_KEY/);
+    expect(restauracao).toMatch(/CUSTOMER_CREDENTIAL_ENCRYPTION_KEY/);
     expect(BACKUP).not.toMatch(/ENCRYPTION_KEY/);
   });
 
