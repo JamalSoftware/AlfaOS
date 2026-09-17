@@ -6585,3 +6585,40 @@ nomear a variável — o `catch` genérico registra só o tipo do erro (RC-LOG-0
 não diria qual. **Não há teto superior**: um máximo seguro depende da capacidade
 do provider real, que não foi medida (`OWNER DECISION REQUIRED — DIAGNOSTICS
 LIMITS`).
+
+### 48.11. `RC-1F-A` — addendum final: as decisões do dono
+
+Três pontos que o §48.10 deixou como limite declarado foram decididos pelo dono em
+17/09/2026 e implementados, sem migration, sem dependência e sem chamada real a
+provider. O §48.10 fica como registro do estado anterior; **onde divergirem, vale
+esta seção.**
+
+**Justiça sem sorteio.** O §48.10 descreve a fila de quem nunca foi verificado
+como "sorteada por volta", e isso não tinha pior caso. Agora ela é ordenada por
+id e **girada por tick** (`rotacaoDosNuncaVerificados`): o começo anda `passo`
+posições por minuto, com `passo = ceil(teto/2)` ajustado para ser primo com o
+tamanho da fila. Toda volta que termina consome pelo menos essa janela, então com
+uma volta por tick e conjunto estável cada candidato é tentado em no máximo
+`ceil(N / passo)` ticks. `DIAG-FAIR-DETERMINISTIC-01` prova com cinco clientes
+que falham sempre e teto 1: em cinco ticks, cada um uma vez, em rotação pela ordem
+dos ids, com a inserção feita ao contrário para a ordem física não ajudar;
+`-02` prova a reprodutibilidade (três repetições, a mesma sequência) e que um
+cliente que falha sempre não segura os saudáveis além de 2N ticks, em cada uma
+das cinco fases do relógio.
+
+**Cancelamento no contrato.** O limite "a garantia é do adapter ReceitaNet, não
+estrutural" deixou de valer: `ERPDiagnosticsCapability.fetchCustomerConnectivity`
+recebe `ERPDiagnosticsRequestContext` (`signal`) como argumento obrigatório, e o
+TypeScript cobra o contexto em todo ponto de chamada. `runWithDiagnosticDeadline`
+é o dono do sinal: aborta no prazo, espera um `setImmediate` — é o que deixa um
+ONLINE lido dentro do prazo sobreviver à leitura acessória cortada — e então dá
+`TIMEOUT` a quem ignorou o sinal. `DIAG-PROVIDER-CANCEL-01..03` provam, com um
+provider falso: o ciclo entrega um sinal vivo por verificação; um provider que o
+honra é abortado e nada é escrito; um que o ignora não segura o ciclo.
+
+**Tetos.** Concorrência 1..12 (padrão 6), teto de tentativas 1..1000 (300), lote
+do outbox 1..500 (50). Fora da faixa, a subida recusa nomeando a variável e a
+faixa.
+
+**Cadência inalterada, e PLANEJADA:** tick 1 min, alvo 5, aviso 10.
+`DIAGNOSTICS SCHEDULER — CODE READY`, não `ACTIVE`.

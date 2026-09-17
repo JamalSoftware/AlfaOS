@@ -3081,8 +3081,11 @@ chama sistemas externos em nome de várias empresas. O que o protege:
   de o diagnóstico desistir, e o relógio do cliente HTTP parava nos cabeçalhos.
   Agora o adapter aborta as duas no prazo e o cliente o mantém até ler o corpo:
   a concorrência configurada é também o teto de requisições simultâneas ao ERP.
-  A garantia é do adapter, não da interface — um adapter novo que fale HTTP
-  precisa honrar o prazo sozinho.
+  **Desde o addendum final da `RC-1F-A` a garantia é do CONTRATO:**
+  `ERPDiagnosticsCapability.fetchCustomerConnectivity` recebe
+  `ERPDiagnosticsRequestContext` com o `AbortSignal` do prazo, criado e abortado
+  por `runWithDiagnosticDeadline`; todo adapter que faça I/O o repassa a cada
+  requisição, e um que o ignore recebe `TIMEOUT` logo depois do prazo.
 - **O navegador continua sem falar com provider.** Abrir a caixa, o mapa ou a
   ficha lê snapshot gravado. A releitura automática da tela da CTO é o mesmo
   `router.refresh()` das ações dela, e há teste espiando `fetch`.

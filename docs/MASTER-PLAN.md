@@ -106,7 +106,7 @@ RC-1   Release Candidate / Hardening                     ← em andamento
                                                            apply legado e expurgo: NÃO executados
        RC-1F  produção · agendadores · storage           ← OWNER DECISION REQUIRED (descoberta,
                                                            2026-09-17) · §16
-       RC-1F-A  motor de diagnóstico: justiça · cadência ← READY FOR OWNER REVIEW (2026-09-17)
+       RC-1F-A  motor de diagnóstico: justiça · cadência ← READY FOR FINAL OWNER APPROVAL (2026-09-17)
                 · prazo · configuração                     scheduler CODE READY, não ACTIVE · §17
    ↓
 LANÇAMENTO V1 — produção e piloto real
@@ -1169,3 +1169,48 @@ vínculos, 14 elegíveis, snapshots idênticos antes e depois.
   de cancelamento pela interface, para a garantia valer para qualquer adapter.
 - As do §16 continuam abertas: hospedagem, storage, backup, escopo da `RC-1F`,
   CLI do Prisma, tiles e a primeira validação real do provider.
+
+### 17.1. Addendum final — as três decisões do dono (17/09/2026)
+
+**Estado: `READY FOR FINAL OWNER APPROVAL`.** Commits locais, sem tag e sem push.
+Zero migration, zero dependência, zero UI, zero Dart, **nenhuma chamada a provider
+real**. Os três "limites declarados" acima foram fechados:
+
+```text
+A  TETOS          concorrência 1..12 (padrão 6) · teto do ciclo 1..1000 (300)
+                  · lote do outbox 1..500 (50); padrões inalterados
+B  CANCELAMENTO   contrato multi-provider: fetchCustomerConnectivity(ref,
+                  context) com AbortSignal de runWithDiagnosticDeadline
+C  JUSTIÇA        nunca verificados em ordem estável por id, girada por tick —
+                  sem sorteio, com limite: ceil(N / passo) ticks
+```
+
+**Justiça determinística, sem migration.** Não há onde registrar a tentativa de
+quem nunca foi verificado (snapshot falso continua proibido), então o progresso
+vem do relógio da volta: a fila é ordenada por id e o começo anda `passo`
+posições por tick. Toda volta que termina consome pelo menos `ceil(teto/2)`
+posições dessa fila e o passo nunca passa disso, então **com uma volta por tick e
+conjunto estável todo candidato é tentado em no máximo `ceil(N / passo)` ticks**
+(teto 1 → N ticks). O passo é primo com N para que um cron mais espaçado que o
+contrato não volte sempre ao mesmo começo; a garantia com agendamento a cada
+`k` ticks exige que a janela cubra `mdc(k, N)`. **Limite declarado:** a garantia
+supõe o conjunto estável; entradas novas a cada tick podem adiar um candidato.
+
+**O cancelamento virou contrato.** `ERPDiagnosticsRequestContext` é argumento
+obrigatório; `runWithDiagnosticDeadline` cria o sinal, aborta no prazo, deixa um
+adapter que o honra responder na mesma volta do event loop (um estado já lido
+vale, sem os extras) e dá `TIMEOUT` logo depois a quem o ignora. O ReceitaNet
+passou a usar o sinal do contrato nas duas requisições, sem relógio próprio. **SGP
+REAL VALIDATION — PENDING API ACCESS:** o `SgpAdapter` não tem diagnóstico, e
+quando tiver recebe o mesmo contexto.
+
+```text
+DIAGNOSTICS SCHEDULER   CODE READY — não ACTIVE (RC-1F-B)
+CADÊNCIA PLANEJADA      tick 1 min · alvo 5 min · aviso 10 min
+PROVIDER CAPACITY       NOT YET MEASURED
+```
+
+**Gates:** **3066 Vitest** (148 arquivos; eram 3050), lint, tsc, build, `build:worker`, `prisma validate`, 29 migrations — nenhuma nova; Playwright não repetido (nenhum arquivo web mudou). A primeira rodada completa teve lint e build vermelhos por uma variável não usada no teste de justiça (corrigida) e a falha conhecida do `login-flood` (um 500 no flood, §12; 3 de 3 isolado); a segunda rodada saiu toda verde. **Nove sabotagens, nove detectadas** — justiça sorteada, rotação parada, contexto não repassado, sinal que nunca aborta, ReceitaNet ignorando o sinal, os três tetos removidos e a tolerância depois do aborto removida.
+
+**Continuam abertas (§16):** hospedagem, storage, backup, escopo da `RC-1F`, CLI
+do Prisma, tiles e a primeira validação real do provider.
