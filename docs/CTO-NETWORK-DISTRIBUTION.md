@@ -1293,6 +1293,11 @@ documentada de remoção, e apagar por suposição é como se perde evidência. 
 custo é disco, uma imagem por substituição; a alternativa custaria dado. Um
 coletor de órfãos é trabalho próprio, com política própria.
 
+> **Atualização (`RC-1E`, 16/09/2026):** substituir continua não apagando. A
+> política de órfãos agora existe (`docs/SECURITY.md` §8.25) — a foto anterior
+> aparece na auditoria de storage como órfã candidata, e só sai por um expurgo
+> executado por ordem do dono, que é decisão de retenção.
+
 ### `CTO-1.1` — a faixa no banco, e a metade que faltava da guarda de coordenada
 
 Patch focal sobre duas ambiguidades que a `CTO-1` deixou. As duas tinham

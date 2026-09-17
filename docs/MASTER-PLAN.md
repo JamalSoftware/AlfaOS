@@ -102,6 +102,8 @@ RC-1   Release Candidate / Hardening                     ← em andamento
        RC-1D  UX · copy · observabilidade da CTO        ← APPROVED · CLOSED (2026-09-16)
        DIAG-AUTO-1  verificação automática            ← CODE APPROVED · CLOSED
                                                            scheduler PENDING RC-1F
+       RC-1E  fotos e storage                            ← READY FOR OWNER VALIDATION
+                                                           execução real: decisão do dono
    ↓
 LANÇAMENTO V1 — produção e piloto real
    ↓
@@ -693,14 +695,19 @@ E2E do mapa — ZOOMVIS-08/09 intermitente (gates da DIAG-AUTO-1, 16/09/2026)
            provado
 
 Fotos gravadas antes do PC-1 com GPS no arquivo (achado na EV-1, 13/09/2026)
+                                          FERRAMENTA PRONTA na RC-1E · execução aberta
   o quê    a limpeza de EXIF (PC-1, 06/09) roda no UPLOAD; a foto gravada antes
            dela continua com os bytes originais. No banco de dev: 1 de 1 foto
            confirmada de OS concluída — a do piloto da OS Nº 6, de 28/08 — ainda
            tem IFD de GPS
   alcance  pré-existente: a mesma rota autorizada já servia esse arquivo na OS
            concluída (ServiceOrderClosingReadOnly); o pacote não amplia quem vê
-  fase     release hardening — re-sanitizar o storage legado, sem mexer no hash
-           do fechamento (ele não inclui os bytes)
+  hoje     npm run storage:audit (só leitura) acha 3, não 1: a contagem acima
+           olhava só OS concluída — as outras duas são etiquetas de uma OS
+           ainda em atendimento, todas de 28/08 (dry-run de 16/09/2026). A
+           re-sanitização grava a versão limpa numa chave nova e NÃO sobrescreve
+           a original (docs/SECURITY.md §8.25); o hash do fechamento não muda
+  fase     executar --resanitize-legacy --apply: decisão do dono
 
 PRD — menções antigas a comprovante em PDF (achado na EV-1)
   o quê    §34, §38 e §117 citam PDF/comprovante sem marca de superado; a §383
@@ -714,7 +721,7 @@ Configurações — copy antiga de "próximas versões"
   onde     src/app/(app)/configuracoes/page.tsx
   fase     release hardening
 
-Storage órfão                             (1) RESOLVIDO na RC-1B · (2) aberto
+Storage órfão                             (1) RESOLVIDO na RC-1B · (2) política na RC-1E
   o quê    (1) suítes de teste — três de Vitest e o servidor do E2E — gravavam
            no .storage real; (2) a foto de CTO substituída deixa o blob
            anterior sem referência — INFO aceito,
@@ -727,6 +734,14 @@ Storage órfão                             (1) RESOLVIDO na RC-1B · (2) aberto
   fase     limpeza do resíduo de teste: decisão do dono sobre o dry-run;
            (2) remover blob só com política própria, porque apagar por
            suposição é como se perde evidência
+  política (RC-1E) órfão = chave reconhecida que nenhuma linha de nenhuma
+           empresa referencia, com mais de 24 h; o expurgo reconsulta o banco
+           antes de cada exclusão (docs/SECURITY.md §8.25). Dry-run de
+           16/09/2026: 2.057 arquivos, 2.037 candidatos — 2.032 de empresas
+           inexistentes, 5 de empresas vivas
+  execução --purge-orphans --apply: decisão do dono. As 5 de empresa viva são
+           fotos de CTO substituídas: apagá-las é decisão de retenção, não de
+           limpeza
 
 Busca global — telefone/documento gravados com máscara (achado na GS-1)
   o quê    o termo com máscara acha o gravado só em dígitos; o inverso —
@@ -853,3 +868,44 @@ produção é decisão aberta do dono desde a `RC-1A` (junto com o storage de
 produção). O contrato de agendamento está em `.env.example`. Até alguém
 agendá-lo, **a produção não verifica nada automaticamente**, e a tela diz isso
 com "Leitura desatualizada".
+
+---
+
+## 15. `RC-1E` — fotos e storage
+
+**Estado: `READY FOR OWNER VALIDATION` (16/09/2026).** Commits locais, sem tag e
+sem push. **Zero migration, zero dependência, zero rota nova, zero Dart.**
+
+O escopo não tinha seção própria nos documentos: ele veio da auditoria `RC-1A`
+(que atribuiu à `RC-1E` a re-sanitização legada, a política de órfãos, PNG/WebP
+e a ordem de expurgo) e das duas dívidas de storage do §12. O storage de
+PRODUÇÃO (`RC-STO-03`) ficou na `RC-1F`, onde a `RC-1A` o pôs.
+
+```text
+PNG/WebP (RC-EXIF-09)          lista de PERMITIDOS nos três formatos; WebP para
+                               onde o RIFF diz; estrutura mínima exigida
+foto legada (RC-EXIF-02)       storage:audit só lê; re-sanitização com --apply
+                               grava em chave nova e não destrói a original
+órfãos                         definição, carência de 24 h, reconsulta antes de
+                               apagar; expurgo só com --apply
+expurgo de etiqueta (STO-06)   LINHA antes do arquivo — o banco arbitra a corrida
+limpeza de falha (STO-05/07)   só apaga blob que nenhuma linha referencia
+gravação local                 atômica: temporário + rename
+```
+
+**Uma correção foi achada pelo próprio teste, não pela auditoria:** oito bytes
+de assinatura de PNG com lixo curto eram aceitos e gravados como um arquivo de
+oito bytes.
+
+**O que depende do dono, e nada disso foi executado:** rodar a re-sanitização
+nas 3 fotos legadas com GPS do banco de desenvolvimento, e rodar o expurgo dos
+2.037 órfãos (2.032 de empresas de teste inexistentes, 5 fotos de CTO
+substituídas). Detalhe e contrato em `docs/SECURITY.md` §8.25.
+
+**Gates:** 2971 Vitest (143 arquivos), 365 Playwright, lint, tsc, build,
+`build:worker`, `prisma validate`, 29 migrations — nenhuma nova. **20 sabotagens, 20
+detectadas** — e uma delas cobrou um teste meu antes: voltar a apagar o arquivo
+antes da linha passava pelo caso "etiqueta promovida", porque a promoção era
+feita ANTES de o expurgo conferir o vínculo, e a conferência já protegia. A
+corrida real é a promoção entre a conferência e a exclusão; o teste passou a
+promovê-la exatamente ali.

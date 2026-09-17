@@ -2577,7 +2577,9 @@ escreve**, e não confiar na lista que a tela mostrou.
 
 O blob da foto anterior também não é apagado numa substituição — comportamento
 conservador declarado, sem política de remoção. Órfão custa disco; apagar por
-suposição custa dado.
+suposição custa dado. *(A `RC-1E` definiu a política de órfãos — §8.25 —, e
+substituir continua não apagando: a anterior só sai por expurgo ordenado pelo
+dono.)*
 
 ### `CTO-1.1` — o teto no banco e a coordenada não-finita
 
@@ -3068,3 +3070,120 @@ chama sistemas externos em nome de várias empresas. O que o protege:
 - **O navegador continua sem falar com provider.** Abrir a caixa, o mapa ou a
   ficha lê snapshot gravado. A releitura automática da tela da CTO é o mesmo
   `router.refresh()` das ações dela, e há teste espiando `fetch`.
+
+---
+
+## 8.25. `RC-1E` — fotos e storage: metadado legado, órfãos e a ordem de apagar
+
+> **Estado: `READY FOR OWNER VALIDATION`** (16/09/2026). Nenhuma migration,
+> nenhuma dependência, nenhuma rota, nenhuma permissão nova. Escopo vindo da
+> auditoria `RC-1A` (`RC-EXIF-02`, `RC-EXIF-09`, `RC-STO-05`, `RC-STO-06`,
+> `RC-STO-07`) e das dívidas do `docs/MASTER-PLAN.md` §12. O storage de
+> PRODUÇÃO (`RC-STO-03`: raiz, volume, backup) **não** é desta fase — é
+> `RC-1F` e decisão do dono.
+
+### Os três formatos aceitos têm a mesma política
+
+JPEG, PNG e WebP (`MIME_EXTENSIONS`) passam pela mesma fronteira
+(`processImageUpload`), e agora os três guardam **lista de permitidos**. O JPEG
+já guardava desde o `PC-1`; PNG e WebP tiravam uma lista de proibidos, e o que
+ninguém tinha imaginado passava — `tIME`, chunk privado, chunk com nome
+inventado (`RC-EXIF-09`).
+
+| Formato | Fica | Sai |
+|---|---|---|
+| PNG | `IHDR` `PLTE` `IDAT` `IEND` · transparência, cor, gama, ICC, densidade, fundo, histograma · APNG | `eXIf`, `tEXt`, `iTXt`, `zTXt`, `tIME`, `sPLT`, desconhecido, privado, tudo depois do `IEND` |
+| WebP | `VP8 ` `VP8L` `VP8X` `ALPH` `ICCP` `ANIM` `ANMF` (e, dentro do quadro, só `VP8 `/`VP8L`/`ALPH`) | `EXIF`, `XMP `, desconhecido, tudo depois do tamanho declarado do RIFF |
+
+O WebP passou a terminar **onde o RIFF diz**: bytes anexados depois do contêiner
+sobreviviam se tivessem forma de chunk. RIFF que declara mais bytes do que
+existem é arquivo truncado e é recusado. E a estrutura mínima virou regra: PNG
+começa por `IHDR` e não pode ter sobra truncada; WebP começa por um chunk de
+imagem — oito bytes de assinatura de PNG com lixo curto eram aceitos e gravados
+como um "PNG" de oito bytes (achado pelo `PURGE-02`).
+
+A saída **decodifica**: provado no Chromium, a partir de imagens que o próprio
+Chromium codificou, com a entrada suja como controle; e a orientação 6 continua
+girando a foto (`e2e/image-sanitization-decode.spec.ts`).
+
+### Foto legada: auditada sem mudar nada, re-sanitizada só por ordem
+
+Foto gravada antes da limpeza continua com os bytes de então (`RC-EXIF-02`).
+`npm run storage:audit` lê **todo** arquivo referenciado, de todas as empresas, e
+responde: limpo, com metadado, com GPS (pela IFD de GPS do EXIF, não por texto),
+não interpretável (inclusive tipo registrado que não bate com os bytes) e linha
+apontando para arquivo ausente. **Sem `--apply` nada muda** — nenhum `put`,
+nenhum `delete`, nenhuma linha; provado por SHA-256 de cada arquivo e retrato do
+banco, antes e depois.
+
+A re-sanitização (`--resanitize-legacy --apply`) **não sobrescreve a original**:
+grava a versão limpa numa chave NOVA e muda a linha com a chave velha no
+predicado. A original vira órfã, fora de toda rota. Sobrescrever a única cópia
+de uma evidência dependeria de uma política de backup que ainda não existe. O
+`contentHash` e o `sizeBytes` passam a descrever o arquivo novo; o hash do
+fechamento e o conteúdo assinado **não mudam** — usam `id` e categoria, nunca
+bytes. Auditada como `STORAGE.PHOTO_RESANITIZED`, sem chave, bytes nem metadado.
+
+### Órfão tem definição, e o expurgo reconsulta o banco
+
+**Órfão** é arquivo com chave reconhecida (`STORAGE_KEY_PATTERN`) que **nenhuma
+linha de nenhuma empresa** referencia nas três colunas de chave
+(`src/lib/storage/references.ts`) e que tem mais de **24 horas**. Filtrar por
+empresa faria um arquivo usado por outra empresa parecer livre. A carência
+existe porque todo fluxo grava uma chave nova e aleatória e a liga **na mesma
+requisição**: arquivo novo sem linha pode ser upload em andamento. A direção
+inversa — linha sem arquivo — é contada à parte e nunca "limpa".
+
+`--purge-orphans --apply` consulta o banco **de novo** imediatamente antes de cada
+exclusão; arquivo que ganhou linha no intervalo fica. Entrada não reconhecida
+(temporário, arquivo posto à mão, link simbólico) é contada e nunca lida nem
+apagada, e a listagem usa `lstat` — link simbólico não é seguido. Um teste lê o
+schema e falha se nascer coluna de chave de storage fora da definição.
+
+### A ordem de gravar, ligar e apagar
+
+| Fluxo | Ordem | Falha no meio deixa |
+|---|---|---|
+| upload (evidência, assinatura, CTO) | limpa → grava (atômico) → liga | arquivo sem linha (órfão) |
+| substituição de assinatura | grava nova → liga → **depois do commit** apaga a anterior | a anterior no disco, sem linha |
+| substituição de foto de CTO | grava nova → liga → a anterior **nunca** é apagada (`CTO-1`) | a anterior no disco, sem linha |
+| remoção de evidência | apaga linha → **depois do commit** apaga arquivo | arquivo sem linha |
+| expurgo de etiqueta vencida | apaga **linha** (status e prazo no predicado) → apaga arquivo | arquivo sem linha |
+| falha ao ligar | apaga o blob novo **só se nenhuma linha o referencia** | na dúvida, o blob fica |
+
+Duas correções fecham perda silenciosa de foto. O expurgo de etiqueta apagava o
+arquivo ANTES da linha, e uma promoção no intervalo deixava a etiqueta ligada ao
+equipamento sem arquivo (`RC-STO-06`); agora o `DELETE` condicionado espera o
+lock da promoção e o banco decide. E erro não prova que o `COMMIT` voltou: a
+limpeza de evidência e de assinatura apagava o blob em qualquer erro, inclusive
+num commit efetivado cuja resposta se perdeu (`RC-STO-07`). O preço declarado
+da nova ordem é **órfão** — arquivo sem linha —, nunca linha sem arquivo.
+
+A gravação local passou a ser **atômica** (temporário + `rename`): a chave final
+ou não existe, ou tem o arquivo inteiro.
+
+### Tenant e caminho
+
+- A chave é montada pelo servidor (`buildStorageKey`) e o adapter recusa o que
+  não casa com o padrão **e** o que resolve fora da raiz — duas defesas, e a
+  sabotagem que remove as duas derruba o teste de travessia.
+- Empresa A não remove evidência da B com o id conhecido (`404`, arquivo
+  intacto). A auditoria e o expurgo não escolhem empresa: leem todas, e só
+  apagam o que ninguém referencia.
+- Log de storage leva operação, etapa e classe de erro — nunca chave, caminho,
+  bytes ou metadado (`logServerError`, `RC-LOG-01`).
+
+### O que continua aberto
+
+- **Execução real** da re-sanitização e do expurgo: decisão do dono, depois de
+  ler o relatório. No banco de desenvolvimento (16/09/2026, só leitura): 20
+  referências, **3 fotos com GPS** (todas de 28/08, antes do `PC-1`; uma de OS
+  concluída e duas etiquetas de uma OS ainda em atendimento), 0 ilegíveis, 0
+  ausentes; 2.057 arquivos, **2.037 órfãos candidatos** — 2.032 de empresas de
+  teste que não existem mais e 5 de empresas vivas.
+- **Storage de produção** — raiz absoluta, volume persistente, backup
+  (`RC-STO-03`): `RC-1F`.
+- **Agendamento** de `evidence:cleanup`: `RC-1F`, como todo cron.
+- **JPEG progressivo:** o corte no `EOI` procura o primeiro `FF D9` depois do
+  primeiro `SOS`; um `FF D9` dentro de uma tabela entre scans de um JPEG
+  progressivo cortaria a imagem cedo. Não observado; declarado.
