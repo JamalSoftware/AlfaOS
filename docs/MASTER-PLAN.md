@@ -106,7 +106,7 @@ RC-1   Release Candidate / Hardening                     ← em andamento
                                                            apply legado e expurgo: NÃO executados
        RC-1F  produção · agendadores · storage           ← OWNER DECISION REQUIRED (descoberta,
                                                            2026-09-17) · §16
-       RC-1F-A  motor de diagnóstico: justiça · cadência ← READY FOR FINAL OWNER APPROVAL (2026-09-17)
+       RC-1F-A  motor de diagnóstico: justiça · cadência ← APPROVED · CLOSED (2026-09-17)
                 · prazo · configuração                     scheduler CODE READY, não ACTIVE · §17
    ↓
 LANÇAMENTO V1 — produção e piloto real
@@ -1172,7 +1172,11 @@ vínculos, 14 elegíveis, snapshots idênticos antes e depois.
 
 ### 17.1. Addendum final — as três decisões do dono (17/09/2026)
 
-**Estado: `READY FOR FINAL OWNER APPROVAL`.** Commits locais, sem tag e sem push.
+**Estado: `APPROVED` / `CLOSED` (17/09/2026).** Aprovado pelo dono: justiça
+determinística, contrato de cancelamento do provider, cancelamento no ReceitaNet,
+os três tetos e a cadência planejada. Sem tag; publicação em `origin/main`
+autorizada pelo dono no fechamento, só fast-forward. **Aprovar o código não ativa
+nada:** `DIAGNOSTICS SCHEDULER — CODE READY`, não `ACTIVE`, e nenhum cron existe.
 Zero migration, zero dependência, zero UI, zero Dart, **nenhuma chamada a provider
 real**. Os três "limites declarados" acima foram fechados:
 

@@ -6622,3 +6622,10 @@ faixa.
 
 **Cadência inalterada, e PLANEJADA:** tick 1 min, alvo 5, aviso 10.
 `DIAGNOSTICS SCHEDULER — CODE READY`, não `ACTIVE`.
+
+**Aprovado pelo dono em 17/09/2026 (`APPROVED` / `CLOSED`).** A aprovação não
+muda três fatos: nenhum agendador está configurado; nenhuma verificação real foi
+feita contra o ReceitaNet nem o SGP (`SGP REAL VALIDATION — PENDING API ACCESS`);
+e a garantia de justiça **supõe o conjunto estável** — se clientes novos entram a
+cada tick, um candidato pode ser deslocado. Esse limite foi aceito e não será
+corrigido agora, nem com migration.
