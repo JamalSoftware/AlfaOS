@@ -44,6 +44,28 @@ export interface ERPConnectivityObservation {
   serverMaintenance?: boolean | null;
 }
 
+/**
+ * O que acompanha TODA verificação de conectividade (`RC-1F-A`, decisão do dono).
+ *
+ * O prazo da verificação é contrato do provider, não gentileza de um adapter:
+ * quem cronometra a verificação (`runWithDiagnosticDeadline`) cria o sinal, e
+ * o sinal aborta quando o prazo vence. Antes ele só existia dentro do adapter
+ * ReceitaNet, e um adapter novo que falasse HTTP podia esquecê-lo — o ciclo
+ * pegaria o próximo cliente com a requisição anterior ainda em voo, e a
+ * concorrência configurada deixaria de ser o limite real de requisições.
+ *
+ * Um objeto, e não o sinal solto, para o contrato poder crescer sem mudar a
+ * assinatura de todo adapter de novo.
+ */
+export interface ERPDiagnosticsRequestContext {
+  /**
+   * Aborta quando o prazo da verificação vence. Adapter que faz I/O DEVE
+   * repassá-lo a TODA operação externa da verificação — inclusive às leituras
+   * acessórias —, para que nada dela fique em voo depois do prazo.
+   */
+  readonly signal: AbortSignal;
+}
+
 export interface ERPDiagnosticsCapability {
   /**
    * Reads the customer's current connectivity from the provider.
@@ -56,9 +78,13 @@ export interface ERPDiagnosticsCapability {
    *    failure as `OFFLINE`.
    *  - Never throw a raw provider error, a fetch error, or anything carrying a
    *    URL, header or token.
+   *  - Pass `context.signal` to every external operation of the check. When
+   *    it aborts, give up: reject with `TIMEOUT` — or, if the essential state
+   *    was already read, return it without the optional extras.
    */
   fetchCustomerConnectivity(
     ref: ERPCustomerRef,
+    context: ERPDiagnosticsRequestContext,
   ): Promise<ERPConnectivityObservation>;
 }
 
@@ -83,6 +109,58 @@ export function supportsDiagnostics(
  * socket hold a request handler.
  */
 export const DIAGNOSTIC_TIMEOUT_MS = 8_000;
+
+/**
+ * Executa uma verificação de conectividade sob prazo, e o prazo CANCELA.
+ *
+ * É o dono do contexto de `ERPDiagnosticsRequestContext`: cria o sinal, o
+ * entrega à operação e o aborta quando o prazo vence. Aplicado no ponto de
+ * chamada, como `withIntegrationTimeout`, para a garantia não depender de o
+ * adapter lembrar de ter um relógio próprio.
+ *
+ * Vencido o prazo, duas coisas, nesta ordem:
+ *
+ * 1. o sinal aborta — um adapter que o honra encerra o que está em voo e
+ *    responde na hora: `TIMEOUT`, ou o estado que já tinha lido sem os extras;
+ * 2. na volta seguinte do event loop, quem ainda não respondeu recebe
+ *    `TIMEOUT` — um adapter que ignora o sinal não segura o chamador.
+ *
+ * O passo 2 espera um `setImmediate`, e não nada, porque a resposta de quem
+ * honrou o sinal chega por uma cadeia de microtarefas: rejeitar no mesmo
+ * instante do aborto descartaria um ONLINE obtido dentro do prazo por causa de
+ * uma leitura acessória que o próprio prazo cortou.
+ *
+ * Terminada a operação, o sinal é abortado de qualquer forma: nada que ela
+ * tenha deixado para trás continua em voo.
+ */
+export async function runWithDiagnosticDeadline<T>(
+  provider: string,
+  operation: (context: ERPDiagnosticsRequestContext) => Promise<T>,
+  timeoutMs: number = DIAGNOSTIC_TIMEOUT_MS,
+): Promise<T> {
+  const controller = new AbortController();
+  let relogio: ReturnType<typeof setTimeout> | undefined;
+  let tolerancia: ReturnType<typeof setImmediate> | undefined;
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      relogio = setTimeout(() => {
+        controller.abort();
+        tolerancia = setImmediate(() =>
+          reject(
+            new IntegrationError("TIMEOUT", provider, `sem resposta em ${timeoutMs}ms`),
+          ),
+        );
+      }, timeoutMs);
+      Promise.resolve()
+        .then(() => operation({ signal: controller.signal }))
+        .then(resolve, reject);
+    });
+  } finally {
+    if (relogio) clearTimeout(relogio);
+    if (tolerancia) clearImmediate(tolerancia);
+    controller.abort();
+  }
+}
 
 /**
  * Bounds any capability call in time, whichever adapter implements it.

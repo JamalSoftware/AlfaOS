@@ -58,6 +58,9 @@ function recorder(
   return { calls, fetchImpl };
 }
 
+/** Chamada direta ao adapter, sem prazo vencendo: o contexto do contrato (RC-1F-A). */
+const SEM_PRAZO = { signal: new AbortController().signal };
+
 const CLIENTE_RESUMO = {
   idCliente: 15678,
   razaoSocial: "Cliente Exemplo",
@@ -327,7 +330,7 @@ describe("CallCenter — conectividade", () => {
 
   it("status 1 = ONLINE", async () => {
     const { adapter } = connectivityAdapter({ idCliente: 15678, status: 1 });
-    const obs = await adapter.fetchCustomerConnectivity(ref);
+    const obs = await adapter.fetchCustomerConnectivity(ref, SEM_PRAZO);
     expect(obs.status).toBe("ONLINE");
     // O contrato não devolve instante de mudança — não inventar.
     expect(obs.sourceUpdatedAt).toBeNull();
@@ -335,12 +338,12 @@ describe("CallCenter — conectividade", () => {
 
   it("status 2 = OFFLINE", async () => {
     const { adapter } = connectivityAdapter({ idCliente: 15678, status: 2 });
-    expect((await adapter.fetchCustomerConnectivity(ref)).status).toBe("OFFLINE");
+    expect((await adapter.fetchCustomerConnectivity(ref, SEM_PRAZO)).status).toBe("OFFLINE");
   });
 
   it("traz tecnologia e manutenção junto do estado", async () => {
     const { adapter } = connectivityAdapter({ idCliente: 15678, status: 1 });
-    const obs = await adapter.fetchCustomerConnectivity(ref);
+    const obs = await adapter.fetchCustomerConnectivity(ref, SEM_PRAZO);
     expect(obs.technology).toBe("3");
     expect(obs.serverMaintenance).toBe(false);
   });
@@ -351,7 +354,7 @@ describe("CallCenter — conectividade", () => {
         ? { status: 200, body: JSON.stringify({ idCliente: 1, status: 1 }) }
         : { status: 500, body: "{}" },
     );
-    const obs = await adapter.fetchCustomerConnectivity(ref);
+    const obs = await adapter.fetchCustomerConnectivity(ref, SEM_PRAZO);
     // O essencial sobrevive; o acessório fica nulo.
     expect(obs.status).toBe("ONLINE");
     expect(obs.technology).toBeNull();
@@ -365,7 +368,7 @@ describe("CallCenter — conectividade", () => {
       {},
     ]) {
       const { adapter } = connectivityAdapter(acesso);
-      await expect(adapter.fetchCustomerConnectivity(ref)).rejects.toSatisfy(
+      await expect(adapter.fetchCustomerConnectivity(ref, SEM_PRAZO)).rejects.toSatisfy(
         (e: unknown) => isIntegrationError(e) && e.code === "INVALID_RESPONSE",
       );
     }
@@ -377,7 +380,7 @@ describe("CallCenter — conectividade", () => {
     [500, "UPSTREAM_UNAVAILABLE"],
   ])("erro HTTP %i NUNCA vira OFFLINE", async (status, code) => {
     const { adapter } = adapterWith(() => ({ status, body: "{}" }));
-    await expect(adapter.fetchCustomerConnectivity(ref)).rejects.toSatisfy(
+    await expect(adapter.fetchCustomerConnectivity(ref, SEM_PRAZO)).rejects.toSatisfy(
       (e: unknown) =>
         isIntegrationError(e) &&
         e.code === code &&
@@ -392,12 +395,12 @@ describe("CallCenter — conectividade", () => {
       e.name = "AbortError";
       return Promise.reject(e);
     });
-    await expect(abort.adapter.fetchCustomerConnectivity(ref)).rejects.toSatisfy(
+    await expect(abort.adapter.fetchCustomerConnectivity(ref, SEM_PRAZO)).rejects.toSatisfy(
       (e: unknown) => isIntegrationError(e) && e.code === "TIMEOUT",
     );
 
     const garbage = adapterWith(() => ({ status: 200, body: "nao é json" }));
-    await expect(garbage.adapter.fetchCustomerConnectivity(ref)).rejects.toSatisfy(
+    await expect(garbage.adapter.fetchCustomerConnectivity(ref, SEM_PRAZO)).rejects.toSatisfy(
       (e: unknown) => isIntegrationError(e) && e.code === "INVALID_RESPONSE",
     );
   });

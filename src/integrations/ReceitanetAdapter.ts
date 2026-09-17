@@ -8,11 +8,11 @@ import type {
   ERPCustomerQuery,
   ERPCustomerSummary,
 } from "./customer-lookup";
-import {
-  DIAGNOSTIC_TIMEOUT_MS,
-  type ERPConnectivityObservation,
-  type ERPCustomerRef,
-  type ERPDiagnosticsCapability,
+import type {
+  ERPConnectivityObservation,
+  ERPCustomerRef,
+  ERPDiagnosticsCapability,
+  ERPDiagnosticsRequestContext,
 } from "./diagnostics";
 import { IntegrationError, isIntegrationError } from "./errors";
 import {
@@ -69,25 +69,17 @@ export class ReceitanetAdapter
   readonly provider = "RECEITANET";
 
   private readonly client: ReceitanetCallCenterClient;
-  private readonly diagnosticDeadlineMs: number;
 
   constructor(options: {
     token: string;
     baseUrl?: string | null;
     fetchImpl?: FetchLike;
-    /**
-     * Prazo da verificação de conectividade INTEIRA, somando as duas
-     * requisições. Padrão: o mesmo `DIAGNOSTIC_TIMEOUT_MS` que o domínio aplica
-     * na chamada — ver `fetchCustomerConnectivity`. Configurável só para teste.
-     */
-    diagnosticDeadlineMs?: number;
   }) {
     this.client = new ReceitanetCallCenterClient({
       token: options.token,
       baseUrl: options.baseUrl ?? undefined,
       fetchImpl: options.fetchImpl,
     });
-    this.diagnosticDeadlineMs = options.diagnosticDeadlineMs ?? DIAGNOSTIC_TIMEOUT_MS;
   }
 
   /**
@@ -270,6 +262,7 @@ export class ReceitanetAdapter
    */
   async fetchCustomerConnectivity(
     ref: ERPCustomerRef,
+    context: ERPDiagnosticsRequestContext,
   ): Promise<ERPConnectivityObservation> {
     if (!ref.externalId) {
       throw new IntegrationError(
@@ -283,65 +276,56 @@ export class ReceitanetAdapter
     /*
       UM prazo para a verificação inteira, e ele CANCELA a rede.
 
-      O domínio já corre esta promessa contra `DIAGNOSTIC_TIMEOUT_MS`
-      (`withIntegrationTimeout`), mas perder a corrida só solta quem espera: a
-      requisição continuava em voo. Aqui são DUAS em sequência, então a segunda
-      podia começar perto do fim do prazo e seguir por mais 8 s depois de o
-      diagnóstico ter desistido — e o ciclo automático, com a vaga livre, já
-      estava na próxima. A concorrência configurada deixava de ser o limite de
-      requisições simultâneas ao ERP (`DIAG-ORPHAN-01`, `RC-1F-A`).
-
-      O relógio nasce aqui, junto da promessa que o domínio vai cronometrar;
-      os dois vencem juntos, e o sinal derruba o que estiver em voo.
+      O prazo é do CONTRATO (`ERPDiagnosticsRequestContext`, `RC-1F-A`): quem
+      cronometra a verificação cria o sinal e o aborta quando o prazo vence. Aqui
+      são DUAS requisições em sequência, e sem o sinal a segunda podia começar
+      perto do fim do prazo e seguir por mais 8 s depois de o diagnóstico ter
+      desistido — o ciclo automático, com a vaga livre, já estaria na próxima, e
+      a concorrência configurada deixaria de ser o limite de requisições
+      simultâneas ao ERP (`DIAG-ORPHAN-01`). As duas recebem o MESMO sinal.
     */
-    const prazo = new AbortController();
-    const relogio = setTimeout(() => prazo.abort(), this.diagnosticDeadlineMs);
-    try {
-      const payload = await this.client.verificarAcesso(id, { signal: prazo.signal });
+    const payload = await this.client.verificarAcesso(id, { signal: context.signal });
 
-      if (payload?.status !== 1 && payload?.status !== 2) {
-        throw new IntegrationError(
-          "INVALID_RESPONSE",
-          this.provider,
-          "status fora do enum documentado",
-        );
-      }
-
-      /**
-       * Contexto adicional, BEST-EFFORT.
-       *
-       * `verificar-acesso` não devolve tecnologia nem manutenção — esses campos
-       * só existem em `/v1/cliente`. Uma segunda leitura documentada e
-       * read-only os traz, mas ela NUNCA pode custar o estado: se falhar, os
-       * extras ficam nulos e o ONLINE/OFFLINE segue intacto. Trocar o
-       * essencial pelo acessório seria o erro óbvio aqui.
-       */
-      let technology: string | null = null;
-      let serverMaintenance: boolean | null = null;
-      try {
-        /*
-          Com o MESMO sinal: se o prazo vencer aqui, a leitura acessória é
-          cancelada e o estado já obtido volta sem os extras.
-        */
-        const detail = toDetail(await this.client.getCliente(id, { signal: prazo.signal }));
-        technology = detail.technology;
-        serverMaintenance = detail.serverMaintenance;
-      } catch {
-        // Silêncio deliberado: o estado já foi obtido e é o que importa.
-      }
-
-      // `sourceUpdatedAt` fica NULO: o contrato não devolve nenhum instante em
-      // que o estado mudou, e derivá-lo do nosso tempo de recebimento seria
-      // fabricar um sinal de ordenação que o provider não deu.
-      return {
-        status: payload.status === 1 ? "ONLINE" : "OFFLINE",
-        sourceUpdatedAt: null,
-        technology,
-        serverMaintenance,
-      };
-    } finally {
-      clearTimeout(relogio);
+    if (payload?.status !== 1 && payload?.status !== 2) {
+      throw new IntegrationError(
+        "INVALID_RESPONSE",
+        this.provider,
+        "status fora do enum documentado",
+      );
     }
+
+    /**
+     * Contexto adicional, BEST-EFFORT.
+     *
+     * `verificar-acesso` não devolve tecnologia nem manutenção — esses campos
+     * só existem em `/v1/cliente`. Uma segunda leitura documentada e
+     * read-only os traz, mas ela NUNCA pode custar o estado: se falhar, os
+     * extras ficam nulos e o ONLINE/OFFLINE segue intacto. Trocar o
+     * essencial pelo acessório seria o erro óbvio aqui.
+     */
+    let technology: string | null = null;
+    let serverMaintenance: boolean | null = null;
+    try {
+      /*
+        Com o MESMO sinal: se o prazo vencer aqui, a leitura acessória é
+        cancelada e o estado já obtido volta sem os extras.
+      */
+      const detail = toDetail(await this.client.getCliente(id, { signal: context.signal }));
+      technology = detail.technology;
+      serverMaintenance = detail.serverMaintenance;
+    } catch {
+      // Silêncio deliberado: o estado já foi obtido e é o que importa.
+    }
+
+    // `sourceUpdatedAt` fica NULO: o contrato não devolve nenhum instante em
+    // que o estado mudou, e derivá-lo do nosso tempo de recebimento seria
+    // fabricar um sinal de ordenação que o provider não deu.
+    return {
+      status: payload.status === 1 ? "ONLINE" : "OFFLINE",
+      sourceUpdatedAt: null,
+      technology,
+      serverMaintenance,
+    };
   }
 }
 

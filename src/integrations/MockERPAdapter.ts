@@ -7,6 +7,7 @@ import type {
   ERPConnectivityObservation,
   ERPCustomerRef,
   ERPDiagnosticsCapability,
+  ERPDiagnosticsRequestContext,
 } from "./diagnostics";
 import { IntegrationError } from "./errors";
 
@@ -53,8 +54,13 @@ export class MockERPAdapter
    */
   async fetchCustomerConnectivity(
     ref: ERPCustomerRef,
+    context: ERPDiagnosticsRequestContext,
   ): Promise<ERPConnectivityObservation> {
+    // A latência simulada obedece ao prazo, como o contrato pede de todo adapter.
     await new Promise((resolve) => setTimeout(resolve, 10));
+    if (context.signal.aborted) {
+      throw new IntegrationError("TIMEOUT", this.provider, "prazo da verificação vencido");
+    }
     const id = ref.externalId ?? "";
 
     // Suffix conventions come FIRST, and are matched rather than compared

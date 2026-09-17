@@ -82,6 +82,9 @@ async function techFor(companyId: string, userId: string) {
 // Contract conformance — same normalized model from every provider
 // ---------------------------------------------------------------------------
 
+/** Chamada direta ao adapter, sem prazo vencendo: o contexto do contrato (RC-1F-A). */
+const SEM_PRAZO = { signal: new AbortController().signal };
+
 describe("Conformidade do contrato de diagnóstico", () => {
   it("MockERP e ReceitaNet declaram a capability de diagnóstico", () => {
     expect(supportsDiagnostics(new MockERPAdapter())).toBe(true);
@@ -103,7 +106,7 @@ describe("Conformidade do contrato de diagnóstico", () => {
         externalId,
         document: null,
         name: "x",
-      });
+      }, SEM_PRAZO);
       expect(["ONLINE", "OFFLINE", "UNKNOWN"]).toContain(obs.status);
       expect(
         obs.sourceUpdatedAt === null || obs.sourceUpdatedAt instanceof Date,
@@ -125,7 +128,7 @@ describe("Conformidade do contrato de diagnóstico", () => {
         externalId: null,
         document: null,
         name: "x",
-      }),
+      }, SEM_PRAZO),
     ).rejects.toSatisfy(
       (e: unknown) => isIntegrationError(e) && e.code === "CUSTOMER_NOT_FOUND",
     );
@@ -136,7 +139,7 @@ describe("Conformidade do contrato de diagnóstico", () => {
       externalId: "NAO-EXISTE",
       document: null,
       name: "x",
-    });
+    }, SEM_PRAZO);
     expect(obs.status).toBe("UNKNOWN");
   });
 });

@@ -4,7 +4,7 @@ import { runConnectivityRefreshCycle } from "@/lib/connectivity-monitor";
 import { createCto } from "@/lib/cto";
 import { MockERPAdapter } from "@/integrations/MockERPAdapter";
 import { ReceitanetAdapter } from "@/integrations/ReceitanetAdapter";
-import { withIntegrationTimeout } from "@/integrations/diagnostics";
+import { runWithDiagnosticDeadline } from "@/integrations/diagnostics";
 import {
   ReceitanetCallCenterClient,
   type FetchLike,
@@ -15,8 +15,10 @@ import { seedTestData, type TestFixture } from "./helpers";
 /**
  * # `DIAG-ORPHAN-01` — o prazo solta a vaga; ele também precisa soltar a rede
  *
- * `withIntegrationTimeout` corre uma promessa contra um relógio e, perdendo, a
- * deixa terminar sozinha. No ReceitaNet a verificação são DUAS requisições
+ * O prazo corria uma promessa contra um relógio e, perdendo, a deixava terminar
+ * sozinha. Desde a decisão do dono (B), o prazo é CONTRATO do provider: quem
+ * cronometra (`runWithDiagnosticDeadline`) cria o `AbortSignal` e o entrega
+ * no contexto, e o adapter o repassa a cada requisição. No ReceitaNet a verificação são DUAS requisições
  * (`verificar-acesso`, depois `/v1/cliente`, best-effort), e o cliente HTTP só
  * cobria até os cabeçalhos. Resultado: vencido o prazo, o ciclo pegava o
  * próximo cliente enquanto a requisição anterior continuava em voo — e a
@@ -118,12 +120,11 @@ describe("DIAG-TIMEOUT — vencido o prazo, nada fica em voo", () => {
     const adapter = new ReceitanetAdapter({
       token: "t",
       fetchImpl: rede.fetchImpl,
-      diagnosticDeadlineMs: 120,
     });
 
-    const resultado = await withIntegrationTimeout(
-      adapter.fetchCustomerConnectivity(REF),
+    const resultado = await runWithDiagnosticDeadline(
       "RECEITANET",
+      (context) => adapter.fetchCustomerConnectivity(REF, context),
       120,
     ).then(
       (obs) => ({ obs }),
@@ -144,12 +145,11 @@ describe("DIAG-TIMEOUT — vencido o prazo, nada fica em voo", () => {
     const adapter = new ReceitanetAdapter({
       token: "t",
       fetchImpl: rede.fetchImpl,
-      diagnosticDeadlineMs: 100,
     });
 
-    const erro = await withIntegrationTimeout(
-      adapter.fetchCustomerConnectivity(REF),
+    const erro = await runWithDiagnosticDeadline(
       "RECEITANET",
+      (context) => adapter.fetchCustomerConnectivity(REF, context),
       100,
     ).then(
       () => null,
@@ -235,7 +235,6 @@ describe("DIAG-CONCURRENCY — o teto de concorrência é teto de requisições"
     const receitanet = new ReceitanetAdapter({
       token: "t",
       fetchImpl: rede.fetchImpl,
-      diagnosticDeadlineMs: 120,
     });
     /*
       O identificador precisa ser NUMÉRICO: o adapter ReceitaNet recusa outro
@@ -246,8 +245,8 @@ describe("DIAG-CONCURRENCY — o teto de concorrência é teto de requisições"
     */
     const espiao = vi
       .spyOn(MockERPAdapter.prototype, "fetchCustomerConnectivity")
-      .mockImplementation((ref) =>
-        receitanet.fetchCustomerConnectivity({ ...ref, externalId: "123" }),
+      .mockImplementation((ref, context) =>
+        receitanet.fetchCustomerConnectivity({ ...ref, externalId: "123" }, context),
       );
 
     let r;

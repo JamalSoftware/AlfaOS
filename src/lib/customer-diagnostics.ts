@@ -4,8 +4,8 @@ import { logAudit } from "./audit";
 import { notFound } from "./errors";
 import { resolveCompanyAdapter } from "./erp-adapter";
 import {
+  runWithDiagnosticDeadline,
   supportsDiagnostics,
-  withIntegrationTimeout,
   type ERPCustomerRef,
 } from "../integrations/diagnostics";
 import {
@@ -389,9 +389,11 @@ export async function refreshCustomerDiagnostic(
   try {
     // The deadline lives here, not inside the adapter: applied at the call
     // site it binds every adapter, including ones written later that forget.
-    observation = await withIntegrationTimeout(
-      adapter.fetchCustomerConnectivity(ref),
+    // And it CANCELS: the adapter receives the deadline signal in its context
+    // and must pass it to every external operation (RC-1F-A).
+    observation = await runWithDiagnosticDeadline(
       provider,
+      (context) => adapter.fetchCustomerConnectivity(ref, context),
       options.timeoutMs,
     );
   } catch (error) {

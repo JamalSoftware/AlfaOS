@@ -103,9 +103,9 @@ function espiarProvider(
   const original = MockERPAdapter.prototype.fetchCustomerConnectivity;
   const espiao = vi
     .spyOn(MockERPAdapter.prototype, "fetchCustomerConnectivity")
-    .mockImplementation(async function (this: MockERPAdapter, ref) {
+    .mockImplementation(async function (this: MockERPAdapter, ref, context) {
       if (antes) await antes(ref.externalId);
-      return original.call(this, ref);
+      return original.call(this, ref, context);
     });
   return {
     chamadas: (externalId: string | null) =>
