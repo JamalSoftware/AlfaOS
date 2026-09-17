@@ -129,39 +129,63 @@ export function validateEnv(): ValidatedEnv {
     );
   }
 
-  validateErpCredentialKey();
+  validateOptionalAes256Key("ERP_CREDENTIAL_ENCRYPTION_KEY");
+  validateOptionalAes256Key("CUSTOMER_CREDENTIAL_ENCRYPTION_KEY");
 
   const loginLimits = readLoginLimits();
+
+  /*
+    `TRUSTED_PROXY_HOPS` (`ENV-01`, `RC-1F-A`).
+
+    `rate-limit.ts` a lê a cada requisição com `parseInt` e cai para 0 no que
+    não entende — `"abc"` virava 0 e `"2abc"` virava 2, em silêncio. Aqui ela é
+    conferida na subida, com a regra das outras: ausente é o padrão 0, presente e
+    inválida derruba. Sem teto superior: um número de proxies maior que o real é
+    erro de configuração que só quem conhece a infraestrutura enxerga, e a
+    documentação (docs/SECURITY.md) é quem o descreve.
+  */
+  readIntegerSetting(
+    "TRUSTED_PROXY_HOPS",
+    process.env.TRUSTED_PROXY_HOPS,
+    0,
+    { min: 0, max: Number.MAX_SAFE_INTEGER },
+  );
 
   return { nodeEnv, databaseUrl, authSecret, loginLimits };
 }
 
 /** AES-256 key length, in bytes. */
-const ERP_CREDENTIAL_KEY_BYTES = 32;
+const AES_256_KEY_BYTES = 32;
 
 /**
- * Validates the ERP credential master key IF it is set.
+ * Validates an AES-256 master key IF it is set.
  *
- * Deliberately optional: AlfaOS runs fine without any ERP credential
- * configured, so demanding this at boot would block every deployment that does
- * not use one. What must not happen is a key that LOOKS configured but is the
- * wrong size — that would only surface at the first save attempt, which is the
- * worst moment to discover it. So: absent is fine, present-and-malformed fails
- * fast.
+ * Deliberately optional: AlfaOS runs fine without any ERP credential or
+ * customer connection password configured, so demanding a key at boot would
+ * block every deployment that does not use one — and both ciphers already fail
+ * CLOSED at use when the key is absent. What must not happen is a key that
+ * LOOKS configured but is the wrong size — that would only surface at the first
+ * save or reveal, which is the worst moment to discover it. So: absent is fine,
+ * present-and-malformed fails fast.
+ *
+ * Two keys go through here: `ERP_CREDENTIAL_ENCRYPTION_KEY` (since v0.6) and
+ * `CUSTOMER_CREDENTIAL_ENCRYPTION_KEY` (`RC-1F-A`; before it, a malformed
+ * customer key was only discovered when a technician tried to reveal a PPPoE
+ * password).
  *
  * The value itself is never printed, only its decoded length.
  */
-function validateErpCredentialKey(): void {
-  const raw = process.env.ERP_CREDENTIAL_ENCRYPTION_KEY;
+function validateOptionalAes256Key(name: string): void {
+  const raw = process.env[name];
   if (!raw || raw.trim() === "") {
     return;
   }
 
   const decoded = Buffer.from(raw, "base64");
-  if (decoded.length !== ERP_CREDENTIAL_KEY_BYTES) {
+  if (decoded.length !== AES_256_KEY_BYTES) {
     throw new Error(
-      `ERP_CREDENTIAL_ENCRYPTION_KEY deve decodificar (base64) para exatamente ` +
-        `${ERP_CREDENTIAL_KEY_BYTES} bytes (recebido: ${decoded.length}). ` +
+      `${name} deve decodificar (base64) para exatamente ` +
+        `${AES_256_KEY_BYTES} bytes (recebido: ${decoded.length}). ` +
         "Gere uma chave válida com: openssl rand -base64 32",
     );
   }

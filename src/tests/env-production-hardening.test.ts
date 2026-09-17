@@ -1,7 +1,9 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { validateEnv } from "@/lib/env";
 import { readConnectivityRunSettings } from "@/lib/connectivity-monitor";
+import { readOutboxBatchLimit } from "@/lib/outbox";
 
 /**
  * # `RC-1F-A` — `ENV-01`: configuração de produção que falhava em silêncio
@@ -75,4 +77,108 @@ describe("CMD-ENV — os comandos recusam configuração inválida dizendo qual"
     expect(r.status).toBe(2);
     expect(r.stderr).toMatch(/configuracao invalida: DIAGNOSTICS_REFRESH_TARGET_MS/);
   }, 90_000);
+
+  it("CMD-ENV-03 · outbox: lote inválido sai com 2 antes de reivindicar qualquer evento", () => {
+    const r = comando("scripts/outbox-worker.ts", [], { OUTBOX_BATCH_LIMIT: "0" });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/configuracao invalida: OUTBOX_BATCH_LIMIT/);
+    expect(r.stdout).not.toMatch(/reivindicados=/);
+  }, 90_000);
+});
+
+describe("OUTBOX-ENV — teto do lote do outbox", () => {
+  it("OUTBOX-ENV-01 · ausente continua 50", () => {
+    expect(readOutboxBatchLimit({})).toBe(50);
+  });
+
+  it("OUTBOX-ENV-02 · inteiro positivo é aceito", () => {
+    expect(readOutboxBatchLimit({ OUTBOX_BATCH_LIMIT: "20" })).toBe(20);
+  });
+
+  it.each(INVALIDOS)("OUTBOX-ENV-03 · OUTBOX_BATCH_LIMIT=%j derruba a subida", (valor) => {
+    expect(() => readOutboxBatchLimit({ OUTBOX_BATCH_LIMIT: valor })).toThrow(/OUTBOX_BATCH_LIMIT/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateEnv — subida da aplicação web
+// ---------------------------------------------------------------------------
+
+const env = process.env as Record<string, string | undefined>;
+const VARIAVEIS = [
+  "NODE_ENV",
+  "DATABASE_URL",
+  "AUTH_SECRET",
+  "TRUSTED_PROXY_HOPS",
+  "CUSTOMER_CREDENTIAL_ENCRYPTION_KEY",
+  "ERP_CREDENTIAL_ENCRYPTION_KEY",
+] as const;
+const ORIGINAL = Object.fromEntries(VARIAVEIS.map((k) => [k, env[k]]));
+
+beforeEach(() => {
+  env.NODE_ENV = "production";
+  env.DATABASE_URL = "postgresql://user:pass@localhost:5432/db";
+  env.AUTH_SECRET = "a-production-secret-that-is-long-enough-123";
+  delete env.TRUSTED_PROXY_HOPS;
+  delete env.CUSTOMER_CREDENTIAL_ENCRYPTION_KEY;
+  delete env.ERP_CREDENTIAL_ENCRYPTION_KEY;
+});
+
+afterEach(() => {
+  for (const k of VARIAVEIS) {
+    if (ORIGINAL[k] === undefined) delete env[k];
+    else env[k] = ORIGINAL[k];
+  }
+});
+
+describe("PROXY-ENV — TRUSTED_PROXY_HOPS", () => {
+  it("PROXY-ENV-01 · ausente é aceito (padrão 0)", () => {
+    expect(() => validateEnv()).not.toThrow();
+  });
+
+  it.each(["0", "1", "2"])("PROXY-ENV-02 · %s é aceito", (valor) => {
+    env.TRUSTED_PROXY_HOPS = valor;
+    expect(() => validateEnv()).not.toThrow();
+  });
+
+  it("PROXY-ENV-04 · fora de produção a regra é a mesma — o contrato não previa exceção", () => {
+    env.NODE_ENV = "development";
+    env.TRUSTED_PROXY_HOPS = "abc";
+    expect(() => validateEnv()).toThrow(/TRUSTED_PROXY_HOPS/);
+  });
+
+  it.each(["abc", "-1", "1.5", "", "2abc", "Infinity"])(
+    "PROXY-ENV-03 · %j derruba a subida em produção, em vez de virar 0",
+    (valor) => {
+      env.TRUSTED_PROXY_HOPS = valor;
+      expect(() => validateEnv()).toThrow(/TRUSTED_PROXY_HOPS/);
+    },
+  );
+});
+
+describe("CUSTOMER-KEY-ENV — CUSTOMER_CREDENTIAL_ENCRYPTION_KEY", () => {
+  const valida = Buffer.alloc(32, 7).toString("base64");
+
+  it("CUSTOMER-KEY-ENV-01 · ausente é aceito — a gravação falha fechada no uso", () => {
+    expect(() => validateEnv()).not.toThrow();
+  });
+
+  it("CUSTOMER-KEY-ENV-02 · 32 bytes em base64 é aceito", () => {
+    env.CUSTOMER_CREDENTIAL_ENCRYPTION_KEY = valida;
+    expect(() => validateEnv()).not.toThrow();
+  });
+
+  it("CUSTOMER-KEY-ENV-03 · presente e malformada derruba a subida, sem imprimir o valor", () => {
+    const errada = Buffer.alloc(16, 9).toString("base64");
+    env.CUSTOMER_CREDENTIAL_ENCRYPTION_KEY = errada;
+    let mensagem = "";
+    try {
+      validateEnv();
+    } catch (e) {
+      mensagem = e instanceof Error ? e.message : String(e);
+    }
+    expect(mensagem).toMatch(/CUSTOMER_CREDENTIAL_ENCRYPTION_KEY/);
+    expect(mensagem).toMatch(/16/);
+    expect(mensagem).not.toContain(errada);
+  });
 });

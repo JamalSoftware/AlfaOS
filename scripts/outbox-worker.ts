@@ -31,16 +31,31 @@
  * worker acaba em arquivo, em agregador e em ticket de suporte.
  */
 
-import { processOutboxBatch } from "../src/lib/outbox";
+import { processOutboxBatch, readOutboxBatchLimit } from "../src/lib/outbox";
 import { installConfiguredPushProvider } from "../src/lib/push/bootstrap";
 import { handleOutboxEvent } from "../src/lib/outbox-handlers";
 import { prisma } from "../src/lib/prisma";
 import { logServerError } from "../src/lib/safe-log";
 
-/** Teto por execução: mantém o comando curto e previsível para o cron. */
-const BATCH_LIMIT = Number(process.env.OUTBOX_BATCH_LIMIT ?? 50);
-
 async function main(): Promise<void> {
+  /*
+    Configuração PRIMEIRO, e o motivo impresso.
+
+    O `catch` do fim registra só o tipo do erro (RC-LOG-01), então um
+    `OUTBOX_BATCH_LIMIT` inválido sairia como "erro=Error" sem dizer qual
+    variável. Configuração não é segredo: a mensagem vai inteira, e a saída 2
+    separa "configurado errado" de "falhou rodando".
+  */
+  let batchLimit: number;
+  try {
+    batchLimit = readOutboxBatchLimit();
+  } catch (error) {
+    console.error(
+      `[outbox] configuracao invalida: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exitCode = 2;
+    return;
+  }
   /*
     Escolha do provider: UMA vez, na subida, antes do primeiro lote.
 
@@ -55,7 +70,7 @@ async function main(): Promise<void> {
   }
 
   const started = Date.now();
-  const result = await processOutboxBatch(handleOutboxEvent, BATCH_LIMIT);
+  const result = await processOutboxBatch(handleOutboxEvent, batchLimit);
   const ms = Date.now() - started;
 
   console.info(
