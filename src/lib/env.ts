@@ -51,8 +51,13 @@ export function readIntegerSetting(
   const text = raw.trim();
   const value = /^\d+$/.test(text) ? Number(text) : Number.NaN;
   if (!Number.isSafeInteger(value) || value < rule.min || value > rule.max) {
+    // Sem teto superior, a faixa "entre 1 e 9007199254740991" só confundiria.
+    const faixa =
+      rule.max === Number.MAX_SAFE_INTEGER
+        ? `a partir de ${rule.min}`
+        : `entre ${rule.min} e ${rule.max}`;
     throw new Error(
-      `${name} inválido: use um número inteiro entre ${rule.min} e ${rule.max} ` +
+      `${name} inválido: use um número inteiro ${faixa} ` +
         `(recebido: "${raw.slice(0, 40)}"). Remova a variável para usar o padrão.`,
     );
   }

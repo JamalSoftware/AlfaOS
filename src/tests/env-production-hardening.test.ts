@@ -37,6 +37,12 @@ describe("DIAG-ENV — teto e concorrência do ciclo", () => {
     );
   });
 
+  it("DIAG-ENV-05 · sem teto superior, a mensagem não inventa um: diz \"a partir de 1\" e o valor recebido", () => {
+    expect(() => readConnectivityRunSettings({ DIAGNOSTICS_REFRESH_CONCURRENCY: "6.5" })).toThrow(
+      'DIAGNOSTICS_REFRESH_CONCURRENCY inválido: use um número inteiro a partir de 1 (recebido: "6.5")',
+    );
+  });
+
   it.each(INVALIDOS)("DIAG-ENV-04 · DIAGNOSTICS_REFRESH_CONCURRENCY=%j derruba a subida", (valor) => {
     expect(() => readConnectivityRunSettings({ DIAGNOSTICS_REFRESH_CONCURRENCY: valor })).toThrow(
       /DIAGNOSTICS_REFRESH_CONCURRENCY/,
