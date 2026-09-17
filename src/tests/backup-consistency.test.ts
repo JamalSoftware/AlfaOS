@@ -236,6 +236,18 @@ describe("OPS-BACKUP-CONSISTENCY — a janela de manutenção", () => {
       createHash("sha256").update(readFileSync(path.join(c.destino, "daily", arquivo))).digest("hex");
     expect(m.database_sha256).toBe(sha(m.database));
     expect(m.storage_sha256).toBe(sha(m.storage));
+
+    /*
+      Os três nomes DERIVAM do mesmo `$GERACAO`, e isso precisa ser estrutural.
+      Uma segunda leitura do relógio para o nome do storage produz o mesmo texto
+      quase sempre — e diverge no segundo em que a execução atravessa a virada,
+      que é justamente quando ninguém está olhando. Comparar só o resultado
+      deixaria passar.
+    */
+    const script = readFileSync(SCRIPT, "utf8");
+    expect(script).toMatch(/DB_TMP="\$TMP\/alfaos-\$GERACAO-db\.sql\.gz"/);
+    expect(script).toMatch(/ST_TMP="\$TMP\/alfaos-\$GERACAO-storage\.tar\.gz"/);
+    expect(script).toMatch(/MAN_TMP="\$TMP\/alfaos-\$GERACAO\.manifest"/);
   });
 
   it("OPS-BACKUP-CONSISTENCY-09 · a restauração exige UMA geração e a conferência de checksum", () => {
