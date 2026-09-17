@@ -357,7 +357,6 @@ describe("DIAG-FAIR-DETERMINISTIC — progresso previsível, sem sorteio", () =>
     const porExterno = new Map(Array.from(clientes.values()).map((c) => [c.externalId, c.id]));
 
     async function rodada(inicio: number): Promise<string[]> {
-      const sequencia: string[] = [];
       const provider = espiarProvider();
       try {
         for (let tick = 0; tick < ids.length; tick += 1) {
