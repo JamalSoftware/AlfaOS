@@ -1235,12 +1235,51 @@ IPv4, e o navegador aplica a mesma canonicalização ao decidir mesma origem.
 
 ---
 
+### 8.26 A superfície de produção — `RC-1F-B`
+
+> O contrato operacional inteiro está em `docs/DEPLOYMENT.md`. Aqui ficam só as
+> propriedades de SEGURANÇA que a implantação precisa preservar.
+
+- **A raiz de armazenamento é exigida, não adivinhada.** Em produção
+  `STORAGE_ROOT` precisa ser absoluta, ficar fora do diretório da aplicação (sem
+  contê-lo) e fora do temporário; a subida falha nomeando a variável
+  (`resolveStorageRoot`, testes `STO-PROD`). O padrão relativo `.storage`
+  continua valendo fora de produção. Isso protege o dado, não o segredo: a raiz
+  dentro do release desaparece no deploy seguinte.
+- **O storage não tem URL.** Nenhum `location` do Nginx o serve, e o diretório
+  nem aparece no modelo (`OPS-NGINX-04`). Toda foto sai por rota autorizada, que
+  confere empresa e posse antes do primeiro byte.
+- **Uma fonte de ambiente.** `/etc/alfaos/alfaos.env` (`0640`, `root:alfaos`)
+  alimenta o web e os comandos. Segredo nenhum entra em `ExecStart`, em linha de
+  `crontab` ou em argumento de processo — inclusive a senha do `pg_dump`, que
+  vem de `.pgpass`.
+- **Privilégio mínimo.** Serviço como usuário dedicado, nunca root, com o
+  storage como único caminho gravável concedido (`OPS-SYSTEMD-01/06`).
+- **`TRUSTED_PROXY_HOPS=1` é o par do Nginx**, que ACRESCENTA ao
+  `x-forwarded-for`. Com 0 o cabeçalho é ignorado e o limite por IP vira global;
+  com número maior que o real, o cliente escolhe o próprio IP (`OPS-NGINX-02`).
+- **Banco e porta da aplicação em loopback**, firewall abrindo só 22, 80 e 443
+  (`OPS-NET-01`).
+- **As chaves de cifra não entram no backup** e são guardadas à parte: um backup
+  que as carrega transforma o roubo do backup no roubo das credenciais de ERP de
+  todas as empresas. Sem elas, porém, a restauração é inútil — e o runbook de
+  restauração exige as duas (`OPS-BACKUP-04`).
+- **Nada destrutivo é agendado.** O expurgo de órfãos do storage e a
+  re-sanitização legada continuam manuais, com escopo explícito (§8.25);
+  `evidence:cleanup` é outra coisa e não os substitui (`OPS-CRON-07`).
+- **Não existe rota de saúde**, e criá-la é superfície de API nova:
+  `OWNER DECISION REQUIRED — HEALTH ENDPOINT`.
+
+---
+
 ## 9. Configuração de produção
 
 1. Gere um `AUTH_SECRET` forte: `openssl rand -base64 48`.
 2. Use PostgreSQL gerenciado com TLS e credenciais fortes.
 3. Sirva por HTTPS (HSTS é emitido em produção).
 4. Aplique as migrations: `npx prisma migrate deploy`.
+5. Siga `docs/DEPLOYMENT.md` — layout, usuário de serviço, ambiente, agendadores,
+   backup e restauração (`RC-1F-B`).
 
 ### 9.1 O que a fundação de notificações exige fora do Git
 

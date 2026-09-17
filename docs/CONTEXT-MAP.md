@@ -126,6 +126,27 @@ A fronteira: **Core** é tudo o que a PRD §386 lista como V1 MUST HAVE — nada
 
 **Quando um módulo for implementado, o primeiro trabalho é a camada central** (§406): `if (tenant.hasModule(...))` espalhado e `if (plan === "PRO")` no domínio são os defeitos a evitar. O precedente de portão único é o `requireCtoAccess`.
 
+## Implantação, storage de produção e agendadores — `RC-1F-B`
+
+**Carregar:** `docs/DEPLOYMENT.md` (contrato e runbook), `deploy/` (modelos de
+systemd, Nginx, cron e backup), `docs/MASTER-PLAN.md` §18, `docs/SECURITY.md`
+§8.26.
+**Quando:** a tarefa toca implantação, `STORAGE_ROOT`, proxy, agendamento de
+comando, backup ou restauração.
+**Quando NÃO:** qualquer tarefa de produto.
+
+**`READY FOR VPS PROVISIONING`, e nada está no ar:** não existe VPS, domínio,
+certificado, banco de produção nem cron instalado. Regras que não se desfazem:
+**a raiz de armazenamento em produção é absoluta e fora do release**, decidida
+por `resolveStorageRoot` (`src/lib/storage/root.ts`) — autoridade única do
+adapter e da subida, com `.storage` valendo só fora de produção; **uma fonte de
+ambiente** para web e comandos; **o diagnóstico recorrente nasce COMENTADO** no
+crontab e só é ativado depois de o dono ver o `dry-run` no servidor; **nada
+destrutivo é agendado** (expurgo de órfãos e re-sanitização continuam manuais); e
+os modelos versionados são presos ao código pelos testes `OPS-*`
+(`src/tests/deployment-contract.test.ts`) — mexer num deles sem mexer no outro
+quebra a suíte de propósito.
+
 ## Arquitetura
 
 **Carregar:** `docs/ARCHITECTURE.md`.

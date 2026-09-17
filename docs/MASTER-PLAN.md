@@ -1248,3 +1248,71 @@ requisição, host ou caminho inesperado, e leitura do read model da CTO. A
 cliente, nos dois sentidos. **Não está medida a capacidade**
 (`PROVIDER CAPACITY — NOT YET MEASURED`), e **`DIAGNOSTICS SCHEDULER` continua
 `CODE READY`, não `ACTIVE`.** SGP: `REAL VALIDATION — PENDING API ACCESS`.
+
+---
+
+## 18. `RC-1F-B` — VPS LINUX: IMPLANTAÇÃO, STORAGE, BACKUP E AGENDADORES
+
+**Estado: `READY FOR VPS PROVISIONING` (17/09/2026).** Commits locais, sem tag e
+sem push. **Nenhum deploy aconteceu**: não existe VPS, domínio, certificado,
+banco de produção nem cron instalado, e nenhuma chamada a provider real foi
+feita. Zero migration, zero dependência nova. O contrato inteiro está em
+`docs/DEPLOYMENT.md`; os modelos, em `deploy/`.
+
+**Arquitetura aprovada pelo dono:** VPS Linux (Ubuntu 24.04 LTS), instância
+ÚNICA, Nginx com HTTPS, `systemd` para o web, PostgreSQL no próprio VPS, storage
+local persistente, `cron` do sistema para os comandos one-shot, backup com cópia
+externa. Sem Docker, sem Kubernetes, sem painel, sem armazenamento de objeto.
+
+```text
+runtime      Node 24 LTS (piso 20.11) · next build + next start
+instância    UMA — limitadores e fila de bcrypt vivem na memória do processo
+banco        PostgreSQL 16, só em loopback · prisma migrate deploy
+storage      /srv/alfaos/storage — FORA do release, exigido pela aplicação
+ambiente     /etc/alfaos/alfaos.env — a MESMA fonte para web e comandos
+agendadores  outbox 1 min (ativo) · diagnóstico 1 min (COMENTADO) ·
+             expurgo de etiqueta 03:15 · backup 02:00
+```
+
+**O único código de produção da fase é a raiz de armazenamento.** Ela era lida
+direto do ambiente com `.storage` como padrão relativo; em produção isso cai
+DENTRO do release, e o deploy seguinte deixa fotos, assinaturas e fotos de CTO
+para trás com o banco ainda apontando para elas — descoberto meses depois, ao
+abrir uma OS antiga. Agora `resolveStorageRoot` é a autoridade única (adapter e
+subida) e, em produção, exige caminho **absoluto**, fora da aplicação (e que não
+a contenha) e fora do temporário. A subida falha nomeando a variável; a única
+exceção é `next build`, que não grava arquivo nenhum.
+
+**O que os testes prendem.** Os modelos não rodam aqui — rodam num servidor que
+ninguém nesta fase vê —, então `OPS-*` confere cada afirmação contra o código:
+`ExecStart` chama script que existe; o teto de corpo do Nginx é calculado dos
+tetos reais de upload (8 MiB + 64 KiB); os cabeçalhos encaminhados correspondem
+ao que o limitador lê com `TRUSTED_PROXY_HOPS=1`; toda linha do cron aponta para
+comando real, pelo invólucro que carrega o ambiente autoritativo; nenhuma
+operação destrutiva é agendada; e o storage não tem `location` no Nginx.
+
+**Decisões que não devem ser desfeitas:** o expurgo de etiqueta **não** é o
+expurgo de órfãos (o segundo continua manual, com escopo e decisão do dono); a
+exclusão por `flock` existe **só** entre backup e expurgo de etiqueta, porque
+outbox e diagnóstico já se arbitram no banco; o backup é banco **primeiro** e
+storage depois, com a janela residual declarada; e as chaves de cifra ficam
+**fora** do backup, guardadas à parte — sem elas, o banco restaurado tem
+credencial ilegível.
+
+```text
+DIAGNOSTICS SCHEDULER   CONFIGURADO — NÃO ATIVO (linha comentada; fase F)
+RESTORE DRILL           PENDING VPS/STAGING VALIDATION
+OFF-SITE BACKUP         OWNER DECISION REQUIRED — DESTINO NÃO ESCOLHIDO
+HEALTH ENDPOINT         OWNER DECISION REQUIRED — não existe rota, e criá-la é
+                        superfície de API nova
+PROVIDER CAPACITY       NOT YET MEASURED
+```
+
+**Gates:** ver o relatório da fase. **Dez sabotagens, dez detectadas** — e duas
+cobraram os testes antes de cair: o backup que copia o diretório errado passava
+por uma asserção que aceitava qualquer `tar`, e a restauração sem as chaves
+passava porque o nome delas aparecia noutra seção do documento.
+
+**Continua com o dono:** VPS e domínio, destino do backup externo, a rota de
+saúde, e a ativação do diagnóstico recorrente — que só acontece depois de ele
+ver o `dry-run` no servidor (fase F de `docs/DEPLOYMENT.md`).
