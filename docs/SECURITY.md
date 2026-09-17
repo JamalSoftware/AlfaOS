@@ -3136,11 +3136,38 @@ existe porque todo fluxo grava uma chave nova e aleatória e a liga **na mesma
 requisição**: arquivo novo sem linha pode ser upload em andamento. A direção
 inversa — linha sem arquivo — é contada à parte e nunca "limpa".
 
-`--purge-orphans --apply` consulta o banco **de novo** imediatamente antes de cada
-exclusão; arquivo que ganhou linha no intervalo fica. Entrada não reconhecida
+O expurgo consulta o banco **de novo** imediatamente antes de cada exclusão;
+arquivo que ganhou linha no intervalo fica. Entrada não reconhecida
 (temporário, arquivo posto à mão, link simbólico) é contada e nunca lida nem
 apagada, e a listagem usa `lstat` — link simbólico não é seguido. Um teste lê o
 schema e falha se nascer coluna de chave de storage fora da definição.
+
+### O expurgo exige escopo explícito (addendum de segurança, 16/09/2026)
+
+Os candidatos a órfão não são uma decisão só: no banco de desenvolvimento há
+resíduo de empresas de teste que não existem mais (grupo A) e fotos antigas de
+uma CTO de empresa que continua operando (grupo B). O `--apply` original apagava
+os dois juntos — e "não execute" escrito em documentação não protege um comando
+destrutivo. O contrato passou a ser da FUNÇÃO (`purgeOrphanFiles`), e o comando
+só o repassa:
+
+```text
+simulação, sem escopo               permitida — mostra os dois grupos
+simulação --scope active-company    permitida — mostra só o grupo de empresa existente
+--apply sem escopo                  RECUSADO antes de qualquer leitura (saída 2)
+--apply --scope missing-company     ÚNICO escopo que apaga
+--apply --scope active-company      RECUSADO: requires owner decision (saída 2)
+--apply --scope all / --all / ""    RECUSADO — não existe escopo "todos"
+```
+
+`missing-company` não dispensa nenhuma regra de órfão: chave reconhecida, nenhuma
+linha de nenhuma empresa referenciando, mais de 24 h, dentro da raiz, sem seguir
+link simbólico — e, imediatamente antes de cada exclusão, o banco é consultado
+de novo sobre a referência E sobre a empresa, que pode ter passado a existir. A
+classificação é dinâmica (a empresa existe? a chave é referenciada? a idade
+passou da carência?): nenhum número nem id do ambiente de desenvolvimento está
+no código. Testes `PURGE-SCOPE-01..08`, inclusive o comando real em processo
+separado; cinco sabotagens detectadas.
 
 ### A ordem de gravar, ligar e apagar
 
@@ -3184,9 +3211,6 @@ ou não existe, ou tem o arquivo inteiro.
   ausentes; 2.057 arquivos, **2.037 órfãos candidatos** — 2.032 de empresas de
   teste que não existem mais (grupo A) e 5 fotos antigas de UMA CTO de empresa
   existente (grupo B), cada grupo com decisão própria.
-- **O comando de expurgo não separa os grupos:** `--purge-orphans --apply` apagaria
-  A e B juntos. Não executar antes da separação ou da decisão do dono sobre os
-  dois (`docs/MASTER-PLAN.md` §12).
 - **Cópia original com GPS:** a re-sanitização a preserva sem linha; manter ou
   apagar exige política explícita de retenção.
 - **Vários blocos EXIF num JPEG:** fica a orientação do último bloco

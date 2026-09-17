@@ -755,19 +755,20 @@ Storage órfão                             (1) RESOLVIDO na RC-1B · (2) polít
   estado   ORPHAN AUDIT: COMPLETE · ORPHAN PURGE: NOT EXECUTED · PENDING OWNER
            OPERATIONAL DECISION — uma decisão por grupo, nunca uma só para os
            2.037
-  trava    npm run storage:audit -- --purge-orphans --apply NÃO separa os
-           grupos: ele apagaria A e B juntos. Não executar enquanto o comando
-           não receber a separação, ou enquanto o dono não tiver decidido os
-           DOIS grupos — débito abaixo
+  comando  o expurgo exige escopo (addendum de 16/09/2026): --apply sem escopo
+           é recusado; --scope missing-company é o único que apaga (grupo A);
+           --scope active-company é recusado até decisão de retenção (grupo
+           B); não existe escopo "todos" (docs/SECURITY.md §8.25)
 
-Expurgo de órfãos — o comando não separa os grupos (achado no fechamento da RC-1E)
-  o quê    purgeOrphanFiles / --purge-orphans --apply percorre TODOS os
+Expurgo de órfãos — o comando não separava os grupos        RESOLVIDO no addendum da RC-1E
+  o quê    purgeOrphanFiles / --purge-orphans --apply percorria TODOS os
            candidatos. Os 2.037 do dev têm duas naturezas — resíduo de teste
            (grupo A) e fotos antigas de CTO de empresa existente (grupo B) —, e
            o dono decidiu que cada grupo tem decisão própria
   alcance  nada foi executado; o risco só existe se o comando rodar com --apply
-  fase     antes de qualquer expurgo real: separar os grupos no comando (por
-           exemplo, só empresa inexistente), ou decisão do dono cobrindo os dois
+  hoje     o escopo é obrigatório e validado na função: só missing-company
+           apaga, active-company é recusado, não existe "todos" — commit
+           2c9daf3. Nenhum expurgo real foi executado
 
 RC-IMG-DEBT — MULTIPLE EXIF ORIENTATION (achado nos testes da RC-1E)
   status   KNOWN DEBT
@@ -978,8 +979,9 @@ oito bytes.
 fotos legadas com GPS (e, depois dela, a retenção da cópia original com GPS); o
 expurgo do grupo A (2.032 arquivos de resíduo de teste); a retenção ou o
 expurgo do grupo B (5 fotos antigas de uma CTO existente) — decisão própria; e o
-storage de produção, na `RC-1F`. O comando de expurgo ainda não separa os grupos
-(§12). Detalhe e contrato em `docs/SECURITY.md` §8.25.
+storage de produção, na `RC-1F`. O comando de expurgo exige escopo desde o
+addendum de segurança: só `missing-company` apaga, e o grupo B é recusado até a
+decisão de retenção (§12). Detalhe e contrato em `docs/SECURITY.md` §8.25.
 
 **Gates:** 2971 Vitest (143 arquivos), 365 Playwright, lint, tsc, build,
 `build:worker`, `prisma validate`, 29 migrations — nenhuma nova. **20 sabotagens, 20
