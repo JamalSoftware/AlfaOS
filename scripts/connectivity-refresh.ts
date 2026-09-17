@@ -49,6 +49,15 @@
  * 1   a volta quebrou
  * 2   configuração inválida — nada foi consultado
  * ```
+ *
+ * # Um cliente só: `--customer-id <id>`
+ *
+ * Validação operacional de UM cliente (id interno do AlfaOS), sem varrer a
+ * carteira. É a MESMA volta com a seleção estreitada: o cliente ainda precisa
+ * de vínculo ativo e de verificação vencida, passa pela mesma reserva, pelo
+ * mesmo prazo e pela mesma escrita. Se ele não for elegível, nada é consultado
+ * e o motivo é impresso — nunca outro cliente no lugar. Não é `teto=1`: o teto
+ * limita quantos, não QUEM.
  */
 
 import {
@@ -59,6 +68,32 @@ import {
 import { resolveConnectivityPolicy } from "../src/lib/connectivity-policy";
 import { prisma } from "../src/lib/prisma";
 import { logServerError } from "../src/lib/safe-log";
+
+const FLAG_CLIENTE = "--customer-id";
+
+/**
+ * Lê `--customer-id <id>` ou `--customer-id=<id>`. Ausente: `undefined`.
+ *
+ * Presente e malformado derruba com saída 2, como qualquer configuração: um id
+ * vazio ou engolindo a flag seguinte (`--customer-id --dry-run`) não pode virar
+ * "sem filtro" e sair consultando a carteira inteira. O valor recebido não é
+ * ecoado — veio da linha de comando, não se sabe o que tem.
+ */
+function lerClienteAlvo(argv: readonly string[]): string | undefined {
+  const posicoes = argv
+    .map((arg, i) => (arg === FLAG_CLIENTE || arg.startsWith(`${FLAG_CLIENTE}=`) ? i : -1))
+    .filter((i) => i >= 0);
+  if (posicoes.length === 0) return undefined;
+  if (posicoes.length > 1) {
+    throw new Error(`${FLAG_CLIENTE} informado mais de uma vez`);
+  }
+  const arg = argv[posicoes[0]];
+  const valor = arg === FLAG_CLIENTE ? argv[posicoes[0] + 1] : arg.slice(FLAG_CLIENTE.length + 1);
+  if (valor === undefined || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(valor)) {
+    throw new Error(`${FLAG_CLIENTE} inválido: informe o id interno do cliente`);
+  }
+  return valor;
+}
 
 async function main(): Promise<void> {
   /*
@@ -77,9 +112,11 @@ async function main(): Promise<void> {
   let staleAfterMs: number;
   let limit: number;
   let concurrency: number;
+  let customerId: string | undefined;
   try {
     ({ refreshTargetMs: targetMs, staleAfterMs } = resolveConnectivityPolicy());
     ({ limit, concurrency } = readConnectivityRunSettings());
+    customerId = lerClienteAlvo(process.argv.slice(2));
   } catch (error) {
     console.error(
       `[diagnostics] configuracao invalida: ${error instanceof Error ? error.message : String(error)}`,
@@ -105,21 +142,25 @@ async function main(): Promise<void> {
     const { scanned, due } = await findConnectionsDueForCheck(
       new Date(),
       targetMs,
+      Number.POSITIVE_INFINITY,
+      limit,
+      customerId,
     );
     console.info(
       `[diagnostics] SIMULACAO — nada foi consultado nem escrito: ` +
         `vinculos=${scanned} elegiveis=${due.length} ` +
-        `alvo=${Math.round(targetMs / 1000)}s teto=${limit}`,
+        `alvo=${Math.round(targetMs / 1000)}s teto=${limit}${escopo(customerId)}`,
     );
     return;
   }
 
   console.info(
     `[diagnostics] ciclo iniciado alvo=${Math.round(targetMs / 1000)}s ` +
-      `atrasoApos=${Math.round(staleAfterMs / 1000)}s teto=${limit} concorrencia=${concurrency}`,
+      `atrasoApos=${Math.round(staleAfterMs / 1000)}s teto=${limit} concorrencia=${concurrency}` +
+      escopo(customerId),
   );
 
-  const r = await runConnectivityRefreshCycle({ targetMs, limit, concurrency });
+  const r = await runConnectivityRefreshCycle({ targetMs, limit, concurrency, customerId });
 
   console.info(
     `[diagnostics] vinculos=${r.connectionsScanned} elegiveis=${r.eligible} ` +
@@ -134,12 +175,33 @@ async function main(): Promise<void> {
     Fica dito para o operador saber que a cadência efetiva daquele momento foi
     maior que o alvo — e decidir se aumenta o teto.
   */
+  /*
+    No modo de um cliente, "nada aconteceu" precisa dizer POR QUÊ — é a
+    diferença entre "ele está fresco" e "o id está errado".
+  */
+  if (customerId !== undefined && r.processed === 0) {
+    console.warn(`[diagnostics] cliente-unico nao consultado: ${motivoSemConsulta(r)}`);
+  }
+
   if (r.processed >= limit) {
     console.warn(
       `[diagnostics] teto atingido: ${limit} verificacoes nesta volta. ` +
         `A cadencia efetiva pode ficar acima do alvo.`,
     );
   }
+}
+
+function escopo(customerId: string | undefined): string {
+  return customerId === undefined ? "" : " escopo=cliente-unico";
+}
+
+function motivoSemConsulta(r: Awaited<ReturnType<typeof runConnectivityRefreshCycle>>): string {
+  if (r.connectionsScanned === 0) return "sem vinculo ativo (ou id inexistente)";
+  if (r.eligible === 0) return "verificado dentro do alvo";
+  if (r.claimedByOther > 0) return "reservado por outra execucao";
+  if (r.skippedFresh > 0) return "verificado por outra execucao durante a volta";
+  if (r.skippedCompanies > 0) return "o ERP da empresa nao oferece diagnostico";
+  return "nenhuma tentativa chegou ao provider";
 }
 
 main()

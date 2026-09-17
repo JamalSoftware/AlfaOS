@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -511,6 +512,144 @@ describe("DIAG-STALE — o provider falha por mais que o limiar", () => {
       isVerificationStale(depois.observedAt, new Date(T + 11 * MIN), CONNECTIVITY_POLICY_DEFAULTS),
     ).toBe(true);
   }, 30_000);
+});
+
+// ---------------------------------------------------------------------------
+// SINGLE-DIAG — uma volta de UM cliente (`--customer-id`)
+// ---------------------------------------------------------------------------
+
+/*
+  Validação real de um cliente contra o ERP de produção: o filtro é o que
+  separa "consultei o Ademir" de "consultei a carteira". `teto=1` não serve —
+  limita quantos, não QUEM —, então cada teste aqui tem outros clientes
+  elegíveis ao lado e conta as chamadas deles.
+*/
+describe("SINGLE-DIAG — só o cliente pedido alcança o provider", () => {
+  it("SINGLE-DIAG-01 · A alvo, B e C elegíveis: A é consultado UMA vez, B e C nenhuma, e nada deles é escrito", async () => {
+    const ctoId = await caixa(fixture.companyA.id);
+    const velha = new Date(Date.now() - 30 * MIN);
+    const a = await ligado(ctoId, 1, "-ONLINE", velha);
+    const b = await ligado(ctoId, 2, "-ONLINE"); // nunca verificado: o caso mais urgente da seleção normal
+    const c = await ligado(ctoId, 3, "-ONLINE", velha);
+
+    // Controle: sem o filtro, os três seriam consultados.
+    expect((await findConnectionsDueForCheck(new Date(), ALVO)).due).toHaveLength(3);
+
+    const cAntes = await prisma.customerDiagnosticSnapshot.findFirstOrThrow({ where: { customerId: c.id } });
+    const provider = espiarProvider();
+    let r;
+    try {
+      r = await runConnectivityRefreshCycle({ customerId: a.id, concurrency: 3 });
+      expect(provider.chamadas(a.externalId)).toBe(1);
+      expect(provider.chamadas(b.externalId)).toBe(0);
+      expect(provider.chamadas(c.externalId)).toBe(0);
+      expect(provider.total()).toBe(1);
+    } finally {
+      provider.restaurar();
+    }
+    expect(r).toMatchObject({ connectionsScanned: 1, eligible: 1, processed: 1, online: 1 });
+
+    const aDepois = await prisma.customerDiagnosticSnapshot.findFirstOrThrow({ where: { customerId: a.id } });
+    expect(aDepois.observedAt.getTime()).toBeGreaterThan(velha.getTime());
+    expect(await prisma.customerDiagnosticSnapshot.count({ where: { customerId: b.id } })).toBe(0);
+    const cDepois = await prisma.customerDiagnosticSnapshot.findFirstOrThrow({ where: { customerId: c.id } });
+    expect(cDepois).toEqual(cAntes);
+  }, 30_000);
+
+  it("SINGLE-DIAG-02 · alvo verificado dentro do alvo: ninguém é consultado — nem ele, nem outro no lugar", async () => {
+    const ctoId = await caixa(fixture.companyA.id);
+    const a = await ligado(ctoId, 1, "-ONLINE", new Date(Date.now() - MIN));
+    const b = await ligado(ctoId, 2, "-ONLINE", new Date(Date.now() - 30 * MIN));
+    const bAntes = await prisma.customerDiagnosticSnapshot.findFirstOrThrow({ where: { customerId: b.id } });
+
+    const provider = espiarProvider();
+    let r;
+    try {
+      r = await runConnectivityRefreshCycle({ customerId: a.id });
+      expect(provider.total()).toBe(0);
+    } finally {
+      provider.restaurar();
+    }
+    expect(r).toMatchObject({ connectionsScanned: 1, eligible: 0, processed: 0 });
+    // B estava vencido e continua exatamente como estava.
+    expect(await prisma.customerDiagnosticSnapshot.findFirstOrThrow({ where: { customerId: b.id } })).toEqual(bAntes);
+  }, 30_000);
+
+  it("SINGLE-DIAG-03 · alvo sem vínculo ativo (ou id inexistente): nenhuma chamada, mesmo com outros elegíveis", async () => {
+    const ctoId = await caixa(fixture.companyA.id);
+    const velha = new Date(Date.now() - 30 * MIN);
+    const a = await ligado(ctoId, 1, "-ONLINE", velha);
+    await ligado(ctoId, 2, "-ONLINE", velha);
+    await prisma.customerNetworkConnection.updateMany({
+      where: { customerId: a.id },
+      data: { disconnectedAt: new Date() },
+    });
+
+    const provider = espiarProvider();
+    try {
+      const desligado = await runConnectivityRefreshCycle({ customerId: a.id });
+      const inexistente = await runConnectivityRefreshCycle({ customerId: "nao-existe" });
+      const vazio = await runConnectivityRefreshCycle({ customerId: "" });
+      for (const r of [desligado, inexistente, vazio]) {
+        expect(r).toMatchObject({ connectionsScanned: 0, eligible: 0, processed: 0 });
+      }
+      expect(provider.total()).toBe(0);
+    } finally {
+      provider.restaurar();
+    }
+  }, 30_000);
+
+  it("SINGLE-DIAG-04 · alvo reservado por outra execução: a reserva vale também no modo explícito", async () => {
+    const ctoId = await caixa(fixture.companyA.id);
+    const a = await ligado(ctoId, 1, "-ONLINE", new Date(Date.now() - 30 * MIN));
+    await prisma.customerDiagnosticSnapshot.updateMany({
+      where: { customerId: a.id },
+      data: { refreshLeaseUntil: new Date(Date.now() + MIN) },
+    });
+
+    const provider = espiarProvider();
+    let r;
+    try {
+      r = await runConnectivityRefreshCycle({ customerId: a.id });
+      expect(provider.total()).toBe(0);
+    } finally {
+      provider.restaurar();
+    }
+    expect(r).toMatchObject({ eligible: 1, processed: 0, claimedByOther: 1 });
+  }, 30_000);
+
+  /*
+    O filtro só vale se o COMANDO o entrega ao ciclo. Processo separado, contra o
+    banco de teste (herdado do setup) e o Mock: um comando que lesse a flag e não
+    a repassasse consultaria B também.
+  */
+  it("SINGLE-DIAG-05 · o comando entrega o filtro: prévia e volta real com --customer-id tocam só o alvo", async () => {
+    const ctoId = await caixa(fixture.companyA.id);
+    const velha = new Date(Date.now() - 30 * MIN);
+    const a = await ligado(ctoId, 1, "-ONLINE", velha);
+    const b = await ligado(ctoId, 2, "-ONLINE");
+    const tsx = path.join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
+    const rodar = (args: string[]) =>
+      spawnSync(process.execPath, [tsx, "scripts/connectivity-refresh.ts", ...args], {
+        cwd: process.cwd(),
+        env: process.env,
+        encoding: "utf8",
+        timeout: 90_000,
+      });
+
+    const previa = rodar(["--dry-run", `--customer-id=${a.id}`]);
+    expect(previa.status).toBe(0);
+    expect(previa.stdout).toMatch(/vinculos=1 elegiveis=1 .*escopo=cliente-unico/);
+
+    const volta = rodar(["--customer-id", a.id]);
+    expect(volta.status).toBe(0);
+    expect(volta.stdout).toMatch(/escopo=cliente-unico/);
+    expect(volta.stdout).toMatch(/vinculos=1 elegiveis=1 processados=1 online=1 /);
+
+    const aDepois = await prisma.customerDiagnosticSnapshot.findFirstOrThrow({ where: { customerId: a.id } });
+    expect(aDepois.observedAt.getTime()).toBeGreaterThan(velha.getTime());
+    expect(await prisma.customerDiagnosticSnapshot.count({ where: { customerId: b.id } })).toBe(0);
+  }, 120_000);
 });
 
 // ---------------------------------------------------------------------------

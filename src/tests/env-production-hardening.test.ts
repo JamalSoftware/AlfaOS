@@ -122,6 +122,20 @@ describe("CMD-ENV — os comandos recusam configuração inválida dizendo qual"
   }, 90_000);
 });
 
+describe("CMD-ENV — --customer-id malformado nunca vira \"sem filtro\"", () => {
+  it.each([
+    [["--customer-id"]],
+    [["--customer-id", "--dry-run"]],
+    [["--dry-run", "--customer-id="]],
+    [["--customer-id=a", "--customer-id=b", "--dry-run"]],
+  ])("CMD-ENV-04 · %j sai com 2 antes de ler o banco", (args) => {
+    const r = comando("scripts/connectivity-refresh.ts", args, {});
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/configuracao invalida: --customer-id/);
+    expect(r.stdout).not.toMatch(/SIMULACAO|ciclo iniciado/);
+  }, 90_000);
+});
+
 describe("OUTBOX-ENV — teto do lote do outbox", () => {
   it("OUTBOX-ENV-01 · ausente continua 50", () => {
     expect(readOutboxBatchLimit({})).toBe(50);

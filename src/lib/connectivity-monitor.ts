@@ -403,20 +403,33 @@ export function rotacaoDosNuncaVerificados(
  * `limit` só corta a LISTA. O ciclo não o usa: o teto dele conta tentativas que
  * chegam ao provider (ver `runConnectivityRefreshCycle`). `teto` é esse teto
  * de tentativas, e decide quanto a fila sem leitura gira por tick.
+ *
+ * `customerId` restringe a seleção a UM cliente — o modo explícito do comando
+ * (`--customer-id`). Ele só estreita o universo: o cliente continua precisando
+ * de vínculo ativo e de verificação vencida, e nada aqui contorna isso. Um
+ * cliente fresco ou desligado devolve lista vazia; nunca outro no lugar.
  */
 export async function findConnectionsDueForCheck(
   now: Date,
   targetMs: number = alvoDaPolitica(),
   limit: number = Number.POSITIVE_INFINITY,
   teto: number = CONNECTIVITY_REFRESH_BATCH_LIMIT,
+  customerId?: string,
 ): Promise<{ scanned: number; due: ConexaoElegivel[] }> {
   /*
     Conexão ATIVA é `disconnectedAt: null` — a mesma regra do índice parcial
     que garante um cliente por porta. Vínculo encerrado é história, e história
     não se reconsulta.
+
+    O filtro de cliente vai no SQL, não depois: os outros nem são lidos, e por
+    isso não têm como chegar ao provider. `undefined` é "sem filtro"; qualquer
+    string — inclusive vazia — filtra, e uma vazia não casa ninguém.
   */
   const vinculos = await prisma.customerNetworkConnection.findMany({
-    where: { disconnectedAt: null },
+    where:
+      customerId === undefined
+        ? { disconnectedAt: null }
+        : { disconnectedAt: null, customerId },
     select: { companyId: true, customerId: true },
   });
 
@@ -532,6 +545,12 @@ export async function runConnectivityRefreshCycle(options: {
   leaseMs?: number;
   /** Prazo por verificação. Ausente, o `DIAGNOSTIC_TIMEOUT_MS` de sempre. */
   timeoutMs?: number;
+  /**
+   * Só este cliente pode alcançar o provider nesta volta. Estreita a seleção e
+   * mais nada: reserva, frescor, primeira verificação, prazo e escrita são os
+   * mesmos da volta inteira. Ver `findConnectionsDueForCheck`.
+   */
+  customerId?: string;
 } = {}): Promise<ConnectivityCycleResult> {
   const now = options.now ?? new Date();
   const leaseMs = options.leaseMs ?? CONNECTIVITY_REFRESH_LEASE_MS;
@@ -544,6 +563,7 @@ export async function runConnectivityRefreshCycle(options: {
     targetMs,
     Number.POSITIVE_INFINITY,
     teto,
+    options.customerId,
   );
 
   const resultado: ConnectivityCycleResult = {
