@@ -97,31 +97,39 @@ export const CONNECTIVITY_REFRESH_CONCURRENCY = 6;
 /** Teto de tentativas por execução, para o comando terminar e o cron poder repetir. */
 export const CONNECTIVITY_REFRESH_BATCH_LIMIT = 300;
 
+/** Maior valor aceito em `DIAGNOSTICS_REFRESH_CONCURRENCY` — decisão do dono (RC-1F-A). */
+export const CONNECTIVITY_REFRESH_CONCURRENCY_MAX = 12;
+
+/** Maior valor aceito em `DIAGNOSTICS_REFRESH_BATCH_LIMIT` — decisão do dono (RC-1F-A). */
+export const CONNECTIVITY_REFRESH_BATCH_LIMIT_MAX = 1000;
+
 /**
  * Teto e concorrência da volta, lidos do ambiente (`ENV-01`, `RC-1F-A`).
  *
  * A regra da `RC-SEC-01`: AUSENTE usa o padrão; PRESENTE e inválido derruba a
- * subida. Só inteiro positivo — `6.5`, `1e6`, `Infinity` e zero passavam
- * pelo `Number()` de antes. **Sem teto superior**: um valor máximo seguro
- * depende da capacidade do provider real, que não foi medida, e escolhê-lo aqui
- * seria decisão do dono tomada no escuro.
+ * subida. Só inteiro — `6.5`, `1e6`, `Infinity` e zero passavam pelo
+ * `Number()` de antes.
+ *
+ * **Tetos decididos pelo dono (17/09/2026):** concorrência 1..12 e teto de
+ * tentativas 1..1000. Os padrões não mudaram (6 e 300). A capacidade do provider
+ * real continua não medida; os tetos existem para um erro de digitação — "60" no
+ * lugar de "6" — não virar rajada contra o ERP de um provedor.
  */
 export function readConnectivityRunSettings(
   env: Record<string, string | undefined> = process.env,
 ): { limit: number; concurrency: number } {
-  const inteiroPositivo = { min: 1, max: Number.MAX_SAFE_INTEGER };
   return {
     limit: readIntegerSetting(
       "DIAGNOSTICS_REFRESH_BATCH_LIMIT",
       env.DIAGNOSTICS_REFRESH_BATCH_LIMIT,
       CONNECTIVITY_REFRESH_BATCH_LIMIT,
-      inteiroPositivo,
+      { min: 1, max: CONNECTIVITY_REFRESH_BATCH_LIMIT_MAX },
     ),
     concurrency: readIntegerSetting(
       "DIAGNOSTICS_REFRESH_CONCURRENCY",
       env.DIAGNOSTICS_REFRESH_CONCURRENCY,
       CONNECTIVITY_REFRESH_CONCURRENCY,
-      inteiroPositivo,
+      { min: 1, max: CONNECTIVITY_REFRESH_CONCURRENCY_MAX },
     ),
   };
 }

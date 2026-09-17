@@ -100,13 +100,16 @@ export const OUTBOX_MAX_ATTEMPTS = 6;
 /** Teto por execução do worker quando `OUTBOX_BATCH_LIMIT` está ausente. */
 export const OUTBOX_WORKER_BATCH_LIMIT = 50;
 
+/** Maior valor aceito em `OUTBOX_BATCH_LIMIT` — decisão do dono (RC-1F-A). */
+export const OUTBOX_WORKER_BATCH_LIMIT_MAX = 500;
+
 /**
  * `OUTBOX_BATCH_LIMIT`, validado (`ENV-01`, `RC-1F-A`).
  *
  * Antes era `Number(...)` sem conferência: `"abc"` virava `NaN` e cada volta
  * morria no Prisma, e `"0"` fazia o worker rodar sem processar nada — a fila
- * parava em silêncio. O padrão continua 50. Sem teto superior: nenhum
- * documento o define, e o lote é limitado de fato pela reivindicação com lease.
+ * parava em silêncio. O padrão continua 50, e o teto é 500 — decisão do dono
+ * (17/09/2026).
  */
 export function readOutboxBatchLimit(
   env: Record<string, string | undefined> = process.env,
@@ -115,7 +118,7 @@ export function readOutboxBatchLimit(
     "OUTBOX_BATCH_LIMIT",
     env.OUTBOX_BATCH_LIMIT,
     OUTBOX_WORKER_BATCH_LIMIT,
-    { min: 1, max: Number.MAX_SAFE_INTEGER },
+    { min: 1, max: OUTBOX_WORKER_BATCH_LIMIT_MAX },
   );
 }
 

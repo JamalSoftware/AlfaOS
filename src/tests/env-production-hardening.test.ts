@@ -37,10 +37,40 @@ describe("DIAG-ENV — teto e concorrência do ciclo", () => {
     );
   });
 
-  it("DIAG-ENV-05 · sem teto superior, a mensagem não inventa um: diz \"a partir de 1\" e o valor recebido", () => {
-    expect(() => readConnectivityRunSettings({ DIAGNOSTICS_REFRESH_CONCURRENCY: "6.5" })).toThrow(
-      'DIAGNOSTICS_REFRESH_CONCURRENCY inválido: use um número inteiro a partir de 1 (recebido: "6.5")',
+  it("DIAG-ENV-05 · a mensagem nomeia a variável, a faixa aprovada e o valor recebido", () => {
+    expect(() => readConnectivityRunSettings({ DIAGNOSTICS_REFRESH_CONCURRENCY: "13" })).toThrow(
+      'DIAGNOSTICS_REFRESH_CONCURRENCY inválido: use um número inteiro entre 1 e 12 (recebido: "13")',
     );
+    expect(() => readConnectivityRunSettings({ DIAGNOSTICS_REFRESH_BATCH_LIMIT: "1001" })).toThrow(
+      'DIAGNOSTICS_REFRESH_BATCH_LIMIT inválido: use um número inteiro entre 1 e 1000 (recebido: "1001")',
+    );
+  });
+
+  /*
+    Tetos decididos pelo dono em 17/09/2026 (RC-1F-A): concorrência 1..12,
+    lote do ciclo 1..1000, lote do outbox 1..500. Os padrões não mudaram
+    (6, 300, 50): sem a variável, o comportamento é o de antes.
+  */
+  it.each([
+    ["1", 1],
+    ["12", 12],
+  ])("ENV-MAX-CONCURRENCY · %s é aceito", (valor, esperado) => {
+    expect(readConnectivityRunSettings({ DIAGNOSTICS_REFRESH_CONCURRENCY: valor }).concurrency).toBe(esperado);
+  });
+
+  it("ENV-MAX-CONCURRENCY · 13 derruba a subida", () => {
+    expect(() => readConnectivityRunSettings({ DIAGNOSTICS_REFRESH_CONCURRENCY: "13" })).toThrow(/DIAGNOSTICS_REFRESH_CONCURRENCY/);
+  });
+
+  it.each([
+    ["1", 1],
+    ["1000", 1000],
+  ])("ENV-MAX-DIAG-BATCH · %s é aceito", (valor, esperado) => {
+    expect(readConnectivityRunSettings({ DIAGNOSTICS_REFRESH_BATCH_LIMIT: valor }).limit).toBe(esperado);
+  });
+
+  it("ENV-MAX-DIAG-BATCH · 1001 derruba a subida", () => {
+    expect(() => readConnectivityRunSettings({ DIAGNOSTICS_REFRESH_BATCH_LIMIT: "1001" })).toThrow(/DIAGNOSTICS_REFRESH_BATCH_LIMIT/);
   });
 
   it.each(INVALIDOS)("DIAG-ENV-04 · DIAGNOSTICS_REFRESH_CONCURRENCY=%j derruba a subida", (valor) => {
@@ -101,6 +131,19 @@ describe("OUTBOX-ENV — teto do lote do outbox", () => {
     expect(readOutboxBatchLimit({ OUTBOX_BATCH_LIMIT: "20" })).toBe(20);
   });
 
+  it.each([
+    ["1", 1],
+    ["500", 500],
+  ])("ENV-MAX-OUTBOX · %s é aceito", (valor, esperado) => {
+    expect(readOutboxBatchLimit({ OUTBOX_BATCH_LIMIT: valor })).toBe(esperado);
+  });
+
+  it("ENV-MAX-OUTBOX · 501 derruba a subida, nomeando a faixa", () => {
+    expect(() => readOutboxBatchLimit({ OUTBOX_BATCH_LIMIT: "501" })).toThrow(
+      'OUTBOX_BATCH_LIMIT inválido: use um número inteiro entre 1 e 500 (recebido: "501")',
+    );
+  });
+
   it.each(INVALIDOS)("OUTBOX-ENV-03 · OUTBOX_BATCH_LIMIT=%j derruba a subida", (valor) => {
     expect(() => readOutboxBatchLimit({ OUTBOX_BATCH_LIMIT: valor })).toThrow(/OUTBOX_BATCH_LIMIT/);
   });
@@ -151,6 +194,13 @@ describe("PROXY-ENV — TRUSTED_PROXY_HOPS", () => {
     env.NODE_ENV = "development";
     env.TRUSTED_PROXY_HOPS = "abc";
     expect(() => validateEnv()).toThrow(/TRUSTED_PROXY_HOPS/);
+  });
+
+  it("PROXY-ENV-05 · sem teto documentado, a mensagem diz \"a partir de 0\" em vez de inventar um", () => {
+    env.TRUSTED_PROXY_HOPS = "-1";
+    expect(() => validateEnv()).toThrow(
+      'TRUSTED_PROXY_HOPS inválido: use um número inteiro a partir de 0 (recebido: "-1")',
+    );
   });
 
   it.each(["abc", "-1", "1.5", "", "2abc", "Infinity"])(
