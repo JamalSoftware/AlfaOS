@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { prisma } from "@/lib/prisma";
+import { runConnectivityRefreshCycle } from "@/lib/connectivity-monitor";
+import { createCto } from "@/lib/cto";
+import { MockERPAdapter } from "@/integrations/MockERPAdapter";
 import { ReceitanetAdapter } from "@/integrations/ReceitanetAdapter";
 import { withIntegrationTimeout } from "@/integrations/diagnostics";
 import {
@@ -6,6 +10,7 @@ import {
   type FetchLike,
 } from "@/integrations/receitanet/CallCenterClient";
 import { isIntegrationError } from "@/integrations/errors";
+import { seedTestData, type TestFixture } from "./helpers";
 
 /**
  * # `DIAG-ORPHAN-01` — o prazo solta a vaga; ele também precisa soltar a rede
@@ -175,4 +180,77 @@ describe("DIAG-TIMEOUT — vencido o prazo, nada fica em voo", () => {
     expect(desfecho).toBe("TIMEOUT");
     expect(rede.emVoo()).toBe(0);
   });
+});
+
+// ---------------------------------------------------------------------------
+// O ciclo inteiro: concorrência N é N requisições, mesmo com prazos vencendo
+// ---------------------------------------------------------------------------
+
+let fixture: TestFixture;
+
+beforeEach(async () => {
+  fixture = await seedTestData();
+});
+
+describe("DIAG-CONCURRENCY — o teto de concorrência é teto de requisições", () => {
+  it("DIAG-CONCURRENCY-01 · concorrência 2, toda verificação estoura o prazo: nunca mais de 2 requisições em voo", async () => {
+    await prisma.eRPIntegration.create({
+      data: { companyId: fixture.companyA.id, provider: "MOCK", name: "Mock ERP", enabled: true },
+    });
+    await prisma.company.update({
+      where: { id: fixture.companyA.id },
+      data: { ctoNetworkEnabled: true },
+    });
+    const cto = await createCto(fixture.companyA.id, fixture.adminA.id, {
+      name: "CTO RC1FA CONC",
+      capacity: 8,
+    });
+    const velha = new Date(Date.now() - 30 * 60_000);
+    for (let porta = 1; porta <= 6; porta += 1) {
+      const c = await prisma.customer.create({
+        data: {
+          companyId: fixture.companyA.id,
+          name: `CONC ${porta}`,
+          active: true,
+          externalProvider: "MOCK",
+          externalId: `CONC-${porta}-ONLINE`,
+        },
+      });
+      const p = await prisma.cTOPort.findFirstOrThrow({ where: { ctoId: cto.id, number: porta } });
+      await prisma.customerNetworkConnection.create({
+        data: { companyId: fixture.companyA.id, customerId: c.id, ctoPortId: p.id, source: "WEB", connectedAt: new Date() },
+      });
+      await prisma.customerDiagnosticSnapshot.create({
+        data: { companyId: fixture.companyA.id, customerId: c.id, externalProvider: "MOCK", connectivityStatus: "ONLINE", observedAt: velha, statusSince: velha },
+      });
+    }
+
+    /*
+      O ciclo resolve o adapter da empresa (Mock); o espião entrega a chamada ao
+      adapter ReceitaNet REAL, com rede falsa: `verificar-acesso` responde em
+      90 ms e `/v1/cliente` trava. Com prazo de 120 ms, a segunda requisição de
+      toda verificação é a que o prazo pega.
+    */
+    const rede = redeFalsa(90);
+    const receitanet = new ReceitanetAdapter({
+      token: "t",
+      fetchImpl: rede.fetchImpl,
+      diagnosticDeadlineMs: 120,
+    });
+    const espiao = vi
+      .spyOn(MockERPAdapter.prototype, "fetchCustomerConnectivity")
+      .mockImplementation((ref) => receitanet.fetchCustomerConnectivity(ref));
+
+    let r;
+    try {
+      r = await runConnectivityRefreshCycle({ concurrency: 2, timeoutMs: 120 });
+      await esperar(50);
+    } finally {
+      espiao.mockRestore();
+    }
+
+    expect(r.processed).toBe(6);
+    expect(rede.pico()).toBeLessThanOrEqual(2);
+    expect(rede.emVoo()).toBe(0);
+  }, 30_000);
 });

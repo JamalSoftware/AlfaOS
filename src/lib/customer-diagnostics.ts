@@ -312,6 +312,12 @@ export async function refreshCustomerDiagnostic(
      * são contagens, no log do worker.
      */
     audit?: boolean;
+    /**
+     * Prazo da chamada ao provider. Ausente, é o `DIAGNOSTIC_TIMEOUT_MS` de
+     * sempre — a rota da OS nunca o passa. Existe para o ciclo automático poder
+     * ser exercitado com prazo curto em teste (`RC-1F-A`).
+     */
+    timeoutMs?: number;
   } = {},
 ): Promise<DiagnosticRefreshResult> {
   const customer = await prisma.customer.findFirst({
@@ -386,6 +392,7 @@ export async function refreshCustomerDiagnostic(
     observation = await withIntegrationTimeout(
       adapter.fetchCustomerConnectivity(ref),
       provider,
+      options.timeoutMs,
     );
   } catch (error) {
     const normalized = isIntegrationError(error)

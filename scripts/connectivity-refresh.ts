@@ -8,82 +8,85 @@
  * dentro do repositório. Um worker permanente morreria no deploy, não
  * reiniciaria sozinho e duplicaria quando a hospedagem escalasse.
  *
- * Chame por cron, no intervalo do alvo:
+ * # Cadência — contrato PLANEJADO (`RC-1F-A`), nenhum agendador ativo
  *
  * ```text
- * *\/5 * * * *  cd /app && npm run diagnostics:refresh
+ * tick do agendador   1 min      * * * * *  cd <raiz-do-deploy> && npm run diagnostics:refresh
+ * alvo de frescor     5 min      DIAGNOSTICS_REFRESH_TARGET_MS
+ * aviso na tela      10 min      DIAGNOSTICS_STALE_AFTER_MS
  * ```
  *
- * Um intervalo MENOR que cinco minutos também é seguro e costuma ser melhor:
- * quem já foi verificado não é elegível, então uma volta de um minuto apenas
- * distribui o mesmo trabalho em pedaços mais finos, com menos rajada contra o
- * ERP.
+ * O tick é mais curto que o alvo de propósito. Com tick igual ao alvo, quem foi
+ * verificado segundos depois de um disparo ainda não venceu no disparo seguinte,
+ * e a revisita real ficava em ~10 min (`DIAG-CADENCE-01`). Tick de 1 minuto NÃO
+ * é consultar cada cliente a cada minuto: quem está dentro do alvo não é
+ * elegível, e a revisita fica entre 5 e 6 min.
  *
  * # Duas execuções sobrepostas
  *
- * São seguras. A elegibilidade é "a última verificação venceu", e toda
- * verificação bem-sucedida reescreve `observedAt` — quem chega depois encontra
- * o cliente fora da faixa. A janela residual é fechada no banco pela escrita
- * monotônica: observação mais velha não sobrescreve a mais nova.
+ * Com tick de 1 minuto, uma volta longa se sobrepõe à seguinte. As duas leem a
+ * lista no começo e a lista envelhece, então nenhuma confia nela: cada cliente é
+ * RESERVADO antes da chamada, e com a reserva na mão o banco é consultado de
+ * novo — quem outro ciclo verificou nesse meio-tempo é descartado sem chamar o
+ * provider (`DIAG-OVERLAP-01`). A primeira verificação da vida do cliente é
+ * arbitrada por advisory lock, e a escrita é monotônica.
  *
  * # Não é o caminho crítico
  *
  * Se este comando não rodar, nada fica errado: o último estado conhecido
- * continua na tela, com a idade dele à vista, e o selo "Verificação atrasada"
- * aparece quando a confirmação passa do dobro do alvo. O sistema envelhece em
- * público, em vez de afirmar um estado que ninguém confirmou.
+ * continua na tela, com a idade dele à vista, e o aviso "Leitura desatualizada"
+ * aparece quando a confirmação passa do limiar. O sistema envelhece em público,
+ * em vez de afirmar um estado que ninguém confirmou.
  *
  * # Saída
  *
  * Contagens, e nada mais. Sem nome de cliente, sem documento, sem credencial,
  * sem payload do provider — log de worker acaba em arquivo, em agregador e em
  * ticket de suporte.
+ *
+ * ```text
+ * 0   a volta rodou (falha de provider é contagem, não erro do comando)
+ * 1   a volta quebrou
+ * 2   configuração inválida — nada foi consultado
+ * ```
  */
 
 import {
   findConnectionsDueForCheck,
+  readConnectivityRunSettings,
   runConnectivityRefreshCycle,
-  CONNECTIVITY_REFRESH_BATCH_LIMIT,
-  CONNECTIVITY_REFRESH_CONCURRENCY,
 } from "../src/lib/connectivity-monitor";
 import { resolveConnectivityPolicy } from "../src/lib/connectivity-policy";
 import { prisma } from "../src/lib/prisma";
 import { logServerError } from "../src/lib/safe-log";
 
-function numeroDoAmbiente(nome: string, padrao: number): number {
-  const cru = process.env[nome];
-  if (cru === undefined || cru === "") return padrao;
-  const valor = Number(cru);
-  /*
-    Configuração inválida DERRUBA a subida, em vez de virar `NaN` e desligar o
-    teto em silêncio — a mesma regra que a `RC-1B` aplicou às variáveis de
-    login.
-  */
-  if (!Number.isFinite(valor) || valor <= 0) {
-    throw new Error(`${nome} inválido: esperado número positivo, recebido "${cru}"`);
-  }
-  return valor;
-}
-
 async function main(): Promise<void> {
   /*
-    O alvo vem da POLÍTICA, não de uma leitura própria do ambiente.
+    Configuração PRIMEIRO, e o motivo impresso.
 
-    Ele é a mesma grandeza que decide o aviso "Verificação atrasada" na tela, e
-    duas leituras independentes da mesma variável foi exatamente o que produziu
-    a divergência anterior: o worker obedecia ao ambiente e a tela obedecia a uma
-    constante. Aqui o comando apenas consome o que a política resolveu — e uma
-    configuração inválida derruba a subida, que é o que se quer.
+    O alvo vem da POLÍTICA, não de uma leitura própria do ambiente: é a mesma
+    grandeza que decide o aviso na tela, e duas leituras independentes da mesma
+    variável foi exatamente o que produziu a divergência anterior.
+
+    O `catch` do fim registra só o tipo do erro (RC-LOG-01), então um valor
+    inválido sairia como "erro=Error" sem dizer qual variável. Configuração não é
+    segredo: a mensagem vai inteira, e a saída 2 separa "configurado errado" de
+    "falhou rodando".
   */
-  const { refreshTargetMs: targetMs, staleAfterMs } = resolveConnectivityPolicy();
-  const limit = numeroDoAmbiente(
-    "DIAGNOSTICS_REFRESH_BATCH_LIMIT",
-    CONNECTIVITY_REFRESH_BATCH_LIMIT,
-  );
-  const concurrency = numeroDoAmbiente(
-    "DIAGNOSTICS_REFRESH_CONCURRENCY",
-    CONNECTIVITY_REFRESH_CONCURRENCY,
-  );
+  let targetMs: number;
+  let staleAfterMs: number;
+  let limit: number;
+  let concurrency: number;
+  try {
+    ({ refreshTargetMs: targetMs, staleAfterMs } = resolveConnectivityPolicy());
+    ({ limit, concurrency } = readConnectivityRunSettings());
+  } catch (error) {
+    console.error(
+      `[diagnostics] configuracao invalida: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exitCode = 2;
+    return;
+  }
 
   /*
     `--dry-run`: diz QUANTOS seriam consultados, e não consulta ninguém.
@@ -94,13 +97,14 @@ async function main(): Promise<void> {
     instalação de produção de um provedor de verdade. Uma prévia transforma esse
     primeiro disparo numa decisão informada.
 
-    Ele NÃO reserva, NÃO escreve e NÃO chama provider: roda só a seleção.
+    Ele NÃO reserva, NÃO escreve e NÃO chama provider: roda só a seleção. O teto
+    conta tentativas que chegam ao provider, então a prévia mostra os elegíveis
+    e o teto separados.
   */
   if (process.argv.includes("--dry-run")) {
     const { scanned, due } = await findConnectionsDueForCheck(
       new Date(),
       targetMs,
-      limit,
     );
     console.info(
       `[diagnostics] SIMULACAO — nada foi consultado nem escrito: ` +
@@ -121,18 +125,19 @@ async function main(): Promise<void> {
     `[diagnostics] vinculos=${r.connectionsScanned} elegiveis=${r.eligible} ` +
       `processados=${r.processed} online=${r.online} offline=${r.offline} ` +
       `semLeitura=${r.unknown} falhasProvider=${r.providerFailures} ` +
-      `empresasSemDiagnostico=${r.skippedCompanies} ms=${r.durationMs}`,
+      `empresasSemDiagnostico=${r.skippedCompanies} reservadosPorOutro=${r.claimedByOther} ` +
+      `recemVerificados=${r.skippedFresh} ms=${r.durationMs}`,
   );
 
   /*
     Sobrou trabalho para a volta seguinte: não é erro, é o teto funcionando.
     Fica dito para o operador saber que a cadência efetiva daquele momento foi
-    maior que o alvo — e decidir se aumenta o teto ou a frequência do cron.
+    maior que o alvo — e decidir se aumenta o teto.
   */
-  if (r.eligible >= limit) {
+  if (r.processed >= limit) {
     console.warn(
-      `[diagnostics] teto atingido: havia ao menos ${limit} vencidos. ` +
-        `A cadencia efetiva ficou acima do alvo nesta volta.`,
+      `[diagnostics] teto atingido: ${limit} verificacoes nesta volta. ` +
+        `A cadencia efetiva pode ficar acima do alvo.`,
     );
   }
 }
