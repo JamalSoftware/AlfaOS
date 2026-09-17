@@ -160,12 +160,18 @@ export interface PhotoStorageAuditReport {
   recentUnreferenced: number;
   /** Candidatos cuja empresa (primeiro segmento da chave) nem existe mais. */
   orphansOfMissingCompanies: number;
+  /** Candidatos de empresa que EXISTE — histórico, decisão de retenção. */
+  orphansOfExistingCompanies: number;
   /** Entradas que não casam com o padrão de chave: contadas, nunca tocadas. */
   unrecognizedEntries: number;
   legacy: LegacyPhotoFinding[];
   missing: MissingFileFinding[];
   /** Chaves candidatas: ids de servidor, sem dado pessoal. */
   orphans: string[];
+  /** Subconjunto de `orphans` cuja empresa não existe mais. */
+  missingCompanyOrphans: string[];
+  /** Subconjunto de `orphans` cuja empresa existe. */
+  activeCompanyOrphans: string[];
 }
 
 export interface AuditOptions {
@@ -192,10 +198,13 @@ export async function auditPhotoStorage(options: AuditOptions): Promise<PhotoSto
     orphanCandidates: 0,
     recentUnreferenced: 0,
     orphansOfMissingCompanies: 0,
+    orphansOfExistingCompanies: 0,
     unrecognizedEntries: 0,
     legacy: [],
     missing: [],
     orphans: [],
+    missingCompanyOrphans: [],
+    activeCompanyOrphans: [],
   };
 
   for (const ref of referencias) {
@@ -241,8 +250,12 @@ export async function auditPhotoStorage(options: AuditOptions): Promise<PhotoSto
     }
     relatorio.orphanCandidates += 1;
     relatorio.orphans.push(entrada.key);
-    if (!empresas.has(entrada.key.slice(0, entrada.key.indexOf("/")))) {
+    if (empresas.has(entrada.key.slice(0, entrada.key.indexOf("/")))) {
+      relatorio.orphansOfExistingCompanies += 1;
+      relatorio.activeCompanyOrphans.push(entrada.key);
+    } else {
       relatorio.orphansOfMissingCompanies += 1;
+      relatorio.missingCompanyOrphans.push(entrada.key);
     }
   }
 
@@ -424,12 +437,76 @@ async function ligarVersaoLimpa(
 }
 
 // ---------------------------------------------------------------------------
-// Expurgo de órfãos — só com apply
+// Expurgo de órfãos — só com apply E escopo explícito
 // ---------------------------------------------------------------------------
+
+/**
+ * Os escopos de órfão, e por que só UM deles apaga.
+ *
+ * Os candidatos a órfão não são uma coisa só. No banco de desenvolvimento, a
+ * mesma auditoria achou resíduo de empresas de teste que não existem mais E
+ * fotos antigas de uma CTO de uma empresa que continua operando — histórico
+ * da caixa, cuja retenção é decisão do dono. Um `--apply` que apagasse "todos
+ * os candidatos" misturaria as duas decisões num comando só, e documentação
+ * dizendo "não execute" não é proteção para um comando destrutivo.
+ *
+ * - `missing-company` — a empresa do prefixo da chave não existe mais. É o
+ *   ÚNICO escopo que apaga.
+ * - `active-company` — a empresa existe. Pode ser AUDITADO (simulação), e é
+ *   recusado com `--apply` até haver decisão de retenção.
+ *
+ * Não existe escopo "todos", de propósito: seria o atalho que devolve a mistura.
+ */
+export const ORPHAN_SCOPE_MISSING_COMPANY = "missing-company";
+export const ORPHAN_SCOPE_ACTIVE_COMPANY = "active-company";
+export type OrphanScope =
+  | typeof ORPHAN_SCOPE_MISSING_COMPANY
+  | typeof ORPHAN_SCOPE_ACTIVE_COMPANY;
+
+/** O pedido de expurgo não tem escopo que permita apagar. Nada foi lido nem apagado. */
+export class OrphanPurgeScopeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OrphanPurgeScopeError";
+  }
+}
+
+/**
+ * Decide o escopo ANTES de qualquer leitura de storage ou banco.
+ *
+ * Com `apply`, só `missing-company` passa. A validação mora aqui, e não só no
+ * comando de linha: um chamador futuro da função não pode apagar os dois grupos
+ * por não ter passado pelo mesmo `if` do script.
+ */
+export function resolveOrphanScope(apply: boolean, scope: string | undefined): OrphanScope | null {
+  if (
+    scope !== undefined &&
+    scope !== ORPHAN_SCOPE_MISSING_COMPANY &&
+    scope !== ORPHAN_SCOPE_ACTIVE_COMPANY
+  ) {
+    throw new OrphanPurgeScopeError(
+      `Escopo de órfão desconhecido. Use --scope ${ORPHAN_SCOPE_MISSING_COMPANY}. Nada foi apagado.`,
+    );
+  }
+  if (!apply) return scope ?? null;
+  if (scope === ORPHAN_SCOPE_ACTIVE_COMPANY) {
+    throw new OrphanPurgeScopeError(
+      "active-company orphan purge requires owner decision — o expurgo de órfãos de empresa existente depende de decisão de retenção do dono. Nada foi apagado.",
+    );
+  }
+  if (scope !== ORPHAN_SCOPE_MISSING_COMPANY) {
+    throw new OrphanPurgeScopeError(
+      `--purge-orphans --apply exige --scope ${ORPHAN_SCOPE_MISSING_COMPANY}. Nada foi apagado.`,
+    );
+  }
+  return ORPHAN_SCOPE_MISSING_COMPANY;
+}
 
 export interface PurgeOrphansOptions {
   storage: FileStorageContract;
   apply: boolean;
+  /** Obrigatório com `apply`: só `missing-company` apaga. */
+  scope?: string;
   now?: Date;
   graceMs?: number;
   /**
@@ -441,39 +518,58 @@ export interface PurgeOrphansOptions {
 
 export interface PurgeOrphansResult {
   apply: boolean;
+  scope: OrphanScope | null;
   candidates: number;
   deleted: number;
   /** Ganharam referência entre a classificação e a exclusão. */
   relinked: number;
+  /** A empresa do prefixo passou a existir entre a classificação e a exclusão. */
+  companyNowExists: number;
   failed: number;
 }
 
 export async function purgeOrphanFiles(options: PurgeOrphansOptions): Promise<PurgeOrphansResult> {
   const { storage, apply } = options;
+  const scope = resolveOrphanScope(apply, options.scope);
+
   const relatorio = await auditPhotoStorage({
     storage,
     now: options.now,
     graceMs: options.graceMs,
   });
+  const candidatos =
+    scope === ORPHAN_SCOPE_MISSING_COMPANY
+      ? relatorio.missingCompanyOrphans
+      : scope === ORPHAN_SCOPE_ACTIVE_COMPANY
+        ? relatorio.activeCompanyOrphans
+        : relatorio.orphans;
   const resultado: PurgeOrphansResult = {
     apply,
-    candidates: relatorio.orphans.length,
+    scope,
+    candidates: candidatos.length,
     deleted: 0,
     relinked: 0,
+    companyNowExists: 0,
     failed: 0,
   };
   if (!apply) return resultado;
 
-  for (const chave of relatorio.orphans) {
+  for (const chave of candidatos) {
     await options.beforeDelete?.(chave);
     try {
       /*
         A classificação é uma fotografia, e ela envelheceu. Imediatamente antes
         de apagar, o banco é consultado de novo — a mesma pergunta da limpeza
-        verificada. Um arquivo que ganhou linha no intervalo fica.
+        verificada. Um arquivo que ganhou linha no intervalo fica, seja qual for
+        a empresa da linha.
       */
       if (await isStorageKeyReferenced(chave)) {
         resultado.relinked += 1;
+        continue;
+      }
+      // E o escopo continua valendo: empresa que passou a existir não é resíduo.
+      if (await empresaExiste(prefixoDaEmpresa(chave))) {
+        resultado.companyNowExists += 1;
         continue;
       }
       await storage.delete(chave);
@@ -484,4 +580,15 @@ export async function purgeOrphanFiles(options: PurgeOrphansOptions): Promise<Pu
     }
   }
   return resultado;
+}
+
+function prefixoDaEmpresa(storageKey: string): string {
+  return storageKey.slice(0, storageKey.indexOf("/"));
+}
+
+async function empresaExiste(prefixo: string): Promise<boolean> {
+  const n = await prisma.company.count({
+    where: { id: { equals: prefixo, mode: "insensitive" } },
+  });
+  return n > 0;
 }

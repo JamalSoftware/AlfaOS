@@ -14,10 +14,16 @@
  *
  * ```text
  * node dist/scripts/photo-storage-audit.js --resanitize-legacy --apply
- * node dist/scripts/photo-storage-audit.js --purge-orphans --apply
+ * node dist/scripts/photo-storage-audit.js --purge-orphans --apply --scope missing-company
  * ```
  *
  * A ação sem `--apply` mostra só o que FARIA.
+ *
+ * # O expurgo exige ESCOPO
+ *
+ * `--purge-orphans --apply` sem `--scope missing-company` sai com erro, sem
+ * apagar nada. `--scope active-company` só simula: apagar órfão de empresa que
+ * existe é decisão de retenção do dono. Não existe escopo "todos".
  *
  * # Saída
  *
@@ -33,11 +39,22 @@ import { getFileStorage } from "../src/lib/storage";
 import {
   auditPhotoStorage,
   purgeOrphanFiles,
+  OrphanPurgeScopeError,
   resanitizeLegacyPhotos,
 } from "../src/lib/storage/photo-audit";
 
+/** Lê `--scope valor` ou `--scope=valor`. */
+function escopoDosArgumentos(argv: string[]): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--scope") return argv[i + 1] ?? "";
+    if (argv[i].startsWith("--scope=")) return argv[i].slice("--scope=".length);
+  }
+  return undefined;
+}
+
 async function main(): Promise<void> {
-  const args = new Set(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const args = new Set(argv);
   const apply = args.has("--apply");
   const storage = getFileStorage();
 
@@ -50,9 +67,9 @@ async function main(): Promise<void> {
   }
 
   if (args.has("--purge-orphans")) {
-    const r = await purgeOrphanFiles({ storage, apply });
+    const r = await purgeOrphanFiles({ storage, apply, scope: escopoDosArgumentos(argv) });
     console.log(
-      `[storage-audit] expurgo de orfaos ${apply ? "APLICADO" : "SIMULADO — nada foi apagado"}: candidatos=${r.candidates} apagados=${r.deleted} religados=${r.relinked} falhas=${r.failed}`,
+      `[storage-audit] expurgo de orfaos ${apply ? "APLICADO" : "SIMULADO — nada foi apagado"} escopo=${r.scope ?? "todos-os-candidatos (so simulacao)"}: candidatos=${r.candidates} apagados=${r.deleted} religados=${r.relinked} empresa-passou-a-existir=${r.companyNowExists} falhas=${r.failed}`,
     );
     return;
   }
@@ -66,7 +83,7 @@ async function main(): Promise<void> {
     `[storage-audit] SOMENTE LEITURA — referencias=${r.references} examinadas=${r.examined} limpas=${r.clean} com-metadado=${r.needsSanitization} com-gps=${r.withGps} ilegiveis=${r.unparseable} arquivo-ausente=${r.missingFiles}`,
   );
   console.log(
-    `[storage-audit] storage: arquivos=${r.storageFiles} orfaos-candidatos=${r.orphanCandidates} (de-empresa-inexistente=${r.orphansOfMissingCompanies}) recentes-sem-linha=${r.recentUnreferenced} nao-reconhecidos=${r.unrecognizedEntries}`,
+    `[storage-audit] storage: arquivos=${r.storageFiles} orfaos-candidatos=${r.orphanCandidates} (de-empresa-inexistente=${r.orphansOfMissingCompanies} de-empresa-existente=${r.orphansOfExistingCompanies}) recentes-sem-linha=${r.recentUnreferenced} nao-reconhecidos=${r.unrecognizedEntries}`,
   );
   if (args.has("--details")) {
     for (const f of r.legacy) {
@@ -83,6 +100,12 @@ async function main(): Promise<void> {
 
 main()
   .catch((error: unknown) => {
+    if (error instanceof OrphanPurgeScopeError) {
+      // A mensagem é nossa, sem dado de cliente, e é o que o operador precisa ler.
+      console.error(`[storage-audit] RECUSADO: ${error.message}`);
+      process.exitCode = 2;
+      return;
+    }
     // Erro de filesystem traz o caminho absoluto (RC-LOG-01).
     logServerError("storage-audit", error, { operacao: "execucao" });
     process.exitCode = 1;

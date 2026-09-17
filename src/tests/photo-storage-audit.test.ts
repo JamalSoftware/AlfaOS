@@ -66,6 +66,9 @@ beforeEach(async () => {
 
 const DIA = 24 * 60 * 60 * 1000;
 const depoisDaCarencia = () => new Date(Date.now() + ORPHAN_GRACE_MS + DIA);
+/** Prefixo de empresa que não existe no banco — o resíduo que o expurgo pode apagar. */
+const EMPRESA_INEXISTENTE = "empresaapagada000000000000";
+const MISSING = { scope: "missing-company" } as const;
 const chaveDe = (companyId: string, escopo = "legado", ext = "jpg") =>
   `${companyId}/${escopo}/${randomUUID().replace(/-/g, "")}.${ext}`;
 
@@ -387,20 +390,20 @@ describe("ORPHAN-01/02 · órfão é arquivo sem linha e velho; referenciado nun
   });
 
   it("arquivo sem linha RECENTE não é candidato — pode ser upload em andamento", async () => {
-    const recente = chaveDe(fixture.companyA.id, "emandamento");
+    const recente = chaveDe(EMPRESA_INEXISTENTE, "emandamento");
     await gravarNoDisco(recente, montarJpegSimples());
 
     const r = await auditPhotoStorage({ storage });
     expect(r.recentUnreferenced).toBe(1);
     expect(r.orphans).toEqual([]);
 
-    const expurgo = await purgeOrphanFiles({ storage, apply: true });
+    const expurgo = await purgeOrphanFiles({ storage, apply: true, ...MISSING });
     expect(expurgo.deleted).toBe(0);
     expect(existsSync(path.join(raiz, recente))).toBe(true);
   });
 
   it("chave de empresa que não existe mais é contada à parte (resíduo)", async () => {
-    const fantasma = chaveDe("empresaapagada000000000000", "sobra");
+    const fantasma = chaveDe(EMPRESA_INEXISTENTE, "sobra");
     await gravarNoDisco(fantasma, montarJpegSimples());
     await envelhecer(fantasma);
 
@@ -410,8 +413,9 @@ describe("ORPHAN-01/02 · órfão é arquivo sem linha e velho; referenciado nun
 });
 
 describe("ORPHAN-03 · referência de OUTRA empresa protege o arquivo", () => {
-  it("arquivo sob o prefixo da A, referenciado por linha da B, não é órfão nem é apagado", async () => {
-    const chave = chaveDe(fixture.companyA.id, "cruzada");
+  it("arquivo sob prefixo de empresa INEXISTENTE, referenciado por linha da B, não é órfão nem é apagado", async () => {
+    // O pior caso para o escopo missing-company: o prefixo diz "resíduo", a linha diz "em uso".
+    const chave = chaveDe(EMPRESA_INEXISTENTE, "cruzada");
     await gravarNoDisco(chave, montarJpegSimples());
     await envelhecer(chave);
     await prisma.cTO.create({
@@ -420,8 +424,9 @@ describe("ORPHAN-03 · referência de OUTRA empresa protege o arquivo", () => {
 
     const r = await auditPhotoStorage({ storage });
     expect(r.orphans).not.toContain(chave);
+    expect(r.missingCompanyOrphans).not.toContain(chave);
 
-    const expurgo = await purgeOrphanFiles({ storage, apply: true });
+    const expurgo = await purgeOrphanFiles({ storage, apply: true, ...MISSING });
     expect(expurgo.deleted).toBe(0);
     expect(existsSync(path.join(raiz, chave))).toBe(true);
   });
@@ -468,26 +473,30 @@ describe("ORPHAN-04 · linha sem arquivo é outro problema, em outra contagem", 
     expect(r.missing).toEqual([{ kind: "EVIDENCE", id: linha.id, companyId: fixture.companyA.id }]);
     expect(r.orphans).toEqual([]);
 
-    await purgeOrphanFiles({ storage, apply: true, now: depoisDaCarencia() });
+    await purgeOrphanFiles({ storage, apply: true, now: depoisDaCarencia(), ...MISSING });
     expect(await prisma.serviceOrderEvidence.findUnique({ where: { id: linha.id } })).not.toBeNull();
   });
 });
 
 describe("ORPHAN-05 · expurgo: simular não apaga; aplicar apaga só o órfão", () => {
-  it("controle positivo: com apply, o órfão sai e o referenciado fica", async () => {
+  it("controle positivo: com apply e escopo, o resíduo sai; o referenciado e o de empresa existente ficam", async () => {
     const { chave: referenciada } = await evidenciaLegada(fixture.companyA.id, montarJpegSimples());
     await envelhecer(referenciada);
-    const orfao = chaveDe(fixture.companyA.id, "sobra");
+    const orfao = chaveDe(EMPRESA_INEXISTENTE, "sobra");
     await gravarNoDisco(orfao, montarJpegSimples());
     await envelhecer(orfao);
+    const historica = chaveDe(fixture.companyA.id, "historica");
+    await gravarNoDisco(historica, montarJpegSimples());
+    await envelhecer(historica);
 
     const simulado = await purgeOrphanFiles({ storage, apply: false });
-    expect(simulado.candidates).toBe(1);
+    expect(simulado.candidates).toBe(2);
     expect(existsSync(path.join(raiz, orfao))).toBe(true);
 
-    const aplicado = await purgeOrphanFiles({ storage, apply: true });
+    const aplicado = await purgeOrphanFiles({ storage, apply: true, ...MISSING });
     expect(aplicado.deleted).toBe(1);
     expect(existsSync(path.join(raiz, orfao))).toBe(false);
+    expect(existsSync(path.join(raiz, historica))).toBe(true);
     expect(existsSync(path.join(raiz, referenciada))).toBe(true);
   });
 });
@@ -545,7 +554,7 @@ describe("ORPHAN-06 · nada fora da raiz, nada que o AlfaOS não escreveu", () =
       expect(r.withGps).toBe(0);
       expect(r.unrecognizedEntries).toBe(2);
 
-      const expurgo = await purgeOrphanFiles({ storage, apply: true, now: depoisDaCarencia() });
+      const expurgo = await purgeOrphanFiles({ storage, apply: true, now: depoisDaCarencia(), ...MISSING });
       expect(expurgo.deleted).toBe(0);
       expect(existsSync(estranho)).toBe(true);
       expect(existsSync(fora)).toBe(true);
@@ -569,7 +578,7 @@ describe("ORPHAN-06 · nada fora da raiz, nada que o AlfaOS não escreveu", () =
       const listados: string[] = [];
       for await (const e of storage.list()) listados.push(e.key);
       expect(listados.some((k) => k.endsWith(".jpg"))).toBe(false);
-      await purgeOrphanFiles({ storage, apply: true, now: depoisDaCarencia() });
+      await purgeOrphanFiles({ storage, apply: true, now: depoisDaCarencia(), ...MISSING });
       expect(existsSync(path.join(alvo, "a".repeat(32) + ".jpg"))).toBe(true);
     } finally {
       await fs.rm(link, { force: true, recursive: false }).catch(() => undefined);
@@ -580,13 +589,14 @@ describe("ORPHAN-06 · nada fora da raiz, nada que o AlfaOS não escreveu", () =
 
 describe("PURGE-07 · a corrida do expurgo de órfãos", () => {
   it("classificado como órfão, ligado a uma linha antes de apagar: FICA", async () => {
-    const chave = chaveDe(fixture.companyA.id, "religada");
+    const chave = chaveDe(EMPRESA_INEXISTENTE, "religada");
     await gravarNoDisco(chave, montarJpegSimples());
     await envelhecer(chave);
 
     const r = await purgeOrphanFiles({
       storage,
       apply: true,
+      ...MISSING,
       // Entre a classificação e a exclusão, outro fluxo liga o arquivo.
       beforeDelete: async (k) => {
         await prisma.cTO.create({
