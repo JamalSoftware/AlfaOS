@@ -6501,3 +6501,87 @@ mapa preservado.
 executado contra o provedor, e a verificação automática **não** está ativa em
 produção. A capacidade do provedor real continua **`NOT YET MEASURED`** (§48.5).
 Nenhum requisito mudou no fechamento.
+
+### 48.10. `RC-1F-A` — o motor antes de alguém agendá-lo
+
+A descoberta da `RC-1F` (`docs/MASTER-PLAN.md` §16) provou, por sonda fora do
+repositório, três defeitos do ciclo e deduziu dois riscos de capacidade. Os
+cinco foram tratados sem migration, sem dependência e sem chamada real a
+provider. **O agendador continua sem existir: `DIAGNOSTICS SCHEDULER — CODE READY`,
+não `ACTIVE`.** Três trechos acima ficam corrigidos por esta seção: a frase de
+§48.4.1 sobre o ciclo anterior ainda rodando, a conta de capacidade de §48.5 e o
+"Duas execuções não multiplicam as chamadas externas" de `docs/SECURITY.md` §8.24.
+
+**A seleção não é a autoridade final (`DIAG-OVERLAP-01`).** A lista é lida no
+começo da volta e envelhece. Um ciclo que a leu antes de outro verificar o
+cliente conseguia reservá-lo depois dos 60 s da reserva alheia, e a chamada se
+repetia. Agora, com a reserva na mão, a pergunta da seleção é feita de novo ao
+banco — "a última leitura é posterior ao corte?" — e, se for, o cliente sai sem
+chamar ninguém (`skippedFresh`, `recemVerificados` no log). A primeira
+verificação continua no advisory lock, que já reconferia dentro do lock.
+
+**Quem falha sempre não monopoliza o teto (`DIAG-STARV-01`).** Falha não escreve
+nada — é o que impede o `OFFLINE` inventado —, então quem falha continua vencido.
+A lista vinha na ordem física da tabela e era cortada no teto. Agora são duas
+filas intercaladas:
+
+```text
+com leitura   tentada há mais tempo primeiro — refreshLeaseUntil já carimba toda
+              reserva e ninguém o apaga, então ele data a última tentativa
+sem leitura   sorteada por volta (hash do cliente com o instante da volta), porque
+              não há onde registrar tentativa sem fabricar snapshot
+```
+
+Com leitura, a justiça é determinística: um vencido nunca espera atrás de quem foi
+tentado depois dele. Sem leitura, ela é probabilística — cada volta dá a
+cada um a mesma chance, e nenhuma posição fica fixa. **O teto passou a contar
+tentativas que chegam ao provider**, não candidatos: reservado por outro,
+recém-verificado e empresa sem diagnóstico devolvem a vaga. Antes, uma empresa sem
+ERP com clientes ligados gastava a volta inteira sem ninguém ser consultado.
+
+**Cadência — contrato PLANEJADO (`DIAG-CADENCE-01`):**
+
+```text
+tick do agendador   1 min
+alvo de frescor     5 min    DIAGNOSTICS_REFRESH_TARGET_MS
+aviso na tela      10 min    DIAGNOSTICS_STALE_AFTER_MS
+```
+
+Com tick igual ao alvo, o cliente verificado segundos depois do disparo ainda não
+vencia no seguinte, e a revisita real ficava em ~10 min, na borda do aviso. Tick
+de 1 minuto não consulta cada cliente a cada minuto: quem está dentro do alvo não
+é elegível. Observado em T+20 s, o cliente é reconsultado no tick de T+6 min — uma
+vez —, e em nenhum antes (`DIAG-CADENCE-FIX-01`).
+
+**Uma verificação ReceitaNet são até DUAS requisições (`DIAG-CALLS-01`):**
+`verificar-acesso` e `/v1/cliente`, a segunda best-effort. A conta de §48.5 muda em
+dois pontos: a latência `L` de uma verificação é a SOMA das duas (e o prazo de 8 s
+vale para a soma), e o total de uma volta é até `teto × 2` requisições — 600 com os
+padrões. Em voo ao mesmo tempo continuam no máximo `C`, porque as duas de uma
+verificação são em sequência — e, desde a correção abaixo, nenhuma sobra depois do
+prazo.
+
+**O prazo cancela a rede (`DIAG-ORPHAN-01`).** `withIntegrationTimeout` só soltava
+quem esperava; a segunda requisição podia começar perto do fim e seguir em voo
+depois de o diagnóstico ter desistido, e o relógio do cliente HTTP parava nos
+cabeçalhos. Agora o adapter tem UM prazo para a verificação inteira e passa o
+sinal às duas requisições, e o cliente segura relógio e sinal até ler o corpo. Se
+o prazo cortar só a leitura acessória, o estado já obtido volta sem os extras.
+Provado com rede falsa: concorrência 2, a segunda requisição de toda verificação
+travada até o prazo, pico de 2 requisições em voo (`DIAG-CONCURRENCY-01`). **A primeira versão desse teste passava sem
+usar a rede:** repassava ao adapter ReceitaNet o identificador do Mock, que ele
+recusa antes de qualquer requisição, e as sabotagens que removiam o cancelamento
+atravessavam o teste. Agora ele tem controles positivos — seis `ONLINE`, seis
+abortos e pico exatamente 2 —, e as duas sabotagens o derrubam.
+
+**Limite declarado:** a garantia é do adapter ReceitaNet, não estrutural. A
+interface `ERPDiagnosticsCapability` não recebe sinal, então um adapter futuro que
+fale HTTP precisa honrar o prazo sozinho. Passar o sinal pelo contrato é decisão
+do dono (`OWNER DECISION REQUIRED — DIAGNOSTICS PROVIDER CONTRACT CHANGE`).
+
+**Configuração (`ENV-01`).** Teto e concorrência são inteiros positivos (`6.5`,
+`1e6`, `Infinity` e zero passavam); valor inválido faz o comando sair com **2** e
+nomear a variável — o `catch` genérico registra só o tipo do erro (RC-LOG-01) e
+não diria qual. **Não há teto superior**: um máximo seguro depende da capacidade
+do provider real, que não foi medida (`OWNER DECISION REQUIRED — DIAGNOSTICS
+LIMITS`).

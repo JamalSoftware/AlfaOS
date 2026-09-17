@@ -58,7 +58,9 @@ limite por IP (basta randomizar o header a cada tentativa). Por isso o header
 só é lido quando existe proxy reverso declaradamente confiável.
 
 **Variável de ambiente: `TRUSTED_PROXY_HOPS`** (inteiro, padrão `0`) — número
-de proxies reversos confiáveis à frente da aplicação.
+de proxies reversos confiáveis à frente da aplicação. Presente e inválida
+(`"abc"`, `"1.5"`, `"2abc"`, vazia), a aplicação **não sobe** (`RC-1F-A`):
+antes ela virava `0` em silêncio.
 
 | Valor | Comportamento |
 | --- | --- |
@@ -526,7 +528,9 @@ para segurança:
   corresponder ao nome. Também foi considerada uma subchave HKDF derivada da
   chave de ERP — descartada pelo mesmo motivo: mantém o risco de rotação.
 - **Fail-closed.** Sem a chave, gravar ou revelar falha; em nenhuma hipótese
-  uma senha é gravada em claro como alternativa.
+  uma senha é gravada em claro como alternativa. Presente e malformada, a
+  aplicação não sobe (`RC-1F-A`), como a chave de ERP — e a mensagem diz só o
+  tamanho decodificado.
 - **A senha nunca é reexibida.** Não existe rota de leitura: o shape público
   da conexão tem `username` e um booleano `passwordConfigured`. Nem um
   `last4` — num token de API ele identifica qual credencial está configurada;
@@ -3067,6 +3071,18 @@ chama sistemas externos em nome de várias empresas. O que o protege:
   (`refreshLeaseUntil`) é reivindicada por `updateMany` com o prazo no
   predicado; quem perde não chama ninguém. Sem ela, dois ciclos simultâneos
   chamavam o provider duas vezes por cliente — medido, não suposto.
+  **Corrigido na `RC-1F-A`:** isso valia para disparos simultâneos. Um ciclo
+  com a lista lida antes de outro verificar o cliente o reservava depois dos
+  60 s da reserva alheia, e a chamada se repetia (provado por sonda). A reserva,
+  depois de obtida, pergunta de novo ao banco se a leitura já está dentro do
+  alvo, e desiste sem chamar ninguém.
+- **O prazo cancela a rede, não só a espera (`RC-1F-A`).** No ReceitaNet a
+  verificação são duas requisições em sequência; a segunda seguia em voo depois
+  de o diagnóstico desistir, e o relógio do cliente HTTP parava nos cabeçalhos.
+  Agora o adapter aborta as duas no prazo e o cliente o mantém até ler o corpo:
+  a concorrência configurada é também o teto de requisições simultâneas ao ERP.
+  A garantia é do adapter, não da interface — um adapter novo que fale HTTP
+  precisa honrar o prazo sozinho.
 - **O navegador continua sem falar com provider.** Abrir a caixa, o mapa ou a
   ficha lê snapshot gravado. A releitura automática da tela da CTO é o mesmo
   `router.refresh()` das ações dela, e há teste espiando `fetch`.

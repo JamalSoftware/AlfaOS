@@ -106,6 +106,8 @@ RC-1   Release Candidate / Hardening                     ← em andamento
                                                            apply legado e expurgo: NÃO executados
        RC-1F  produção · agendadores · storage           ← OWNER DECISION REQUIRED (descoberta,
                                                            2026-09-17) · §16
+       RC-1F-A  motor de diagnóstico: justiça · cadência ← READY FOR OWNER REVIEW (2026-09-17)
+                · prazo · configuração                     scheduler CODE READY, não ACTIVE · §17
    ↓
 LANÇAMENTO V1 — produção e piloto real
    ↓
@@ -1053,7 +1055,7 @@ elegiveis=14`, todos de uma empresa com ReceitaNet **de produção** e credencia
 requisições); os outros 11 falham antes dela. Tabela de snapshots idêntica antes
 e depois.
 
-**Achados da descoberta — nenhum corrigido; o `DIAG-AUTO-1` é código aprovado:**
+**Achados da descoberta** — registrados como estavam; tratados na `RC-1F-A` (§17):
 
 ```text
 DIAG-OVERLAP-01  a reserva confere só o prazo, não o frescor. Um ciclo cuja lista
@@ -1100,8 +1102,70 @@ conta arquivos ausentes. Frequência, retenção e local são do dono.
 
 **Decisões do dono:** hospedagem; storage de produção (disco persistente ou
 objeto); backup (frequência, retenção, local, teste de restauração); o escopo da
-`RC-1F` diante dos itens da `RC-1A`; se `DIAG-OVERLAP-01`, `DIAG-STARV-01` e
-`DIAG-CADENCE-01` são corrigidos antes de ativar o ciclo (mexe em código
-aprovado); a CLI do Prisma na
+`RC-1F` diante dos itens da `RC-1A`; `DIAG-OVERLAP-01`, `DIAG-STARV-01` e
+`DIAG-CADENCE-01` antes de ativar o ciclo (decidido: corrigidos na `RC-1F-A`,
+§17); a CLI do Prisma na
 implantação; o provedor de tiles; e a primeira validação real do provider, com
 quantidade mostrada antes.
+
+---
+
+## 17. `RC-1F-A` — DIAGNOSTICS SCHEDULER CORRECTNESS / FAIRNESS / CADENCE
+
+**Estado: `READY FOR OWNER REVIEW` (17/09/2026).** Commits locais, sem push e sem
+tag. **Zero migration, zero dependência, zero UI, zero Dart, e nenhuma chamada a
+provider real** (ReceitaNet e SGP). Registro técnico em
+`docs/CTO-NETWORK-DISTRIBUTION.md` §48.10.
+
+```text
+DIAG-OVERLAP-01   RESOLVIDO    a reserva relê o frescor antes de chamar (skippedFresh)
+DIAG-STARV-01     RESOLVIDO    ordem justa: com leitura, tentada há mais tempo primeiro
+                               (carimbo de refreshLeaseUntil, sem coluna nova); sem
+                               leitura, sorteio por volta; o teto conta tentativas
+                               que chegam ao provider
+DIAG-CADENCE-01   CONTRATO     tick 1 min · alvo 5 min · aviso 10 min — PLANEJADO,
+                               revisita entre 5 e 6 min
+DIAG-CALLS-01     DOCUMENTADO  até 2 requisições por verificação ReceitaNet; volta
+                               ≤ teto × 2; em voo ≤ concorrência
+DIAG-ORPHAN-01    RESOLVIDO    o prazo cancela a rede (adapter ReceitaNet) e o
+                               cliente HTTP o mantém até ler o corpo
+ENV-01            RESOLVIDO    teto, concorrência e lote do outbox: inteiro positivo,
+                               saída 2 nomeando a variável; TRUSTED_PROXY_HOPS e
+                               CUSTOMER_CREDENTIAL_ENCRYPTION_KEY conferidas na subida
+                  PENDENTE     STORAGE_ROOT — depende da hospedagem (RC-1F-B)
+```
+
+```text
+DIAGNOSTICS SCHEDULER       CODE READY — não ACTIVE; ativação é a RC-1F-B
+PRODUCTION HOSTING          OWNER DECISION REQUIRED (§16)
+SGP REAL VALIDATION         PENDING API ACCESS
+PROVIDER CAPACITY           NOT YET MEASURED
+```
+
+**Gates:** 3050 Vitest (147 arquivos; eram 2984), lint, tsc, build, `build:worker`,
+`prisma validate`, 29 migrations — nenhuma nova. Playwright não repetido: nenhum
+arquivo web mudou (365/365 da `RC-1E`). **14 sabotagens, 14 detectadas.** Na primeira
+rodada, as duas que removem o cancelamento caíram só nos testes do prazo e
+atravessaram o teste de concorrência do ciclo, que passava sem usar a rede;
+corrigido, ele as derruba também. Dry-run no banco de dev com o código novo: 14
+vínculos, 14 elegíveis, snapshots idênticos antes e depois.
+
+**Limites declarados:**
+
+- **Sem leitura, a justiça é probabilística.** Não há onde registrar a tentativa
+  de quem nunca foi verificado sem fabricar snapshot (proibido); o sorteio por
+  volta dá a cada um a mesma chance, sem garantia de pior caso.
+- **O cancelamento é do adapter, não da interface.** `ERPDiagnosticsCapability`
+  não recebe sinal; um adapter novo que fale HTTP precisa honrar o prazo sozinho.
+- **Sem teto superior** para teto, concorrência e lote do outbox — só inteiro
+  positivo.
+
+**Decisões do dono:**
+
+- `OWNER DECISION REQUIRED — DIAGNOSTICS LIMITS`: tetos superiores. Proposta, não
+  adotada: concorrência ≤ 12 (o maior valor medido, sinteticamente, no §48.5),
+  teto por volta ≤ 1.000, lote do outbox ≤ 500.
+- `OWNER DECISION REQUIRED — DIAGNOSTICS PROVIDER CONTRACT CHANGE`: passar o sinal
+  de cancelamento pela interface, para a garantia valer para qualquer adapter.
+- As do §16 continuam abertas: hospedagem, storage, backup, escopo da `RC-1F`,
+  CLI do Prisma, tiles e a primeira validação real do provider.
