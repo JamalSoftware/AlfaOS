@@ -227,7 +227,8 @@ describe("OPS-CRON — o agendamento", () => {
     */
     expect(CRONTAB).not.toMatch(/--purge-orphans|--resanitize-legacy|--apply/);
     expect(CRONTAB).not.toMatch(/storage:audit|dispatch:backfill|prisma/);
-    expect(RUNBOOK).toMatch(/expurgo de órfãos.*manuai?s|manuais.*expurgo de órfãos/is);
+    // Sem a flag `s` (o alvo de TypeScript do projeto é anterior a ES2018).
+    expect(RUNBOOK).toMatch(/expurgo de órfãos[\s\S]{0,160}manuais/i);
   });
 
   it("OPS-CRON-06 · exclusão do sistema operacional SÓ onde a aplicação não arbitra", () => {
