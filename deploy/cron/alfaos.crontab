@@ -1,0 +1,40 @@
+# AlfaOS — agendamento dos comandos one-shot — RC-1F-B
+#
+# MODELO, INERTE. Instale como o usuário de serviço, nunca como root:
+#
+#   sudo -u alfaos crontab deploy/cron/alfaos.crontab
+#   sudo -u alfaos crontab -l
+#
+# Todas as linhas chamam o mesmo invólucro, que carrega /etc/alfaos/alfaos.env e
+# entra no diretório da aplicação. Nenhum segredo aparece aqui, e nenhuma linha
+# depende do diretório corrente do shell.
+#
+# HORÁRIO: o cron usa o fuso do SERVIDOR. Mantenha o servidor em UTC
+# (`timedatectl set-timezone UTC`) e lembre que o dia civil da operação é outro
+# assunto — ele vem de `Company.timezone`, dentro da aplicação, e nada aqui o
+# altera (docs/DEPLOYMENT.md).
+
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+MAILTO=""
+
+# Entrega de notificação ao técnico: lote único, a cada minuto.
+* * * * * /opt/alfaos/bin/alfaos-job.sh outbox:work 2>&1 | logger -t alfaos-outbox
+
+# Verificação de conectividade: tick de 1 min, alvo de 5, aviso aos 10.
+# Tick de 1 minuto NÃO é consultar cada cliente a cada minuto — quem está dentro
+# do alvo não é elegível, e a reserva confere o frescor de novo antes de chamar.
+#
+# COMENTADA DE PROPÓSITO. A ativação recorrente é a última etapa, e só depois de
+# o dono ver `npm run diagnostics:dry-run` no servidor: quantidade elegível,
+# empresas, providers e o volume de requisições que isso significa contra o ERP
+# de um provedor real (docs/DEPLOYMENT.md, fase F).
+#* * * * * /opt/alfaos/bin/alfaos-job.sh diagnostics:refresh 2>&1 | logger -t alfaos-diagnostics
+
+# Expurgo de etiqueta temporária vencida: diário. O prazo da etiqueta é de 24 h e
+# nada quebra se a varredura atrasar. NÃO é o expurgo de órfãos do storage, que
+# continua sendo operação manual com escopo explícito.
+15 3 * * * /opt/alfaos/bin/alfaos-job.sh evidence:cleanup 2>&1 | logger -t alfaos-evidence-cleanup
+
+# Backup diário, longe da janela do expurgo.
+0 2 * * * /opt/alfaos/bin/alfaos-backup.sh 2>&1 | logger -t alfaos-backup

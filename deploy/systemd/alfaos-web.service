@@ -1,0 +1,49 @@
+# AlfaOS — processo web (Next.js) — RC-1F-B
+#
+# MODELO. Copie para /etc/systemd/system/alfaos-web.service e ajuste apenas os
+# caminhos, se o layout do host for outro. Não contém domínio, IP nem segredo:
+# tudo o que é sensível vive em EnvironmentFile, fora do Git.
+#
+#   install -m 0644 deploy/systemd/alfaos-web.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now alfaos-web
+#
+# UMA instância, e isso é contrato (docs/DEPLOYMENT.md): o limitador de login,
+# o de diagnóstico e a fila de bcrypt vivem na memória do processo. Duas
+# instâncias dobram silenciosamente esses limites.
+
+[Unit]
+Description=AlfaOS web (Next.js)
+Documentation=file:///opt/alfaos/current/docs/DEPLOYMENT.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+# Erro de configuração para de vez, em vez de inundar o log reiniciando: cinco
+# partidas em cinco minutos e o serviço entra em failed, visível no status.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=alfaos
+Group=alfaos
+WorkingDirectory=/opt/alfaos/current
+EnvironmentFile=/etc/alfaos/alfaos.env
+ExecStart=/usr/bin/npm run start
+# Só falha reinicia. Uma parada pedida pelo operador continua parada.
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Privilégio mínimo: o processo não é root e só escreve onde precisa.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/alfaos/storage
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=alfaos-web
+
+[Install]
+WantedBy=multi-user.target

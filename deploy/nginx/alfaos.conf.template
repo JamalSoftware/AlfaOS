@@ -1,0 +1,80 @@
+# AlfaOS — Nginx reverse proxy — RC-1F-B
+#
+# MODELO. Substitua ALFAOS_DOMAIN pelo domínio real e instale em
+# /etc/nginx/sites-available/alfaos (o domínio não está versionado de propósito).
+#
+#   sed "s/ALFAOS_DOMAIN/app.exemplo.com.br/g" deploy/nginx/alfaos.conf.template \
+#     > /etc/nginx/sites-available/alfaos
+#   ln -s /etc/nginx/sites-available/alfaos /etc/nginx/sites-enabled/alfaos
+#   nginx -t && systemctl reload nginx
+#
+# O CERTIFICADO é emitido depois, com o domínio já apontando para o host — o
+# bloco 443 só sobe quando os arquivos existirem.
+
+upstream alfaos_app {
+    # O Next.js escuta SOMENTE em loopback: a porta da aplicação nunca é pública.
+    server 127.0.0.1:3000;
+    keepalive 16;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ALFAOS_DOMAIN;
+
+    # Renovação do certificado continua respondendo em texto claro.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ALFAOS_DOMAIN;
+
+    ssl_certificate     /etc/letsencrypt/live/ALFAOS_DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ALFAOS_DOMAIN/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:SSL:10m;
+
+    # Maior upload da aplicação: 8 MiB de foto + 64 KiB de campos do multipart
+    # (EVIDENCE_MAX_BYTES / CTO_PHOTO_MAX_BYTES + MULTIPART_FORM_OVERHEAD_BYTES).
+    # Menor que isso e o técnico recebe um 413 do Nginx em vez da recusa tipada
+    # da aplicação; é por isso que o valor fica FOLGADO, nunca justo.
+    client_max_body_size 9m;
+    client_body_timeout 60s;
+
+    # Foto de 8 MiB em 4G de borda de cidade leva mais que o padrão de 60 s.
+    proxy_connect_timeout 10s;
+    proxy_send_timeout    120s;
+    proxy_read_timeout    120s;
+    send_timeout          120s;
+
+    location / {
+        proxy_pass http://alfaos_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        # APPEND, não sobrescrita: o limitador lê o endereço na posição
+        # (total - TRUSTED_PROXY_HOPS), e com um proxy só isso significa
+        # TRUSTED_PROXY_HOPS=1. Trocar por `$remote_addr` aqui faria a conta
+        # apontar para o próprio Nginx e o limite por IP viraria global.
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection        "";
+        proxy_buffering off;
+    }
+
+    # STORAGE_ROOT NÃO É ESTÁTICO E NÃO TEM LOCATION AQUI.
+    #
+    # Toda foto de evidência, assinatura e foto de CTO sai por rota autorizada,
+    # que confere tenant e posse antes do primeiro byte. Um `location /storage/`
+    # com `alias` daria URL pública e permanente para evidência de cliente —
+    # exatamente o que o projeto evita desde a v0.10. Não acrescente um.
+}
