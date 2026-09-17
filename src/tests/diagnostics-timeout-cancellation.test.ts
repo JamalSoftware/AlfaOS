@@ -237,9 +237,18 @@ describe("DIAG-CONCURRENCY — o teto de concorrência é teto de requisições"
       fetchImpl: rede.fetchImpl,
       diagnosticDeadlineMs: 120,
     });
+    /*
+      O identificador precisa ser NUMÉRICO: o adapter ReceitaNet recusa outro
+      formato antes de qualquer rede, e a primeira versão deste teste passava
+      sem que uma requisição sequer saísse — vacuamente. Os controles positivos
+      abaixo (seis ONLINE, seis abortos, pico exatamente 2) existem para isso
+      não voltar a acontecer.
+    */
     const espiao = vi
       .spyOn(MockERPAdapter.prototype, "fetchCustomerConnectivity")
-      .mockImplementation((ref) => receitanet.fetchCustomerConnectivity(ref));
+      .mockImplementation((ref) =>
+        receitanet.fetchCustomerConnectivity({ ...ref, externalId: "123" }),
+      );
 
     let r;
     try {
@@ -250,7 +259,12 @@ describe("DIAG-CONCURRENCY — o teto de concorrência é teto de requisições"
     }
 
     expect(r.processed).toBe(6);
-    expect(rede.pico()).toBeLessThanOrEqual(2);
+    // Controle positivo: a rede foi de fato usada, e o prazo cortou a segunda
+    // requisição de cada uma das seis verificações.
+    expect(r.online).toBe(6);
+    expect(rede.abortadas()).toBe(6);
+    // O invariante: nunca mais requisições em voo que a concorrência.
+    expect(rede.pico()).toBe(2);
     expect(rede.emVoo()).toBe(0);
   }, 30_000);
 });

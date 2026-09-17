@@ -273,8 +273,14 @@ describe("DIAG-FAIR — uma falha repetida não impede os demais", () => {
     for (let porta = 1; porta <= 3; porta += 1) {
       await ligado(ctoB, porta, "-ONLINE", undefined, fixture.companyB.id);
     }
+    /*
+      O saudável TEM leitura vencida, e os três da empresa sem diagnóstico não
+      têm. A intercalação começa pela fila sem leitura, então o primeiro
+      candidato é sempre da empresa sem diagnóstico — sem isso, o sorteio podia
+      pôr o saudável na frente e a volta acabar antes de a empresa ser vista.
+    */
     const ctoA = await caixa(fixture.companyA.id);
-    const saudavel = await ligado(ctoA, 1, "-ONLINE");
+    const saudavel = await ligado(ctoA, 1, "-ONLINE", new Date(Date.now() - 60 * MIN));
 
     const provider = espiarProvider();
     let r;
