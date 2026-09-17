@@ -233,73 +233,109 @@ export class ReceitanetCallCenterClient {
    * de servidor, proxy, histórico e cabeçalho Referer. O OpenAPI menciona um
    * campo `token` no corpo como compatibilidade legada; não é usado aqui.
    */
-  private async post<T>(path: string, params: Record<string, string>): Promise<T> {
+  private async post<T>(
+    path: string,
+    params: Record<string, string>,
+    /**
+     * Prazo de quem chama, somado ao do cliente — vence o que chegar primeiro.
+     *
+     * Existe porque um prazo que só existe na promessa não cancela a REDE: a
+     * verificação de conectividade faz duas requisições em sequência, e sem o
+     * sinal a segunda seguia em voo depois de o diagnóstico ter desistido
+     * (`DIAG-ORPHAN-01`, `RC-1F-A`).
+     */
+    externo?: AbortSignal,
+  ): Promise<T> {
     const body = new URLSearchParams(params).toString();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const repassar = () => controller.abort();
+    if (externo?.aborted) controller.abort();
+    else externo?.addEventListener("abort", repassar, { once: true });
 
-    let res: Awaited<ReturnType<FetchLike>>;
+    /*
+      O relógio e o sinal valem até a ÚLTIMA leitura do corpo, não só até os
+      cabeçalhos. Antes, o `clearTimeout` vinha logo depois do `fetch`, e um
+      corpo que nunca terminava ficava pendurado sem prazo nenhum — uma
+      requisição em voo que ninguém mais contava.
+    */
     try {
-      res = await this.fetchImpl(`${this.baseUrl}${path}`, {
-        method: "POST",
-        redirect: "error",
-        headers: {
-          token: this.token,
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json",
-        },
-        body,
-        signal: controller.signal,
-      });
-    } catch (error) {
-      // `AbortError` é o nosso deadline; qualquer outra falha de rede é o
-      // provider fora do ar. Nenhum dos dois é uma afirmação sobre o cliente.
-      const aborted =
-        error instanceof Error &&
-        (error.name === "AbortError" || error.name === "TimeoutError");
-      throw new IntegrationError(
-        aborted ? "TIMEOUT" : "UPSTREAM_UNAVAILABLE",
-        PROVIDER,
-        aborted ? `sem resposta em ${this.timeoutMs}ms` : "falha de rede",
-      );
+      let res: Awaited<ReturnType<FetchLike>>;
+      try {
+        res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+          method: "POST",
+          redirect: "error",
+          headers: {
+            token: this.token,
+            "Content-Type": "application/x-www-form-urlencoded",
+            Accept: "application/json",
+          },
+          body,
+          signal: controller.signal,
+        });
+      } catch (error) {
+        // `AbortError` é o nosso deadline; qualquer outra falha de rede é o
+        // provider fora do ar. Nenhum dos dois é uma afirmação sobre o cliente.
+        const aborted =
+          error instanceof Error &&
+          (error.name === "AbortError" || error.name === "TimeoutError");
+        throw new IntegrationError(
+          aborted ? "TIMEOUT" : "UPSTREAM_UNAVAILABLE",
+          PROVIDER,
+          aborted ? "sem resposta no prazo" : "falha de rede",
+        );
+      }
+
+      // Traduz o status na FRONTEIRA. Nada acima deste ponto vê código HTTP.
+      if (res.status === 401 || res.status === 403) {
+        throw new IntegrationError("AUTHENTICATION_FAILED", PROVIDER, `HTTP ${res.status}`);
+      }
+      if (res.status === 404) {
+        throw new IntegrationError("CUSTOMER_NOT_FOUND", PROVIDER, "HTTP 404");
+      }
+      if (res.status === 429) {
+        throw new IntegrationError("RATE_LIMITED", PROVIDER, "HTTP 429");
+      }
+      if (res.status >= 500) {
+        throw new IntegrationError("UPSTREAM_UNAVAILABLE", PROVIDER, `HTTP ${res.status}`);
+      }
+      if (res.status !== 200) {
+        throw new IntegrationError("INVALID_RESPONSE", PROVIDER, `HTTP ${res.status}`);
+      }
+
+      // Antes de ler o corpo: um 200 com `text/html` é portal cativo ou página
+      // de erro de proxy, não resposta da API.
+      if (!acceptsAsJson(res.contentType)) {
+        throw new IntegrationError(
+          "INVALID_RESPONSE",
+          PROVIDER,
+          // Sem o tipo recebido no detalhe: ele pode carregar parâmetros.
+          "resposta não é JSON",
+        );
+      }
+
+      let raw: string;
+      try {
+        raw = await res.text();
+      } catch (error) {
+        const aborted =
+          error instanceof Error &&
+          (error.name === "AbortError" || error.name === "TimeoutError");
+        throw new IntegrationError(
+          aborted ? "TIMEOUT" : "UPSTREAM_UNAVAILABLE",
+          PROVIDER,
+          aborted ? "corpo não chegou no prazo" : "falha de rede ao ler o corpo",
+        );
+      }
+      try {
+        return JSON.parse(raw) as T;
+      } catch {
+        // Corpo ilegível é resposta não confiável — nunca um estado do cliente.
+        throw new IntegrationError("INVALID_RESPONSE", PROVIDER, "corpo não é JSON");
+      }
     } finally {
       clearTimeout(timer);
-    }
-
-    // Traduz o status na FRONTEIRA. Nada acima deste ponto vê código HTTP.
-    if (res.status === 401 || res.status === 403) {
-      throw new IntegrationError("AUTHENTICATION_FAILED", PROVIDER, `HTTP ${res.status}`);
-    }
-    if (res.status === 404) {
-      throw new IntegrationError("CUSTOMER_NOT_FOUND", PROVIDER, "HTTP 404");
-    }
-    if (res.status === 429) {
-      throw new IntegrationError("RATE_LIMITED", PROVIDER, "HTTP 429");
-    }
-    if (res.status >= 500) {
-      throw new IntegrationError("UPSTREAM_UNAVAILABLE", PROVIDER, `HTTP ${res.status}`);
-    }
-    if (res.status !== 200) {
-      throw new IntegrationError("INVALID_RESPONSE", PROVIDER, `HTTP ${res.status}`);
-    }
-
-    // Antes de ler o corpo: um 200 com `text/html` é portal cativo ou página
-    // de erro de proxy, não resposta da API.
-    if (!acceptsAsJson(res.contentType)) {
-      throw new IntegrationError(
-        "INVALID_RESPONSE",
-        PROVIDER,
-        // Sem o tipo recebido no detalhe: ele pode carregar parâmetros.
-        "resposta não é JSON",
-      );
-    }
-
-    const raw = await res.text();
-    try {
-      return JSON.parse(raw) as T;
-    } catch {
-      // Corpo ilegível é resposta não confiável — nunca um estado do cliente.
-      throw new IntegrationError("INVALID_RESPONSE", PROVIDER, "corpo não é JSON");
+      externo?.removeEventListener("abort", repassar);
     }
   }
 
@@ -365,10 +401,15 @@ export class ReceitanetCallCenterClient {
    * com nome `"(sem nome)"` — um cadastro que parece importado do ERP e
    * não corresponde a ninguém, colado numa identidade externa falsa.
    */
-  async getCliente(idCliente: number): Promise<CallCenterClienteDetalhado> {
-    const payload = await this.post<unknown>("/v1/cliente", {
-      idCliente: String(idCliente),
-    });
+  async getCliente(
+    idCliente: number,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<CallCenterClienteDetalhado> {
+    const payload = await this.post<unknown>(
+      "/v1/cliente",
+      { idCliente: String(idCliente) },
+      options.signal,
+    );
 
     // Array, null, string, booleano ou número: nenhum é o objeto do contrato.
     if (!isRecord(payload) || Array.isArray(payload)) {
@@ -403,10 +444,14 @@ export class ReceitanetCallCenterClient {
   }
 
   /** `POST /v1/cliente/verificar-acesso` — `status` 1 online, 2 offline. */
-  async verificarAcesso(idCliente: number): Promise<CallCenterVerificarAcesso> {
+  async verificarAcesso(
+    idCliente: number,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<CallCenterVerificarAcesso> {
     const payload = await this.post<Record<string, unknown>>(
       "/v1/cliente/verificar-acesso",
       { idCliente: String(idCliente) },
+      options.signal,
     );
     if (payload && payload.success === false) {
       throw new IntegrationError("CUSTOMER_NOT_FOUND", PROVIDER, "cliente não localizado");
