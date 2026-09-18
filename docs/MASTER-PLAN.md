@@ -725,9 +725,33 @@ E2E do mapa — ZOOMVIS-08/09 intermitente (gates da DIAG-AUTO-1, 16/09/2026)
            escala do zoom já aplicada em todas as amostras
   alcance  nenhum arquivo do caminho de /mapa mudou na DIAG-AUTO-1; não é o
            MAPEDIT (causa provada e resolvida na RC-1D, §13)
-  hoje     o teste deixou de dormir 400 ms e passou a esperar a CONDIÇÃO (fim da
-           animação e escala do zoom novo aplicada). Isso é higiene de teste,
-           NÃO explicação: PRODUÇÃO INALTERADA e causa ainda não provada
+  hoje     RESOLVIDO no RC-1 (§20): CLOSED / TEST HARNESS. A medição lê
+           marcadores de DUAS camadas — a caixa e a OS — e o teste só esperava
+           `svg.cto-box`, que prova a camada de CAIXAS. Com a de OS atrasada em
+           4 s, `querySelector` devolve null e o `getBoundingClientRect` estoura
+           dentro do `page.evaluate` — reproduzido sem sorte, corrigido
+           esperando as duas camadas, e a sabotagem que tira a espera derruba o
+           teste de novo. PRODUÇÃO INALTERADA; o mapa segue FROZEN
+  ressalva  a assinatura da ocorrência histórica nunca foi capturada, então o
+           que está provado é um defeito real DESTE teste com o mesmo perfil —
+           não que aquela falha de 16/09 tenha sido esta
+
+E2E de fechamento mobile — toBeInViewport ratio 0 (gates do RC-1, 17/09/2026)
+  o quê    "fluxo completo cabe na tela e é utilizável" (390x844) falhou UMA vez
+           com viewport ratio 0 por 10 s, no botão de concluir
+  medido   1 falha em 4 rodadas completas válidas; 0 em 5 repetições isoladas;
+           NÃO reproduzido com o refresh RSC atrasado 3 s nem 9 s (9 s produz
+           outra assinatura, `element(s) not found`)
+  corrida  MEDIDA e real: `run()` faz `setNotice(...)` e dispara
+           `router.refresh()` sem esperar, então `signAndSave` volta antes de o
+           refresh chegar; quando ele chega, o bloco "Assinatura registrada
+           por…" nasce ACIMA do botão e o empurra 68 px (620,75 → 688,75),
+           depois do único `scrollIntoViewIfNeeded()`
+  por que  não corrigido: 688,75 + 56 = 744,75 ainda cabe na viewport de 844,
+  aberto   então a corrida medida NÃO explica o ratio 0. Correção especulativa
+           exigiria um detector que nenhum teste tem — proteção que ninguém
+           derruba é proteção que alguém apaga
+  status   OPEN / NON-BLOCKING KNOWN DEBT
   aberto   causa não isolada — uma observação só não classifica
   fase     investigação própria; o mapa está FROZEN e só reabre por defeito
            provado
@@ -1426,10 +1450,10 @@ A  fuso da empresa        RESOLVIDO — toda tela formata pelo relógio da empre
 B  RC-IMG-DEBT            RESOLVIDO — vence o PRIMEIRO Orientation do arquivo
 C  login-flood            MECANISMO PROVADO (pool frio, não é o login);
                           teste aquece o pool · LOGIN-TRANSPORT fixa o 500
-D  ZOOMVIS-08/09          NÃO REPRODUZIDO — sincronização do teste trocada;
-                          produção INALTERADA · causa segue aberta
-E  PRD §382               cobertura verificada — regra coberta por teste;
-                          configuração do provedor continua com o dono
+D  ZOOMVIS-08/09          FECHADO no §20 — leitura sem guarda de uma camada
+                          nunca esperada; produção INALTERADA
+E  PRD §382               FECHADO no §20 — a cobertura era 0/9 e não havia
+                          como configurar pelo produto; hoje 9/9
 F  status dos documentos  §12 e §1 corrigidos
 ```
 
@@ -1481,3 +1505,54 @@ provedor, não do código.
 **Continua aberto e é do dono:** a decisão sobre os débitos do §12 que exigem
 decisão; a revisão de segurança independente, que é a próxima fase da `RC-1` e
 tem de ser feita por quem não implementou estas correções.
+
+---
+
+## 20. `RC-1` — PRD §382 FECHADO, E O QUE ELE COBRAVA NÃO ERA CÓDIGO
+
+`READY FOR OWNER VALIDATION` (18/09/2026). **Zero migration, zero dependência,
+zero Dart, zero chamada a provider.**
+
+**A verificação que a §19 deixou pendente reprovou: 0 de 9 tipos cobertos** — e
+a medição seguinte mostrou que faltavam DUAS coisas, não uma. Template ausente
+é metade; a outra é `ServiceOrderCompletionPolicy.requireChecklist`, sem a qual
+`validateServiceOrderCompletion` sai depois do relatório e não exige checklist
+nenhum. As duas dimensões passaram a ser medidas juntas.
+
+**A causa da cobertura zero era de PRODUTO:** as duas superfícies existiam só
+como API. `/tipos-os` administrava tipos e não citava checklist, o seed não cria
+template, e nenhuma tela chamava `PUT /api/checklist-templates`. Um provedor não
+configura cobertura por `curl` — então a §382 não tinha como ser atendida em
+produção, por mais correto que o motor estivesse.
+
+**O que entrou:** o editor de checklist dentro de `/tipos-os` (padrão da empresa
+e por tipo, item obrigatório, reordenar, desativar) e o interruptor *Exigir
+checklist para concluir*. Mais duas peças que o domínio não tinha: a leitura por
+empresa — que a rota passou a usar também, para não existirem duas verdades — e
+a **desativação** de um template, porque salvar sempre reativa e sem ela o único
+caminho de volta era apagar os itens.
+
+**O interruptor de política reenvia todos os campos que leu.** A API substitui a
+política inteira; mandar só `requireChecklist` apagaria em silêncio a exigência
+de assinatura, de evidência e de equipamento daquele tipo.
+
+**`CHK-NULL-01` — dívida de compatibilidade aceita.** OS sem tipo recebe o
+padrão como ORIENTAÇÃO e não é bloqueada por ele: a política é chaveada por
+tipo. Não se inventou tipo falso, não se reescreveu OS histórica, não se mexeu
+no schema. A cópia da tela diz isso ao operador.
+
+**Configuração do tenant de DEV pelo caminho de domínio** (os mesmos serviços
+que a tela chama, nunca SQL): 0/9 → **9/9**, padrão da empresa ativo com 4
+itens. Reexecutada, não duplicou nada — 10 templates, 54 itens, 9 políticas.
+
+**Sete sabotagens, sete detectadas**, cada uma com o diff provado entrando e
+saindo. A que mais importa é a `S5`: a tela anuncia "Checklist salvo." e não
+persiste — o detector é a RELEITURA, e ela acusa "Sem checklist". Uma tela que
+mente sobre ter salvo é pior que uma que falha.
+
+**Débito registrado, sem correção:** o intermitente do fechamento mobile
+(`toBeInViewport` ratio 0) continua `OPEN / NON-BLOCKING`. A corrida está
+MEDIDA — `signAndSave` volta antes de o `router.refresh()` chegar, e o bloco de
+assinatura empurra o botão 68 px depois do scroll —, mas 68 px não tiram o botão
+de uma viewport de 844, então a falha observada não está explicada e nenhuma
+correção especulativa foi aplicada.

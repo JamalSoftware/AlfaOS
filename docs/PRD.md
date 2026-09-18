@@ -13411,6 +13411,39 @@ O que a V1 deve fazer é **verificar cobertura** dos tipos que o provedor usa de
 fato (instalação, reparo, retirada, troca de equipamento), não reimplementar o
 mecanismo.
 
+## §382 — `CLOSED` (RC-1)
+
+**A verificação de cobertura foi feita e reprovou: 0 de 9 tipos.** O provedor
+não tinha nenhum template e nenhuma política de conclusão, e a causa não era
+desleixo — **não havia como configurar pelo produto**. A "superfície
+administrativa própria" citada acima era só a API: `/tipos-os` administrava
+tipos e não mencionava checklist, o seed não cria template, e ninguém opera um
+provedor por `curl`.
+
+**Decisão do dono: a configuração passou a existir na tela** (`/tipos-os`),
+estendendo o catálogo de tipos em vez de criar um módulo novo — checklist
+padrão da empresa, checklist por tipo com itens obrigatórios, e o interruptor
+*Exigir checklist para concluir*.
+
+**Cobertura tem DUAS dimensões, e confundi-las é o erro caro:**
+
+```text
+template aplicável   → o técnico VÊ as perguntas
+requireChecklist     → o fechamento PARA enquanto faltar resposta obrigatória
+```
+
+Configurar só a primeira produz um checklist que ninguém é obrigado a
+responder. A tela mostra as duas, separadas.
+
+**`CHK-NULL-01` — dívida de compatibilidade aceita, não bloqueante.** OS
+importada ou com tipo livre (`typeId = null`) **recebe** o checklist padrão da
+empresa como snapshot, e serve de orientação; **não é bloqueada** por ele,
+porque `ServiceOrderCompletionPolicy` é chaveada por tipo e uma OS sem tipo não
+tem política a consultar. Fechar essa lacuna exige normalizar a política — é
+pós-V1, e **não se inventa um tipo falso** nem se reescreve OS histórica para
+disfarçá-la. A cópia da tela diz isso ao operador em vez de prometer uma trava
+que não existe.
+
 ---
 
 # 383. PACOTE TÉCNICO DE EVIDÊNCIAS

@@ -404,6 +404,12 @@ Três invariantes da v0.10 que são fáceis de desfazer sem perceber:
 * **Escrita automática de coordenada passa OBRIGATORIAMENTE por `applyImportedCustomerLocation`.** A auditoria da v0.10 encontrou essa função sem chamador de produção, com o enriquecimento gravando direto e rebaixando `verified` — ver `docs/SECURITY.md` §8.14. Se você está escrevendo `latitude` em `Customer`, está no caminho errado.
 * **O checklist da OS é snapshot, não referência.** Editar o template não pode alcançar OS já iniciada.
 
+**Configuração do checklist (PRD §382, fechado no `RC-1`).** A tela é `/tipos-os`: `src/app/(app)/tipos-os/ServiceOrderTypeManager.tsx` (editor do padrão da empresa e por tipo, item obrigatório, reordenar, desativar, e o interruptor *Exigir checklist para concluir*). Ela não reimplementa regra nenhuma — chama `PUT`/`PATCH /api/checklist-templates` e `PUT /api/service-order-types/:id/completion-policy`, e relê do servidor. Leituras de configuração: `listCompanyChecklistTemplates` (`src/lib/checklists.ts`) e `listCompanyCompletionPolicies` (`src/lib/service-order-completion.ts`) — a rota usa as MESMAS, para não haver duas verdades.
+
+* **Cobertura tem duas dimensões.** Template aplicável faz o técnico VER; `requireChecklist` na política do tipo faz o fechamento PARAR. Configurar só a primeira produz checklist que ninguém precisa responder.
+* **A política é substituída por inteiro.** Quem alterna `requireChecklist` reenvia todos os campos lidos, senão apaga em silêncio assinatura, evidência e equipamento daquele tipo.
+* **`CHK-NULL-01`:** OS com `typeId = null` recebe o padrão da empresa como ORIENTAÇÃO e não é bloqueada por ele — a política é chaveada por tipo. Dívida aceita, pós-V1; não inventar tipo falso nem reescrever OS histórica.
+
 **Implementado na v0.10 (Flutter, Etapa B) — publicado:** a execução inteira no aplicativo do técnico. Localização, check-in, relatório, checklist, fotos, materiais, equipamento, assinatura e conclusão. A **foto da etiqueta** passou a ser a identificação do equipamento (série e MAC viraram opcionais), com estágio `TEMPORARY` → `COMMITTED`, TTL, promoção transacional, vínculo 1:1 e expurgo por comando (`npm run evidence:cleanup`). O inventário do que a v0.10 entregou está em `docs/PRD.md` **§225**; a tag é `v0.10-field-execution-closing`.
 
 **Continua só especificação:** offline no cliente, FCM real, todo o toolkit, `ToolExecution`, custódia de patrimônio, PDF de fechamento e reabertura de OS.
