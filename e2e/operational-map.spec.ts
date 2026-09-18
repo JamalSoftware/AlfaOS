@@ -3875,9 +3875,33 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     page,
   }) => {
     await abrirCamadas(page, ADMIN_EMAIL, 17);
-    await expect(page.locator(".leaflet-marker-pane svg.cto-box").first()).toBeVisible({
-      timeout: 15_000,
-    });
+
+    /*
+      A medição lê marcadores de DUAS camadas — a caixa e a OS —, e elas são
+      dois `fetch` independentes. Esperar só `svg.cto-box` prova a camada de
+      CAIXAS e não diz nada sobre a de OS: com ela atrasada, o `querySelector`
+      do `ler()` devolve `null` e o `getBoundingClientRect` estoura dentro do
+      `page.evaluate`.
+
+      Reproduzido sem sorte no `RC-1`: atrasando `/api/map/service-orders` em
+      4 s, o teste falha com `Cannot read properties of null`. É a assinatura
+      de um intermitente que só aparece sob carga — isolado, a camada chega
+      antes de a medição começar, e por isso ele passava 5 de 5.
+
+      Espera-se cada camada que a medição consome, e nada além delas.
+    */
+    const esperarCamadas = async () => {
+      await expect(page.locator(".leaflet-marker-pane svg.cto-box").first()).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(
+        page.locator('.leaflet-marker-pane .leaflet-marker-icon[title^="CAMADA CAIXA"]').first(),
+      ).toBeVisible({ timeout: 15_000 });
+      await expect(
+        page.locator('.leaflet-marker-pane .leaflet-marker-icon[title^="OS número 8800"]').first(),
+      ).toBeVisible({ timeout: 15_000 });
+    };
+    await esperarCamadas();
 
     const ler = async () =>
       page.evaluate(() => {
@@ -3934,9 +3958,9 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     await page.goto(
       `/mapa?lat=${LAYER_BASE.latitude}&lng=${LAYER_BASE.longitude}&z=18`,
     );
-    await expect(page.locator(".leaflet-marker-pane svg.cto-box").first()).toBeVisible({
-      timeout: 15_000,
-    });
+    // Recarregar refaz os dois `fetch`: as duas camadas precisam voltar antes
+    // da segunda medição, pela mesma razão da primeira.
+    await esperarCamadas();
     /*
       Espera uma CONDIÇÃO, não um relógio — `RC-1`, débito §12 (`ZOOMVIS-08/09`
       intermitente).
@@ -3946,11 +3970,18 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
       em transição — a mesma família de defeito de teste que a `CTO-3.2.2d`
       registrou para o Leaflet ("parou" pela URL não cobre animação).
 
-      A causa do intermitente NÃO está provada: ele não se reproduziu nem ocioso
-      nem com a CPU estrangulada em 20×, e a medição continua registrada como
-      débito aberto. O que muda aqui é só a sincronização: a leitura acontece
-      quando o mapa declara que a animação terminou e a escala do zoom novo já
-      está aplicada.
+      A troca de zoom aqui é uma NAVEGAÇÃO, não a roda do mouse: a página
+      recarrega em z18. Por isso a condição que importa não é o fim de uma
+      animação — é a escala do zoom novo já estar ESCRITA no contêiner, coisa
+      que o mapa faz depois de montar. Dormir 400 ms chutava esse instante; a
+      condição o observa, com teto de 15 s em vez de um atraso fixo. A guarda
+      de `leaflet-zoom-anim` fica como defesa para o caso de a troca passar a
+      ser feita sem recarregar.
+
+      A causa do intermitente foi PROVADA no `RC-1`, e é a leitura sem guarda
+      acima — não esta espera: atrasando `/api/map/service-orders` em 4 s, o
+      teste falha com `Cannot read properties of null`. Produção intocada; o
+      mapa continua `FROZEN`.
     */
     await page.waitForFunction(
       (esperado) => {
