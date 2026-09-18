@@ -193,7 +193,9 @@ describe("CHK-ADM — configuração do checklist", () => {
     */
     const nomes = ["Instalação", "Reparo", "Retirada", "Troca"];
     const tipos = [];
-    for (const [indice, name] of nomes.entries()) {
+    // `Array.from`: iterar o `entries()` direto exige `downlevelIteration` no
+    // alvo deste projeto — o mesmo TS2802 que a CHK-COV-07 já pagou.
+    for (const [indice, name] of Array.from(nomes.entries())) {
       tipos.push(
         await prisma.serviceOrderType.create({
           data: {
