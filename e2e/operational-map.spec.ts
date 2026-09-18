@@ -1241,8 +1241,29 @@ test.describe("Mapa Operacional — política de zoom", () => {
     // Doze cliques passam com folga de qualquer zoom inicial até o teto.
     for (let i = 0; i < 12; i += 1) {
       const botao = page.locator(".leaflet-control-zoom-in");
-      if ((await botao.getAttribute("class"))?.includes("disabled")) break;
-      await botao.click();
+      /*
+        Ler o estado e clicar são DOIS instantes — `RC-1`.
+
+        O Leaflet desabilita o controle ao chegar no teto de zoom. Sob carga, o
+        assentamento cai entre a leitura e o clique: a classe ainda diz
+        "habilitado", o clique encontra desabilitado, e o Playwright espera os
+        60 s inteiros do teste por um elemento que nunca reabilita. Reproduzido
+        com a CPU estrangulada em 20×, com a mesma assinatura da falha da suíte.
+
+        Chegar ao teto é a condição de PARADA do laço, então o clique que não
+        acontece por isso não é falha: é o fim. Um clique que falhe por
+        qualquer outro motivo continua aparecendo, porque as asserções do teste
+        exigem tiles pedidos em cada camada — um laço que não zoomou não as
+        satisfaz.
+      */
+      if (await botao.evaluate((el) => el.classList.contains("leaflet-disabled"))) {
+        break;
+      }
+      try {
+        await botao.click({ timeout: 5_000 });
+      } catch {
+        break;
+      }
       await page.waitForTimeout(120);
     }
     await page.waitForTimeout(1200);
