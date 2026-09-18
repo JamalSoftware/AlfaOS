@@ -107,6 +107,21 @@ describe("CHK-COV — a regra que decide a cobertura", () => {
     const padrao = await template(fixture.companyA.id, null, { nome: "Padrão" });
     // Com o próprio inativo, cai no padrão — não fica sem checklist.
     expect((await resolver(fixture.companyA.id, fixture.typeA.id))?.id).toBe(padrao.id);
+
+    /*
+      E o PADRÃO inativo também não cobre — a outra metade do que o título
+      promete. Sem ela, o caso provava só o ramo do TIPO: uma sabotagem que
+      tirava `active: true` da consulta do padrão passava incólume, e um
+      template que a empresa DESLIGOU voltaria a ser aplicado como snapshot na
+      OS. Desligar é a operação suportada (não há remoção), então é justamente
+      este ramo que precisa da prova.
+    */
+    await prisma.checklistTemplate.update({
+      where: { id: padrao.id },
+      data: { active: false },
+    });
+    expect(await resolver(fixture.companyA.id, fixture.typeA.id)).toBeNull();
+    expect(await resolver(fixture.companyA.id, null)).toBeNull();
   });
 
   it("CHK-COV-06 · template de OUTRA empresa nunca cobre", async () => {
