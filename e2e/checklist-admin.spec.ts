@@ -33,6 +33,9 @@ let typeId = "";
 let companyId = "";
 
 async function login(page: Page, email: string) {
+  // Trocar de perfil no mesmo contexto exige soltar a sessão anterior: com ela
+  // viva, `/login` redireciona para o painel e o campo de e-mail nunca aparece.
+  await page.context().clearCookies();
   await page.goto("/login");
   await page.getByLabel("E-mail").fill(email);
   await page.getByLabel("Senha").fill(PASSWORD);
@@ -140,7 +143,13 @@ test.describe("CHK-UI — configuração de checklist pelo ADMIN", () => {
 
     const marcador = page.getByTestId(`policy-require-checklist-${typeId}`);
     await expect(marcador).not.toBeChecked();
-    await marcador.check();
+    /*
+      `click`, e não `check`: o marcador é CONTROLADO pelo servidor. `check`
+      exige que o estado mude no próprio clique, e aqui ele só muda quando a
+      API confirma e a página relê — que é justamente a propriedade desta tela
+      (ela não é autoridade). Quem prova a mudança é o banco, logo abaixo.
+    */
+    await marcador.click();
 
     await expect(async () => {
       const policy = await prisma.serviceOrderCompletionPolicy.findUniqueOrThrow({
