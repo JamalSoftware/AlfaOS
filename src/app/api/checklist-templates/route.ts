@@ -3,8 +3,11 @@ import { z } from "zod";
 import { assertProfile, jsonError, jsonOk, runApi } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
 import { getSessionUser } from "@/lib/session";
-import { putChecklistTemplate } from "@/lib/checklists";
-import { prisma } from "@/lib/prisma";
+import {
+  listCompanyChecklistTemplates,
+  putChecklistTemplate,
+  setChecklistTemplateActive,
+} from "@/lib/checklists";
 
 /**
  * Configuração do checklist por empresa e tipo de OS (PRD §165).
@@ -65,33 +68,11 @@ export async function GET(request: Request) {
     const denied = assertProfile(session.profile, VIEW_PROFILES);
     if (denied) return denied;
 
-    const templates = await prisma.checklistTemplate.findMany({
-      where: { companyId: session.companyId },
-      include: {
-        items: { where: { active: true }, orderBy: { sortOrder: "asc" } },
-      },
-      orderBy: { createdAt: "asc" },
-    });
+    // A leitura mora no domínio: a tela de configuração e esta rota precisam da
+    // MESMA resposta, e duas consultas seriam duas verdades a divergir.
+    const templates = await listCompanyChecklistTemplates(session.companyId);
 
-    return jsonOk({
-      templates: templates.map((template) => ({
-        id: template.id,
-        serviceOrderTypeId: template.serviceOrderTypeId,
-        name: template.name,
-        version: template.version,
-        active: template.active,
-        items: template.items.map((item) => ({
-          id: item.id,
-          label: item.label,
-          description: item.description,
-          type: item.type,
-          required: item.required,
-          sortOrder: item.sortOrder,
-          options: item.options,
-          evidenceCategory: item.evidenceCategory,
-        })),
-      })),
-    });
+    return jsonOk({ templates });
   });
 }
 
@@ -129,6 +110,54 @@ export async function PUT(request: Request) {
         evidenceCategory: item.evidenceCategory ?? null,
       })),
     });
+
+    return jsonOk({ template: result });
+  });
+}
+
+const patchSchema = z
+  .object({
+    templateId: z.string().min(1).max(50),
+    active: z.boolean(),
+  })
+  .strict();
+
+/**
+ * Liga e desliga um checklist sem apagá-lo.
+ *
+ * `PUT` sempre reativa — salvar é declarar que aquele checklist vale. Sem este
+ * caminho, desligar um checklist exigiria apagar os itens, e religar exigiria
+ * digitá-los de novo. O `PATCH` existe para essa operação e para nada mais: não
+ * renomeia, não mexe em item, não toca política de conclusão.
+ */
+export async function PATCH(request: Request) {
+  return runApi(async () => {
+    const csrfBlocked = assertSameOrigin(request);
+    if (csrfBlocked) return csrfBlocked;
+
+    const session = await getSessionUser(request);
+    if (!session) return jsonError("Não autenticado.", 401);
+    const denied = assertProfile(session.profile, MANAGE_PROFILES);
+    if (denied) return denied;
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonError("Corpo da requisição inválido.", 400);
+    }
+
+    const parsed = patchSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonError("Dados inválidos.", 400, parsed.error.flatten());
+    }
+
+    const result = await setChecklistTemplateActive(
+      session.companyId,
+      session.id,
+      parsed.data.templateId,
+      parsed.data.active,
+    );
 
     return jsonOk({ template: result });
   });

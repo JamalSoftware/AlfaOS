@@ -104,6 +104,39 @@ export interface CompletionPolicyInput {
 /** Teto do mínimo de evidências: o teto de fotos por OS é 10. */
 export const MAX_REQUIRED_EVIDENCE = 10;
 
+export interface CompanyCompletionPolicy extends CompletionPolicyInput {
+  serviceOrderTypeId: string;
+}
+
+/**
+ * As políticas de conclusão da empresa, para a tela de configuração.
+ *
+ * Tipo SEM política não vira linha aqui — e a ausência é significativa: sem
+ * política, `validateServiceOrderCompletion` sai depois do relatório e não
+ * exige checklist, assinatura nem evidência. A tela precisa distinguir "não
+ * exige" de "nunca foi configurado", então quem não tem política simplesmente
+ * não aparece no mapa.
+ */
+export async function listCompanyCompletionPolicies(
+  companyId: string,
+): Promise<CompanyCompletionPolicy[]> {
+  const policies = await prisma.serviceOrderCompletionPolicy.findMany({
+    where: { companyId },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return policies.map((policy) => ({
+    serviceOrderTypeId: policy.serviceOrderTypeId,
+    requireChecklist: policy.requireChecklist,
+    requireSignature: policy.requireSignature,
+    requireMaterials: policy.requireMaterials,
+    requireEquipment: policy.requireEquipment,
+    requireCheckIn: policy.requireCheckIn,
+    minEvidenceCount: policy.minEvidenceCount,
+    requiredEvidenceCategories: policy.requiredEvidenceCategories,
+  }));
+}
+
 /**
  * Define o que um tipo de OS exige para concluir.
  *

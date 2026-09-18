@@ -210,6 +210,99 @@ export async function putChecklistTemplate(
   };
 }
 
+export interface CompanyChecklistTemplate {
+  id: string;
+  serviceOrderTypeId: string | null;
+  name: string;
+  version: number;
+  active: boolean;
+  items: {
+    id: string;
+    label: string;
+    description: string | null;
+    type: ChecklistItemType;
+    required: boolean;
+    sortOrder: number;
+    options: string[] | null;
+    evidenceCategory: EvidenceCategory | null;
+  }[];
+}
+
+/**
+ * Os templates da empresa, para a tela de configuração e para a API.
+ *
+ * Traz também os INATIVOS: o ADMIN precisa enxergar o que desligou para poder
+ * religar, pela mesma razão que a lista de tipos mostra tipo desativado. Quem
+ * decide cobertura é `resolveApplicableTemplate`, que ignora inativo — esta
+ * leitura é de configuração, não de execução.
+ */
+export async function listCompanyChecklistTemplates(
+  companyId: string,
+): Promise<CompanyChecklistTemplate[]> {
+  const templates = await prisma.checklistTemplate.findMany({
+    where: { companyId },
+    include: { items: { where: { active: true }, orderBy: { sortOrder: "asc" } } },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return templates.map((template) => ({
+    id: template.id,
+    serviceOrderTypeId: template.serviceOrderTypeId,
+    name: template.name,
+    version: template.version,
+    active: template.active,
+    items: template.items.map((item) => ({
+      id: item.id,
+      label: item.label,
+      description: item.description,
+      type: item.type,
+      required: item.required,
+      sortOrder: item.sortOrder,
+      options: Array.isArray(item.options) ? (item.options as string[]) : null,
+      evidenceCategory: item.evidenceCategory,
+    })),
+  }));
+}
+
+/**
+ * Liga e desliga um template sem apagá-lo.
+ *
+ * Salvar um template o reativa (`putChecklistTemplate`), então sem esta
+ * operação não havia caminho de volta: desligar exigiria apagar os itens, que é
+ * perder a configuração para reescrevê-la depois. Desativar preserva o conteúdo
+ * e tira o template da resolução — a mesma semântica de "desativar" que o
+ * catálogo de tipos já usa.
+ *
+ * O `companyId` entra no PREDICADO da escrita, não numa conferência anterior:
+ * um `updateMany` que não casa nenhuma linha não altera nada, e é assim que o
+ * template de outra empresa não é alcançável nem por id conhecido.
+ */
+export async function setChecklistTemplateActive(
+  companyId: string,
+  actorUserId: string,
+  templateId: string,
+  active: boolean,
+): Promise<{ templateId: string; active: boolean }> {
+  const alteradas = await prisma.checklistTemplate.updateMany({
+    where: { id: templateId, companyId },
+    data: { active },
+  });
+  if (alteradas.count === 0) {
+    throw notFound("Checklist não encontrado.");
+  }
+
+  await logAudit({
+    companyId,
+    userId: actorUserId,
+    action: "CHECKLIST_TEMPLATE.SAVED",
+    entity: "ChecklistTemplate",
+    entityId: templateId,
+    details: active ? "Checklist reativado" : "Checklist desativado",
+  });
+
+  return { templateId, active };
+}
+
 /**
  * O template que se aplica a uma OS.
  *

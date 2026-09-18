@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { requirePageProfile } from "@/lib/guards";
 import { listCompanyServiceOrderTypes } from "@/lib/service-order-types";
+import { listCompanyChecklistTemplates } from "@/lib/checklists";
+import { listCompanyCompletionPolicies } from "@/lib/service-order-completion";
 import { EmptyState } from "@/components/EmptyState";
 import { ServiceOrderTypeManager } from "./ServiceOrderTypeManager";
 
@@ -13,17 +15,19 @@ export default async function ServiceOrderTypesPage() {
 
   // Inclui inativos: o ADMIN precisa enxergar o que desativou para poder
   // reativar. Desativado some do formulário de nova OS, não desta tela.
-  const types = await listCompanyServiceOrderTypes(session.companyId, {
-    includeInactive: true,
-  });
+  const [types, templates, policies] = await Promise.all([
+    listCompanyServiceOrderTypes(session.companyId, { includeInactive: true }),
+    listCompanyChecklistTemplates(session.companyId),
+    listCompanyCompletionPolicies(session.companyId),
+  ]);
 
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-fg">Tipos de OS</h1>
         <p className="mt-1 text-sm text-fg-muted">
-          Catálogo da sua empresa. Desativar um tipo o remove das novas OS e não
-          altera nenhuma ordem já registrada.
+          Catálogo da sua empresa e o checklist que cada tipo exige. Desativar um
+          tipo o remove das novas OS e não altera nenhuma ordem já registrada.
         </p>
       </div>
 
@@ -36,7 +40,11 @@ export default async function ServiceOrderTypesPage() {
         </div>
       )}
 
-      <ServiceOrderTypeManager types={types} />
+      <ServiceOrderTypeManager
+        types={types}
+        templates={templates}
+        policies={policies}
+      />
     </div>
   );
 }
