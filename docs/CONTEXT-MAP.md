@@ -152,6 +152,14 @@ os modelos versionados são presos ao código pelos testes `OPS-*`
 (`src/tests/deployment-contract.test.ts`) — mexer num deles sem mexer no outro
 quebra a suíte de propósito.
 
+## Data e hora na tela — o relógio é o da EMPRESA (RC-1)
+
+**Carregar:** `src/lib/company-datetime.ts` (formata) e `src/lib/company-timezone.ts` (lê o fuso).
+**Quando:** a tarefa mostra data ou hora numa tela da aplicação.
+**Quando NÃO:** cálculo de dia civil — isso é `workday.ts` (`civilDayBoundsIn`), a autoridade da Jornada.
+
+`Intl.DateTimeFormat` **sem `timeZone` formata no fuso do PROCESSO** — em produção, UTC —, e foi assim que `/minhas-os` decidia "Hoje" pelo fuso da empresa e escrevia ao lado a data do servidor. Regras: o fuso é **argumento obrigatório** do formatador (esquecer não compila); a leitura de `Company.timezone` para tela tem **um dono** (`companyTimezone`), e `companySliceClock` delega a ele; componente de CLIENTE recebe o fuso como **prop**, porque senão usa o relógio do navegador; e um teste estrutural recusa `Intl.DateTimeFormat` sem `timeZone` em `src/app` (`src/tests/company-datetime-surfaces.test.ts`).
+
 ## Arquitetura
 
 **Carregar:** `docs/ARCHITECTURE.md`.

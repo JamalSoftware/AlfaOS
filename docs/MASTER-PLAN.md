@@ -57,9 +57,12 @@ GPS — precisão ≤ 50 m (`RC-1C-HOTFIX`), frescor pela idade da leitura
 (`RC-1C-HOTFIX-2`) e a precisão que o plugin do Android perdia
 (`RC-1C-HOTFIX-3`) —, a validação física final do dono passou. Contrato final
 congelado em `docs/TECHNICIAN-EXECUTION.md` §13.8; §12, `docs/SECURITY.md`
-§8.22 e §8.22.1. Depois dela, a **`RC-1D`** (UX, copy e observabilidade da CTO)
-está **`READY FOR OWNER VALIDATION`** — §13, `docs/CTO-NETWORK-DISTRIBUTION.md`
-§47, `docs/SECURITY.md` §8.23.
+§8.22 e §8.22.1. Depois dela vieram a **`RC-1D`** (UX, copy e observabilidade da
+CTO) e o **`DIAG-AUTO-1`**, **`APPROVED` / `CLOSED`** em 16/09/2026 — §13 e §14,
+`docs/CTO-NETWORK-DISTRIBUTION.md` §47 e §48, `docs/SECURITY.md` §8.23 e §8.24;
+a **`RC-1E`** (fotos e storage), **`APPROVED` / `CLOSED`** — §15; e a **`RC-1F`**
+(§16 a §18), com a `RC-1F-A` e a `RC-1F-B` **`APPROVED` / `CLOSED`** em
+17/09/2026. A sequência completa, com o estado de cada uma, está no §2.
 
 O escopo do primeiro lançamento está congelado em **PRD §362–§393**, e o estado
 de cada item está em **§386**. O contrato final do mapa é a **PRD §392**.
@@ -111,6 +114,9 @@ RC-1   Release Candidate / Hardening                     ← em andamento
        RC-1F-B  VPS: deploy · storage · backup · cron   ← APPROVED · CLOSED (2026-09-17) · §18
                                                            VPS PROVISIONING: ADIADO até a
                                                            publicação · DEPLOY: NÃO EXECUTADO
+       RC-1G  release hardening dos débitos §12         ← READY FOR OWNER VALIDATION
+              fuso da empresa · multi-EXIF · §382          (2026-09-17) · §19
+              · ZOOMVIS · login-flood · status dos docs
    ↓
 LANÇAMENTO V1 — produção e piloto real
    ↓
@@ -631,21 +637,25 @@ Histórico de precisão por correção (RC-1C-HOTFIX, observação)
            precisão da primeira correção da validação física
   fase     backlog — não é contrato desta hotfix
 
-/minhas-os — "Próximas"
-  o quê    também contém OS sem agendamento e OS com agendamento vencido
+/minhas-os — "Próximas"                                  RESOLVIDO na RC-1D
+  o quê    também continha OS sem agendamento e OS com agendamento vencido
            (validação do dono, 13/09/2026: OS de 06/09 em "Próximas")
-  opções   A/B/C registradas SEM decisão — docs/TECHNICIAN-EXECUTION.md §9
-  fase     fluxo do técnico
+  hoje     cinco seções exclusivas — Em atendimento · Atrasadas · Hoje ·
+           Próximas · Sem agendamento —, com a regra de atrasada vinda do
+           painel (§13, docs/TECHNICIAN-EXECUTION.md §9)
 
 "Sincronizar Mock ERP"                                   RESOLVIDO na RC-1B
   o quê    visível ao ADMIN em /ordens, sem condição de ambiente
   hoje     indisponível em produção — botão, sincronização, adapter e opção
            em /integracoes (RC-OPS-03, docs/SECURITY.md §8.21)
 
-Datas gerais no fuso do servidor
+Datas gerais no fuso do servidor            RESOLVIDO no RC-1 release hardening
   o quê    "Criada em", "Vinculado em" e o "Agendada:" dos cartões de /minhas-os
-  apoio    o helper do fuso da empresa já existe (src/lib/company-datetime.ts)
-  fase     release hardening
+           saíam no fuso do PROCESSO — em produção, UTC
+  hoje     toda tela formata pelo fuso da EMPRESA (company-datetime.ts, com a
+           leitura em company-timezone.ts); o fuso é argumento obrigatório, e um
+           teste estrutural recusa `Intl.DateTimeFormat` sem `timeZone` em
+           src/app. E2E com a empresa em Asia/Tokyo prova as três superfícies
 
 Timeline DA OS — código cru (validação da TL-1, 13/09/2026)
   o quê    a timeline da OS (/ordens/[id]) rotula 7 códigos e mostra os outros
@@ -656,7 +666,9 @@ Timeline DA OS — código cru (validação da TL-1, 13/09/2026)
            MATERIAL_USED
   onde     EVENT_LABELS em src/app/(app)/ordens/[id]/page.tsx
   não é    a timeline do CLIENTE (TL-1), que tem apresentação própria e está FROZEN
-  fase     release hardening
+  hoje     RESOLVIDO na RC-1D: tabela central em src/lib/service-order-event-labels.ts,
+           "Evento registrado" para o desconhecido, código cru no `title`, e uma
+           varredura do fonte que exige rótulo para todo `event:` gravado
 
 E2E do mapa — MAPEDIT-05/06/07 intermitente (achado na TL-1, 13/09/2026)
   o quê    o arrasto registra no painel, e a medição do marcador dá desvio 0;
@@ -669,8 +681,11 @@ E2E do mapa — MAPEDIT-05/06/07 intermitente (achado na TL-1, 13/09/2026)
            Mesma família: o arrasto que às vezes não chega
   alcance  código do mapa idêntico ao de antes da TL-1 — nenhum arquivo do
            caminho de /mapa mudou (nem na RC-1C-HOTFIX)
-  aberto   se é corrida da medição ou o marcador voltando ao ponto gravado
-  fase     investigação própria; o mapa está FROZEN e só reabre por defeito provado
+  hoje     RESOLVIDO na RC-1D (§13): o react-leaflet 4 compara `position` por
+           REFERÊNCIA e o array era recriado a cada render, então a releitura do
+           recorte no meio do gesto chamava `setLatLng` no marcador que estava na
+           mão. Corrigido com `stablePosition`, reproduzido sem sorte
+           (MAPEDIT-15) e com o invariante do sucesso coberto (MAPEDIT-16)
 
 Vitest — login-flood sensível a CARGA (achado na DIAG-AUTO-1, 16/09/2026)
   o quê    "flood em voo não impede o login legítimo disparado junto" dispara 13
@@ -680,23 +695,39 @@ Vitest — login-flood sensível a CARGA (achado na DIAG-AUTO-1, 16/09/2026)
   medido   isolado: 3 de 3 passa. Junto do arquivo do ciclo de conectividade:
            2 de 2 passa. Suíte inteira: 1 falha em 4 rodadas (2915/2915,
            2922/2923, 2923/2923 e a das sabotagens). PICO de conexões no
-           Postgres durante a suíte: 19 de 100 — pressão de pool DESCARTADA
+           Postgres durante a suíte: 19 de 100 — o que essa medição descarta é
+           `max_connections`, e SÓ isso; ela não fala do pool do cliente, que
+           é 9 e é onde a falha acontece (correção de RC-1)
   alcance  a DIAG-AUTO-1 não toca login, sessão nem limitador. Ela acrescentou
            transações interativas à suíte (o advisory lock da primeira
            verificação segura uma conexão enquanto o refresh usa outra), e foi
            por isso que a medição de pico foi feita em vez de suposta
-  aberto   o que produz o 500 sob contenção de CPU. Não foi reproduzido em
-           nenhum recorte menor, então a causa não está isolada
-  fase     investigação própria, na área de autenticação — não se corrige um
-           teste que falha 1 em 4 sem saber por quê
+  hoje     MECANISMO PROVADO no RC-1, e não é do login: a rajada de 13 com o
+           pool FRIO abre ~8 conexões de uma vez, os handshakes atravessam o
+           port proxy do Docker Desktop e um é recusado — `P1001`, que a rota
+           traduz em 500 CORRETAMENTE (banco fora do ar não é regra de negócio).
+           Sonda com controle: rajada 1495 consultas → 2 falhas; sequencial 975
+           → 0. O teste passou a aquecer o pool antes da rajada, sem afrouxar
+           asserção, e LOGIN-TRANSPORT-01..05 fixa que erro de transporte
+           continua 500 — nunca 401
+  aberto   a identidade do erro DAQUELA rodada não foi capturada (a linha
+           `[api:error]` diria), e a taxa sob a suíte (~25%) é ~20× a medida
+           com a máquina ociosa (~1%). Se voltar, capturar a saída antes de
+           teorizar
 
 E2E do mapa — ZOOMVIS-08/09 intermitente (gates da DIAG-AUTO-1, 16/09/2026)
   o quê    "a escala não move a coordenada nem o transform do Leaflet" falhou
            UMA vez na suíte inteira — "a área de clique encolheu junto com o
            desenho", Expected: 32
-  medido   isolado: 1 de 1 passa; na suíte inteira seguinte, 351/351
+  medido   isolado: 1 de 1 passa; na suíte inteira seguinte, 351/351. No RC-1,
+           NÃO reproduzido: sonda amostrando a largura do alvo a cada 25 ms,
+           ociosa e com a CPU estrangulada em 20×, mediu 32 px estáveis e a
+           escala do zoom já aplicada em todas as amostras
   alcance  nenhum arquivo do caminho de /mapa mudou na DIAG-AUTO-1; não é o
            MAPEDIT (causa provada e resolvida na RC-1D, §13)
+  hoje     o teste deixou de dormir 400 ms e passou a esperar a CONDIÇÃO (fim da
+           animação e escala do zoom novo aplicada). Isso é higiene de teste,
+           NÃO explicação: PRODUÇÃO INALTERADA e causa ainda não provada
   aberto   causa não isolada — uma observação só não classifica
   fase     investigação própria; o mapa está FROZEN e só reabre por defeito
            provado
@@ -728,12 +759,11 @@ PRD — menções antigas a comprovante em PDF (achado na EV-1)
            (escopo V1, posterior) diz que PDF não é obrigatório na V1
   fase     higiene documental — marcar na §390, sem mudar decisão
 
-Configurações — copy antiga de "próximas versões"
-  o quê    /configuracoes promete que "mais opções de configuração serão
+Configurações — copy antiga de "próximas versões"        RESOLVIDO na RC-1D
+  o quê    /configuracoes prometia que "mais opções de configuração serão
            adicionadas nas próximas versões" — promessa sem data numa tela
            de produto
   onde     src/app/(app)/configuracoes/page.tsx
-  fase     release hardening
 
 Storage órfão                             (1) RESOLVIDO na RC-1B · (2) política na RC-1E
   o quê    (1) suítes de teste — três de Vitest e o servidor do E2E — gravavam
@@ -791,7 +821,12 @@ Auditoria de storage — volume e adapter futuro (registrado no fechamento da RC
            objeto só com a decisão de storage de produção (RC-1F)
 
 RC-IMG-DEBT — MULTIPLE EXIF ORIENTATION (achado nos testes da RC-1E)
-  status   KNOWN DEBT
+  status   RESOLVIDO no RC-1 release hardening: vence o PRIMEIRO `Orientation`
+           válido do arquivo, e bloco posterior sem a tag não apaga nada —
+           ausência não é decisão. Conflito resolve no primeiro, que é o que um
+           decodificador honra (o Exif é o primeiro APP1 depois do SOI).
+           RC-IMG-01..05 e prova de decodificação no Chromium
+           (DECODE-JPEG-MULTI-EXIF)
   o quê    num JPEG com mais de um bloco APP1/Exif, o sanitizador guarda a
            Orientation do ÚLTIMO bloco lido. Se o primeiro tem Orientation e o
            segundo não, a orientação do primeiro deixa de ser preservada, e a
@@ -1370,3 +1405,79 @@ passava porque o nome delas aparecia noutra seção do documento.
 **Continua com o dono:** VPS e domínio, destino do backup externo, a rota de
 saúde, e a ativação do diagnóstico recorrente — que só acontece depois de ele
 ver o `dry-run` no servidor (fase F de `docs/DEPLOYMENT.md`).
+
+---
+
+## 19. `RC-1G` — RELEASE HARDENING DOS DÉBITOS DO §12
+
+**Estado: `READY FOR OWNER VALIDATION` (17/09/2026).** Commits locais, sem tag e
+sem push. **Zero migration, zero dependência, zero produto novo, zero Dart.** A
+`RC-1` continua ABERTA: falta a revisão de segurança independente, e depois
+produção e piloto.
+
+**Escopo, e só ele:** os débitos do §12 que são desenvolvimento, mais a
+verificação de cobertura da PRD §382 e a correção de status desta lista. Os
+itens de decisão do dono (backfill `RC-LOC-04`, re-sanitização legada, expurgo
+de órfãos, normalização de telefone/documento, tela do técnico, identidade de
+`Equipment`) e tudo o que é pós-V1 continuam fora.
+
+```text
+A  fuso da empresa        RESOLVIDO — toda tela formata pelo relógio da empresa
+B  RC-IMG-DEBT            RESOLVIDO — vence o PRIMEIRO Orientation do arquivo
+C  login-flood            MECANISMO PROVADO (pool frio, não é o login);
+                          teste aquece o pool · LOGIN-TRANSPORT fixa o 500
+D  ZOOMVIS-08/09          NÃO REPRODUZIDO — sincronização do teste trocada;
+                          produção INALTERADA · causa segue aberta
+E  PRD §382               cobertura verificada — regra coberta por teste;
+                          configuração do provedor continua com o dono
+F  status dos documentos  §12 e §1 corrigidos
+```
+
+**A data da tela é o relógio da EMPRESA.** `Intl.DateTimeFormat` sem `timeZone`
+formata no fuso do PROCESSO — em produção, UTC. `/minhas-os` já decidia "Hoje"
+e "Atrasadas" por `Company.timezone` e escrevia ao lado a data do servidor: a
+mesma OS aparecia em "Hoje" com a data de amanhã. Agora `company-datetime.ts`
+formata (com o fuso como argumento OBRIGATÓRIO — esquecer não compila) e
+`company-timezone.ts` é o único leitor da coluna para tela, com
+`companySliceClock` delegando a ele. Um teste estrutural recusa
+`Intl.DateTimeFormat` sem `timeZone` em `src/app`, e o E2E põe a empresa em
+`Asia/Tokyo` — doze horas de distância, para a data mudar de DIA e o teste não
+passar por acidente.
+
+**Um JPEG pode ter mais de um bloco EXIF**, e a limpeza sobrescrevia a
+orientação a cada um: o segundo bloco, SEM a tag, apagava a do primeiro e a foto
+vinha deitada — justamente o que a limpeza existe para preservar, já que o
+AlfaOS não decodifica imagem. Vence o primeiro valor válido, que é o que um
+decodificador honra; ausência posterior não apaga nada; conflito resolve no
+primeiro. Provado também em JPEG real, decodificado pelo Chromium.
+
+**O 500 do `login-flood` não é do login.** Rajada de 13 requisições com o pool
+do Prisma FRIO abre ~8 conexões de uma vez; neste ambiente elas atravessam o
+port proxy do Docker Desktop, um connect é recusado, e o `P1001` vira 500 —
+corretamente, porque banco fora do ar não é regra de negócio. Sonda com
+controle: rajada 1495 consultas → 2 falhas; sequencial 975 → 0. O teste passou a
+aquecer o pool, **sem afrouxar asserção nenhuma**, e `LOGIN-TRANSPORT-01..05`
+fixa o contrato que protege o produto: erro de transporte é 500, nunca 401 e
+nunca 429, com controle positivo de que senha errada continua 401. **Nada de
+retry no caminho do login** — em produção o Postgres é local, sem proxy, e
+mascarar `P1001` esconderia indisponibilidade real.
+
+**`ZOOMVIS-08/09` NÃO foi reproduzido** — nem ocioso nem com a CPU estrangulada
+em 20×, com uma sonda amostrando a largura do alvo a cada 25 ms. O que mudou é
+só a sincronização do teste: em vez de dormir 400 ms, ele espera a animação
+acabar e a escala do zoom novo estar aplicada. **Produção inalterada**, e a
+causa continua registrada como aberta — higiene de teste não é explicação.
+
+**PRD §382 — cobertura de checklist.** O mecanismo existe desde a v0.10 e a §382
+pede verificação, não reimplementação. O que decide cobertura é a precedência
+`template do tipo → template PADRÃO da empresa`, e ela não tinha teste: agora
+`CHK-COV-01..07` a fixa, incluindo que o padrão cobre o catálogo inteiro e a OS
+importada (que não tem `typeId`), que template inativo não cobre e que template
+de outra empresa nunca alcança. **Nenhum nome de tipo é afirmado** — nomes são
+dado da empresa. **Auditoria do banco de desenvolvimento (só leitura):** a
+empresa real tem 9 tipos e **nenhum** template; a configuração do conteúdo é do
+provedor, não do código.
+
+**Continua aberto e é do dono:** a decisão sobre os débitos do §12 que exigem
+decisão; a revisão de segurança independente, que é a próxima fase da `RC-1` e
+tem de ser feita por quem não implementou estas correções.
