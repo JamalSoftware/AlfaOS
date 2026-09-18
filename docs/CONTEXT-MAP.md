@@ -142,7 +142,12 @@ por `resolveStorageRoot` (`src/lib/storage/root.ts`) — autoridade única do
 adapter e da subida, com `.storage` valendo só fora de produção; **uma fonte de
 ambiente** para web e comandos; **o diagnóstico recorrente nasce COMENTADO** no
 crontab e só é ativado depois de o dono ver o `dry-run` no servidor; **nada
-destrutivo é agendado** (expurgo de órfãos e re-sanitização continuam manuais); e
+destrutivo é agendado** (expurgo de órfãos e re-sanitização continuam manuais);
+**o backup PARA o web numa janela curta** — banco e storage precisam ser o mesmo
+estado, porque a aplicação apaga arquivo (`removeEvidence`, assinatura
+substituída) enquanto o dump já foi tirado —, roda como root por timer com o
+usuário de serviço sem sudo, e produz uma GERAÇÃO com manifesto e `sha256` que a
+restauração não pode misturar; e
 os modelos versionados são presos ao código pelos testes `OPS-*`
 (`src/tests/deployment-contract.test.ts`) — mexer num deles sem mexer no outro
 quebra a suíte de propósito.

@@ -1267,8 +1267,19 @@ IPv4, e o navegador aplica a mesma canonicalização ao decidir mesma origem.
 - **Nada destrutivo é agendado.** O expurgo de órfãos do storage e a
   re-sanitização legada continuam manuais, com escopo explícito (§8.25);
   `evidence:cleanup` é outra coisa e não os substitui (`OPS-CRON-07`).
-- **Não existe rota de saúde**, e criá-la é superfície de API nova:
-  `OWNER DECISION REQUIRED — HEALTH ENDPOINT`.
+- **O backup é de root, a aplicação não.** Ele para e sobe o `alfaos-web` para
+  copiar banco e storage no mesmo estado, o que exige root; por isso é
+  `alfaos-backup.service` + `.timer`, e **o usuário de serviço continua sem
+  sudo** (`OPS-BACKUP-PRIV-01`). Os arquivos de backup ficam de root, não
+  legíveis pela conta que atende a internet.
+- **A restauração escolhe UMA geração**, conferindo manifesto e `sha256`.
+  Misturar banco de uma geração com storage de outra devolve um banco que
+  referencia arquivos que aquela cópia não tem.
+- **Não existe rota de saúde.** Decisão do dono (17/09/2026):
+  `HEALTH ENDPOINT — DEFERRED / NÃO REQUERIDO PARA A V1`. A verificação
+  operacional usa `systemctl status`, `journalctl` e uma requisição pelo Nginx;
+  criar a rota depois continua sendo decisão de produto, porque é superfície de
+  API sem autenticação.
 
 ---
 

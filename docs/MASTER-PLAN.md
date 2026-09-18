@@ -1294,17 +1294,48 @@ operação destrutiva é agendada; e o storage não tem `location` no Nginx.
 **Decisões que não devem ser desfeitas:** o expurgo de etiqueta **não** é o
 expurgo de órfãos (o segundo continua manual, com escopo e decisão do dono); a
 exclusão por `flock` existe **só** entre backup e expurgo de etiqueta, porque
-outbox e diagnóstico já se arbitram no banco; o backup é banco **primeiro** e
-storage depois, com a janela residual declarada; e as chaves de cifra ficam
-**fora** do backup, guardadas à parte — sem elas, o banco restaurado tem
-credencial ilegível.
+outbox e diagnóstico já se arbitram no banco; e as chaves de cifra ficam **fora**
+do backup, guardadas à parte — sem elas, o banco restaurado tem credencial
+ilegível.
+
+### 18.1. Addendum: o backup precisa de uma janela (17/09/2026)
+
+**A afirmação anterior estava ERRADA e foi corrigida.** Este plano dizia que
+copiar o banco primeiro e o storage depois, com o web no ar, só podia produzir
+arquivo órfão — nunca linha sem arquivo. O contraexemplo é banal: o dump grava
+a linha da evidência X, o técnico apaga essa evidência pela aplicação, a
+aplicação apaga o arquivo X (`removeEvidence`) e o `tar` roda depois. Restaurar
+dá um banco que referencia uma foto que o backup não tem, e ninguém percebe até
+abrir a OS. A assinatura substituída tem a mesma forma.
+
+**Decisão do dono: janela de manutenção curta na V1.** O backup trava contra o
+expurgo de etiqueta, **para o `alfaos-web`**, prova que parou (se não provar,
+ABORTA sem copiar nada), faz o dump, arquiva o storage, **sobe o serviço**, só
+então promove a geração e faz a cópia externa. Um `trap` de saída sobe o serviço
+em qualquer caminho de falha, e um serviço que não volta é falha crítica com
+saída diferente de zero — nunca um aviso. Nada de lock distribuído, modo de
+manutenção, tabela nova ou dependência.
+
+**Cada execução é uma GERAÇÃO:** um id para os dois artefatos mais um manifesto
+com `sha256`, tamanhos e `status=COMPLETE`, escrito por último — a retenção
+(7/4/3) só rotaciona gerações completas, e a restauração escolhe **uma**
+geração, nunca mistura. **Parar unidade é de root**, então o backup saiu do
+`crontab` do usuário de serviço e virou `alfaos-backup.service` + `.timer`
+(02:00); o `alfaos` continua **sem sudo**, e os backups ficam de root em
+`/var/backups/alfaos`.
+
+**Inventário de quem mexe no storage** (e um teste de cobertura que falha se
+aparecer superfície nova): web — evidência, assinatura, foto de CTO e limpeza de
+blob sem linha; worker — `evidence:cleanup`; manual — expurgo de órfãos e
+re-sanitização. **`outbox:work` e `diagnostics:refresh` não tocam arquivo**,
+verificado no código, e por isso podem continuar rodando durante a janela.
 
 ```text
 DIAGNOSTICS SCHEDULER   CONFIGURADO — NÃO ATIVO (linha comentada; fase F)
 RESTORE DRILL           PENDING VPS/STAGING VALIDATION
 OFF-SITE BACKUP         OWNER DECISION REQUIRED — DESTINO NÃO ESCOLHIDO
-HEALTH ENDPOINT         OWNER DECISION REQUIRED — não existe rota, e criá-la é
-                        superfície de API nova
+HEALTH ENDPOINT         DEFERRED — NÃO REQUERIDO PARA A V1 (decisão do dono);
+                        operação usa systemctl status, journalctl e o Nginx
 PROVIDER CAPACITY       NOT YET MEASURED
 ```
 
