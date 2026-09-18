@@ -1268,7 +1268,9 @@ IPv4, e o navegador aplica a mesma canonicalização ao decidir mesma origem.
   re-sanitização legada continuam manuais, com escopo explícito (§8.25);
   `evidence:cleanup` é outra coisa e não os substitui (`OPS-CRON-07`).
 - **O backup é de root, a aplicação não.** Ele para e sobe o `alfaos-web` para
-  copiar banco e storage no mesmo estado, o que exige root; por isso é
+  copiar banco e storage com referências consistentes — o banco NÃO é congelado,
+  e o que a janela garante é que toda linha do dump que aponta para um arquivo
+  tem o arquivo na cópia —, o que exige root; por isso é
   `alfaos-backup.service` + `.timer`, e **o usuário de serviço continua sem
   sudo** (`OPS-BACKUP-PRIV-01`). Os arquivos de backup ficam de root, não
   legíveis pela conta que atende a internet.

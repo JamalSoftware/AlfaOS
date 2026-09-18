@@ -410,9 +410,17 @@ describe("OPS-BACKUP — o que o backup precisa conter", () => {
       expect(posicao, passo).toBeGreaterThan(anterior);
       anterior = posicao;
     }
-    // A afirmação antiga — "com o web no ar isso só produz órfão" — era falsa, e
-    // o documento precisa dizer por que a janela existe.
+    /*
+      Duas afirmações erradas ficam proibidas pelo texto, e as duas custam caro.
+      A primeira — "com o web no ar isso só produz órfão" — escondia a perda de
+      foto. A segunda seria prometer que o backup congela o PostgreSQL: ele não
+      congela, e quem restaurar acreditando nisso vai procurar escrita que a
+      janela nunca reteve. O que a janela garante é escopo de REFERÊNCIA.
+    */
     expect(RUNBOOK).toMatch(/removeEvidence/);
-    expect(RUNBOOK).toMatch(/estado quiescido/i);
+    expect(RUNBOOK).toMatch(/consistente em REFERÊNCIAS DE STORAGE/i);
+    expect(RUNBOOK).toMatch(/PostgreSQL \*\*não\*\* é\s*\n?congelado/i);
+    // E diz, em palavras, quem continua rodando durante a janela.
+    expect(RUNBOOK).toMatch(/diagnóstico e o outbox[\s\S]{0,80}continuam rodando/i);
   });
 });

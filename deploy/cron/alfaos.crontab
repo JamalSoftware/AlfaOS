@@ -37,6 +37,6 @@ MAILTO=""
 15 3 * * * /opt/alfaos/bin/alfaos-job.sh evidence:cleanup 2>&1 | logger -t alfaos-evidence-cleanup
 
 # O BACKUP NÃO ESTÁ AQUI, e é de propósito: ele PARA e SOBE o `alfaos-web` para
-# copiar banco e storage no mesmo estado, o que exige root. Ele roda por
+# copiar banco e storage com referências consistentes, o que exige root. Ele roda por
 # `alfaos-backup.timer` (02:00, unidade de root), e o usuário de serviço
 # continua sem sudo. Ver deploy/systemd/alfaos-backup.{service,timer}.

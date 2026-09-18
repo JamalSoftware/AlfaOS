@@ -108,6 +108,9 @@ RC-1   Release Candidate / Hardening                     ← em andamento
                                                            2026-09-17) · §16
        RC-1F-A  motor de diagnóstico: justiça · cadência ← APPROVED · CLOSED (2026-09-17)
                 · prazo · configuração                     scheduler CODE READY, não ACTIVE · §17
+       RC-1F-B  VPS: deploy · storage · backup · cron   ← APPROVED · CLOSED (2026-09-17) · §18
+                                                           VPS PROVISIONING: ADIADO até a
+                                                           publicação · DEPLOY: NÃO EXECUTADO
    ↓
 LANÇAMENTO V1 — produção e piloto real
    ↓
@@ -1330,13 +1333,33 @@ blob sem linha; worker — `evidence:cleanup`; manual — expurgo de órfãos e
 re-sanitização. **`outbox:work` e `diagnostics:refresh` não tocam arquivo**,
 verificado no código, e por isso podem continuar rodando durante a janela.
 
+**O que a janela garante, dito com precisão.** O PostgreSQL **não** é congelado.
+O `pg_dump` é um retrato consistente do banco; o que a janela acrescenta é que
+**toda linha desse retrato que aponta para um arquivo tem o arquivo dentro do
+`tar`**. O resultado é uma **geração consistente em REFERÊNCIAS DE STORAGE**, e
+não um congelamento geral — por isso diagnóstico e outbox podem continuar: o que
+eles gravarem depois do dump não está naquela geração, e isso é correto.
+
+### 18.2. Fechamento: aprovada, e nada provisionado (17/09/2026)
+
+**`RC-1F-B` — `APPROVED` / `CLOSED`.** O dono aprovou a arquitetura (VPS Linux,
+instância única, Nginx, systemd, PostgreSQL, `STORAGE_ROOT` persistente, cron do
+sistema, backup externo obrigatório) e o contrato de backup com janela.
+**Aprovar não provisionou nada:** a VPS não será contratada agora, e a produção
+será ativada quando o aplicativo estiver perto da publicação.
+
 ```text
+RC-1F-B                 APPROVED · CLOSED — código e documentação prontos
+VPS PROVISIONING        DEFERRED UNTIL PUBLICATION READINESS
+PRODUCTION DEPLOY       NOT EXECUTED
+CRONS                   NOT ACTIVE
 DIAGNOSTICS SCHEDULER   CONFIGURADO — NÃO ATIVO (linha comentada; fase F)
 RESTORE DRILL           PENDING VPS/STAGING VALIDATION
 OFF-SITE BACKUP         OWNER DECISION REQUIRED — DESTINO NÃO ESCOLHIDO
 HEALTH ENDPOINT         DEFERRED — NÃO REQUERIDO PARA A V1 (decisão do dono);
                         operação usa systemctl status, journalctl e o Nginx
 PROVIDER CAPACITY       NOT YET MEASURED
+RECEITANET ROUND-TRIP   PASS (um cliente, §17.2) · SGP PENDING API ACCESS
 ```
 
 **Gates:** ver o relatório da fase. **Dez sabotagens, dez detectadas** — e duas

@@ -230,10 +230,19 @@ Restaurar essa geração dá um banco que referencia uma foto que o backup não 
 e ninguém percebe até abrir a OS. O mesmo vale para a **assinatura substituída**,
 que apaga a anterior.
 
-A cura da V1 é uma **janela curta**: o processo que faz mutação interativa de
-storage fica parado entre o dump e o arquivamento, e os dois passam a
-representar **um estado quiescido**. Sem lock distribuído, sem modo de
-manutenção na aplicação, sem tabela nova, sem dependência.
+A cura da V1 é uma **janela curta**: todo processo capaz de alterar arquivo do
+`STORAGE_ROOT` **ou a referência a ele** fica fora da seção crítica. Sem lock
+distribuído, sem modo de manutenção na aplicação, sem tabela nova, sem
+dependência.
+
+**O que a janela garante — e o que ela NÃO garante.** O PostgreSQL **não** é
+congelado: o `pg_dump` é um retrato consistente do banco, e o que a janela
+acrescenta é que **toda linha desse retrato que aponta para um arquivo tem o
+arquivo dentro do `tar`**. O par dump + arquivo é, portanto, uma **geração
+consistente em REFERÊNCIAS DE STORAGE**, não um congelamento do banco inteiro.
+Processos que escrevem no banco **sem** tocar arquivo nem referência — o
+diagnóstico e o outbox — continuam rodando; o que eles gravarem depois do dump
+simplesmente não está naquela geração, e isso é correto para um backup diário.
 
 ### 9.2 Quem mexe no storage
 

@@ -16,11 +16,14 @@
 # tem. É perda silenciosa: ninguém percebe até abrir a OS. O mesmo vale para a
 # assinatura substituída, que apaga a anterior.
 #
-# A cura da V1 é uma janela curta: o processo que faz mutação interativa de
-# storage fica parado entre o dump e o arquivamento, e os dois passam a
-# representar UM estado quiescido. É minutos por noite, e é a solução mais
-# simples que resolve — sem lock distribuído, sem modo de manutenção na
-# aplicação, sem tabela nova, sem dependência.
+# A cura da V1 é uma janela curta: todo processo capaz de alterar arquivo do
+# STORAGE_ROOT — ou a referência a ele — fica fora da seção crítica. O que sai
+# disso NÃO é um congelamento do PostgreSQL: é uma GERAÇÃO CONSISTENTE EM
+# REFERÊNCIAS DE STORAGE — toda linha do dump que aponta para um arquivo tem
+# esse arquivo dentro do tar. Diagnóstico e outbox seguem rodando, porque não
+# tocam arquivo nem referência. É minutos por noite, e é a solução mais simples
+# que resolve — sem lock distribuído, sem modo de manutenção na aplicação, sem
+# tabela nova, sem dependência.
 #
 # # Quem mais mexe no storage
 #

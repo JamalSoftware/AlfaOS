@@ -6,8 +6,9 @@
 #   systemctl daemon-reload && systemctl enable --now alfaos-backup.timer
 #   systemctl list-timers alfaos-backup.timer
 #
-# POR QUE ROOT. O backup PARA e SOBE o `alfaos-web` — é o que torna o dump e o
-# arquivo do storage um estado só. Quem pode fazer isso é root. A alternativa
+# POR QUE ROOT. O backup PARA e SOBE o `alfaos-web` — é o que faz o dump e o
+# arquivo do storage formarem uma geração consistente em REFERÊNCIAS de storage
+# (o banco não é congelado). Quem pode fazer isso é root. A alternativa
 # seria dar sudo ao usuário de serviço, e aí a conta que atende a internet
 # passaria a poder mexer em unidades do sistema. O `alfaos` continua sem sudo.
 #
