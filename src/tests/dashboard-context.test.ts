@@ -482,7 +482,14 @@ describe("DASHCTX-OS — Agendada para", () => {
   it("DASHCTX-OS-02 · sem relógio (abertas, pendentes, lista comum), a coluna continua sendo 'Criada em'", () => {
     const pagina = codigo("src/app/(app)/ordens/page.tsx");
     expect(pagina).toMatch(/showScheduledAt \? "Agendada para" : "Criada em"/);
-    expect(pagina).toContain("formatDate(order.createdAt)");
+    /*
+      A célula continua sendo `createdAt` — o que mudou no `RC-1` (débito §12)
+      é o RELÓGIO: ela passou a ser formatada no fuso da EMPRESA. O fuso é
+      obrigatório na assinatura do ajudante local, então devolver esta coluna
+      ao relógio do processo não compila, em vez de sair em UTC em silêncio.
+    */
+    expect(pagina).toContain("formatDate(order.createdAt, timezone)");
+    expect(pagina).toMatch(/function formatDate\(date: Date \| null, timezone: string\)/);
   });
 });
 
