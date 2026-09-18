@@ -1,5 +1,4 @@
 import type { Prisma, ServiceOrderStatus } from "@prisma/client";
-import { prisma } from "./prisma";
 import { OPEN_SERVICE_ORDER_STATUSES } from "./service-order-labels";
 import { companyTimezone } from "./company-timezone";
 import { civilDayBoundsIn } from "./workday";
