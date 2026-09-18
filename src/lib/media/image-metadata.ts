@@ -192,8 +192,24 @@ function stripJpeg(data: Buffer): Buffer {
       carga.subarray(0, 12).toString("ascii") === "ICC_PROFILE\0";
 
     if (ehMetadado && !ehJfif && !ehIcc) {
-      // É Exif? Guarda só a orientação antes de descartar o resto.
-      if (codigo === 0xe1 && carga.subarray(0, 6).toString("ascii") === "Exif\0\0") {
+      /*
+        É Exif? Guarda só a orientação antes de descartar o resto.
+
+        VENCE O PRIMEIRO valor válido do arquivo (`RC-IMG-DEBT`). Antes, cada
+        bloco Exif sobrescrevia o anterior: num JPEG com dois — o da câmera e o
+        de um editor que reescreveu o arquivo —, o segundo SEM a tag zerava a do
+        primeiro, e a foto aparecia deitada. Perdia-se exatamente o que esta
+        limpeza existe para preservar.
+
+        O primeiro é o que um decodificador honra: por especificação o Exif é o
+        primeiro `APP1` depois do `SOI`. Ausência num bloco posterior não é
+        decisão, e por isso não apaga nada.
+      */
+      if (
+        orientacao === null &&
+        codigo === 0xe1 &&
+        carga.subarray(0, 6).toString("ascii") === "Exif\0\0"
+      ) {
         orientacao = lerOrientacao(carga.subarray(6));
       }
       i = j + 1 + tamanho;

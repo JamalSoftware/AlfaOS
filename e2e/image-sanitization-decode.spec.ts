@@ -116,6 +116,62 @@ test("DECODE-JPEG-ORIENTATION · a orientação sobrevive à limpeza — a foto 
   });
 });
 
+test("DECODE-JPEG-MULTI-EXIF · com dois blocos EXIF, a orientação do PRIMEIRO sobrevive — e o GPS do segundo não", async ({
+  page,
+}) => {
+  /*
+    `RC-IMG-DEBT` (`RC-1`, débito §12). Câmera e editor deixam dois `APP1` Exif
+    no mesmo arquivo. A limpeza sobrescrevia a orientação a cada bloco: o
+    segundo, SEM a tag, apagava a do primeiro, e a foto de retrato aparecia
+    deitada. Aqui isso é medido onde importa — num JPEG REAL, decodificado pelo
+    Chromium, com as dimensões trocadas provando que a tag sobreviveu.
+  */
+  const base = await codificarNoNavegador(page, "image/jpeg");
+  const primeiro = jpegComMetadado(base, 6);
+  const segundo = jpegComMetadado(base, null);
+
+  // O `APP1` Exif do segundo arquivo, enxertado depois do Exif do primeiro.
+  const exifDoSegundo = (() => {
+    let i = 2;
+    while (i + 3 < segundo.length) {
+      const codigo = segundo[i + 1];
+      if (codigo === 0xda || codigo === 0xd9) break;
+      const tamanho = segundo.readUInt16BE(i + 2);
+      const carga = segundo.subarray(i + 4, i + 2 + tamanho);
+      if (codigo === 0xe1 && carga.subarray(0, 6).toString("ascii") === "Exif\0\0") {
+        return Buffer.from(segundo.subarray(i, i + 2 + tamanho));
+      }
+      i += 2 + tamanho;
+    }
+    throw new Error("fixture sem APP1 Exif");
+  })();
+
+  let corte = 2;
+  while (corte + 3 < primeiro.length) {
+    const codigo = primeiro[corte + 1];
+    const tamanho = primeiro.readUInt16BE(corte + 2);
+    const carga = primeiro.subarray(corte + 4, corte + 2 + tamanho);
+    if (codigo === 0xe1 && carga.subarray(0, 6).toString("ascii") === "Exif\0\0") {
+      corte = corte + 2 + tamanho;
+      break;
+    }
+    corte += 2 + tamanho;
+  }
+  const doisBlocos = Buffer.concat([
+    primeiro.subarray(0, corte),
+    exifDoSegundo,
+    primeiro.subarray(corte),
+  ]);
+
+  const limpo = stripImageMetadata(doisBlocos, "image/jpeg");
+  expect(inspectStoredImage(limpo, "image/jpeg").hasGps).toBe(false);
+  // Orientação 6 preservada: o navegador troca largura e altura.
+  expect(await decodificar(page, limpo, "image/jpeg")).toEqual({
+    largura: ALTURA,
+    altura: LARGURA,
+  });
+});
+
 test("DECODE-PNG · PNG com eXIf, texto, tIME, chunk privado e anexo: a saída limpa abre", async ({
   page,
 }) => {
