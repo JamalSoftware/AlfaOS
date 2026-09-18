@@ -134,7 +134,7 @@ describe("CHK-COV — a regra que decide a cobertura", () => {
       "Troca de equipamento (cobertura)",
     ];
     const tipos = [];
-    for (const [indice, name] of nomes.entries()) {
+    for (const [indice, name] of Array.from(nomes.entries())) {
       tipos.push(
         await prisma.serviceOrderType.create({
           data: { companyId: fixture.companyA.id, name, sortOrder: indice + 10 },

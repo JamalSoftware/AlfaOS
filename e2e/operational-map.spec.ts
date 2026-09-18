@@ -3885,8 +3885,11 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
           '.leaflet-marker-icon[title^="CAMADA CAIXA"]',
         ) as HTMLElement;
         const r = m.getBoundingClientRect();
-        const mapa = document.querySelector(".leaflet-container")!.getBoundingClientRect();
+        const container = document.querySelector(".leaflet-container") as HTMLElement;
+        const mapa = container.getBoundingClientRect();
         return {
+          // A escala do zoom corrente — a condição que diz que o novo assentou.
+          escalaCto: getComputedStyle(container).getPropertyValue("--map-scale-cto").trim(),
           // O transform do CONTÊINER é do Leaflet, e tem de continuar sendo.
           transform: getComputedStyle(m).transform,
           // Âncora na base, relativa ao mapa: é ela que aponta para o poste.
@@ -3934,7 +3937,31 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
     await expect(page.locator(".leaflet-marker-pane svg.cto-box").first()).toBeVisible({
       timeout: 15_000,
     });
-    await page.waitForTimeout(400);
+    /*
+      Espera uma CONDIÇÃO, não um relógio — `RC-1`, débito §12 (`ZOOMVIS-08/09`
+      intermitente).
+
+      A versão anterior dormia 400 ms e media. Sob carga, 400 ms deixam de ser
+      "depois que assentou" e passam a ser "no meio", e a medição pega o mapa
+      em transição — a mesma família de defeito de teste que a `CTO-3.2.2d`
+      registrou para o Leaflet ("parou" pela URL não cobre animação).
+
+      A causa do intermitente NÃO está provada: ele não se reproduziu nem ocioso
+      nem com a CPU estrangulada em 20×, e a medição continua registrada como
+      débito aberto. O que muda aqui é só a sincronização: a leitura acontece
+      quando o mapa declara que a animação terminou e a escala do zoom novo já
+      está aplicada.
+    */
+    await page.waitForFunction(
+      (esperado) => {
+        const cont = document.querySelector(".leaflet-container") as HTMLElement | null;
+        if (!cont || cont.className.includes("leaflet-zoom-anim")) return false;
+        const escala = getComputedStyle(cont).getPropertyValue("--map-scale-cto").trim();
+        return escala !== "" && escala !== esperado;
+      },
+      antes.escalaCto,
+      { timeout: 15_000 },
+    );
     const depois = await ler();
 
     expect(depois.transform).toMatch(/^matrix\(1,\s*0,\s*0,\s*1,/);
