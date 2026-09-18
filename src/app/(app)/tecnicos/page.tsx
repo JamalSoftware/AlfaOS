@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AccessProfile } from "@prisma/client";
+import { companyTimezone } from "@/lib/company-timezone";
+import { formatCompanyDate } from "@/lib/company-datetime";
 import { requirePageProfile } from "@/lib/guards";
 import { listCompanyTechnicians } from "@/lib/technicians";
 import { sliceEmptyState } from "@/lib/dashboard-slice-copy";
@@ -13,13 +15,8 @@ export const metadata: Metadata = {
   title: "Técnicos",
 };
 
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(date);
-}
+// "Vinculado em" no fuso da EMPRESA (`RC-1`, débito §12): sem `timeZone`, o
+// `Intl` formata no fuso do processo — em produção, UTC.
 
 interface PageProps {
   searchParams: { [key: string]: string | string[] | undefined };
@@ -27,6 +24,7 @@ interface PageProps {
 
 export default async function TechniciansPage({ searchParams }: PageProps) {
   const session = await requirePageProfile(["ADMIN", "DISPATCHER"]);
+  const timezone = await companyTimezone(session.companyId);
   // Only ADMIN can create technicians (POST /api/technicians).
   const isAdmin = session.profile === AccessProfile.ADMIN;
 
@@ -171,7 +169,7 @@ export default async function TechniciansPage({ searchParams }: PageProps) {
                         <span className="inline-flex items-center rounded-full bg-surface-muted px-2.5 py-0.5 text-xs font-semibold text-fg-secondary">Inativo</span>
                       )}
                     </td>
-                    <td className="px-5 py-3 text-fg-muted">{formatDate(tech.createdAt)}</td>
+                    <td className="px-5 py-3 text-fg-muted">{formatCompanyDate(tech.createdAt, timezone)}</td>
                   </tr>
                 ))}
               </tbody>

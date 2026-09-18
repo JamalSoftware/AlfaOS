@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { formatCompanyDateTime } from "@/lib/company-datetime";
 import { useState } from "react";
 
 export type CredentialKindView = "CALLCENTER" | "CHATBOT";
@@ -25,15 +26,15 @@ const KIND_HINT: Record<CredentialKindView, string> = {
   CHATBOT: "Enriquecimento do cadastro e credencial PPPoE real do cliente.",
 };
 
-function formatDate(iso: string | null): string {
+/*
+  Data no fuso da EMPRESA — `RC-1`, débito §12. Este componente é de CLIENTE:
+  sem `timeZone`, o `Intl` usa o relógio do NAVEGADOR, e dois operadores em
+  fusos diferentes liam datas diferentes para a mesma credencial. O fuso desce
+  como prop, do servidor, como no resto da tela.
+*/
+function formatDate(iso: string | null, timezone: string): string {
   if (!iso) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(iso));
+  return formatCompanyDateTime(new Date(iso), timezone);
 }
 
 /**
@@ -49,8 +50,10 @@ function formatDate(iso: string | null): string {
  * password managers do not retain it either.
  */
 export function ErpCredentialForm({
+  timezone,
   initialStatus,
 }: {
+  timezone: string;
   initialStatus: CredentialStatusView;
 }) {
   const router = useRouter();
@@ -277,7 +280,7 @@ export function ErpCredentialForm({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <dt className="text-fg-muted">Atualizada em</dt>
               <dd data-testid="credential-updated-at" className="font-medium text-fg">
-                {formatDate(status.updatedAt)}
+                {formatDate(status.updatedAt, timezone)}
               </dd>
             </div>
           </>
@@ -316,7 +319,7 @@ export function ErpCredentialForm({
               : `Falha — ${testResult.message}`}
           </p>
           <p className="mt-0.5 text-xs opacity-80">
-            Último teste: {formatDate(testResult.at)}
+            Último teste: {formatDate(testResult.at, timezone)}
           </p>
         </div>
       )}

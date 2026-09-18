@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AccessProfile } from "@prisma/client";
+import { companyTimezone } from "@/lib/company-timezone";
+import { formatCompanyDateTime, formatCompanyTime } from "@/lib/company-datetime";
 import { requirePageProfile } from "@/lib/guards";
 import {
   listCustomerConnections,
@@ -76,23 +78,22 @@ function formatDuration(start: Date | null, end: Date | null): string | null {
   return `${hours}h ${String(minutes).padStart(2, "0")}min`;
 }
 
-function formatDate(date: Date | null): string {
+/*
+  Data e hora no fuso da EMPRESA — `RC-1`, débito §12.
+
+  Sem `timeZone`, o `Intl` formata no fuso do PROCESSO (UTC em produção): a OS
+  agendada para as 9h em São Paulo aparecia como 12h, e "Criada em" mudava de
+  dia. O fuso é obrigatório na assinatura de propósito — quem esquecer não
+  compila, em vez de cair no fuso do servidor em silêncio.
+*/
+function formatDate(date: Date | null, timezone: string): string {
   if (!date) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return formatCompanyDateTime(date, timezone);
 }
 
-function formatTime(date: Date | null): string {
+function formatTime(date: Date | null, timezone: string): string {
   if (!date) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return formatCompanyTime(date, timezone);
 }
 
 /** Read-only rendering of the execution, for staff and for closed states. */
@@ -167,6 +168,7 @@ export default async function OrderDetailPage({
     "TECHNICIAN",
   ]);
 
+  const timezone = await companyTimezone(session.companyId);
   const order = await getCompanyServiceOrder(session.companyId, params.id);
   if (!order) {
     notFound();
@@ -321,7 +323,7 @@ export default async function OrderDetailPage({
   ].flatMap((row) => {
     if ("value" in row) return [{ label: row.label, value: row.value }];
     return row.date
-      ? [{ label: row.label, value: formatDate(row.date) }]
+      ? [{ label: row.label, value: formatDate(row.date, timezone) }]
       : [];
   });
 
@@ -332,7 +334,7 @@ export default async function OrderDetailPage({
     { label: "Concluída em", date: order.completedAt },
   ]
     .filter((row) => row.date !== null)
-    .map((row) => ({ label: row.label, value: formatDate(row.date) }));
+    .map((row) => ({ label: row.label, value: formatDate(row.date, timezone) }));
 
   const infoRows = technicianInfoRows;
 
@@ -495,7 +497,7 @@ export default async function OrderDetailPage({
             Status: Em atendimento
           </p>
           <p className="mt-0.5 text-sm text-info-fg">
-            Iniciado às {formatTime(order.startedAt)}
+            Iniciado às {formatTime(order.startedAt, timezone)}
           </p>
         </div>
       )}
@@ -509,7 +511,7 @@ export default async function OrderDetailPage({
             Atendimento concluído
           </p>
           <p className="mt-0.5 text-sm text-success-fg">
-            {formatTime(order.startedAt)} → {formatTime(order.completedAt)}
+            {formatTime(order.startedAt, timezone)} → {formatTime(order.completedAt, timezone)}
             {durationLabel ? ` · ${durationLabel}` : ""}
           </p>
           {/*
@@ -850,7 +852,7 @@ export default async function OrderDetailPage({
                       {serviceOrderEventLabel(event.event)}
                     </p>
                     <p className="text-xs text-fg-muted">
-                      {event.userName ?? "Sistema"} · {formatDate(event.createdAt)}
+                      {event.userName ?? "Sistema"} · {formatDate(event.createdAt, timezone)}
                     </p>
                   </li>
                 ))}

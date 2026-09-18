@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { companyTimezone } from "@/lib/company-timezone";
+import { formatCompanyDate } from "@/lib/company-datetime";
 import { requirePageProfile } from "@/lib/guards";
 import { PROFILE_LABELS } from "@/lib/navigation";
 import { listCompanyUsers } from "@/lib/users";
@@ -9,16 +11,19 @@ export const metadata: Metadata = {
   title: "Usuários",
 };
 
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(date);
+/*
+  Data no fuso da EMPRESA — `RC-1`, débito §12 ("datas gerais no fuso do
+  servidor"). Sem `timeZone`, o `Intl` formata no fuso do PROCESSO, que em
+  produção é UTC. O fuso é obrigatório na assinatura: quem esquecer não compila,
+  em vez de cair no relógio do servidor em silêncio.
+*/
+function formatDate(date: Date, timezone: string): string {
+  return formatCompanyDate(date, timezone);
 }
 
 export default async function UsersPage() {
   const session = await requirePageProfile(["ADMIN"]);
+  const timezone = await companyTimezone(session.companyId);
   const users = await listCompanyUsers(session.companyId);
 
   return (
@@ -105,7 +110,7 @@ export default async function UsersPage() {
                     )}
                   </td>
                   <td className="px-5 py-3 text-fg-muted">
-                    {formatDate(user.createdAt)}
+                    {formatDate(user.createdAt, timezone)}
                   </td>
                   <td className="px-5 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AccessProfile } from "@prisma/client";
+import { companyTimezone } from "@/lib/company-timezone";
 import { requirePageProfile } from "@/lib/guards";
 import {
   listCompanyServiceOrders,
@@ -27,15 +28,15 @@ export const metadata: Metadata = {
   title: "Ordens de Serviço",
 };
 
-function formatDate(date: Date | null): string {
+/*
+  Data no fuso da EMPRESA — `RC-1`, débito §12 ("datas gerais no fuso do
+  servidor"). Sem `timeZone`, o `Intl` formata no fuso do PROCESSO, que em
+  produção é UTC. O fuso é obrigatório na assinatura: quem esquecer não compila,
+  em vez de cair no relógio do servidor em silêncio.
+*/
+function formatDate(date: Date | null, timezone: string): string {
   if (!date) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return formatCompanyDateTime(date, timezone);
 }
 
 interface PageProps {
@@ -44,6 +45,7 @@ interface PageProps {
 
 export default async function OrdersPage({ searchParams }: PageProps) {
   const session = await requirePageProfile(["ADMIN", "DISPATCHER"]);
+  const timezone = await companyTimezone(session.companyId);
   const isAdmin = session.profile === AccessProfile.ADMIN;
 
   const search = typeof searchParams.search === "string" ? searchParams.search : "";
@@ -242,7 +244,7 @@ export default async function OrdersPage({ searchParams }: PageProps) {
                           : "—"}
                       </td>
                     ) : (
-                      <td className="px-5 py-3 text-fg-muted">{formatDate(order.createdAt)}</td>
+                      <td className="px-5 py-3 text-fg-muted">{formatDate(order.createdAt, timezone)}</td>
                     )}
                   </tr>
                 ))}

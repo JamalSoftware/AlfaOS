@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { companyTimezone } from "@/lib/company-timezone";
+import { formatCompanyDateTime } from "@/lib/company-datetime";
 import { requirePageProfile } from "@/lib/guards";
 import { listCompanyMobileDevices } from "@/lib/mobile-devices";
 import { EmptyState } from "@/components/EmptyState";
@@ -33,19 +35,20 @@ export const metadata: Metadata = {
  * e não entram só porque a tela passou a existir.
  */
 
-function formatDateTime(date: Date | null): string {
+/*
+  Data no fuso da EMPRESA — `RC-1`, débito §12 ("datas gerais no fuso do
+  servidor"). Sem `timeZone`, o `Intl` formata no fuso do PROCESSO, que em
+  produção é UTC. O fuso é obrigatório na assinatura: quem esquecer não compila,
+  em vez de cair no relógio do servidor em silêncio.
+*/
+function formatDateTime(date: Date | null, timezone: string): string {
   if (!date) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return formatCompanyDateTime(date, timezone);
 }
 
 export default async function MobileDevicesPage() {
   const session = await requirePageProfile(["ADMIN"]);
+  const timezone = await companyTimezone(session.companyId);
   const devices = await listCompanyMobileDevices(session.companyId);
 
   return (
@@ -119,7 +122,7 @@ export default async function MobileDevicesPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-fg-secondary">
-                    {formatDateTime(device.lastSeenAt)}
+                    {formatDateTime(device.lastSeenAt, timezone)}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <RevokeDeviceButton

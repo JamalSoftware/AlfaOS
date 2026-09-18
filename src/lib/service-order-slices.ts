@@ -1,7 +1,8 @@
 import type { Prisma, ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "./prisma";
 import { OPEN_SERVICE_ORDER_STATUSES } from "./service-order-labels";
-import { civilDayBoundsIn, resolveTimezone } from "./workday";
+import { companyTimezone } from "./company-timezone";
+import { civilDayBoundsIn } from "./workday";
 
 /**
  * # Recortes operacionais de OS — DASH-1
@@ -138,14 +139,16 @@ export function isOverdueServiceOrder(
   );
 }
 
-/** O relógio da empresa: agora, no fuso que ela declarou. */
+/**
+ * O relógio da empresa: agora, no fuso que ela declarou.
+ *
+ * A leitura do fuso mora em `companyTimezone` (`RC-1`): as telas que só
+ * precisam formatar data a usam direto, sem carregar os recortes de OS, e
+ * continua havendo UMA resposta para "qual é o fuso desta empresa".
+ */
 export async function companySliceClock(
   companyId: string,
   now: Date = new Date(),
 ): Promise<SliceClock> {
-  const company = await prisma.company.findUnique({
-    where: { id: companyId },
-    select: { timezone: true },
-  });
-  return { now, timezone: resolveTimezone(company?.timezone) };
+  return { now, timezone: await companyTimezone(companyId) };
 }

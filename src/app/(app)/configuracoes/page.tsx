@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { companyTimezone } from "@/lib/company-timezone";
+import { formatCompanyDate } from "@/lib/company-datetime";
 import { requirePageProfile } from "@/lib/guards";
 import { prisma } from "@/lib/prisma";
 
@@ -6,16 +8,19 @@ export const metadata: Metadata = {
   title: "Configurações",
 };
 
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(date);
+/*
+  Data no fuso da EMPRESA — `RC-1`, débito §12 ("datas gerais no fuso do
+  servidor"). Sem `timeZone`, o `Intl` formata no fuso do PROCESSO, que em
+  produção é UTC. O fuso é obrigatório na assinatura: quem esquecer não compila,
+  em vez de cair no relógio do servidor em silêncio.
+*/
+function formatDate(date: Date, timezone: string): string {
+  return formatCompanyDate(date, timezone);
 }
 
 export default async function SettingsPage() {
   const session = await requirePageProfile(["ADMIN"]);
+  const timezone = await companyTimezone(session.companyId);
 
   const company = await prisma.company.findUnique({
     where: { id: session.companyId },
@@ -28,7 +33,7 @@ export default async function SettingsPage() {
   const fields = [
     { label: "Nome da empresa", value: company.name },
     { label: "Documento", value: company.document ?? "—" },
-    { label: "Cadastrada em", value: formatDate(company.createdAt) },
+    { label: "Cadastrada em", value: formatDate(company.createdAt, timezone) },
   ];
 
   return (

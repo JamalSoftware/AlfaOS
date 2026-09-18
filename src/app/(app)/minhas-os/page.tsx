@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { companyTimezone } from "@/lib/company-timezone";
+import { formatCompanyDateTime } from "@/lib/company-datetime";
 import { requirePageProfile } from "@/lib/guards";
 import {
   formatServiceOrderNumber,
@@ -16,19 +18,21 @@ export const metadata: Metadata = {
   title: "Minhas OS",
 };
 
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
+/*
+  A data que o técnico lê é a do fuso da EMPRESA — `RC-1`, débito §12.
+
+  "Hoje" e "Atrasadas" já eram decididos por `Company.timezone`
+  (`HOTFIX-FIELD-01`), e a data ao lado continuava saindo no fuso do PROCESSO,
+  que em produção é UTC: a mesma OS podia aparecer na seção "Hoje" com a data de
+  amanhã escrita ao lado. Uma tela que se contradiz sozinha é pior que uma sem
+  data.
+*/
 
 function OrderCard({
   order,
+  timezone,
 }: {
+  timezone: string;
   order: {
     id: string;
     number: number;
@@ -75,7 +79,7 @@ function OrderCard({
         </span>
         <span>
           {order.scheduledAt
-            ? `Agendada: ${formatDate(order.scheduledAt)}`
+            ? `Agendada: ${formatCompanyDateTime(order.scheduledAt, timezone)}`
             : "Sem agendamento"}
         </span>
       </div>
@@ -86,6 +90,7 @@ function OrderCard({
 export default async function MyOrdersPage() {
   const session = await requirePageProfile(["TECHNICIAN"]);
 
+  const timezone = await companyTimezone(session.companyId);
   const technician = await getTechnicianByUserId(session.companyId, session.id);
   if (!technician) {
     return (
@@ -148,7 +153,7 @@ export default async function MyOrdersPage() {
           </h2>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {queue.inProgress.map((order) => (
-              <OrderCard key={order.id} order={order} />
+              <OrderCard key={order.id} order={order} timezone={timezone} />
             ))}
           </div>
         </section>
@@ -171,7 +176,7 @@ export default async function MyOrdersPage() {
           </p>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {queue.overdue.map((order) => (
-              <OrderCard key={order.id} order={order} />
+              <OrderCard key={order.id} order={order} timezone={timezone} />
             ))}
           </div>
         </section>
@@ -189,7 +194,7 @@ export default async function MyOrdersPage() {
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {queue.today.map((order) => (
-              <OrderCard key={order.id} order={order} />
+              <OrderCard key={order.id} order={order} timezone={timezone} />
             ))}
           </div>
         )}
@@ -207,7 +212,7 @@ export default async function MyOrdersPage() {
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {queue.upcoming.map((order) => (
-              <OrderCard key={order.id} order={order} />
+              <OrderCard key={order.id} order={order} timezone={timezone} />
             ))}
           </div>
         )}
@@ -227,7 +232,7 @@ export default async function MyOrdersPage() {
           </p>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {queue.unscheduled.map((order) => (
-              <OrderCard key={order.id} order={order} />
+              <OrderCard key={order.id} order={order} timezone={timezone} />
             ))}
           </div>
         </section>
@@ -256,7 +261,7 @@ export default async function MyOrdersPage() {
           <>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {completed.map((order) => (
-                <OrderCard key={order.id} order={order} />
+                <OrderCard key={order.id} order={order} timezone={timezone} />
               ))}
             </div>
             <p className="mt-3 text-xs text-fg-muted">

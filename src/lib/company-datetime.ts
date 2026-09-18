@@ -24,6 +24,16 @@ export function formatCompanyDateTime(date: Date, timezone: string): string {
   }).format(date);
 }
 
+/** "12/09/2026" no fuso informado — data sem hora (`RC-1`, débito §12). */
+export function formatCompanyDate(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: timezone,
+  }).format(date);
+}
+
 /** "14:30" no fuso informado. */
 export function formatCompanyTime(date: Date, timezone: string): string {
   return new Intl.DateTimeFormat("pt-BR", {

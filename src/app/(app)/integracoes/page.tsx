@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import type { ERPProvider } from "@prisma/client";
+import { companyTimezone } from "@/lib/company-timezone";
+import { formatCompanyDateTime } from "@/lib/company-datetime";
 import { requirePageProfile } from "@/lib/guards";
 import { prisma } from "@/lib/prisma";
 import { getCredentialStatus } from "@/lib/erp-credentials";
@@ -16,15 +18,15 @@ export const metadata: Metadata = {
   title: "Integrações",
 };
 
-function formatDate(date: Date | null): string {
+/*
+  Data no fuso da EMPRESA — `RC-1`, débito §12 ("datas gerais no fuso do
+  servidor"). Sem `timeZone`, o `Intl` formata no fuso do PROCESSO, que em
+  produção é UTC. O fuso é obrigatório na assinatura: quem esquecer não compila,
+  em vez de cair no relógio do servidor em silêncio.
+*/
+function formatDate(date: Date | null, timezone: string): string {
   if (!date) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return formatCompanyDateTime(date, timezone);
 }
 
 function testStatusBadge(status: string | null) {
@@ -81,6 +83,7 @@ const PROVIDER_OPTIONS = (Object.keys(PROVIDER_LABEL) as ERPProvider[])
 
 export default async function IntegrationsPage() {
   const session = await requirePageProfile(["ADMIN"]);
+  const timezone = await companyTimezone(session.companyId);
 
   const integration = await prisma.eRPIntegration.findUnique({
     where: { companyId: session.companyId },
@@ -181,7 +184,7 @@ export default async function IntegrationsPage() {
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <dt className="text-fg-muted">Último teste</dt>
             <dd className="font-medium text-fg">
-              {formatDate(integration?.lastTestedAt ?? null)}
+              {formatDate(integration?.lastTestedAt ?? null, timezone)}
             </dd>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -229,6 +232,7 @@ export default async function IntegrationsPage() {
         {(["CALLCENTER", "CHATBOT"] as const).map((kind) => (
           <div key={kind} className="mt-4 border-t border-border-subtle pt-4 first:mt-0 first:border-0 first:pt-0">
             <ErpCredentialForm
+              timezone={timezone}
               initialStatus={{
                 provider: integration?.provider ?? "MOCK",
                 kind,
