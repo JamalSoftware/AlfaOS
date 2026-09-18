@@ -25,6 +25,36 @@ const COOKIE_NAME = "alfaos_session";
  */
 let verifiedDatabaseUrl: string | undefined;
 
+/**
+ * Abre as conexões do pool ANTES de uma rajada concorrente — `RC-1` (§12).
+ *
+ * O pool do Prisma nasce com uma conexão e cresce sob demanda. Um teste que
+ * dispara treze requisições ao mesmo tempo força oito handshakes SIMULTÂNEOS
+ * com o Postgres, e neste ambiente eles atravessam o port proxy do Docker
+ * Desktop — que recusa um deles de vez em quando. O Prisma levanta `P1001`
+ * ("Can't reach database server"), a rota devolve 500 (corretamente: uma
+ * indisponibilidade de banco não é regra de negócio), e o teste vê um 500 no
+ * meio dos 401.
+ *
+ * Medido, com controle: rajada fria de 13 → 1 falha a cada ~750 consultas;
+ * sequencial, na mesma contagem → nenhuma. Com o pool já quente, a mesma
+ * rajada abre ZERO conexões novas.
+ *
+ * Isto NÃO é retry no caminho do login, e não pode virar um: em produção o
+ * Postgres é local (sem proxy), e mascarar `P1001` esconderia banco fora do ar.
+ * O retry vive aqui, no aquecimento, que não é o objeto sob teste.
+ */
+export async function warmPrismaPool(conexoes = 13): Promise<void> {
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    const resultados = await Promise.allSettled(
+      Array.from({ length: conexoes }, () => prisma.$queryRaw`SELECT 1`),
+    );
+    if (resultados.every((r) => r.status === "fulfilled")) return;
+  }
+  // Três rajadas e ainda falhando: o problema não é o pool frio. Deixa passar —
+  // quem tem de falhar, com a mensagem real, é o teste.
+}
+
 export async function resetDatabase(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (databaseUrl !== verifiedDatabaseUrl) {

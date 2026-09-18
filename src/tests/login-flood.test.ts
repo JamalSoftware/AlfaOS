@@ -9,7 +9,7 @@ import {
   resetPasswordGateStats,
 } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
-import { apiRequest, seedTestData, TEST_PASSWORD } from "./helpers";
+import { apiRequest, seedTestData, TEST_PASSWORD, warmPrismaPool } from "./helpers";
 
 /**
  * Flood de login anônimo — docs/SECURITY.md §2.2.
@@ -107,6 +107,21 @@ describe("(a) Flood anônimo não derruba o login de terceiros", () => {
   });
 
   it("flood em voo não impede o login legítimo disparado junto", async () => {
+    /*
+      O pool entra QUENTE — `RC-1`, débito §12.
+
+      Treze requisições simultâneas com o pool frio abrem oito conexões de uma
+      vez; neste ambiente elas passam pelo proxy do Docker Desktop, que recusa
+      uma de vez em quando, e o `P1001` resultante vira 500 — um 500 correto,
+      sobre um problema que não é do login. Aquecer antes tira a tempestade de
+      connects do caminho e deixa o teste medir o que ele existe para medir.
+
+      A asserção NÃO foi afrouxada: 500 continua proibido aqui, e o caso
+      `LOGIN-TRANSPORT` abaixo prova que um erro de transporte de verdade
+      continua virando 500, e não 401.
+    */
+    await warmPrismaPool();
+
     // Agora com requisições REAIS concorrentes (cada uma paga bcrypt de fato),
     // não apenas linhas pré-inseridas.
     const flood = Array.from({ length: 12 }, () => login(floodRequest()));
