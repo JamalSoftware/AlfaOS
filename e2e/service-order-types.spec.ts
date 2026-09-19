@@ -149,7 +149,16 @@ test("ADMIN cria tipo, abre OS interna com ele e vê a origem no detalhe", async
   await page.goto("/tipos-os");
   await page.getByLabel("Nome *").fill(TYPE_NAME);
   await page.getByRole("button", { name: "Criar tipo" }).click();
-  await expect(page.getByRole("cell", { name: TYPE_NAME })).toBeVisible();
+  /*
+    `exact`: a linha ganhou a célula do interruptor "Exigir checklist para
+    concluir <tipo>" (PRD §382), cujo nome acessível CONTÉM o nome do tipo — e
+    tem de conter, senão nove interruptores dividiriam o mesmo nome. Sem
+    `exact`, o localizador casa duas células e o strict mode recusa. A
+    afirmação é a mesma: o tipo criado aparece na tabela.
+  */
+  await expect(
+    page.getByRole("cell", { name: TYPE_NAME, exact: true }),
+  ).toBeVisible();
 
   await page.goto("/ordens/novo");
   await page.getByLabel("Cliente *").selectOption({ label: CUSTOMER_NAME });
