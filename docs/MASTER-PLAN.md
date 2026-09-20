@@ -1604,3 +1604,61 @@ sinal. A web não tem o defeito: a `CustomerDiagnosticPanel` rotula o valor como
 que existe justamente para forçar a distinção no tipo. **Nada foi alterado**:
 a correção é decisão de produto (rótulo e/ou envio de `statusSince` ao Field),
 e §11 do enunciado manda reportar o comportamento atual antes de mexer.
+
+---
+
+## 22. `RC-1` — CONECTIVIDADE NA OS: DURAÇÃO DO ESTADO ≠ IDADE DA VERIFICAÇÃO
+
+`READY FOR FINAL OWNER VALIDATION` (20/09/2026). **Zero migration, zero
+dependência, zero rota nova, zero schema.**
+
+**O defeito, visto em aparelho real:** a OS do Field escrevia *"Online há
+25 d"*. A frase afirma há quanto tempo o cliente está no ar, e o número saía de
+`observedAt` — quando o provedor CONFERIU pela última vez. Com o ciclo
+reconferindo de 5 em 5 minutos, *"online há 25 dias"* e *"verificado há 3
+minutos"* são verdadeiros ao mesmo tempo, e a tela dizia a segunda coisa com as
+palavras da primeira.
+
+**O aplicativo não tinha como acertar:** `statusSince` **não era enviado** a
+ele, e não havia nenhum sinal de frescor no DTO. Não era escolha de redação —
+era ausência de dado.
+
+```text
+statusSince   desde quando o estado atual dura     "Online há 25 d"
+observedAt    quando o provedor confirmou          "Verificado há 3 min"
+stale         a confirmação envelheceu (SERVIDOR)  "Leitura desatualizada"
+```
+
+**Quem decide o frescor é o SERVIDOR**, como já era na web: `connectivity-
+policy.ts` é dona do alvo e do limiar, e a tela só pinta. Um limiar compilado
+no APK discordaria de um ambiente que alongasse o alvo por variável — e o
+aparelho em campo é exatamente o que não se atualiza junto com a configuração.
+
+**`stale` NÃO é um quarto estado.** Os estados continuam `ONLINE`, `OFFLINE` e
+`UNKNOWN`. Um quarto valor faria a tela escolher entre mostrar o estado e
+mostrar que a leitura é velha, quando os dois fatos são verdadeiros juntos — e
+é por isso que o aviso é uma linha ao lado, nunca um rótulo no lugar.
+
+**`UNKNOWN` continua "Desconhecido" na OS, e isso é a regra canônica**, não
+esquecimento: `connectivity-presentation.ts` guarda as duas grafias na mesma
+linha de propósito — *"Sem leitura"* é a do MAPA, onde se varrem dezenas de
+pontos, e *"Desconhecido"* é a da tela de OS, onde se fala de um cliente por
+vez. `UNKNOWN` nunca ganha duração: não saber não é um estado que dure.
+
+**O formatador de idade mudou de casa**, e essa é a parte estrutural: ele vivia
+na tela, a um caractere de distância de ser aplicado à data errada. Agora mora
+em `OrderDiagnostic`, junto das duas datas, e cada frase só aceita a sua.
+
+**Quatro sabotagens, quatro detectadas, com o detector conferido um a um** —
+a primeira leitura do placar estava errada, listando todos os casos porque o
+extrator varria a saída inteira: `S1` (duração volta a sair de `observedAt`) cai
+em `CONN-COPY-E` e `CONN-COPY-G`, e **não** nos casos que têm as duas datas, o
+que é correto — a troca só aparece quando `statusSince` falta; `S2` (o aviso
+some) cai em `CONN-UI-02`; `S3` (o servidor inventa o estado `STALE`) cai em
+`FIELD-CONN-03/04`; e `S4` (falha do provedor vira `OFFLINE`) cai no teste que
+já existia, *"falha ao atualizar NÃO vira offline falso"*. Todas compilaram —
+sabotagem que não compila não é detecção.
+
+**Invariante preservado (§9):** falha de integração continua não mexendo no
+estado. "Não conseguimos falar com o provedor" e "o provedor diz que o cliente
+está fora" continuam fatos diferentes.
