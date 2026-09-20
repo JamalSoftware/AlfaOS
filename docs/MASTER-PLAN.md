@@ -1662,3 +1662,143 @@ sabotagem que não compila não é detecção.
 **Invariante preservado (§9):** falha de integração continua não mexendo no
 estado. "Não conseguimos falar com o provedor" e "o provedor diz que o cliente
 está fora" continuam fatos diferentes.
+
+---
+
+## 23. `RC-1` — A INSTALAÇÃO EXIGE EQUIPAMENTO, E A FOTO CONFIRMA QUE SUBIU
+
+**`RC-1 FINAL PHYSICAL UX FIX` — `READY FOR OWNER VALIDATION` (20/09/2026).**
+Commits locais, sem tag e sem push. **Zero migration, zero dependência, zero
+rota nova, zero schema.**
+
+### 23.1 Conectividade — validação física do dono: `PASS`
+
+O dono conferiu em aparelho real, antes de atualizar: *"Online"*, *"Online há
+26 d"*, *"Leitura desatualizada"*, *"Verificado há 26 d"*. Depois da
+atualização manual: *"Online"*, *"Online há 26 d"*, *"Verificado agora"* — o
+`statusSince` parado, o `observedAt` renovado, o aviso sumindo e o estado
+continuando `ONLINE`. É exatamente o contrato do §22, observado fora do
+laboratório. **A conectividade está fechada e não se mexe mais nela.**
+
+### 23.2 O equipamento: o defeito NÃO era da tela
+
+O dono viu uma OS de Instalação com "Equipamentos instalados / Nenhum
+equipamento registrado", sem selo âmbar, e a OS fechou. A hipótese dele estava
+certa, e foi **provada antes de qualquer mudança**: no banco de
+desenvolvimento, os nove tipos da empresa tinham `requireChecklist = true` (o
+que a §382 configurou) e **todo o resto `false`** — inclusive
+`requireEquipment`.
+
+Ou seja: a tela e o fechamento **concordavam**. O aplicativo não tinha o que
+avisar, porque nada era exigido. Pintar âmbar ali teria sido a pior saída
+possível — um aviso que o servidor desmente, numa OS que fecha assim mesmo.
+
+**Decisão do dono:** uma instalação não está operacionalmente concluída
+enquanto o equipamento do cliente não estiver registrado. Aplicada pelo
+`putCompletionPolicy`, o mesmo serviço que a tela `/tipos-os` chama, com a
+empresa e o tipo vindo por argumento — nenhum id gravado em código, nenhum SQL
+direto, nenhuma outra empresa e nenhum outro tipo tocado (conferido por
+retrato dos nove tipos antes e depois).
+
+**A armadilha da configuração é a mesma da §382, e por isso ela virou teste:**
+`putCompletionPolicy` **substitui** a política inteira — ligar um campo sem
+reenviar os outros os apaga em silêncio. A receita é "ler o que está gravado,
+mudar um campo, reenviar tudo", e `EQPOL-01` a prova com uma política em que
+**todos** os campos estão fora do padrão, de modo que esquecer qualquer um cai
+apontando qual.
+
+Os casos não afirmam nada sobre "Alfa Telecom" nem sobre "Instalação": nome de
+empresa e nome de tipo são dado digitado no catálogo, e um teste que os
+fixasse quebraria numa renomeação sem defeito nenhum no produto.
+
+### 23.3 A foto: dois verdes que respondem perguntas diferentes
+
+O técnico tira a foto em cima do telhado e não tinha como saber que ela
+chegou. Agora a seção confirma — e a confirmação vem de `evidences`, que é a
+lista do **servidor**: o pacote traz só evidência `COMMITTED`, e a foto ainda
+subindo vive em `pendingPhotos`, que nem chega ao modelo. Um verde tirado do
+seletor local apareceria antes do upload e sumiria quando ele falhasse, que é
+o oposto de confirmar.
+
+**`SectionStatus` ganhou um quarto valor, `recorded`**, e o motivo é a barra de
+progresso. `done` afirma *"a exigência foi cumprida"* e `recorded` afirma
+*"isto foi gravado"*; os dois são o mesmo ✓ verde na tela, e o que muda é a
+palavra que o leitor de tela anuncia — "Concluído" e "Registrado". Colapsá-los
+num valor só pareceria economia e faria o **denominador do progresso crescer
+enquanto o técnico trabalha**: registrar uma foto que ninguém pediu levaria
+"1 de 1" a virar "1 de 2".
+
+```text
+exigido + pendente      → âmbar  !   "Pendente"
+exigido + satisfeito    → verde  ✓   "Concluído"
+opcional + vazio        → nada       (a seção NÃO é exigida)
+opcional + persistido   → verde  ✓   "Registrado"
+```
+
+`registrado` só é consultado quando a seção **não** é exigida: com exigência,
+quem responde é a pendência do servidor, e "existe uma foto" jamais satisfaz um
+`minEvidenceCount` de três. Material e contato/impedimento **não** entram nessa
+regra — marcar tudo devolveria o ruído que o selo existe para evitar.
+
+### 23.4 O que a implementação encontrou
+
+**O teste de idempotência da configuração falhou, e a falha era verdadeira:**
+`putCompletionPolicy` faz `upsert` incondicional, então reaplicar reescreve a
+linha e `updatedAt` anda. Isso é o comportamento, não defeito a esconder — o
+que precisa ser idempotente é a **exigência**, que é o que decide se a OS
+fecha. O caso passou a comparar os sete campos da política, e não a linha
+inteira; comparar a linha falaria do carimbo de tempo e não da regra.
+
+**Dirigir o upload real num teste de widget exigiu intercalar tempo real e
+quadros falsos**, e as duas tentativas anteriores falharam por motivos que
+valem para qualquer teste de foto ou assinatura daqui em diante. O envio lê um
+arquivo do disco e o transporte falso drena esse mesmo fluxo: são duas
+operações de I/O de verdade, que só avançam sob `runAsync`. Mas a **continuação**
+delas é agendada na zona falsa, e quem a executa é o `pump`. Com o toque dentro
+do `runAsync`, a requisição nem saía (`posts=0`); com uma volta só de cada, a
+requisição saía e a resposta ficava pelo caminho, com a linha parada em
+"Enviando…". Oito voltas alternadas resolvem. `pumpAndSettle` não serve em
+nenhum dos casos: a foto em upload mostra um `CircularProgressIndicator`, e
+animação infinita o faz estourar por tempo sem dizer o que houve.
+
+**O finder do selo precisa parar na `Row` do título:** cada foto persistida
+desenha o próprio `check_circle` na lista, então um finder que apanhasse o
+cartão inteiro passaria com o cabeçalho sem selo nenhum.
+
+### 23.5 Sabotagem
+
+Dez ataques, **dez detectados**, todos compilando — sabotagem que não compila
+não prova que algum teste olhava para a regra. O verificador lê só a seção
+`Failing tests:` e recusa arrancar com a árvore suja.
+
+| | Ataque | Detector |
+|---|---|---|
+| `S1` | a política grava `requireEquipment: false` | `EQPOL-01/02/06/07` |
+| `S2` | seção exigida e vazia volta a neutra | `EQUIP-UX-01`, `FOTO-UX-03/05`, +8 |
+| `S3` | equipamento fica âmbar depois de registrado | `EQUIP-UX-02/07/10`, `SECSTATUS-02` |
+| `S4` | seção opcional e vazia vira âmbar | `EQUIP-UX-03/04/05`, `FOTO-UX-01`, +7 |
+| `S5` | foto opcional persistida não vira verde | `FOTO-UX-02`, `FOTO-UI-02/06` |
+| `S6` | **verde otimista** (foto local conta) | `FOTO-UI-05` — detector único |
+| `S7` | uma foto satisfaz `minEvidenceCount > 1` | `FOTO-UX-03/05`, `FOTO-UI-03` |
+| `S8` | o progresso volta a contar a foto opcional | `FOTO-UX-06` |
+| `S9` | "Registrado" passa a anunciar "Concluído" | `FOTO-UI-02/06` |
+| `S10` | a receita apaga o campo que não mudou | `EQPOL-01/02/04` |
+
+**`S6` tem um detector só, e isso é o ponto:** `FOTO-UI-05` é a única coisa
+entre o produto e um verde que aparece antes de o servidor ter a foto. Ele
+dirige o upload de verdade e o servidor **recusa**.
+
+### 23.6 Estado e pendências
+
+* **`FIELD CONNECTIVITY` — `OWNER VALIDATED` / `PASS`.** Fechada.
+* **`Instalação.requireEquipment = true`** — aplicado no DEV da Alfa Telecom
+  pelo caminho de domínio, idempotente, sem tocar os outros oito tipos.
+* **UX do equipamento** e **confirmação de foto** — `PENDING NEW APK OWNER
+  VALIDATION`.
+* **Follow-up reportado e NÃO implementado:** a tela `/tipos-os` expõe só o
+  interruptor de `requireChecklist`; `requireEquipment` e os demais campos são
+  lidos e preservados, mas não editáveis. Enquanto for assim, ligar a exigência
+  para outro tipo depende de quem tem acesso ao domínio — que é exatamente o
+  que a §382 fechou para o checklist (*"ninguém configura cobertura por
+  `curl`"*). Estender o painel para os outros campos da política é decisão do
+  dono, não foi pedida nesta fase e não foi feita.

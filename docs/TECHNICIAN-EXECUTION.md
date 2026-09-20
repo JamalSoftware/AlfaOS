@@ -725,3 +725,54 @@ coordenada e `verified` ficam como estão.
 **O que não bloqueou o fechamento**, e segue aberto como já estava registrado
 (`docs/MASTER-PLAN.md` §12): o backfill do legado `RC-LOC-04` (decisão do dono,
 não executado) e o histórico de precisão por correção (backlog).
+
+---
+
+## 14. O selo de estado das seções da execução (RC-1, 20/09/2026)
+
+Cada seção da tela de execução diz, no cabeçalho, o que ela é para **esta** OS.
+O estado é **derivado**, nunca gravado: sai de `requirements` (a política do
+tipo) e de `pendencies` (o resultado de `validateServiceOrderCompletion`), os
+dois já entregues pelo servidor no pacote da execução. O aplicativo traduz;
+ele não decide o que é exigido.
+
+```text
+exigido + pendente      → âmbar  !   "Pendente"
+exigido + satisfeito    → verde  ✓   "Concluído"
+opcional + vazio        → nada       (afirmação: NÃO é exigido)
+opcional + persistido   → verde  ✓   "Registrado"   (só Fotos, hoje)
+```
+
+**`neutral` é uma afirmação, não ausência de informação.** Equipamento vazio
+numa OS que não o exige é um atendimento correto, e um aviso que aparece onde
+não precisa é o que o técnico aprende a ignorar.
+
+**`done` e `recorded` são o mesmo verde e fatos diferentes.** O primeiro diz
+que a exigência foi cumprida; o segundo, que o dado chegou ao servidor. A
+distinção existe em `SectionStatus` — e não só no texto — porque a **barra de
+progresso** conta o que a política exige: uma seção opcional que virasse `done`
+ao ganhar conteúdo faria o denominador crescer enquanto o técnico trabalha.
+
+**A confirmação positiva é da FOTO, e a autoridade é `evidences`** — a lista do
+servidor, que traz só evidência `COMMITTED` (`src/lib/field/execution.ts`). A
+foto ainda subindo vive em `pendingPhotos` e não chega ao modelo, então um
+verde otimista é estruturalmente impossível: ele apareceria antes do upload e
+sumiria quando ele falhasse. Material e contato/impedimento **não** entram
+nessa regra.
+
+**Com exigência, `registrado` nem é consultado.** "Existe uma foto" não
+satisfaz `minEvidenceCount` de três — quem responde isso é a pendência do
+servidor, sempre.
+
+### 14.1 Configurar a exigência
+
+A exigência é do TIPO de OS, em `ServiceOrderCompletionPolicy`, e a ausência de
+política continua significando "sem exigência extra". `putCompletionPolicy`
+**substitui a política inteira**: ligar um campo sem reenviar os outros os
+apaga em silêncio. A receita, tanto na tela `/tipos-os` quanto em qualquer
+configuração, é **ler o que está gravado, mudar um campo e reenviar tudo**.
+
+Decisão do dono (20/09/2026): **a Instalação exige equipamento instalado** —
+uma instalação não está operacionalmente concluída enquanto o equipamento do
+cliente não estiver registrado. É configuração da empresa, não regra de código:
+nenhum nome de tipo e nenhum id de empresa aparece em lógica de produto.
