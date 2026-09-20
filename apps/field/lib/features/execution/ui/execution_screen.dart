@@ -871,10 +871,24 @@ class _EquipmentSection extends StatelessWidget {
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 dense: true,
-                // Sem ícone à esquerda: quem responde pelo ESTADO da seção é o
-                // selo do cabeçalho, e um ícone por linha repetia isso sem
-                // acrescentar informação — toda linha desta lista é um
-                // equipamento, então o símbolo não distingue nada.
+                /*
+                  O check da linha é SEMÂNTICO: "este equipamento está
+                  gravado no servidor" — o mesmo vocabulário da linha de foto
+                  persistida, logo acima nesta tela.
+
+                  Não é decoração de tipo de equipamento (foi isso que o
+                  `Icons.memory` era, e ele não volta), e não é o estado da
+                  SEÇÃO, que continua sendo dito pelo selo do cabeçalho.
+
+                  Ele é autoritativo por construção, não por disciplina:
+                  `bundle.equipments` só existe no pacote que o servidor
+                  devolve, e o controlador nunca insere equipamento na lista
+                  local — um registro otimista não tem onde aparecer aqui.
+                */
+                leading: Icon(
+                  Icons.check_circle,
+                  color: context.statusColors.success,
+                ),
                 title: Text(
                   '${equipment.equipmentType}'
                   '${equipment.model != null ? " · ${equipment.model}" : ""}',

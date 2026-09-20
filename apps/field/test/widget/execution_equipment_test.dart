@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:alfaos_field/app/providers.dart';
+import 'package:alfaos_field/app/theme/tokens.dart';
 import 'package:alfaos_field/core/media/photo_capture.dart';
 import 'package:alfaos_field/core/location/location_service.dart';
 import 'package:alfaos_field/features/execution/ui/execution_screen.dart';
@@ -834,17 +835,22 @@ void main() {
   );
 
   /*
-    # A linha do equipamento não repete o estado da seção
+    # O check da LINHA e o selo da SEÇÃO dizem coisas diferentes
 
-    O dono apontou que o ícone à esquerda de cada equipamento registrado era
-    redundante: o selo do CABEÇALHO já diz se a seção está pendente ou
-    concluída, e um símbolo por linha não distingue nada — toda linha daquela
-    lista é um equipamento.
+    O dono validou em aparelho e decidiu: cada equipamento já gravado no
+    servidor mostra o mesmo ✓ verde da linha de foto persistida. O ícone é
+    SEMÂNTICO — "este registro chegou ao servidor" —, e não decoração do tipo
+    de equipamento: o `Icons.memory` era isso, e ele não volta.
 
-    Sem estes casos nada impediria alguém de recolocá-lo: o ícone não era
-    afirmado por teste nenhum.
+    A autoridade não depende de disciplina: `bundle.equipments` só existe no
+    pacote que o servidor devolve, e o controlador nunca insere equipamento na
+    lista local. Um registro otimista não tem onde aparecer.
+
+    As asserções são escopadas às LINHAS (`ListTile`): o cabeçalho da seção
+    tem ícone próprio, o selo de estado é um ícone e o botão de remover é
+    outro — contar ícones no cartão falaria de outra coisa.
   */
-  testWidgets('EQUIP-UI-01 · o item registrado NÃO tem ícone à esquerda', (
+  testWidgets('EQUIP-UI-01 · linha persistida tem check verde à esquerda', (
     tester,
   ) async {
     await _abrirComPolitica(
@@ -853,15 +859,35 @@ void main() {
       equipments: const [_equipamentoDoServidor],
     );
 
-    // A asserção é sobre a PROPRIEDADE do `ListTile`, e não sobre "não há
-    // ícone no cartão": o cabeçalho tem o próprio ícone de seção, o selo é um
-    // ícone, e o botão de remover é outro. Uma asserção ampla proibiria os
-    // três e falaria de outra coisa.
-    final tile = tester.widget<ListTile>(_linhaDoEquipamento());
-    expect(tile.leading, isNull);
+    final icone = tester.widget<Icon>(_checkDaLinha());
+    expect(icone.icon, Icons.check_circle);
+    // A cor sai do MESMO tema que a tela usa, e não de um hex fixo: um valor
+    // escrito à mão passaria a mentir na primeira troca de paleta.
+    final ctx = tester.element(_linhaDoEquipamento().first);
+    expect(icone.color, ctx.statusColors.success);
   });
 
-  testWidgets('EQUIP-UI-02 · o texto e o botão de remover continuam lá', (
+  testWidgets('EQUIP-UI-02 · o ícone decorativo antigo NÃO voltou', (
+    tester,
+  ) async {
+    await _abrirComPolitica(
+      tester,
+      requireEquipment: true,
+      equipments: const [_equipamentoDoServidor],
+    );
+
+    // `Icons.memory` dizia "isto é um equipamento" numa lista em que toda
+    // linha é um equipamento. O ✓ diz outra coisa, e é por isso que ele fica.
+    expect(
+      find.descendant(
+        of: _linhaDoEquipamento(),
+        matching: find.byIcon(Icons.memory),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('EQUIP-UI-03 · o botão de remover continua funcionando', (
     tester,
   ) async {
     final harness = await _abrirComPolitica(
@@ -869,16 +895,10 @@ void main() {
       requireEquipment: true,
       equipments: const [_equipamentoDoServidor],
     );
-
-    // O conteúdo da linha não mudou.
     expect(find.textContaining('SERIAL-DO-SERVIDOR'), findsOneWidget);
-    final tile = tester.widget<ListTile>(_linhaDoEquipamento());
-    expect(tile.title, isNotNull);
 
-    // E o remover ainda REMOVE — a prova é a requisição, não o ícone.
-    final rotaRemocao =
-        '/service-orders/os-1/equipment/${_equipamentoDoServidor["id"]}';
-    harness.transport.onJson('POST', rotaRemocao);
+    final rota = _rotaDeRemocao(_equipamentoDoServidor);
+    harness.transport.onJson('POST', rota);
     harness.transport.onJson(
       'GET',
       '/service-orders/os-1/execution',
@@ -889,8 +909,58 @@ void main() {
     await _settle(tester);
 
     expect(tester.takeException(), isNull);
-    expect(harness.transport.countOf('POST', rotaRemocao), 1);
+    // A prova é a REQUISIÇÃO, não o ícone: um botão presente e inerte
+    // satisfaria qualquer asserção sobre aparência.
+    expect(harness.transport.countOf('POST', rota), 1);
   });
+
+  testWidgets('EQUIP-UI-04 · dois equipamentos, dois checks de linha', (
+    tester,
+  ) async {
+    await _abrirComPolitica(
+      tester,
+      requireEquipment: true,
+      equipments: const [_equipamentoDoServidor, _segundoEquipamento],
+    );
+
+    expect(_linhaDoEquipamento(), findsNWidgets(2));
+    expect(_checkDaLinha(), findsNWidgets(2));
+  });
+
+  testWidgets(
+    'EQUIP-UI-05 · removido o último exigido, o cabeçalho volta a âmbar',
+    (tester) async {
+      /*
+        O estado da seção é RECALCULADO do pacote autoritativo, e não
+        deduzido de quantas linhas sobraram na tela: quem responde é
+        `requirements.requireEquipment` com a lista que o servidor devolveu
+        depois da remoção.
+      */
+      final harness = await _abrirComPolitica(
+        tester,
+        requireEquipment: true,
+        equipments: const [_equipamentoDoServidor],
+      );
+      // Controle positivo: antes de remover, o cabeçalho está verde.
+      expect(_seloDoEquipamento(Icons.check_circle), findsOneWidget);
+
+      harness.transport.onJson('POST', _rotaDeRemocao(_equipamentoDoServidor));
+      harness.transport.onJson(
+        'GET',
+        '/service-orders/os-1/execution',
+        data: _bundle(requireEquipment: true, version: 5),
+      );
+
+      await tester.tap(find.byTooltip('Remover'));
+      await _settle(tester);
+
+      expect(_seloDoEquipamento(Icons.error_outline), findsOneWidget);
+      expect(_seloDoEquipamento(Icons.check_circle), findsNothing);
+      // E o ✓ da linha some junto com a linha.
+      expect(_checkDaLinha(), findsNothing);
+      expect(find.textContaining('Obrigatório para concluir'), findsOneWidget);
+    },
+  );
 
   testWidgets('EQUIP-UX-09 · o selo tem rótulo acessível, não só cor', (
     tester,
@@ -947,7 +1017,12 @@ Future<Harness> _abrirComPolitica(
   return harness;
 }
 
-/// O selo do cabeçalho de "Equipamentos instalados", e só o dele.
+/// O selo do CABEÇALHO de "Equipamentos instalados", e só o dele.
+///
+/// Escopado à `Row` do título, não ao cartão inteiro: desde que a linha de
+/// equipamento persistido ganhou o próprio ✓, um finder de cartão encontra
+/// DOIS `check_circle` e toda asserção `findsOneWidget` cai por um motivo
+/// que não é o que o teste quer dizer.
 ///
 /// Busca pelo ÍCONE, e não pelo rótulo semântico: `find.bySemanticsLabel`
 /// exige a árvore de semântica LIGADA, e um teste que esquece de ligá-la
@@ -955,14 +1030,16 @@ Future<Harness> _abrirComPolitica(
 /// `findsNothing`. O rótulo acessível é afirmado à parte, com a semântica
 /// ligada de propósito (`EQUIP-UX-09`).
 Finder _seloDoEquipamento(IconData icone) => find.descendant(
-  of: find.ancestor(
-    of: find.text('Equipamentos instalados'),
-    matching: find.byType(Card),
-  ),
+  of: find
+      .ancestor(
+        of: find.text('Equipamentos instalados'),
+        matching: find.byType(Row),
+      )
+      .first,
   matching: find.byIcon(icone),
 );
 
-/// A linha de UM equipamento registrado, dentro do cartão da seção.
+/// As linhas de equipamento registrado, dentro do cartão da seção.
 Finder _linhaDoEquipamento() => find.descendant(
   of: find.ancestor(
     of: find.text('Equipamentos instalados'),
@@ -970,3 +1047,25 @@ Finder _linhaDoEquipamento() => find.descendant(
   ),
   matching: find.byType(ListTile),
 );
+
+/// O ✓ de UMA LINHA — nunca o selo do cabeçalho.
+///
+/// Escopado ao `ListTile`: com a seção satisfeita o cabeçalho também desenha
+/// um `check_circle`, e um finder de cartão inteiro contaria os dois.
+Finder _checkDaLinha() => find.descendant(
+  of: _linhaDoEquipamento(),
+  matching: find.byIcon(Icons.check_circle),
+);
+
+/// Um segundo equipamento do servidor, para provar que o ✓ é POR LINHA.
+const _segundoEquipamento = {
+  'id': 'eq-2',
+  'equipmentType': 'Roteador',
+  'manufacturer': 'Fabricante Ficticio',
+  'model': 'RT-2',
+  'serial': 'SERIAL-DOIS',
+  'macAddress': null,
+};
+
+String _rotaDeRemocao(Map<String, String?> equipamento) =>
+    '/service-orders/os-1/equipment/${equipamento["id"]}';
