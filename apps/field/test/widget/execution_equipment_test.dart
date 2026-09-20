@@ -104,6 +104,7 @@ const _equipamentoDoServidor = {
 Map<String, dynamic> _bundle({
   List<Map<String, dynamic>> equipments = const [],
   int version = 3,
+  bool requireEquipment = false,
 }) {
   return {
     'orderId': 'os-1',
@@ -132,11 +133,11 @@ Map<String, dynamic> _bundle({
     'signature': null,
     'contactAttempts': const [],
     'impediments': const [],
-    'requirements': const {
+    'requirements': {
       'requireChecklist': false,
       'requireSignature': false,
       'requireMaterials': false,
-      'requireEquipment': false,
+      'requireEquipment': requireEquipment,
       'requireCheckIn': false,
       'minEvidenceCount': 0,
       'requiredEvidenceCategories': <String>[],
@@ -738,4 +739,106 @@ void main() {
     // ...e não levou o equipamento embora.
     expect(find.textContaining('SERIAL-DO-SERVIDOR'), findsOneWidget);
   });
+
+  testWidgets('EQUIP-UX-06 · exigido e vazio: selo Pendente no cabeçalho', (
+    tester,
+  ) async {
+    await _abrirComPolitica(tester, requireEquipment: true);
+
+    expect(_seloDoEquipamento(Icons.error_outline), findsOneWidget);
+    expect(_seloDoEquipamento(Icons.check_circle), findsNothing);
+    // A frase muda com a EXIGÊNCIA, não com a lista vazia.
+    expect(find.textContaining('Obrigatório para concluir'), findsOneWidget);
+  });
+
+  testWidgets('EQUIP-UX-07 · exigido e satisfeito: selo Concluído', (
+    tester,
+  ) async {
+    await _abrirComPolitica(
+      tester,
+      requireEquipment: true,
+      equipments: const [_equipamentoDoServidor],
+    );
+
+    expect(_seloDoEquipamento(Icons.check_circle), findsOneWidget);
+    expect(_seloDoEquipamento(Icons.error_outline), findsNothing);
+  });
+
+  testWidgets('EQUIP-UX-08 · NÃO exigido e vazio: nenhum selo', (tester) async {
+    await _abrirComPolitica(tester, requireEquipment: false);
+
+    expect(_seloDoEquipamento(Icons.error_outline), findsNothing);
+    expect(_seloDoEquipamento(Icons.check_circle), findsNothing);
+    // E a frase neutra continua sendo a antiga.
+    expect(find.text('Nenhum equipamento registrado.'), findsOneWidget);
+  });
+
+  testWidgets('EQUIP-UX-09 · o selo tem rótulo acessível, não só cor', (
+    tester,
+  ) async {
+    /*
+      Cor e forma não bastam para quem usa leitor de tela.
+
+      A asserção lê a PROPRIEDADE do widget, e não a árvore de semântica: a
+      árvore exige `ensureSemantics` e, dentro deste cartão, o rótulo do ícone
+      não sobe como nó próprio — um teste que dependesse disso afirmaria
+      "zero encontrados" e passaria em toda asserção negativa.
+    */
+    await _abrirComPolitica(tester, requireEquipment: true);
+
+    final selo = tester.widget<Icon>(_seloDoEquipamento(Icons.error_outline));
+    expect(selo.semanticLabel, 'Pendente');
+  });
 }
+
+/*
+  # O selo de estado da seção (validação física do dono, 18/09/2026)
+
+  O dono fechou uma OS real pelo aplicativo e apontou que "Equipamentos
+  instalados" não dizia se estava pendente ou concluído, enquanto outras
+  seções exigidas diziam.
+
+  Estes casos montam a TELA REAL. A versão anterior deles remontava o ícone a
+  partir do mesmo getter do domínio — e teria passado com a tela não
+  desenhando selo nenhum.
+*/
+Future<Harness> _abrirComPolitica(
+  WidgetTester tester, {
+  required bool requireEquipment,
+  List<Map<String, dynamic>> equipments = const [],
+}) async {
+  tester.view.physicalSize = const Size(1200, 5000);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
+
+  final harness = Harness();
+  harness.transport.onJson(
+    'GET',
+    '/service-orders/os-1/execution',
+    data: _bundle(requireEquipment: requireEquipment, equipments: equipments),
+  );
+  harness.transport.onJson('GET', '/inventory', data: {'items': <dynamic>[]});
+
+  await harness.pump(
+    tester,
+    const ExecutionScreen(orderId: 'os-1'),
+    extraOverrides: [locationServiceProvider.overrideWithValue(_FakeGps())],
+  );
+  await _settle(tester);
+  return harness;
+}
+
+/// O selo do cabeçalho de "Equipamentos instalados", e só o dele.
+///
+/// Busca pelo ÍCONE, e não pelo rótulo semântico: `find.bySemanticsLabel`
+/// exige a árvore de semântica LIGADA, e um teste que esquece de ligá-la
+/// encontra zero widgets — passando por engano em toda asserção
+/// `findsNothing`. O rótulo acessível é afirmado à parte, com a semântica
+/// ligada de propósito (`EQUIP-UX-09`).
+Finder _seloDoEquipamento(IconData icone) => find.descendant(
+  of: find.ancestor(
+    of: find.text('Equipamentos instalados'),
+    matching: find.byType(Card),
+  ),
+  matching: find.byIcon(icone),
+);

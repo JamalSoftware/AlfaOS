@@ -195,6 +195,32 @@ class _Section extends StatelessWidget {
   }
 }
 
+/*
+  O selo de estado do cabeçalho da seção.
+
+  Vocabulário existente, não inventado: é o mesmo par que a seção de Relatório
+  já usava — verde com `check_circle` quando está satisfeito, âmbar com
+  `error_outline` quando falta. O que mudou é que ele deixou de existir só lá.
+
+  `neutral` devolve `null`: seção que a política não exige não recebe selo
+  nenhum. Um ícone cinza a mais em cada cartão diria "há algo aqui" sobre algo
+  que não precisa de nada.
+
+  `semanticLabel` existe porque cor e forma não bastam para quem usa leitor de
+  tela — e é também o que os testes leem.
+*/
+Widget? _statusDaSecao(BuildContext context, SectionStatus status) {
+  if (status == SectionStatus.neutral) return null;
+  final cores = context.statusColors;
+  final pronto = status == SectionStatus.done;
+  return Icon(
+    pronto ? Icons.check_circle : Icons.error_outline,
+    size: 18,
+    color: pronto ? cores.success : cores.warning,
+    semanticLabel: pronto ? 'Concluído' : 'Pendente',
+  );
+}
+
 class _ErrorBanner extends StatelessWidget {
   const _ErrorBanner({required this.message, required this.onDismiss});
 
@@ -426,6 +452,7 @@ class _CheckInSection extends StatelessWidget {
 
     return _Section(
       title: 'Check-in',
+      trailing: _statusDaSecao(context, state.bundle!.checkInStatus),
       icon: Icons.where_to_vote_outlined,
       child: checkIn == null
           ? SizedBox(
@@ -498,17 +525,14 @@ class _ReportSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = context.statusColors;
     final report = state.bundle!.report;
 
     return _Section(
       title: 'Relatório e observações',
       icon: Icons.description_outlined,
-      trailing: Icon(
-        report.complete ? Icons.check_circle : Icons.error_outline,
-        size: 18,
-        color: report.complete ? status.success : status.warning,
-      ),
+      // Mesmo selo das demais seções: a derivação é uma só, e o relatório é
+      // exigido em qualquer OS.
+      trailing: _statusDaSecao(context, state.bundle!.reportStatus),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -565,6 +589,7 @@ class _ChecklistSection extends StatelessWidget {
 
     return _Section(
       title: 'Checklist',
+      trailing: _statusDaSecao(context, state.bundle!.checklistStatus),
       icon: Icons.checklist_outlined,
       child: Column(
         children: [
@@ -633,6 +658,7 @@ class _PhotosSection extends StatelessWidget {
 
     return _Section(
       title: 'Fotos',
+      trailing: _statusDaSecao(context, bundle.photosStatus),
       icon: Icons.photo_camera_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -759,6 +785,7 @@ class _MaterialsSection extends StatelessWidget {
 
     return _Section(
       title: 'Materiais',
+      trailing: _statusDaSecao(context, state.bundle!.materialsStatus),
       icon: Icons.inventory_2_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -804,16 +831,29 @@ class _EquipmentSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final equipments = state.bundle!.equipments;
+    final bundle = state.bundle!;
+    final equipments = bundle.equipments;
+    final status = bundle.equipmentStatus;
 
     return _Section(
       title: 'Equipamentos instalados',
       icon: Icons.router_outlined,
+      trailing: _statusDaSecao(context, status),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (equipments.isEmpty)
-            const Text('Nenhum equipamento registrado.')
+            Text(
+              // A frase muda com a EXIGÊNCIA, não com a lista: "nenhum
+              // registrado" numa OS que exige equipamento não diz ao técnico
+              // que ele não vai conseguir fechar.
+              status == SectionStatus.pending
+                  ? 'Obrigatório para concluir: registre o equipamento instalado.'
+                  : 'Nenhum equipamento registrado.',
+              style: status == SectionStatus.pending
+                  ? TextStyle(color: context.statusColors.warning)
+                  : null,
+            )
           else
             for (final equipment in equipments)
               ListTile(
@@ -942,6 +982,7 @@ class _SignatureSection extends StatelessWidget {
 
     return _Section(
       title: 'Assinatura do cliente',
+      trailing: _statusDaSecao(context, state.bundle!.signatureStatus),
       icon: Icons.draw_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

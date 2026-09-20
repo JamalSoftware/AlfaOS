@@ -533,6 +533,13 @@ class StockLine {
 }
 
 /// Tudo que a tela de execução mostra, numa leitura só.
+/// O que uma seção da execução deve dizer sobre si ao técnico.
+///
+/// `neutral` não é "sem informação": é a afirmação de que aquela seção NÃO é
+/// exigida para concluir esta OS. Só por isso ela pode ficar sem selo — marcar
+/// tudo o que está vazio transformaria o aviso em ruído.
+enum SectionStatus { neutral, pending, done }
+
 ///
 /// Nove seções em nove requisições seriam nove chances de falhar em rede de
 /// borda, e a tela montaria aos pedaços.
@@ -586,46 +593,102 @@ class ExecutionBundle {
 
   bool get canComplete => pendencies.isEmpty;
 
+  /*
+    O estado de cada seção em relação ao que a CONCLUSÃO exige.
+
+    A autoridade é o servidor, e ela chega em dois campos que já vinham no
+    pacote: `requirements` (a política do tipo de OS) diz o que é exigido, e
+    `pendencies` (o resultado de `validateServiceOrderCompletion`) diz o que
+    ainda falta. O aplicativo não decide nada — ele traduz.
+
+    Sem isto, a tela precisaria inventar a regra por seção, e o candidato
+    óbvio ("lista vazia = pendente") estaria errado: equipamento vazio numa OS
+    que não exige equipamento é um atendimento correto, e pintá-lo de âmbar
+    ensinaria o técnico a ignorar o aviso.
+  */
+  SectionStatus _statusDe({required bool exigido, required bool satisfeito}) {
+    if (!exigido) return SectionStatus.neutral;
+    return satisfeito ? SectionStatus.done : SectionStatus.pending;
+  }
+
+  /// O relatório é exigido em QUALQUER OS, independente de política (v0.4).
+  SectionStatus get reportStatus => _statusDe(
+    exigido: true,
+    satisfeito: !pendencies.any(
+      (p) =>
+          p.code == 'EXECUTION_DIAGNOSIS_REQUIRED' ||
+          p.code == 'EXECUTION_WORK_REQUIRED',
+    ),
+  );
+
+  SectionStatus get checkInStatus => _statusDe(
+    exigido: requirements.requireCheckIn,
+    satisfeito: checkIn != null,
+  );
+
+  SectionStatus get checklistStatus => _statusDe(
+    exigido: requirements.requireChecklist && checklist.any((i) => i.required),
+    satisfeito: !pendencies.any((p) => p.code == 'CHECKLIST_ITEM_PENDING'),
+  );
+
+  SectionStatus get photosStatus => _statusDe(
+    exigido:
+        requirements.minEvidenceCount > 0 ||
+        requirements.requiredEvidenceCategories.isNotEmpty,
+    satisfeito: !pendencies.any(
+      (p) =>
+          p.code == 'EVIDENCE_COUNT_BELOW_MINIMUM' ||
+          p.code == 'EVIDENCE_CATEGORY_MISSING',
+    ),
+  );
+
+  SectionStatus get materialsStatus => _statusDe(
+    exigido: requirements.requireMaterials,
+    satisfeito: materials.isNotEmpty,
+  );
+
+  /*
+    Equipamento: a condição é a do servidor, letra por letra —
+    `policy.requireEquipment` e `count === 0` produzem `EQUIPMENT_REQUIRED`
+    (`validateServiceOrderCompletion`). "Uma linha basta" não é regra inventada
+    aqui: é a que decide o fechamento.
+  */
+  SectionStatus get equipmentStatus => _statusDe(
+    exigido: requirements.requireEquipment,
+    satisfeito: equipments.isNotEmpty,
+  );
+
+  SectionStatus get signatureStatus => _statusDe(
+    exigido: requirements.requireSignature,
+    satisfeito: signature != null && !signature!.stale,
+  );
+
   /// Progresso simples das etapas (§47). Sem gamificação: é uma contagem.
   ///
   /// Conta apenas o que a política EXIGE, mais as duas etapas que valem para
   /// qualquer OS (relatório e checklist obrigatório). Uma barra que contasse
   /// etapas não exigidas nunca chegaria ao fim — e o técnico aprenderia a
   /// ignorá-la.
+  ///
+  /// Lê os MESMOS status que os selos das seções: a barra e os selos não têm
+  /// como discordar, porque não existem duas derivações.
   ({int done, int total}) get progress {
     var total = 0;
     var done = 0;
 
-    void step(bool required, bool complete) {
-      if (!required) return;
+    void step(SectionStatus status) {
+      if (status == SectionStatus.neutral) return;
       total += 1;
-      if (complete) done += 1;
+      if (status == SectionStatus.done) done += 1;
     }
 
-    final hasReport = !pendencies.any(
-      (p) =>
-          p.code == 'EXECUTION_DIAGNOSIS_REQUIRED' ||
-          p.code == 'EXECUTION_WORK_REQUIRED',
-    );
-    step(true, hasReport);
-
-    step(requirements.requireCheckIn, checkIn != null);
-    step(
-      requirements.requireChecklist && checklist.any((i) => i.required),
-      !pendencies.any((p) => p.code == 'CHECKLIST_ITEM_PENDING'),
-    );
-    step(
-      requirements.minEvidenceCount > 0 ||
-          requirements.requiredEvidenceCategories.isNotEmpty,
-      !pendencies.any(
-        (p) =>
-            p.code == 'EVIDENCE_COUNT_BELOW_MINIMUM' ||
-            p.code == 'EVIDENCE_CATEGORY_MISSING',
-      ),
-    );
-    step(requirements.requireMaterials, materials.isNotEmpty);
-    step(requirements.requireEquipment, equipments.isNotEmpty);
-    step(requirements.requireSignature, signature != null && !signature!.stale);
+    step(reportStatus);
+    step(checkInStatus);
+    step(checklistStatus);
+    step(photosStatus);
+    step(materialsStatus);
+    step(equipmentStatus);
+    step(signatureStatus);
 
     return (done: done, total: total);
   }
