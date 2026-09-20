@@ -124,7 +124,35 @@ export interface FieldOrderDiagnostic {
    * ao endereço por causa de uma integração instável.
    */
   connectivityStatus: string;
+  /**
+   * Quando o provedor CONFIRMOU o estado pela última vez.
+   *
+   * É a idade da verificação — "Verificado há 3 min" —, e não há quanto tempo
+   * o cliente está nesse estado. O aplicativo escrevia a idade desta leitura
+   * colada no rótulo do estado e produzia "Online há 25 d", que é a duração
+   * que `statusSince` responde.
+   */
   observedAt: string | null;
+  /**
+   * Desde quando o estado ATUAL dura.
+   *
+   * Só anda quando o estado muda: reconfirmar `ONLINE` não reinicia a
+   * contagem. Sem este campo o Field não tinha como escrever a duração, e a
+   * única data disponível era a da verificação.
+   */
+  statusSince: string | null;
+  /**
+   * A confirmação envelheceu além do limiar da política.
+   *
+   * Decidido no SERVIDOR, como já é na web: `connectivity-policy.ts` é dona do
+   * alvo e do limiar, e a tela só pinta. Um segundo limiar compilado no APK
+   * discordaria de um ambiente que alongasse o alvo — e o aparelho em campo é
+   * justamente o que não se atualiza junto com a configuração.
+   *
+   * NÃO é um estado de conectividade: os estados continuam sendo `ONLINE`,
+   * `OFFLINE` e `UNKNOWN`. É um aviso sobre a IDADE da leitura.
+   */
+  verificationIsStale: boolean;
 }
 
 export interface FieldServiceOrderDetail {

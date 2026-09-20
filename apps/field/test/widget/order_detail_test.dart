@@ -333,7 +333,93 @@ void main() {
 
       expect(find.byKey(const Key('diagnostic-status')), findsOneWidget);
       expect(find.text('Online'), findsOneWidget);
-      expect(find.textContaining('há 5 min'), findsOneWidget);
+      // A idade da leitura é a da VERIFICAÇÃO, e agora diz isso.
+      expect(find.text('Verificado há 5 min'), findsOneWidget);
+    });
+
+    /*
+      As três frases da conectividade, na TELA.
+
+      O dono viu "Online há 25 d" em campo: a idade da verificação escrita ao
+      lado do rótulo do estado, lida como duração. Os casos de domínio ficam
+      em `test/order_connectivity_copy_test.dart`; estes provam que a tela
+      desenha cada frase no seu lugar — um teste que só olhasse o domínio
+      passaria com a tela não mostrando nada.
+    */
+    testWidgets(
+      'CONN-UI-01 · duração do estado e idade da verificação são linhas diferentes',
+      (tester) async {
+        await abrir(
+          tester,
+          payload: detail(
+            diagnostic: {
+              'connectivityStatus': 'ONLINE',
+              'statusSince': DateTime.now()
+                  .subtract(const Duration(days: 25))
+                  .toIso8601String(),
+              'observedAt': DateTime.now()
+                  .subtract(const Duration(minutes: 3))
+                  .toIso8601String(),
+              'verificationIsStale': false,
+            },
+          ),
+        );
+
+        expect(find.text('Online há 25 d'), findsOneWidget);
+        expect(find.text('Verificado há 3 min'), findsOneWidget);
+        // Fresco: nenhum aviso de leitura velha.
+        expect(find.byKey(const Key('diagnostic-stale')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'CONN-UI-02 · leitura velha avisa, e o estado continua o mesmo',
+      (tester) async {
+        await abrir(
+          tester,
+          payload: detail(
+            diagnostic: {
+              'connectivityStatus': 'ONLINE',
+              'statusSince': DateTime.now()
+                  .subtract(const Duration(days: 25))
+                  .toIso8601String(),
+              'observedAt': DateTime.now()
+                  .subtract(const Duration(hours: 2))
+                  .toIso8601String(),
+              'verificationIsStale': true,
+            },
+          ),
+        );
+
+        expect(find.text('Leitura desatualizada'), findsOneWidget);
+        // O aviso NÃO substitui o estado: os dois fatos convivem.
+        expect(find.text('Online'), findsOneWidget);
+        expect(find.text('Online há 25 d'), findsOneWidget);
+        expect(find.text('Verificado há 2 h'), findsOneWidget);
+      },
+    );
+
+    testWidgets('CONN-UI-03 · UNKNOWN não ganha duração na tela', (
+      tester,
+    ) async {
+      await abrir(
+        tester,
+        payload: detail(
+          diagnostic: {
+            'connectivityStatus': 'UNKNOWN',
+            'statusSince': DateTime.now()
+                .subtract(const Duration(days: 3))
+                .toIso8601String(),
+            'observedAt': DateTime.now()
+                .subtract(const Duration(days: 3))
+                .toIso8601String(),
+            'verificationIsStale': true,
+          },
+        ),
+      );
+
+      expect(find.byKey(const Key('diagnostic-status-duration')), findsNothing);
+      expect(find.text('Verificado há 3 d'), findsOneWidget);
     });
 
     testWidgets('falha ao atualizar NÃO vira offline falso', (tester) async {

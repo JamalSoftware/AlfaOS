@@ -611,13 +611,9 @@ class _DiagnosticSection extends ConsumerWidget {
   final String orderId;
   final OrderDetailState state;
 
-  static String _ago(DateTime when) {
-    final diff = DateTime.now().difference(when);
-    if (diff.inMinutes < 1) return 'agora';
-    if (diff.inMinutes < 60) return 'há ${diff.inMinutes} min';
-    if (diff.inHours < 24) return 'há ${diff.inHours} h';
-    return 'há ${diff.inDays} d';
-  }
+  // A formatação da idade mudou de casa: mora em `OrderDiagnostic`, junto das
+  // duas datas que ela pode descrever. Aqui ela ficava a um caractere de
+  // distância de ser aplicada à data errada — que foi o defeito.
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -665,17 +661,52 @@ class _DiagnosticSection extends ConsumerWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              if (diagnostic?.observedAt != null) ...[
-                const SizedBox(width: AlfaSpacing.sm),
-                Text(
-                  _ago(diagnostic!.observedAt!),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
             ],
           ),
+
+          /*
+            Três frases, e a separação é o ponto.
+
+            Antes, a idade da VERIFICAÇÃO era escrita ao lado do rótulo do
+            estado e o conjunto lia "Online há 25 d" — afirmando há quanto
+            tempo o cliente estava no ar com o relógio de quando alguém olhou.
+
+            Agora a duração do estado sai de `statusSince`, a idade da
+            confirmação sai de `observedAt`, e cada uma tem a sua linha. O
+            aviso de leitura velha é do SERVIDOR: o aplicativo não compara
+            idade com limiar nenhum.
+          */
+          if (diagnostic?.statusDurationLabel() case final duracao?) ...[
+            const SizedBox(height: AlfaSpacing.xs),
+            Text(
+              duracao,
+              key: const Key('diagnostic-status-duration'),
+              style: theme.textTheme.bodyMedium,
+            ),
+          ],
+
+          if (diagnostic?.verificationIsStale ?? false) ...[
+            const SizedBox(height: AlfaSpacing.xs),
+            Text(
+              'Leitura desatualizada',
+              key: const Key('diagnostic-stale'),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colors.warning,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+
+          if (diagnostic?.verificationAgeLabel() case final verificado?) ...[
+            const SizedBox(height: AlfaSpacing.xs),
+            Text(
+              verificado,
+              key: const Key('diagnostic-verified-at'),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
           /*
             Falha de leitura NÃO vira OFFLINE.
 

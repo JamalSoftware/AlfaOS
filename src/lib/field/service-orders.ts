@@ -1,6 +1,10 @@
 import type { ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCustomerDiagnostic } from "@/lib/customer-diagnostics";
+import {
+  isVerificationStale,
+  resolveConnectivityPolicy,
+} from "@/lib/connectivity-policy";
 import { TECHNICIAN_COMPLETED_WINDOW_DAYS } from "@/lib/service-orders";
 import { FieldError } from "./errors";
 import {
@@ -211,10 +215,25 @@ export async function getFieldServiceOrder(
           version: order.execution.version,
         }
       : null,
+    /*
+      O frescor é decidido AQUI, não no aplicativo.
+
+      `connectivity-policy.ts` é dona do alvo e do limiar, e a web já segue
+      essa regra — o read model entrega `verificationIsStale` resolvido e a
+      tela só pinta. Repetir o limiar no Dart criaria um segundo dono da
+      mesma política, e o APK em campo é exatamente o que não se atualiza
+      quando alguém alonga o alvo por variável de ambiente.
+    */
     diagnostic: diagnostic
       ? {
           connectivityStatus: diagnostic.connectivityStatus,
           observedAt: diagnostic.observedAt?.toISOString() ?? null,
+          statusSince: diagnostic.statusSince?.toISOString() ?? null,
+          verificationIsStale: isVerificationStale(
+            diagnostic.observedAt ?? null,
+            new Date(),
+            resolveConnectivityPolicy(),
+          ),
         }
       : null,
   });

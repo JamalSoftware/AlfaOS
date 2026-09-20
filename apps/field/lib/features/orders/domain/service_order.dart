@@ -326,15 +326,39 @@ class OrderDiagnostic {
   const OrderDiagnostic({
     required this.connectivityStatus,
     required this.observedAt,
+    this.statusSince,
+    this.verificationIsStale = false,
   });
 
   final String connectivityStatus;
+
+  /// Quando o provedor CONFIRMOU o estado pela última vez.
+  ///
+  /// É a idade da verificação, e nunca a duração do estado. A tela escrevia
+  /// esta idade colada no rótulo e produzia "Online há 25 d" — uma frase que
+  /// afirma há quanto tempo o cliente está no ar usando o relógio de quando
+  /// alguém olhou.
   final DateTime? observedAt;
+
+  /// Desde quando o estado ATUAL dura. Só anda quando o estado muda.
+  final DateTime? statusSince;
+
+  /// A confirmação envelheceu além do limiar — decidido pelo SERVIDOR.
+  ///
+  /// Não é um estado de conectividade: os estados continuam sendo `ONLINE`,
+  /// `OFFLINE` e `UNKNOWN`. Um quarto valor faria a tela escolher entre
+  /// mostrar o estado e mostrar que a leitura é velha, quando os dois fatos
+  /// são verdadeiros ao mesmo tempo.
+  final bool verificationIsStale;
 
   factory OrderDiagnostic.fromJson(Map<String, dynamic> json) =>
       OrderDiagnostic(
         connectivityStatus: json['connectivityStatus'] as String? ?? 'UNKNOWN',
         observedAt: _parseDate(json['observedAt']),
+        statusSince: _parseDate(json['statusSince']),
+        // Ausente num servidor anterior a esta versão: não avisa, e não
+        // inventa um limiar local para decidir sozinho.
+        verificationIsStale: json['verificationIsStale'] as bool? ?? false,
       );
 
   String get label {
@@ -350,6 +374,41 @@ class OrderDiagnostic {
 
   bool get isOnline => connectivityStatus == 'ONLINE';
   bool get isOffline => connectivityStatus == 'OFFLINE';
+
+  /*
+    As duas frases, separadas na origem para não voltarem a se confundir.
+
+    `statusDuration` responde "há quanto tempo o cliente está assim" e sai de
+    `statusSince`. `verificationAge` responde "quando conferimos" e sai de
+    `observedAt`. Trocar uma pela outra é o defeito que o dono viu em campo,
+    e é por isso que cada uma só aceita a sua data.
+  */
+
+  /// "Online há 25 d" — a duração do estado. `null` sem `statusSince`.
+  ///
+  /// `UNKNOWN` nunca tem duração: não saber não é um estado que dure, e
+  /// escrever "Desconhecido há 3 d" afirmaria uma observação que não houve.
+  String? statusDurationLabel({DateTime? now}) {
+    if (!isOnline && !isOffline) return null;
+    final desde = statusSince;
+    if (desde == null) return null;
+    return '$label ${_ago(desde, now: now)}';
+  }
+
+  /// "Verificado há 3 min" — a idade da confirmação. `null` sem `observedAt`.
+  String? verificationAgeLabel({DateTime? now}) {
+    final quando = observedAt;
+    if (quando == null) return null;
+    return 'Verificado ${_ago(quando, now: now)}';
+  }
+
+  static String _ago(DateTime when, {DateTime? now}) {
+    final diff = (now ?? DateTime.now()).difference(when);
+    if (diff.inMinutes < 1) return 'agora';
+    if (diff.inMinutes < 60) return 'há ${diff.inMinutes} min';
+    if (diff.inHours < 24) return 'há ${diff.inHours} h';
+    return 'há ${diff.inDays} d';
+  }
 }
 
 class OrderDetail {
