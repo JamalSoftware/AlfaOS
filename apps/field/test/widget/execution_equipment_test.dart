@@ -833,6 +833,65 @@ void main() {
     },
   );
 
+  /*
+    # A linha do equipamento não repete o estado da seção
+
+    O dono apontou que o ícone à esquerda de cada equipamento registrado era
+    redundante: o selo do CABEÇALHO já diz se a seção está pendente ou
+    concluída, e um símbolo por linha não distingue nada — toda linha daquela
+    lista é um equipamento.
+
+    Sem estes casos nada impediria alguém de recolocá-lo: o ícone não era
+    afirmado por teste nenhum.
+  */
+  testWidgets('EQUIP-UI-01 · o item registrado NÃO tem ícone à esquerda', (
+    tester,
+  ) async {
+    await _abrirComPolitica(
+      tester,
+      requireEquipment: true,
+      equipments: const [_equipamentoDoServidor],
+    );
+
+    // A asserção é sobre a PROPRIEDADE do `ListTile`, e não sobre "não há
+    // ícone no cartão": o cabeçalho tem o próprio ícone de seção, o selo é um
+    // ícone, e o botão de remover é outro. Uma asserção ampla proibiria os
+    // três e falaria de outra coisa.
+    final tile = tester.widget<ListTile>(_linhaDoEquipamento());
+    expect(tile.leading, isNull);
+  });
+
+  testWidgets('EQUIP-UI-02 · o texto e o botão de remover continuam lá', (
+    tester,
+  ) async {
+    final harness = await _abrirComPolitica(
+      tester,
+      requireEquipment: true,
+      equipments: const [_equipamentoDoServidor],
+    );
+
+    // O conteúdo da linha não mudou.
+    expect(find.textContaining('SERIAL-DO-SERVIDOR'), findsOneWidget);
+    final tile = tester.widget<ListTile>(_linhaDoEquipamento());
+    expect(tile.title, isNotNull);
+
+    // E o remover ainda REMOVE — a prova é a requisição, não o ícone.
+    final rotaRemocao =
+        '/service-orders/os-1/equipment/${_equipamentoDoServidor["id"]}';
+    harness.transport.onJson('POST', rotaRemocao);
+    harness.transport.onJson(
+      'GET',
+      '/service-orders/os-1/execution',
+      data: _bundle(requireEquipment: true, version: 5),
+    );
+
+    await tester.tap(find.byTooltip('Remover'));
+    await _settle(tester);
+
+    expect(tester.takeException(), isNull);
+    expect(harness.transport.countOf('POST', rotaRemocao), 1);
+  });
+
   testWidgets('EQUIP-UX-09 · o selo tem rótulo acessível, não só cor', (
     tester,
   ) async {
@@ -901,4 +960,13 @@ Finder _seloDoEquipamento(IconData icone) => find.descendant(
     matching: find.byType(Card),
   ),
   matching: find.byIcon(icone),
+);
+
+/// A linha de UM equipamento registrado, dentro do cartão da seção.
+Finder _linhaDoEquipamento() => find.descendant(
+  of: find.ancestor(
+    of: find.text('Equipamentos instalados'),
+    matching: find.byType(Card),
+  ),
+  matching: find.byType(ListTile),
 );

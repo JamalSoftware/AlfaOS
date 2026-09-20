@@ -871,7 +871,10 @@ class _EquipmentSection extends StatelessWidget {
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 dense: true,
-                leading: const Icon(Icons.memory, size: 18),
+                // Sem ícone à esquerda: quem responde pelo ESTADO da seção é o
+                // selo do cabeçalho, e um ícone por linha repetia isso sem
+                // acrescentar informação — toda linha desta lista é um
+                // equipamento, então o símbolo não distingue nada.
                 title: Text(
                   '${equipment.equipmentType}'
                   '${equipment.model != null ? " · ${equipment.model}" : ""}',
