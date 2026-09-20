@@ -1556,3 +1556,51 @@ MEDIDA — `signAndSave` volta antes de o `router.refresh()` chegar, e o bloco d
 assinatura empurra o botão 68 px depois do scroll —, mas 68 px não tiram o botão
 de uma viewport de 844, então a falha observada não está explicada e nenhuma
 correção especulativa foi aplicada.
+
+---
+
+## 21. `RC-1` — VALIDAÇÃO FÍSICA DO §382 E O SELO DE ESTADO DAS SEÇÕES
+
+`READY FOR FINAL OWNER VALIDATION` (20/09/2026). **Zero migration, zero
+dependência, zero rota, zero schema; o diff de produção é Flutter.**
+
+**PRD §382 — validação física do dono: `PASS`.** No aparelho real, com o APK
+existente: o conteúdo editado do checklist persistiu depois do F5, chegou ao
+Field, a Instalação mostrou os 6 itens, 5 de 6 bloquearam a conclusão, o erro
+**nomeou o item que faltava**, e com 6 de 6 o fechamento liberou e a OS foi
+concluída. É a prova de ponta a ponta que nenhum teste substitui: configuração
+na web → snapshot no aparelho → bloqueio → liberação.
+
+**O achado da validação era de UX, e era mais largo do que pareceu.** O dono
+apontou que "Equipamentos instalados" não dizia se estava pendente ou
+concluído. O inventário mostrou que **só o Relatório tinha selo**: check-in,
+checklist, fotos, materiais, equipamento e assinatura não tinham nenhum.
+
+**O estado vem do SERVIDOR, e o atalho óbvio estaria errado.** `requirements`
+(a política do tipo) diz o que é exigido e `pendencies` (o resultado de
+`validateServiceOrderCompletion`) diz o que falta — os dois já vinham no pacote
+da execução. "Lista vazia = pendente" pintaria de âmbar um equipamento vazio
+numa OS que não exige equipamento, que é um atendimento correto; e o aviso que
+aparece onde não é preciso é o aviso que o técnico aprende a ignorar.
+
+A condição de "satisfeito" do equipamento é a do servidor, letra por letra:
+`requireEquipment` com `count === 0` produz `EQUIPMENT_REQUIRED`. **A barra de
+progresso passou a ler os MESMOS getters**, então barra e selos não têm como
+discordar — antes eram duas derivações do mesmo fato.
+
+**Três sabotagens, três detectadas**, cada uma com o diff provado entrando e
+saindo: exigido+vazio virar neutro, não exigido+vazio virar pendente, e o selo
+de concluído sumir da tela.
+
+**Auditoria de conectividade — DEFEITO DE COPY ENCONTRADO, NÃO CORRIGIDO.** A
+tela de OS do **Field** escreve o estado e a idade lado a lado e produz
+*"Online há 25 d"*. O número sai de **`observedAt`** (a idade da última
+observação), e não de `statusSince` (desde quando o estado dura) — e a frase é
+lida como duração. O DTO do Field (`src/lib/field/service-orders.ts`) manda
+**só** `connectivityStatus` e `observedAt`: `statusSince` **não chega ao
+aplicativo**, e não existe nenhum conceito de frescor lá — nem limiar, nem
+sinal. A web não tem o defeito: a `CustomerDiagnosticPanel` rotula o valor como
+*"Última atualização"*, e o detalhe da CTO usa `connectivityStatusDuration`,
+que existe justamente para forçar a distinção no tipo. **Nada foi alterado**:
+a correção é decisão de produto (rótulo e/ou envio de `statusSince` ao Field),
+e §11 do enunciado manda reportar o comportamento atual antes de mexer.
