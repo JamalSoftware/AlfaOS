@@ -209,15 +209,27 @@ class _Section extends StatelessWidget {
   `semanticLabel` existe porque cor e forma não bastam para quem usa leitor de
   tela — e é também o que os testes leem.
 */
+/// O selo de uma seção.
+///
+/// `done` e `recorded` são o MESMO verde: o técnico não precisa aprender dois
+/// símbolos para "está certo". O que os separa é a palavra que o leitor de
+/// tela anuncia — "Concluído" afirma que a exigência foi cumprida, e
+/// "Registrado" afirma que o dado chegou ao servidor sem nunca ter sido
+/// exigido. Prometer conclusão de algo que ninguém pediu é pior que não dizer
+/// nada.
 Widget? _statusDaSecao(BuildContext context, SectionStatus status) {
   if (status == SectionStatus.neutral) return null;
   final cores = context.statusColors;
-  final pronto = status == SectionStatus.done;
+  final pendente = status == SectionStatus.pending;
   return Icon(
-    pronto ? Icons.check_circle : Icons.error_outline,
+    pendente ? Icons.error_outline : Icons.check_circle,
     size: 18,
-    color: pronto ? cores.success : cores.warning,
-    semanticLabel: pronto ? 'Concluído' : 'Pendente',
+    color: pendente ? cores.warning : cores.success,
+    semanticLabel: switch (status) {
+      SectionStatus.pending => 'Pendente',
+      SectionStatus.recorded => 'Registrado',
+      _ => 'Concluído',
+    },
   );
 }
 

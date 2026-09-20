@@ -23,6 +23,7 @@ ExecutionBundle _bundle({
   List<Map<String, dynamic>> pendencies = const [],
   List<Map<String, dynamic>> equipments = const [],
   List<Map<String, dynamic>> materials = const [],
+  List<Map<String, dynamic>> evidences = const [],
 }) {
   return ExecutionBundle.fromJson({
     'orderId': 'os-1',
@@ -37,8 +38,17 @@ ExecutionBundle _bundle({
     'pendencies': pendencies,
     'equipments': equipments,
     'materials': materials,
+    'evidences': evidences,
   });
 }
+
+Map<String, dynamic> _foto({String id = 'ev-1', String categoria = 'OTHER'}) =>
+    {
+      'id': id,
+      'category': categoria,
+      'caption': null,
+      'createdAt': '2026-09-20T12:00:00.000Z',
+    };
 
 Map<String, dynamic> _equipamento() => {
   'id': 'eq-1',
@@ -93,6 +103,104 @@ void main() {
     });
   });
 
+  /*
+    O dono pediu confirmação visível de que a FOTO subiu.
+
+    O que está em jogo é a diferença entre "a exigência foi cumprida" e "isto
+    foi gravado". Uma foto opcional nunca cumpre exigência nenhuma — e ainda
+    assim o técnico precisa saber que ela chegou, porque ele está no telhado e
+    não vai conferir depois.
+  */
+  group('FOTO-UX — verde de exigência × verde de confirmação', () {
+    test('FOTO-UX-01 · opcional e sem foto → NEUTRO', () {
+      expect(_bundle().photosStatus, SectionStatus.neutral);
+    });
+
+    test('FOTO-UX-02 · opcional com foto PERSISTIDA → REGISTRADO', () {
+      // `evidences` é a lista do servidor. A foto ainda em upload vive em
+      // `pendingPhotos`, que nem chega a este modelo.
+      final bundle = _bundle(evidences: [_foto()]);
+      expect(bundle.photosStatus, SectionStatus.recorded);
+    });
+
+    test('FOTO-UX-03 · exigido e insuficiente → PENDENTE, mesmo com foto', () {
+      /*
+        Aqui está o erro que este caso existe para impedir: uma foto gravada
+        NÃO satisfaz um mínimo de três. Quem responde é a pendência do
+        servidor; "tem foto" responde outra pergunta.
+      */
+      final bundle = _bundle(
+        requirements: {'minEvidenceCount': 3},
+        evidences: [_foto()],
+        pendencies: [
+          {'code': 'EVIDENCE_COUNT_BELOW_MINIMUM', 'message': 'Faltam fotos.'},
+        ],
+      );
+      expect(bundle.photosStatus, SectionStatus.pending);
+    });
+
+    test('FOTO-UX-04 · exigido e satisfeito → CONCLUÍDO, não registrado', () {
+      // Com exigência cumprida o selo afirma conclusão — e a seção volta a
+      // contar no progresso.
+      final bundle = _bundle(
+        requirements: {'minEvidenceCount': 1},
+        evidences: [_foto()],
+      );
+      expect(bundle.photosStatus, SectionStatus.done);
+    });
+
+    test('FOTO-UX-05 · categoria exigida e ausente → PENDENTE', () {
+      final bundle = _bundle(
+        requirements: {
+          'requiredEvidenceCategories': ['OPTICAL_MEASUREMENT'],
+        },
+        evidences: [_foto()],
+        pendencies: [
+          {
+            'code': 'EVIDENCE_CATEGORY_MISSING',
+            'message': 'Falta a medição óptica.',
+            'category': 'OPTICAL_MEASUREMENT',
+          },
+        ],
+      );
+      expect(bundle.photosStatus, SectionStatus.pending);
+    });
+
+    test('FOTO-UX-06 · foto opcional NÃO muda o denominador do progresso', () {
+      /*
+        A regressão que este caso trava: se `recorded` contasse como etapa, o
+        técnico veria "1 de 1" virar "1 de 2" ao registrar uma foto que
+        ninguém pediu — e o progresso andaria para trás por fazer trabalho a
+        mais.
+      */
+      final antes = _bundle();
+      final depois = _bundle(evidences: [_foto()]);
+
+      expect(antes.progress.total, depois.progress.total);
+      expect(antes.progress.done, depois.progress.done);
+      // Controle positivo: só o relatório é exigido nos dois.
+      expect(depois.progress.total, 1);
+    });
+
+    test('FOTO-UX-07 · material NÃO ganha verde por existir', () {
+      // A confirmação positiva é da foto, por decisão do dono. Material
+      // registrado numa OS que não o exige continua neutro — senão a tela
+      // volta a marcar tudo e o selo perde o sentido.
+      final bundle = _bundle(
+        materials: [
+          {
+            'id': 'm-9',
+            'description': 'Conector',
+            'quantity': 2,
+            'unit': 'un',
+            'inventoryItemId': null,
+          },
+        ],
+      );
+      expect(bundle.materialsStatus, SectionStatus.neutral);
+    });
+  });
+
   group('SECSTATUS — a mesma autoridade alimenta barra e selos', () {
     test('SECSTATUS-01 · material segue a política, como o equipamento', () {
       expect(
@@ -139,8 +247,12 @@ void main() {
           bundle.equipmentStatus,
           bundle.signatureStatus,
         ];
+        // Os dois estados que a política NÃO exige — e é por isso que
+        // nenhum dos dois entra no denominador.
         final exigidos = status
-            .where((s) => s != SectionStatus.neutral)
+            .where(
+              (s) => s != SectionStatus.neutral && s != SectionStatus.recorded,
+            )
             .toList(growable: false);
         final prontos = exigidos
             .where((s) => s == SectionStatus.done)

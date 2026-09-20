@@ -538,7 +538,16 @@ class StockLine {
 /// `neutral` não é "sem informação": é a afirmação de que aquela seção NÃO é
 /// exigida para concluir esta OS. Só por isso ela pode ficar sem selo — marcar
 /// tudo o que está vazio transformaria o aviso em ruído.
-enum SectionStatus { neutral, pending, done }
+///
+/// `recorded` é o quarto valor porque `done` e ele respondem perguntas
+/// diferentes que por acaso têm a mesma cor: `done` diz "a exigência foi
+/// cumprida" e `recorded` diz "isto foi gravado no servidor". Colapsá-los num
+/// só valor pareceria economia e custaria a BARRA DE PROGRESSO — ela conta o
+/// que a política exige, e uma seção opcional que virasse `done` ao ganhar
+/// conteúdo faria o denominador CRESCER enquanto o técnico trabalha ("2 de 3"
+/// viraria "3 de 4"). Visualmente os dois são o mesmo ✓ verde; o que muda é o
+/// que cada um afirma, e portanto a leitura de tela.
+enum SectionStatus { neutral, pending, done, recorded }
 
 ///
 /// Nove seções em nove requisições seriam nove chances de falhar em rede de
@@ -606,8 +615,18 @@ class ExecutionBundle {
     que não exige equipamento é um atendimento correto, e pintá-lo de âmbar
     ensinaria o técnico a ignorar o aviso.
   */
-  SectionStatus _statusDe({required bool exigido, required bool satisfeito}) {
-    if (!exigido) return SectionStatus.neutral;
+  ///
+  /// `registrado` só é consultado quando a seção NÃO é exigida: com exigência,
+  /// quem responde é a pendência do servidor, e "existe uma foto" jamais pode
+  /// satisfazer um `minEvidenceCount` de três.
+  SectionStatus _statusDe({
+    required bool exigido,
+    required bool satisfeito,
+    bool registrado = false,
+  }) {
+    if (!exigido) {
+      return registrado ? SectionStatus.recorded : SectionStatus.neutral;
+    }
     return satisfeito ? SectionStatus.done : SectionStatus.pending;
   }
 
@@ -631,6 +650,16 @@ class ExecutionBundle {
     satisfeito: !pendencies.any((p) => p.code == 'CHECKLIST_ITEM_PENDING'),
   );
 
+  /*
+    Foto: além do exigido, a seção confirma o que FOI GRAVADO.
+
+    O técnico tira a foto no meio do telhado e precisa saber que ela chegou. A
+    confirmação vem de `evidences`, que é a lista do SERVIDOR — o pacote traz
+    só evidência `COMMITTED` (`src/lib/field/execution.ts`), e a foto pendente
+    vive em `pendingPhotos`, fora daqui. Um verde tirado do seletor local
+    apareceria antes do upload e sumiria quando ele falhasse, que é
+    exatamente o oposto de confirmar.
+  */
   SectionStatus get photosStatus => _statusDe(
     exigido:
         requirements.minEvidenceCount > 0 ||
@@ -640,6 +669,7 @@ class ExecutionBundle {
           p.code == 'EVIDENCE_COUNT_BELOW_MINIMUM' ||
           p.code == 'EVIDENCE_CATEGORY_MISSING',
     ),
+    registrado: evidences.isNotEmpty,
   );
 
   SectionStatus get materialsStatus => _statusDe(
@@ -677,7 +707,12 @@ class ExecutionBundle {
     var done = 0;
 
     void step(SectionStatus status) {
-      if (status == SectionStatus.neutral) return;
+      // `recorded` sai junto com `neutral`: a seção continua NÃO exigida, e o
+      // que mudou foi só haver conteúdo gravado. Contá-la faria o total subir
+      // no instante em que o técnico registra algo opcional.
+      if (status == SectionStatus.neutral || status == SectionStatus.recorded) {
+        return;
+      }
       total += 1;
       if (status == SectionStatus.done) done += 1;
     }

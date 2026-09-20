@@ -855,6 +855,166 @@ void main() {
       expect(find.textContaining('Obrigatórias: ONU / ONT'), findsOneWidget);
       expect(find.textContaining('Mínimo de 2 foto'), findsOneWidget);
     });
+
+    /*
+      # O selo da seção Fotos (decisão do dono, 20/09/2026)
+
+      O dono pediu confirmação VISÍVEL de que a foto subiu. O que estes casos
+      fixam é a diferença entre os dois verdes:
+
+      - "Concluído" afirma que a POLÍTICA foi cumprida;
+      - "Registrado" afirma que o dado chegou ao SERVIDOR.
+
+      A segunda é a que faltava, e ela não pode virar a primeira: uma foto
+      gravada numa OS que exige três não cumpre nada.
+
+      O selo é procurado no CABEÇALHO da seção, e isso importa: cada foto já
+      persistida desenha o próprio `check_circle` na lista: um finder que
+      apanhasse o cartão inteiro passaria mesmo com o cabeçalho sem selo
+      nenhum.
+    */
+    testWidgets('FOTO-UI-01 · opcional e sem foto: nenhum selo', (
+      tester,
+    ) async {
+      await abrir(tester);
+
+      expect(_seloDeFotos(Icons.check_circle), findsNothing);
+      expect(_seloDeFotos(Icons.error_outline), findsNothing);
+    });
+
+    testWidgets(
+      'FOTO-UI-02 · opcional com foto do servidor: verde REGISTRADO',
+      (tester) async {
+        await abrir(
+          tester,
+          payload: bundle(evidences: [_evidenciaPersistida()]),
+        );
+
+        expect(_seloDeFotos(Icons.error_outline), findsNothing);
+        final selo = tester.widget<Icon>(_seloDeFotos(Icons.check_circle));
+        // A palavra é o contrato: "Registrado", nunca "Concluído" — nada foi
+        // exigido aqui.
+        expect(selo.semanticLabel, 'Registrado');
+      },
+    );
+
+    testWidgets('FOTO-UI-03 · exigido e insuficiente: âmbar, mesmo com foto', (
+      tester,
+    ) async {
+      await abrir(
+        tester,
+        payload: bundle(
+          requirements: {
+            'requireChecklist': false,
+            'requireSignature': false,
+            'requireMaterials': false,
+            'requireEquipment': false,
+            'requireCheckIn': false,
+            'minEvidenceCount': 3,
+            'requiredEvidenceCategories': <String>[],
+          },
+          evidences: [_evidenciaPersistida()],
+          pendencies: const [
+            {
+              'code': 'EVIDENCE_COUNT_BELOW_MINIMUM',
+              'message': 'Anexe pelo menos 3 fotos.',
+            },
+          ],
+        ),
+      );
+
+      expect(_seloDeFotos(Icons.check_circle), findsNothing);
+      final selo = tester.widget<Icon>(_seloDeFotos(Icons.error_outline));
+      expect(selo.semanticLabel, 'Pendente');
+    });
+
+    testWidgets('FOTO-UI-04 · exigido e satisfeito: verde CONCLUÍDO', (
+      tester,
+    ) async {
+      await abrir(
+        tester,
+        payload: bundle(
+          requirements: {
+            'requireChecklist': false,
+            'requireSignature': false,
+            'requireMaterials': false,
+            'requireEquipment': false,
+            'requireCheckIn': false,
+            'minEvidenceCount': 1,
+            'requiredEvidenceCategories': <String>[],
+          },
+          evidences: [_evidenciaPersistida()],
+        ),
+      );
+
+      expect(_seloDeFotos(Icons.error_outline), findsNothing);
+      final selo = tester.widget<Icon>(_seloDeFotos(Icons.check_circle));
+      expect(selo.semanticLabel, 'Concluído');
+    });
+
+    testWidgets('FOTO-UI-05 · foto que FALHOU no envio não pinta verde', (
+      tester,
+    ) async {
+      /*
+        O caso que o §12 proíbe: verde otimista.
+
+        Aqui a foto é tirada de verdade e o upload é RECUSADO pelo servidor.
+        Ela continua na tela, guardada no aparelho e com o aviso de que não
+        foi enviada (§58) — e é exatamente por isso que o cabeçalho não pode
+        dizer que está tudo certo. `evidences` vem do servidor, e o servidor
+        não tem nada.
+      */
+      final h = await abrir(tester, photo: _arquivoDeFoto());
+      h.harness.transport.onJson(
+        'POST',
+        '/service-orders/os-1/evidence',
+        status: 500,
+        data: const {'code': 'INTERNAL', 'message': 'Falha ao gravar.'},
+      );
+
+      await tester.tap(find.text('ADICIONAR FOTO'));
+      await settle(tester);
+      // O envio lê um arquivo REAL: I/O não avança sob o relógio falso do
+      // `flutter_test`, e sem `runAsync` o teste pendura em vez de falhar.
+      await _enviarFoto(tester);
+
+      // A foto ficou visível e honesta sobre o próprio estado...
+      expect(find.textContaining('não enviada'), findsOneWidget);
+      // ...e o cabeçalho não promete nada.
+      expect(_seloDeFotos(Icons.check_circle), findsNothing);
+    });
+
+    testWidgets('FOTO-UI-06 · a MESMA foto, agora aceita, pinta o verde', (
+      tester,
+    ) async {
+      /*
+        Controle positivo do caso anterior, e não repetição dele: sem este, o
+        `findsNothing` do FOTO-UI-05 passaria numa tela que nunca desenha
+        selo nenhum. O que muda entre os dois é UMA coisa — a resposta do
+        servidor ao upload.
+      */
+      final h = await abrir(tester, photo: _arquivoDeFoto());
+      h.harness.transport.onJson(
+        'POST',
+        '/service-orders/os-1/evidence',
+        status: 201,
+        data: {'evidence': _evidenciaPersistida()},
+      );
+      // A releitura pós-sucesso: agora o servidor TEM a foto.
+      h.harness.transport.onJson(
+        'GET',
+        '/service-orders/os-1/execution',
+        data: bundle(evidences: [_evidenciaPersistida()], version: 4),
+      );
+
+      await tester.tap(find.text('ADICIONAR FOTO'));
+      await settle(tester);
+      await _enviarFoto(tester);
+
+      expect(find.textContaining('não enviada'), findsNothing);
+      final selo = tester.widget<Icon>(_seloDeFotos(Icons.check_circle));
+      expect(selo.semanticLabel, 'Registrado');
+    });
   });
 
   group('checklist', () {
@@ -1136,4 +1296,74 @@ void main() {
       expect(find.text('1 de 3 etapas concluídas'), findsOneWidget);
     });
   });
+}
+
+/// Uma evidência já PERSISTIDA, como o servidor a devolve no pacote.
+///
+/// O pacote traz só evidência `COMMITTED` (`src/lib/field/execution.ts`): a
+/// etiqueta temporária e a foto em upload não chegam aqui.
+Map<String, dynamic> _evidenciaPersistida({String id = 'ev-1'}) => {
+  'id': id,
+  'category': 'OTHER',
+  'caption': null,
+  'createdAt': '2026-09-20T12:00:00.000Z',
+};
+
+/// O selo do CABEÇALHO da seção "Fotos", e só o dele.
+///
+/// Cada foto persistida desenha um `check_circle` próprio na lista, então o
+/// finder precisa parar na `Row` do título. Buscar pelo ícone dentro do
+/// cartão inteiro encontraria as fotos e passaria com o cabeçalho vazio.
+Finder _seloDeFotos(IconData icone) => find.descendant(
+  of: find.ancestor(of: find.text('Fotos'), matching: find.byType(Row)).first,
+  matching: find.byIcon(icone),
+);
+
+/// Um arquivo de foto REAL no disco.
+///
+/// Precisa ser real: o repositório lê os bytes para montar o multipart, e um
+/// caminho inexistente pendura o envio em vez de falhar com mensagem.
+File _arquivoDeFoto() {
+  final dir = Directory.systemTemp.createTempSync('alfaos-foto-');
+  addTearDown(() => dir.deleteSync(recursive: true));
+  return File('${dir.path}/foto.png')
+    ..writeAsBytesSync(<int>[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+}
+
+/// Escolhe a categoria e espera o upload REAL terminar.
+///
+/// Duas razões para não ser `settle`:
+///
+/// 1. o envio lê um arquivo de verdade, e I/O não avança sob o relógio falso
+///    do `flutter_test` — daí o `runAsync`;
+/// 2. enquanto a foto está subindo, a linha dela mostra um
+///    `CircularProgressIndicator`, que é animação infinita:
+///    `pumpAndSettle` estoura por tempo em vez de dizer o que houve.
+Future<void> _enviarFoto(WidgetTester tester) async {
+  // A PRIMEIRA categoria da folha: 'Outra' é a última de treze e fica fora da
+  // área visível do bottom sheet, onde o toque não chega.
+  await tester.tap(find.text('Antes do serviço'));
+
+  /*
+    Tempo real e quadros falsos, INTERCALADOS — e isso não é tentativa e erro.
+
+    O envio lê um arquivo do disco para montar o multipart, e o transporte
+    falso drena esse mesmo fluxo: são duas operações de I/O de verdade, que
+    não avançam sob o relógio do `flutter_test`. Só `runAsync` as deixa
+    correr. Mas a continuação delas é agendada na zona FALSA, e quem a executa
+    é o `pump`. Uma volta só de cada não basta: a requisição sai e a resposta
+    fica pelo caminho, com a linha da foto parada em "Enviando...".
+
+    `pumpAndSettle` não serve aqui: a foto em upload mostra um
+    `CircularProgressIndicator`, e animação infinita o faz estourar por tempo
+    sem dizer o que houve.
+  */
+  for (var volta = 0; volta < 8; volta++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 120)),
+    );
+    for (var i = 0; i < 3; i++) {
+      await tester.pump(const Duration(milliseconds: 60));
+    }
+  }
 }

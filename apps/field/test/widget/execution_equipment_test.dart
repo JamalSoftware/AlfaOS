@@ -105,6 +105,7 @@ Map<String, dynamic> _bundle({
   List<Map<String, dynamic>> equipments = const [],
   int version = 3,
   bool requireEquipment = false,
+  List<Map<String, dynamic>> pendencies = const [],
 }) {
   return {
     'orderId': 'os-1',
@@ -142,7 +143,7 @@ Map<String, dynamic> _bundle({
       'minEvidenceCount': 0,
       'requiredEvidenceCategories': <String>[],
     },
-    'pendencies': const [],
+    'pendencies': pendencies,
   };
 }
 
@@ -153,7 +154,11 @@ Future<void> _settle(WidgetTester tester) async {
   await tester.pumpAndSettle(const Duration(milliseconds: 50));
 }
 
-Future<Harness> _abrirTela(WidgetTester tester) async {
+Future<Harness> _abrirTela(
+  WidgetTester tester, {
+  bool requireEquipment = false,
+  List<Map<String, dynamic>> pendencies = const [],
+}) async {
   tester.view.physicalSize = const Size(1200, 5000);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
@@ -162,7 +167,7 @@ Future<Harness> _abrirTela(WidgetTester tester) async {
   harness.transport.onJson(
     'GET',
     '/service-orders/os-1/execution',
-    data: _bundle(),
+    data: _bundle(requireEquipment: requireEquipment, pendencies: pendencies),
   );
   harness.transport.onJson('GET', '/inventory', data: {'items': <dynamic>[]});
 
@@ -772,6 +777,61 @@ void main() {
     // E a frase neutra continua sendo a antiga.
     expect(find.text('Nenhum equipamento registrado.'), findsOneWidget);
   });
+
+  testWidgets(
+    'EQUIP-UX-10 · registrar equipamento vira o selo de âmbar para verde',
+    (tester) async {
+      /*
+        A ida e volta INTEIRA, que é o que o dono vai repetir no aparelho.
+
+        Nem o âmbar nem o verde são decididos aqui: o primeiro vem da
+        pendência `EQUIPMENT_REQUIRED` que o servidor mandou, e o segundo vem
+        do pacote RELIDO depois do registro. Entre os dois há um POST real
+        pelo repositório de produção. Um teste que trocasse o selo no cliente
+        passaria sem o servidor ter gravado nada.
+      */
+      final harness = await _abrirTela(
+        tester,
+        requireEquipment: true,
+        pendencies: const [
+          {
+            'code': 'EQUIPMENT_REQUIRED',
+            'message': 'Registre o equipamento instalado.',
+          },
+        ],
+      );
+
+      expect(_seloDoEquipamento(Icons.error_outline), findsOneWidget);
+      expect(find.textContaining('Obrigatório para concluir'), findsOneWidget);
+
+      harness.transport.onJson('POST', _rota);
+      await _preencher(tester);
+
+      // O pacote que o servidor devolve DEPOIS do registro: a exigência
+      // continua de pé, e a pendência sumiu porque ela foi cumprida.
+      harness.transport.onJson(
+        'GET',
+        '/service-orders/os-1/execution',
+        data: _bundle(
+          equipments: const [_equipamentoDoServidor],
+          version: 4,
+          requireEquipment: true,
+        ),
+      );
+
+      await tester.tap(find.byKey(_submit));
+      await _settle(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(_seloDoEquipamento(Icons.check_circle), findsOneWidget);
+      expect(_seloDoEquipamento(Icons.error_outline), findsNothing);
+      expect(find.textContaining('Obrigatório para concluir'), findsNothing);
+      // O selo verde afirma CONCLUSÃO, e não "registrado": a seção era
+      // exigida.
+      final selo = tester.widget<Icon>(_seloDoEquipamento(Icons.check_circle));
+      expect(selo.semanticLabel, 'Concluído');
+    },
+  );
 
   testWidgets('EQUIP-UX-09 · o selo tem rótulo acessível, não só cor', (
     tester,
