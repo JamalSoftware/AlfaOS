@@ -1802,3 +1802,69 @@ dirige o upload de verdade e o servidor **recusa**.
   que a §382 fechou para o checklist (*"ninguém configura cobertura por
   `curl`"*). Estender o painel para os outros campos da política é decisão do
   dono, não foi pedida nesta fase e não foi feita.
+
+---
+
+## 24. `RC-1` — RELEASE HARDENING: VALIDAÇÃO DO DONO E PUBLICAÇÃO
+
+**`RC-1 RELEASE HARDENING DEBTS` — `OWNER VALIDATION PASS` (20/09/2026).**
+Publicado em `origin/main`, sem tag. **Fase de fechamento: zero código de
+produto, zero migration, zero dependência.**
+
+### 24.1 O que o dono validou em aparelho e navegador reais
+
+* **Checklist** — persistência na web depois do F5, chegada ao Field, item
+  obrigatório **bloqueando** a conclusão com o nome do que falta, e a OS
+  fechando quando o checklist é completado.
+* **Equipamento** — exigido e vazio → âmbar; registrado → selo verde da
+  seção; **linha persistida → ✓ verde próprio**; várias linhas → um ✓ em cada;
+  remover continua funcionando.
+* **Foto** — evidência persistida → confirmação verde.
+* **Conectividade** — a separação `statusSince` (duração do estado) ×
+  `observedAt` (idade da verificação) × aviso de leitura desatualizada;
+  atualização manual do diagnóstico; o aviso sumindo após verificação fresca;
+  e o estado `ONLINE` preservado.
+
+### 24.2 Estados finais registrados
+
+| Item | Estado |
+|---|---|
+| PRD §382 | `CLOSED` / `OWNER VALIDATED` |
+| UX administrativa do checklist | `PASS` |
+| Imposição do checklist no Field | `PASS` |
+| Política e UX de equipamento | `PASS` |
+| Confirmação positiva de foto | `PASS` |
+| Semântica de conectividade no Field | `PASS` |
+| `ZOOMVIS-08/09` | `CLOSED` / `TEST HARNESS` |
+| `UXP-06` | `CLOSED` / `TEST HARNESS` |
+
+### 24.3 Dívidas conhecidas, aceitas e NÃO bloqueantes
+
+* **Intermitente do fechamento no celular** — `OPEN` / dívida conhecida. A
+  corrida está medida e **não explica** o `ratio 0`; nenhuma correção
+  especulativa foi aplicada.
+* **`execution_forms_lifecycle` intermitente (Flutter)** — `OPEN` / dívida
+  conhecida. Falhou 1 vez em 2 execuções completas sob carga, 15/15 isolado, e
+  o arquivo não foi tocado pelas fases que o observaram.
+* **`P1001` do Docker Desktop** — `ENVIRONMENT`, não produto: o proxy recusa
+  conexão com o pool frio sob rajada. Nenhum retry foi acrescentado ao login.
+* **`CHK-NULL-01`** — dívida de compatibilidade aceita, não bloqueante para a
+  V1: OS sem tipo recebe o checklist padrão como ORIENTAÇÃO e não é bloqueada
+  por ele, porque a política é chaveada por tipo.
+
+### 24.4 Produção — nada foi ativado
+
+`VPS PROVISIONING — DEFERRED UNTIL PUBLICATION READINESS` ·
+`PRODUCTION DEPLOY — NOT EXECUTED` ·
+`DIAGNOSTICS SCHEDULER — CONFIGURADO, NÃO ATIVO` ·
+`RESTORE DRILL — PENDING VPS/STAGING` ·
+`SGP — PENDING API ACCESS` ·
+`ReceitaNet round trip real — PASS` (ONLINE → OFFLINE → ONLINE, autorizado e
+pontual).
+
+### 24.5 A `RC-1` continua ABERTA
+
+Publicar o endurecimento **não fecha a `RC-1`**. Falta a **revisão de
+segurança independente**, que por regra do projeto não pode ser feita pela
+sessão que implementou — e depois dela, produção e piloto seguem adiados até
+a prontidão de publicação.
