@@ -69,6 +69,42 @@ const securityHeaders = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  /**
+   * # O otimizador de imagem do Next fica DESLIGADO (`SEC-003`)
+   *
+   * A revisão de segurança independente apontou um aviso crítico novo em
+   * `next@14.2.35`. Dois dos avisos são RCE não autenticado, e um deles —
+   * `GHSA-2xp9-vwfh-vxw4` — é **na API de otimização de imagem, com arquivos
+   * AVIF**. Esta linha o tira do alcance.
+   *
+   * ## Por que desligar não custa nada aqui
+   *
+   * O AlfaOS **não tem um único consumidor de `next/image`** — nenhum
+   * `<Image>`, nenhum import. As imagens do produto (foto de evidência,
+   * assinatura, foto de CTO) são servidas por rota própria, que confere empresa
+   * e posse antes de devolver byte; e os tiles do mapa vêm do provedor
+   * configurado, direto para o `<img>` do Leaflet. O otimizador estava ligado
+   * por ser o padrão, não por ser usado. Há teste permanente cobrando a
+   * ausência de consumidores (`SEC-003-02`).
+   *
+   * ## Por que ISTO é mitigação de verdade, e não maquiagem
+   *
+   * Verificado no código instalado (`next/dist/server/next-server.js`): com
+   * `unoptimized`, o manipulador de `/_next/image` responde **404 antes** de
+   * `validateParams` — antes de buscar, decodificar ou olhar formato. O caminho
+   * inteiro do otimizador fica inalcançável, e com ele o AVIF. Não é uma
+   * allowlist vazia que ainda processa a requisição: é o endereço deixar de
+   * existir.
+   *
+   * ## O que isto NÃO resolve
+   *
+   * Os avisos de RSC e o RCE de servidor **hospedado em Windows** não passam
+   * por aqui. Eles não têm correção na linha 14.x — `14.2.35` já é a última —,
+   * então a decisão é do dono. Ver `docs/SECURITY.md` §8.27.
+   */
+  images: {
+    unoptimized: true,
+  },
   async headers() {
     const headers = [...securityHeaders];
     if (isProduction) {
