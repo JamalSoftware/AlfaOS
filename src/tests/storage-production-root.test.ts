@@ -89,7 +89,14 @@ describe("STO-PROD — produção exige raiz absoluta, persistente e fora da apl
 // ---------------------------------------------------------------------------
 
 const env = process.env as Record<string, string | undefined>;
-const VARIAVEIS = ["NODE_ENV", "DATABASE_URL", "AUTH_SECRET", "STORAGE_ROOT", "NEXT_PHASE"] as const;
+const VARIAVEIS = [
+  "NODE_ENV",
+  "DATABASE_URL",
+  "AUTH_SECRET",
+  "STORAGE_ROOT",
+  "NEXT_PHASE",
+  "APP_ORIGINS",
+] as const;
 const ORIGINAL = Object.fromEntries(VARIAVEIS.map((k) => [k, env[k]]));
 
 describe("OPS-STORAGE — web e comandos resolvem a MESMA raiz", () => {
@@ -97,6 +104,10 @@ describe("OPS-STORAGE — web e comandos resolvem a MESMA raiz", () => {
     env.NODE_ENV = "production";
     env.DATABASE_URL = "postgresql://user:pass@localhost:5432/db";
     env.AUTH_SECRET = "a-production-secret-that-is-long-enough-123";
+    // Produção exige `APP_ORIGINS` (`SEC-038`); este arquivo é sobre a RAIZ DE
+    // ARMAZENAMENTO, então ela entra como fixture para não falhar pelo motivo
+    // errado. A regra dela vive em `env-production-hardening.test.ts`.
+    env.APP_ORIGINS = "https://app.exemplo.com.br";
     delete env.STORAGE_ROOT;
     delete env.NEXT_PHASE;
   });

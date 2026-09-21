@@ -3379,6 +3379,30 @@ scans de um JPEG progressivo cortaria a imagem cedo. O percurso estrutural lê
 a tabela pelo tamanho dela, e byte de carga nunca mais é confundido com
 marcador.
 
+**Limite DECLARADO, encontrado na reexecução do ataque original (§46).** O que
+a correção fecha é o vetor de **segmento**: EXIF, XMP, IPTC e comentário
+depois do scan — que um decodificador lê como metadado e que carregam GPS.
+Bytes crus colados DENTRO da região entropy-coded continuam passando, e isso é
+estrutural: um texto sem nenhum byte `0xFF` é, pela gramática do JPEG, dado
+comprimido válido, e separá-lo de "texto que alguém colou ali" exige
+DECODIFICAR a imagem — que é o que este módulo não faz por decisão registrada
+(sem binário nativo, sem reencode, sem degradar a evidência). É a mesma classe
+da esteganografia em pixel, que o módulo já declara fora de escopo.
+
+O que limita o impacto: a foto só é aceita se os bytes mágicos forem de imagem
+de verdade, e sai com `Content-Type: image/jpeg`, `X-Content-Type-Options:
+nosniff` e `Content-Disposition: attachment` — então carga HTML dentro de um
+JPEG não é executável por onde ela sai.
+
+**Precisão sobre a evidência do achado.** O `probe1.ts` do auditor escreve o
+valor do ponteiro de GPS no deslocamento 28 em vez de 30, onde a especificação
+do TIFF o coloca; o 60 cai sobre o campo `count` e o campo de valor fica zero.
+Então o `hasGps=false` que o relatório mostra vinha em parte da fixture. O que
+era de fato defeito — e o que estava certo no achado — é o
+`needsSanitization=false`: **a auditoria de storage chamava o arquivo forjado
+de limpo**. Reexecutado, o mesmo arquivo agora dá `needsSanitization=true`, e
+o EXIF sai (221 → 11 bytes).
+
 Diferencial sobre o acervo real de desenvolvimento — 2.068 imagens, incluindo
 fotos de câmera dos pilotos físicos, assinaturas do navegador e fotos de CTO:
 **0 saídas diferentes e 0 recusas novas.**
