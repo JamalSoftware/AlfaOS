@@ -3646,13 +3646,16 @@ no caminho de carga do cliente do banco.
 
 **`npm audit`, medido:** antes 1 crítico · 8 high · 7 moderate (16); depois
 **0 crítico** · 6 high · 8 moderate (14). **Nenhum dos 23 avisos próprios do
-`next` continua**: ele ainda aparece na lista, mas só como PORTADOR do
-`postcss` (moderate, transitivo) — o `next@15.5.25` fixa o `postcss` na versão
-dele. Esses avisos do `postcss` são de COMPILAÇÃO sobre CSS de entrada
-controlada pelo atacante (leitura de arquivo via `sourceMappingURL`, XSS na
-saída do stringify), e o CSS do AlfaOS é escrito no repositório — não há
-entrada de terceiro chegando ao `postcss` em runtime. Forçar outra versão por
-`overrides` foi descartado por decisão do dono (sem resolução forçada). O
+`next` continua**: ele ainda aparece na lista (`moderate`), mas só como
+PORTADOR do `postcss@8.4.31` que ele fixa em `node_modules/next/node_modules`.
+**Esse `postcss` aninhado sai `high`** — dois avisos `high` e dois `moderate`,
+todos de leitura de arquivo via `sourceMappingURL` ou XSS na saída do
+stringify —, e o `npm audit` só o resolve com `next@16.3.5` (major). São avisos
+de COMPILAÇÃO sobre CSS de entrada controlada pelo atacante, e o CSS do AlfaOS
+é escrito no repositório: não há entrada de terceiro chegando ao `postcss`,
+nem na compilação nem em runtime. Forçar outra versão por `overrides` foi
+descartado por decisão do dono (sem resolução forçada); **ir para a 16 só por
+ele é decisão do dono**, e fica registrada como residual. O
 restante (`glob`, `js-yaml`, `deepmerge-ts`/`prisma`, a cadeia do
 `firebase-admin`) é ferramenta de desenvolvimento ou está fora do escopo
 confirmado, como antes.

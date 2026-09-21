@@ -1910,6 +1910,11 @@ corrigida; a 15 tem, então a 16 não foi necessária). React 19 e
 `cookies()` em rotas e páginas, feita de forma mecânica e sem mover nenhuma
 regra de autorização. Registro no PRD §13 (`DECISION UPDATED`).
 
+**Residual para o dono:** o `postcss@8.4.31` que o `next@15.5.25` fixa sai
+`high` no `npm audit` — avisos de COMPILAÇÃO sobre CSS controlado pelo
+atacante, e o CSS do AlfaOS é do repositório — e só sai com `next@16`
+(`docs/SECURITY.md` §8.27.9).
+
 **`SEC-009` — `ACCEPTED V1 RESIDUAL RISK`**, decisão do dono: a amplificação de
 memória no upload (~57 MiB de pico por upload de 8 MiB) fica como dívida não
 bloqueante da V1. **Restrição que a provisão do VPS (`RC-1F`) precisa honrar:**
