@@ -62,6 +62,55 @@ não são da sessão; `Stop-Process -Force` do PowerShell funciona. Conferir a
 porta antes de subir evita o pior caso, que é **dois servidores escutando a
 mesma porta** — aí o tráfego alterna entre eles e o diagnóstico fica sem chão.
 
+## Next 15: a suíte E2E inteira não cabe num `next dev` só (neste host)
+
+Medido no upgrade para o Next 15 (`SEC-003`, 21/09/2026). O `next dev` do 15
+cresce ao longo da suíte — de **0,42 para 6,72 GB** de memória privada numa
+rodada inteira —, e neste host, com o commit do sistema já perto do limite
+pelo resto do que está aberto, isso esgota o limite de commit do Windows. O
+sintoma não parece falta de memória: processos NOVOS morrem ao nascer (o
+Chromium do Playwright, o `tsx` de um teste), e a suíte despenca em cascata
+com erros que parecem da aplicação.
+
+**Não é vazamento da aplicação:** o build de produção (`next start`) ficou
+entre **0,15 e 0,46 GB** durante a suíte inteira. É o servidor de
+desenvolvimento acumulando compilação e informação de depuração.
+
+> **Regra:** a suíte de desenvolvimento roda em **duas metades, cada uma com
+> servidor novo** — `e2e/operational-map.spec.ts` numa, o resto na outra — e,
+> para o framework, a suíte inteira também roda contra o **build de
+> produção**. Contra produção, os testes que dependem do Mock ERP falham POR
+> PROJETO (o Mock ERP não existe em produção desde a `RC-1B`), então a rodada
+> de produção não substitui a de desenvolvimento para eles.
+
+**Primeiro acesso a uma rota no `next dev` custa segundos.** O 15 compila cada
+rota no primeiro pedido, e uma tela que dispara várias rotas novas de uma vez
+(a OS concluída pede as fotos e a assinatura) enfileira as compilações. Medido
+no `EV-E2E-01`, com o servidor frio: o clique em "Ver pacote técnico" sai na
+hora como navegação do cliente (RSC em 92 ms), mas o JS da rota só chega aos
+8,8 s e a URL muda aos **9,3 s** — rente ao `toHaveURL` de 10 s, e acima dele
+numa das rodadas. Com a rota já compilada, 1,1 e 1,6 s; no build de produção,
+passa. **Não é defeito da aplicação, e o teste não foi afrouxado:** falha dele
+no primeiro teste de um servidor frio é latência de compilação — confira com o
+servidor quente antes de investigar produto.
+
+**Falha no fim de uma metade longa acompanha o servidor, não a ordem.** Na
+metade sem o mapa, OS que não abria e clique sem efeito em 10 s apareceram com
+o servidor acima de 4 GB; a mesma sequência, a partir do `evidence-package`,
+passou 97 de 98 com servidor novo (a que falhou foi a compilação fria acima).
+
+**Teste que depende de "a pílula não aparece" precisa das TRÊS camadas sob
+controle.** A pílula "Atualizando mapa…" é uma só para CTOs, clientes e OS: com
+uma camada indo ao servidor de verdade, qualquer leitura acima de 250 ms a faz
+aparecer — corretamente. E "ocioso" se prova contando leituras em voo, não
+esperando tempo fixo (`LOADUX-07`).
+
+**E o HTML do `next dev` não é o de produção.** No React 19, a carga de RSC
+(`self.__next_f.push`) leva em desenvolvimento as PROPS dos Server Components
+como informação de depuração. Teste que afirma AUSÊNCIA de texto no HTML lê o
+DOM sem `<script>` — senão afirma sobre a carga de depuração, não sobre a tela
+(`docs/SECURITY.md` §8.27.9).
+
 ## `localhost` não é `127.0.0.1` quando o Postgres está no Docker
 
 **Sintoma:** `P1001: Can't reach database server at localhost:5432`, com o

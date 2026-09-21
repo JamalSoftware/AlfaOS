@@ -756,6 +756,22 @@ E2E de fechamento mobile — toBeInViewport ratio 0 (gates do RC-1, 17/09/2026)
   fase     investigação própria; o mapa está FROZEN e só reabre por defeito
            provado
 
+E2E EV-E2E-01 no next dev FRIO (gates do SEC-003 / Next 15, 21/09/2026)
+  o quê    "o ADMIN abre a OS concluída, abre o pacote…": o toHaveURL de 10 s
+           depois do clique em "Ver pacote técnico" estoura no primeiro acesso
+           à rota, num servidor de desenvolvimento frio
+  medido   frio: a navegação do cliente sai em 92 ms, o JS da rota chega aos
+           8,8 s e a URL muda aos 9,3 s; com a rota fria, falhou em 4 de 6
+           rodadas. Quente: 1,1 e 1,6 s. Build de produção: passa
+  causa    compilação sob demanda do next dev 15 — a OS concluída dispara ao
+           mesmo tempo a compilação das rotas de foto e de assinatura, e a do
+           pacote espera na fila
+  status   OPEN / DEV-ONLY / NON-BLOCKING — produção não é afetada
+  não      o teste NÃO foi afrouxado: um limite maior esconderia também uma
+  feito    navegação que de fato não saísse
+  opções   aquecer rotas no setup do E2E, ou o dev com Turbopack — decisão do
+           dono, fora do SEC-003
+
 Fotos gravadas antes do PC-1 com GPS no arquivo (achado na EV-1, 13/09/2026)
                             FERRAMENTA APROVADA na RC-1E · APPLY NÃO EXECUTADO
   o quê    a limpeza de EXIF (PC-1, 06/09) roda no UPLOAD; a foto gravada antes
@@ -1900,6 +1916,21 @@ bloqueante da V1. **Restrição que a provisão do VPS (`RC-1F`) precisa honrar:
 dimensionar a memória contando uploads simultâneos de técnicos, e tratar
 concorrência limitada ou parser em fluxo **antes de qualquer escala
 horizontal**.
+
+**Gates do upgrade (21/09/2026)**, num worktree isolado — o `next dev` do dono
+na `:3000` não foi tocado. Vitest, lint, `tsc`, `build`, `build:worker`,
+`prisma validate` e 29 migrations, nenhuma nova. **Playwright, nos dois
+modos:** contra o **build de produção**, a suíte inteira passou em tudo o que
+não depende do Mock ERP (364; os 9 restantes dependem dele, que não existe em
+produção desde a `RC-1B`, e passaram em desenvolvimento); em
+**desenvolvimento**, em duas metades com
+servidor novo, porque a suíte inteira num `next dev` só esgota a memória deste
+host (`docs/CONTEXT-MAP.md`). Cada falha do dev foi triada: o `LOADUX-07` era
+defeito do teste (corrigido, com reprodução e sabotagem — a metade do mapa
+passou 126 de 126 depois); o `EV-E2E-01` é
+compilação fria do `next dev` (§12, `OPEN / DEV-ONLY`); e as do fim da metade
+longa acompanharam o servidor acima de 4 GB — a mesma sequência passou 97 de
+98 com servidor novo. **Nenhum teste foi afrouxado.**
 
 **A `RC-1` continua ABERTA.** O próximo passo é a **reauditoria independente**
 da remediação, feita por uma sessão que não a implementou.

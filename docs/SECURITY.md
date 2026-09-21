@@ -3621,6 +3621,21 @@ dele:**
   é `/_not-found`. Cache pré-renderizado sem sessão é a direção de risco do
   upgrade, e ela não aconteceu.
 
+**Uma premissa de segurança que o React 19 mudou — só em desenvolvimento.** No
+`next dev`, a carga de RSC (`self.__next_f.push`) passou a levar informação de
+depuração com as PROPS dos Server Components. Um teste do E2E achou no HTML da
+OS do ADMIN a linha `{"label":"Nº no ERP","value":null}`, que o `FieldList`
+recebe e corretamente NÃO desenha. A pergunta que isso levanta é de segurança:
+**um segredo passado como prop a um componente que decide não desenhá-lo iria
+parar no HTML.** Verificado de duas formas: a senha PPPoE nunca é prop — sai
+pelo endpoint próprio de revelação —, e a suíte "a senha não está no HTML
+inicial da OS" passa inteira no dev (14/14); e contra `next start` o mesmo
+teste passa com o HTML INTEIRO, junto da suíte do PPPoE e do pacote de
+evidências (40/40). A serialização é exclusiva do desenvolvimento. **Regra que
+fica:** segredo nunca é prop de Server Component, nem de um que não o desenhe;
+e teste que afirma AUSÊNCIA de texto no HTML lê o DOM sem `<script>` (ou roda
+contra produção) — senão afirma sobre a carga de depuração, não sobre a tela.
+
 **Detectores permanentes** (`next-framework-security.test.ts`): a versão é
 afirmada nas TRÊS fontes que podem divergir — `package.json`, lockfile e o que
 está instalado —, com piso `15.5.24` e **a major 15 fixada**: ir para a 16 é
@@ -3650,12 +3665,13 @@ confirmado, como antes.
 | | |
 |---|---|
 | **Medido** | pico de **~57 MiB por upload de 8 MiB** (7,1× o corpo) |
+| **Base do processo** | `next start` entre **0,15 e 0,46 GB** de memória privada durante a suíte E2E inteira sobre o build de produção (21/09/2026, host de desenvolvimento Windows) — ordem de grandeza, não capacidade; o pico de upload **soma-se** a ela |
 | **Premissa** | **instância única** (`docs/DEPLOYMENT.md` §1) |
 | **O que limita hoje** | upload **só autenticado**; teto de corpo no Nginx (`9m`) e no processo, este antes de ler um byte quando há `Content-Length` |
 | **Restrição operacional** | a memória do VPS precisa ser dimensionada contando **uploads simultâneos de técnicos** — uma equipe enviando fotos ao mesmo tempo é carga legítima |
 | **Remediação futura** | concorrência de upload limitada em processo; parser multipart em fluxo; e as duas **antes de qualquer escala horizontal** |
 
-A conta, para quem provisionar: `57 MiB × uploads simultâneos esperados`, com
+A conta, para quem provisionar: `base do processo + 57 MiB × uploads simultâneos esperados`, com
 `--max-old-space-size` abaixo da RAM total para que um pico vire erro de uma
 requisição em vez de o kernel matar o processo inteiro. Detalhe e opções em
 §8.27.6.
