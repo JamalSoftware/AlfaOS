@@ -206,9 +206,21 @@ export function validateEnv(): ValidatedEnv {
  *
  * Fora de produção nada é exigido: desenvolvimento e teste alcançam a aplicação
  * por `localhost`, por IP de rede local e pela porta do Playwright.
+ *
+ * ## A compilação é exceção, e pela mesma razão do `STORAGE_ROOT`
+ *
+ * `next build` roda com `NODE_ENV=production` e EXECUTA os módulos de rota para
+ * coletar dados de página — mas não atende requisição nenhuma, então não há
+ * origem a conferir. Exigir a variável ali impediria compilar em qualquer
+ * máquina de desenvolvimento e em CI, o que este guarda descobriu do jeito
+ * certo: quebrando o `npm run build` do gate.
+ *
+ * O FORMATO continua conferido na compilação. Um valor malformado é malformado
+ * em qualquer fase, e é melhor descobri-lo ao compilar que ao subir.
  */
 function validateAppOrigins(nodeEnv: string): void {
   const raw = process.env.APP_ORIGINS;
+  const compilando = process.env.NEXT_PHASE === "phase-production-build";
 
   if (raw !== undefined && raw.trim().length > 0) {
     const entradas = raw.split(",").map((valor) => valor.trim());
@@ -237,7 +249,7 @@ function validateAppOrigins(nodeEnv: string): void {
     return;
   }
 
-  if (nodeEnv === "production") {
+  if (nodeEnv === "production" && !compilando) {
     throw new Error(
       "APP_ORIGINS é obrigatória em produção: sem ela a proteção de origem cai " +
         "na comparação Origin × Host, que depende de cabeçalho da requisição. " +

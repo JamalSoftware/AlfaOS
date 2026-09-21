@@ -177,6 +177,9 @@ const VARIAVEIS = [
   "ERP_CREDENTIAL_ENCRYPTION_KEY",
   "STORAGE_ROOT",
   "APP_ORIGINS",
+  // `NEXT_PHASE` entra aqui para ser RESTAURADA: sem isso, o teste da exceção
+  // de compilação a deixaria definida e os seguintes mediriam outra fase.
+  "NEXT_PHASE",
 ] as const;
 
 /*
@@ -198,6 +201,7 @@ beforeEach(() => {
   // OUTRAS variáveis, então ela entra como fixture. A regra dela é testada
   // no bloco `ORIGINS-ENV` abaixo.
   env.APP_ORIGINS = "https://app.exemplo.com.br";
+  delete env.NEXT_PHASE;
   delete env.TRUSTED_PROXY_HOPS;
   delete env.CUSTOMER_CREDENTIAL_ENCRYPTION_KEY;
   delete env.ERP_CREDENTIAL_ENCRYPTION_KEY;
@@ -349,6 +353,33 @@ describe("ORIGINS-ENV — APP_ORIGINS", () => {
         JSON.stringify(culpada),
       );
     }
+  });
+
+  it("ORIGINS-ENV-07 · a COMPILAÇÃO é exceção, como no STORAGE_ROOT", () => {
+    /*
+      `next build` roda com `NODE_ENV=production` e EXECUTA os módulos de rota
+      para coletar dados de página — mas não atende requisição, então não há
+      origem a conferir. Exigir a variável ali impediria compilar em qualquer
+      máquina de desenvolvimento e em CI.
+
+      Este teste existe porque a primeira versão do guarda NÃO tinha a exceção,
+      e quem descobriu foi o `npm run build` do gate final:
+      "Failed to collect page data for /api/auth/logout".
+    */
+    delete env.APP_ORIGINS;
+    env.NEXT_PHASE = "phase-production-build";
+    expect(() => validateEnv()).not.toThrow();
+
+    delete env.NEXT_PHASE;
+    expect(() => validateEnv()).toThrow(/APP_ORIGINS/);
+  });
+
+  it("ORIGINS-ENV-08 · mas o FORMATO é conferido até na compilação", () => {
+    // Valor malformado é malformado em qualquer fase, e é melhor descobrir ao
+    // compilar que ao subir.
+    env.NEXT_PHASE = "phase-production-build";
+    env.APP_ORIGINS = "semEsquema";
+    expect(() => validateEnv()).toThrow(/APP_ORIGINS/);
   });
 
   it("ORIGINS-ENV-06 · a regra de formato vale FORA de produção também", () => {
