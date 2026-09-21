@@ -3297,3 +3297,209 @@ ou não existe, ou tem o arquivo inteiro.
 - **JPEG progressivo:** o corte no `EOI` procura o primeiro `FF D9` depois do
   primeiro `SOS`; um `FF D9` dentro de uma tabela entre scans de um JPEG
   progressivo cortaria a imagem cedo. Não observado; declarado.
+
+---
+
+## 8.27. `RC-1 SECURITY REMEDIATION` — a revisão independente e o que ela mudou
+
+> **Estado: `SECURITY REMEDIATION — READY FOR INDEPENDENT RE-REVIEW`
+> (21/09/2026).**
+> Uma revisão de segurança independente, em clean-room sobre `6bfd7b7`, fechou
+> **`SECURITY REVIEW FAIL`** com treze achados. Esta seção registra o que foi
+> corrigido, com que prova, e o que ficou em aberto.
+> **A remediação NÃO se auto-aprova:** o veredito é da próxima revisão
+> independente, que por regra do projeto não pode ser feita por quem corrigiu.
+
+O que a revisão **não** encontrou, e que continua valendo como contrato:
+exposição entre tenants, contorno de autenticação, contorno de perfil,
+exposição de credencial, acesso arbitrário a arquivo, XSS armazenado, injeção
+de SQL, contorno do checklist, contorno de posse no Field e falha de provider
+virando `OFFLINE` falso.
+
+### 8.27.1. O que mudou no comportamento
+
+| Achado | Antes | Agora |
+|---|---|---|
+| `SEC-001` | `pg_dump` **sem alvo de banco** | alvo e credencial derivados da `DATABASE_URL`, senha pelo ambiente |
+| `SEC-002` | PNG/WebP sem teto de chunks (~1 milhão de unidades, ~800 ms) | orçamento estrutural compartilhado, **total** através do aninhamento |
+| `SEC-004` | metadado DEPOIS do scan sobrevivia, e a auditoria dizia "limpo" | percurso único de JPEG, com os dados de entropia atravessados corretamente |
+| `SEC-005` | `next start` em `0.0.0.0` | `--hostname 127.0.0.1`, afirmado na diretiva |
+| `SEC-006` | ambiente **executado** como shell, como root | parser literal, e recusa o que não souber ler |
+| `SEC-007` | `fec0::/10`, `2002::/16` e mapeado não comprimido passavam | classificação pelos bytes do endereço |
+| `SEC-008` | chamada ao vivo saía para provider **desativado** | uma autoridade de ERP ativo, consumida por todos |
+| `SEC-010` | `return 301 https://$host` | domínio configurado + `default_server` que recusa |
+| `SEC-011` | `ProtectSystem=full` deixava `/opt` gravável | `strict`; o release é imutável para quem o executa |
+| `SEC-012` | falha de promoção de faixa saía com `exit=0` | falha não é sucesso, e a faixa não é podada |
+| `SEC-013` | release podia sair com `http://10.0.2.2:3000` | build inválido para antes de subir e diz o motivo |
+| `SEC-038` (INFO) | `APP_ORIGINS` ausente caía na política fraca em silêncio | obrigatória em produção; malformada derruba nomeando a entrada |
+
+### 8.27.2. `SEC-002` — o custo de percorrer estrutura é limitado
+
+Um chunk de tamanho zero custa 8 a 12 bytes a quem envia e uma iteração mais
+uma fatia ao servidor. O JPEG tinha teto desde o `PC-1`; a reescrita de PNG e
+WebP para lista de permitidos (`RC-EXIF-09`) nasceu **sem o equivalente**.
+
+Medido aqui, com 8 MiB de chunks vazios: PNG 699 mil unidades em 326 ms, WebP
+1,05 milhão em 738 ms, `ANMF` 350 mil quadros em 805 ms — contra 17 ms de um
+JPEG normal do mesmo tamanho. Em **instância única** isso é a aplicação
+inteira parada, para todos os tenants.
+
+O mecanismo é um, e o orçamento **atravessa o aninhamento**: um contador
+recriado dentro de cada quadro `ANMF` aceitaria `N quadros × teto`, que é a
+mesma vulnerabilidade com outra aritmética. Dois números, porque a estrutura
+legítima difere — JPEG **1024** (o maior do acervo real tem 11 segmentos) e
+chunks **16384**, porque `IDAT` carrega os bytes da imagem em pedaços e um PNG
+de 8 MiB pode ter ~1024 chunks legítimos.
+
+### 8.27.3. `SEC-004` — metadado depois dos dados de scan
+
+A gramática do JPEG **permite** segmentos depois de um scan: é assim que um
+JPEG progressivo encadeia varreduras, e é dali que um decodificador continua
+lendo. O percurso parava no `SOS` e copiava até o `EOI` sem olhar, então EXIF
+com GPS, XMP, IPTC e texto livre colocados ali atravessavam a limpeza — no
+mesmo arquivo em que os de antes do scan eram corretamente removidos.
+
+E `inspectStoredImage` também parava no `SOS`, então `npm run storage:audit`
+declarava o arquivo forjado **limpo**. Duas afirmações erradas com a mesma
+causa: dois percursos respondendo à mesma pergunta.
+
+Agora quem responde *"o que há neste arquivo?"* é `percorrerJpeg`, e o
+sanitizador e o inspetor herdam a resposta — é isso que os impede de discordar
+sobre a POSIÇÃO de um bloco. O percurso distingue as três coisas que começam
+com `FF` sem serem fronteira de marcador: `FF 00` (o byte `0xFF` escapado),
+`RST0`–`RST7` e o preenchimento `FF FF`.
+
+**A orientação continua vindo só de Exif ANTES do scan.** É a posição que a
+especificação define e a única que um decodificador honra; aproveitá-la de um
+bloco posterior deixaria quem forja o arquivo escolher como a foto aparece.
+
+**Risco declarado do `RC-1E` que isto FECHA:** o corte no `EOI` procurava o
+primeiro `FF D9` a partir do `SOS`, então um `FF D9` dentro de uma tabela entre
+scans de um JPEG progressivo cortaria a imagem cedo. O percurso estrutural lê
+a tabela pelo tamanho dela, e byte de carga nunca mais é confundido com
+marcador.
+
+Diferencial sobre o acervo real de desenvolvimento — 2.068 imagens, incluindo
+fotos de câmera dos pilotos físicos, assinaturas do navegador e fotos de CTO:
+**0 saídas diferentes e 0 recusas novas.**
+
+### 8.27.4. `SEC-006` — o ambiente é lido, nunca executado
+
+Ver `docs/DEPLOYMENT.md` §4.1 para a gramática. O ponto de segurança: o mesmo
+arquivo era lido literalmente pelo systemd e **executado** como shell pelos
+invólucros, e um deles roda como **root**. Um valor como
+`DB_PASSWORD=sen$(id)ha` é senha para um lado e comando para o outro; e uma
+senha com `$`, backtick, `\` ou aspas era silenciosamente reescrita por um
+lado e não pelo outro.
+
+Onde a gramática do systemd faria algo que o parser não faz, ele **recusa o
+arquivo**. Duas fontes divergindo em silêncio é o defeito; falhar alto mantém
+as duas honestas.
+
+### 8.27.5. `SEC-008` — `externalProvider` é histórico, não seleção
+
+Uma OS importada do ReceitaNet continua ReceitaNet depois da troca de ERP,
+porque o campo registra **de onde o dado veio**, e nenhum registro é
+convertido. Escolher o adapter por ele fazia uma empresa já migrada continuar
+mandando dado operacional de cliente para o provider **desativado**, usando a
+credencial que a troca preserva ociosa de propósito para permitir rollback.
+
+A pergunta *"qual ERP está ativo?"* tinha **quatro** implementações, e a quarta
+estava errada. Agora é uma (`resolveActiveErpProvider`) e as outras delegam.
+
+**Nada é apagado nem convertido:** identidade externa e credencial do provider
+anterior continuam onde estão. O que muda é só que **chamada ao vivo não sai
+para provider desativado**.
+
+### 8.27.6. `SEC-009` — amplificação de memória no upload: limite declarado
+
+**Não corrigido em código, e a razão é explícita.** Medido depois da correção
+do `SEC-002`, para um corpo de 8 MiB:
+
+| etapa | acréscimo |
+|---|---|
+| `new Request(body)` | +2,0 MiB |
+| `readMultipartWithinLimit` | +32,1 MiB |
+| `file.arrayBuffer()` | +16,0 MiB |
+| `stripImageMetadata` | +6,9 MiB |
+| **pico** | **57 MiB — 7,1× o corpo** |
+
+As cópias vêm da semântica da API Web de `FormData`: pedaços → `Buffer.concat`
+→ `Blob` → `arrayBuffer`. Removê-las significa **trocar o parser multipart do
+runtime por um em fluxo**, o que é mudança de arquitetura de upload — fora do
+mandato desta remediação, que corrige achado confirmado sem reescrever
+plataforma.
+
+O que limita o risco hoje, e é o que o mantém em severidade baixa:
+
+- **upload exige autenticação** — técnico com sessão do Field, ou
+  `ADMIN`/`DISPATCHER` na web. Não há caminho anônimo;
+- **teto de corpo em duas camadas** — `client_max_body_size 9m` no Nginx e
+  `readMultipartWithinLimit` no processo, este último **antes de ler um byte**
+  quando há `Content-Length`;
+- **o teto por arquivo é 8 MiB** (2 MiB para assinatura), então o pico por
+  requisição é limitado e conhecido.
+
+**Conta que a operação precisa saber:** ~57 MiB por upload de 8 MiB em voo.
+Dez simultâneos são ~570 MiB; vinte, ~1,1 GiB. Num VPS de 2 GiB isso é
+esgotamento de memória — e note que **uma equipe de campo enviando fotos ao
+mesmo tempo é carga legítima**, não só ataque.
+
+Plano de mitigação pré-produção, para a decisão do dono na provisão do VPS
+(`RC-1F`), em ordem de custo:
+
+1. **dimensionar a memória do VPS** contando `57 MiB × uploads simultâneos
+   esperados`, e fixar `--max-old-space-size` abaixo da RAM total para que um
+   pico vire erro de uma requisição em vez de o kernel matar o processo;
+2. **limitar a concorrência de upload em processo**, reusando o padrão que já
+   existe para o bcrypt (`BCRYPT_MAX_CONCURRENCY`/`BCRYPT_MAX_QUEUE`): um
+   portão de N uploads com fila limitada e `503` claro além dela. É pequeno e
+   tem precedente no código — mas muda o comportamento de um caminho já
+   homologado em piloto físico, então é decisão de produto;
+3. **parser multipart em fluxo**, que elimina a amplificação e é a única opção
+   que muda arquitetura. Só com decisão explícita do dono.
+
+### 8.27.7. `SEC-003` — a decisão do framework é do dono
+
+`next@14.2.35` carrega **dois avisos críticos** de RCE não autenticado, e
+**`14.2.35` já é a última da linha 14.x** (a dist-tag `next-14` aponta para
+ela). Não existe correção dentro da major atual.
+
+**Mitigado agora, sem esperar decisão:** o otimizador de imagem ficou
+**desligado** (`images.unoptimized`), o que tira do alcance
+`GHSA-2xp9-vwfh-vxw4` (RCE crítico via AVIF) e três avisos de negação de
+serviço do mesmo caminho. Verificado no código instalado: com `unoptimized`, o
+manipulador de `/_next/image` responde **404 antes** de `validateParams` — o
+endereço deixa de existir, e não é uma allowlist vazia que ainda processa a
+requisição. O AlfaOS não tem um único consumidor de `next/image`, o que torna
+o desligamento gratuito (teste permanente guarda a ausência, e um terceiro
+teste falha se um upgrade mover esse portão).
+
+**Alcance do que sobra**, estabelecido por inspeção do repositório:
+
+| aviso | alcance |
+|---|---|
+| RCE em servidor hospedado em **Windows** (crítico) | **não alcançável em produção**: o alvo é Ubuntu 24.04 (`docs/DEPLOYMENT.md` §1). Alcançável em máquina de DESENVOLVIMENTO Windows |
+| negação de serviço em RSC (3 avisos, `high`) | **alcançável**: o App Router usa RSC |
+| confusão e envenenamento de cache de RSC (4 avisos) | **alcançável** em princípio |
+| SSRF por WebSocket upgrade | **incerto**: a aplicação não usa WebSocket em produção |
+| Server Actions (4 avisos) | **não alcançável**: `"use server"` não existe no repositório |
+| middleware / proxy (2 avisos) | **não alcançável**: não há middleware |
+| `rewrites` (2 avisos) | **não alcançável**: não há `rewrites` |
+| Pages Router + i18n | **não alcançável**: só App Router, sem i18n |
+| XSS com nonce de CSP | **não alcançável**: a política usa `unsafe-inline`, sem nonce |
+| XSS em `beforeInteractive` | **não alcançável**: `next/script` não é usado |
+
+**`OWNER DECISION REQUIRED — NEXT MAJOR SECURITY UPGRADE`.** Nenhuma
+dependência foi alterada: a correção atravessa duas majors (14 → 15 → 16), e o
+mandato desta remediação proíbe fazê-lo sem decisão.
+
+### 8.27.8. O que a remediação NÃO fez
+
+- **nenhuma migration** — o esquema não foi tocado;
+- **nenhuma chamada a provider real** — ReceitaNet, SGP e FCM não foram
+  chamados; só transporte injetado e fixture;
+- **nenhum deploy, nenhum VPS, nenhum cron** — os modelos em `deploy/` são
+  contrato, e continuam não executados;
+- **nenhuma re-sanitização nem expurgo real** de storage;
+- **nenhuma dependência nova**, e nenhuma removida.
