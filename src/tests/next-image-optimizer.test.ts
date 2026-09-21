@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, type Dirent } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import nextConfig from "../../next.config.mjs";
@@ -91,14 +91,13 @@ describe("SEC-003 · otimizador de imagem", () => {
 
 /** Lista arquivos recursivamente, sem dependência nova. */
 function readdirRecursivo(dir: string): string[] {
-  const fs = require("node:fs") as typeof import("node:fs");
   const saida: string[] = [];
   const pilha = [dir];
   while (pilha.length) {
     const atual = pilha.pop()!;
-    let entradas: import("node:fs").Dirent[];
+    let entradas: Dirent[];
     try {
-      entradas = fs.readdirSync(atual, { withFileTypes: true });
+      entradas = readdirSync(atual, { withFileTypes: true });
     } catch {
       continue;
     }
