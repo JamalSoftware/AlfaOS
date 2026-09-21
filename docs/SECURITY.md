@@ -3437,6 +3437,9 @@ para provider desativado**.
 
 ### 8.27.6. `SEC-009` — amplificação de memória no upload: limite declarado
 
+> **Estado atual: `ACCEPTED V1 RESIDUAL RISK`** — aceito pelo dono como dívida
+> não bloqueante da V1 (21/09/2026). Ver §8.27.10.
+
 **Não corrigido em código, e a razão é explícita.** Medido depois da correção
 do `SEC-002`, para um corpo de 8 MiB:
 
@@ -3485,6 +3488,10 @@ Plano de mitigação pré-produção, para a decisão do dono na provisão do VP
 
 ### 8.27.7. `SEC-003` — a decisão do framework é do dono
 
+> **Estado atual: `REMEDIADO` — aguarda a reauditoria independente.** Upgrade para `next@15.5.25` aprovado pelo dono e
+> executado (21/09/2026). Ver §8.27.9. O texto abaixo é o registro de quando
+> a decisão estava pendente, e é mantido como história do achado.
+
 `next@14.2.35` carrega **dois avisos críticos** de RCE não autenticado, e
 **`14.2.35` já é a última da linha 14.x** (a dist-tag `next-14` aponta para
 ela). Não existe correção dentro da major atual.
@@ -3527,3 +3534,113 @@ mandato desta remediação proíbe fazê-lo sem decisão.
   contrato, e continuam não executados;
 - **nenhuma re-sanitização nem expurgo real** de storage;
 - **nenhuma dependência nova**, e nenhuma removida.
+
+### 8.27.9. `SEC-003` — REMEDIADO por versão: `next@15.5.25`
+
+> **Decisão do dono (21/09/2026):** upgrade controlado, na **menor versão
+> prática corrigida**, com preferência pela linha 15 e a 16 só se a 15
+> corrigida não existisse. Registro no PRD §13 (`DECISION UPDATED`).
+
+**A escolha, com evidência — não pelo `fixAvailable` do `npm audit`.** O
+`npm audit` sugeria `next@16.3.5`, porque ele aponta a versão mais nova que não
+está em NENHUMA faixa afetada. A pergunta certa é outra: *qual é a menor versão
+que sai de todas as faixas que afetam a versão instalada?* Todas as 23 faixas
+que afetavam `14.2.35` têm limite superior na família `<15.5.x`; a maior é
+`<15.5.24`. Consultada a base de avisos do registro npm diretamente para os
+candidatos: **`15.5.24`, `15.5.25` e `16.3.5` — zero avisos cada**. A linha 15
+corrigida existe, então a 16 não é necessária.
+
+**`15.5.25`, e não o piso `15.5.24`:** a diferença é um patch, sem custo de
+migração nenhum, e `15.5.25` é a ponta da linha mantida (dist-tag `backport`).
+Ficar um patch atrás da ponta sem motivo não é "mínimo prático". O piso
+`15.5.24` é o que o teste permanente cobra.
+
+**O que o upgrade exigiu, e por que não é migração ampla.** O Next 15 torna
+`params`, `searchParams` e `cookies()` assíncronos, e o `next build` passa a
+validar a assinatura das rotas e páginas contra esse tipo. **74 pontos de
+entrada falhavam a validação** (62 rotas + 12 páginas), resolvidos editando
+**64 arquivos** — 51 de rota, o wrapper `fieldOrderCommand` que atende as
+outras 11 rotas do Field de uma vez, e as 12 páginas —, mais o único
+`cookies()`. É acima do limiar de 25 do mandato, mas o limiar é de mudança
+**semântica**, e esta não é: a leitura
+do segmento da rota passou de `context.params.id` para
+`(await context.params).id` **no mesmo ponto do código**. Nenhuma regra de
+autorização, tenancy, posse ou validação mudou de lugar — e nas rotas do Field
+a leitura continua DEPOIS de `requireFieldPrincipal()`, como era. Esta migração
+é **intrínseca a qualquer versão segura**: a 15 a exige, e a 16 a exige mais
+estritamente (acesso síncrono removido). Recusá-la seria tornar o `SEC-003`
+infechável.
+
+A transformação foi por script, uniforme e revisável: 51 rotas mais o wrapper
+com **142 linhas trocadas 1:1** (nenhuma lógica acrescentada), 3 rotas com
+desestruturação que o `tsc` apontou, e as 12 páginas (renomeia a prop e resolve
+uma vez no topo, para que nenhuma linha do corpo mude). Os testes que chamam
+handler direto passaram a entregar `Promise.resolve(...)` — o MESMO formato que
+o Next entrega em produção.
+
+**React: o pacote instalado continua 18, e isso tem uma consequência que
+precisa ser dita.** O Next 15 aceita `react@^18.2.0` no `peerDependencies`, então
+o upgrade de React não é exigido — e `react-leaflet@4` (que pede React 18)
+fica. MAS o App Router **não usa o React instalado**: usa um React vendorizado
+dentro do Next. No 14 era `18.3.0-canary`; no 15 é **`19.2.0-canary`**. Ou seja,
+em runtime a aplicação roda em React 19 de qualquer forma, com
+`react-leaflet@4` por cima. Quem prova que isso funciona é a suíte E2E do Mapa
+Operacional, não o `peerDependencies`.
+
+**Reverificado no código do Next 15, porque controles de segurança dependem
+dele:**
+
+- **o otimizador de imagem continua respondendo 404 antes de `validateParams`**
+  com `unoptimized` — e continua desligado como defesa em profundidade;
+- **o corpo da requisição continua chegando em FLUXO ao handler.** O Next 15
+  acrescentou um caminho de middleware no runtime Node que clona o corpo (até
+  `middlewareClientMaxBodySize`, 10 MB por padrão). Ele só roda com middleware,
+  e o AlfaOS não tem nenhum — mas a garantia do teto de upload passou a
+  depender de uma AUSÊNCIA, e ausência agora tem teste (`SEC-003-11`);
+- **`NextRequest.ip` foi removido no 15.** Sem efeito: no `next start`
+  auto-hospedado ele já era `undefined` no 14, e o limitador usa
+  `x-forwarded-for` com `TRUSTED_PROXY_HOPS=1`;
+- **a exceção de compilação** de `APP_ORIGINS` e `STORAGE_ROOT` continua
+  valendo: o `next build` do 15 rodou sem nenhuma das duas variáveis;
+- **nenhuma rota virou estática.** Todas as 130 são dinâmicas; a única estática
+  é `/_not-found`. Cache pré-renderizado sem sessão é a direção de risco do
+  upgrade, e ela não aconteceu.
+
+**Detectores permanentes** (`next-framework-security.test.ts`): a versão é
+afirmada nas TRÊS fontes que podem divergir — `package.json`, lockfile e o que
+está instalado —, com piso `15.5.24` e **a major 15 fixada**: ir para a 16 é
+decisão legítima, mas passa por refazer a consulta de avisos (a 16 tem avisos
+próprios antes de `16.3.x`, e um piso simples deixaria um `16.0.0` vulnerável
+passar). Mais: nenhum middleware no projeto, e a validação de ambiente continua
+no caminho de carga do cliente do banco.
+
+**`npm audit`, medido:** antes 1 crítico · 8 high · 7 moderate (16); depois
+**0 crítico** · 6 high · 8 moderate (14). **Nenhum dos 23 avisos próprios do
+`next` continua**: ele ainda aparece na lista, mas só como PORTADOR do
+`postcss` (moderate, transitivo) — o `next@15.5.25` fixa o `postcss` na versão
+dele. Esses avisos do `postcss` são de COMPILAÇÃO sobre CSS de entrada
+controlada pelo atacante (leitura de arquivo via `sourceMappingURL`, XSS na
+saída do stringify), e o CSS do AlfaOS é escrito no repositório — não há
+entrada de terceiro chegando ao `postcss` em runtime. Forçar outra versão por
+`overrides` foi descartado por decisão do dono (sem resolução forçada). O
+restante (`glob`, `js-yaml`, `deepmerge-ts`/`prisma`, a cadeia do
+`firebase-admin`) é ferramenta de desenvolvimento ou está fora do escopo
+confirmado, como antes.
+
+### 8.27.10. `SEC-009` — `ACCEPTED V1 RESIDUAL RISK`
+
+> **Decisão do dono (21/09/2026):** aceito como dívida de segurança **não
+> bloqueante da V1**. A arquitetura de upload NÃO muda nesta fase.
+
+| | |
+|---|---|
+| **Medido** | pico de **~57 MiB por upload de 8 MiB** (7,1× o corpo) |
+| **Premissa** | **instância única** (`docs/DEPLOYMENT.md` §1) |
+| **O que limita hoje** | upload **só autenticado**; teto de corpo no Nginx (`9m`) e no processo, este antes de ler um byte quando há `Content-Length` |
+| **Restrição operacional** | a memória do VPS precisa ser dimensionada contando **uploads simultâneos de técnicos** — uma equipe enviando fotos ao mesmo tempo é carga legítima |
+| **Remediação futura** | concorrência de upload limitada em processo; parser multipart em fluxo; e as duas **antes de qualquer escala horizontal** |
+
+A conta, para quem provisionar: `57 MiB × uploads simultâneos esperados`, com
+`--max-old-space-size` abaixo da RAM total para que um pico vire erro de uma
+requisição em vez de o kernel matar o processo inteiro. Detalhe e opções em
+§8.27.6.

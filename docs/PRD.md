@@ -506,6 +506,17 @@ automaticamente.
 
 Mudanças de major version deverão ser avaliadas separadamente.
 
+> **`DECISION UPDATED` — RC-1 `SEC-003` (21/09/2026), decisão do dono.** A
+> regra acima pedia a correção "dentro da linha Next 14, sempre que possível", e
+> deixou de ser possível: a revisão de segurança independente encontrou dois
+> avisos **críticos** de RCE não autenticado em `next@14.2.35`, e `14.2.35` já
+> é a última versão da linha 14 — não existe 14.x corrigida. A avaliação
+> separada de major que esta seção exige foi feita, e o dono aprovou o upgrade
+> para a **menor versão prática corrigida**: `next@15.5.25` (a linha 15, e não
+> a 16, porque a 15 corrigida existe; nenhum aviso do registro afeta
+> `15.5.24`/`15.5.25`). React continua 18 no pacote instalado. Registro técnico
+> em `docs/SECURITY.md` §8.27.
+
 ---
 
 # 14. CUSTOMER

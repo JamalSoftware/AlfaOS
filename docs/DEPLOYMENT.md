@@ -17,7 +17,7 @@
 | Peça | Versão | Por quê |
 | --- | --- | --- |
 | Distribuição | Ubuntu Server **24.04 LTS** | suporte longo, `systemd`, `cron`, Nginx e PostgreSQL nos repositórios oficiais |
-| Node.js | **24 LTS** (piso 20.11) | é a linha usada no desenvolvimento; `next@14.2` pede ≥ 18.17 e `prisma@6` ≥ 18.18 |
+| Node.js | **24 LTS** (piso 20.11) | é a linha usada no desenvolvimento; `next@15.5` pede `^18.18 || ^19.8 || >= 20` (`SEC-003`) e `prisma@6` ≥ 18.18 |
 | PostgreSQL | **16** | o que a 24.04 traz; o projeto exige 15+ |
 | Nginx | do repositório da distribuição | proxy reverso e TLS |
 

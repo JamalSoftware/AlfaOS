@@ -7,7 +7,7 @@ crescimento como SaaS e para integração futura com o ERP ReceitaNet.
 
 ## Stack
 
-- Next.js 14 (App Router)
+- Next.js 15 (App Router)
 - TypeScript
 - Tailwind CSS
 - PostgreSQL 15

@@ -1868,3 +1868,37 @@ Publicar o endurecimento **não fecha a `RC-1`**. Falta a **revisão de
 segurança independente**, que por regra do projeto não pode ser feita pela
 sessão que implementou — e depois dela, produção e piloto seguem adiados até
 a prontidão de publicação.
+
+## 25. `RC-1` — REMEDIAÇÃO DA REVISÃO DE SEGURANÇA INDEPENDENTE
+
+> **Estado: `SECURITY REMEDIATION — READY FOR OWNER VALIDATION AND INDEPENDENT
+> RE-REVIEW` (21/09/2026). Commits locais, sem tag e sem push.**
+> A revisão independente sobre `6bfd7b7` fechou `SECURITY REVIEW FAIL` com
+> treze achados. Registro técnico completo em `docs/SECURITY.md` §8.27.
+
+**Remediados em código, com teste que falhava antes e sabotagem detectada:**
+`SEC-001` (backup sem alvo de banco), `SEC-002` (percurso de PNG/WebP sem
+teto), `SEC-004` (metadado depois do scan do JPEG), `SEC-005` (Next ouvindo em
+todas as interfaces), `SEC-006` (arquivo de ambiente executado como shell pelo
+root), `SEC-007` (faixas IPv6 no guarda de SSRF), `SEC-008` (chamada ao vivo
+para ERP desativado), `SEC-010` (reflexão de `Host` no Nginx), `SEC-011`
+(`/opt` gravável pelo serviço), `SEC-012` (falha de faixa de backup reportada
+como sucesso), `SEC-013` (release do Field com URL de laboratório) e o INFO
+`SEC-038` (`APP_ORIGINS` obrigatória em produção).
+
+**`SEC-003` — remediado por versão**, com decisão do dono: `next@14.2.35` →
+**`next@15.5.25`**, a menor versão prática corrigida (a linha 14 não tem versão
+corrigida; a 15 tem, então a 16 não foi necessária). React instalado continua
+18. O upgrade exigiu a migração assíncrona de `params`/`searchParams`/
+`cookies()` em rotas e páginas, feita de forma mecânica e sem mover nenhuma
+regra de autorização. Registro no PRD §13 (`DECISION UPDATED`).
+
+**`SEC-009` — `ACCEPTED V1 RESIDUAL RISK`**, decisão do dono: a amplificação de
+memória no upload (~57 MiB de pico por upload de 8 MiB) fica como dívida não
+bloqueante da V1. **Restrição que a provisão do VPS (`RC-1F`) precisa honrar:**
+dimensionar a memória contando uploads simultâneos de técnicos, e tratar
+concorrência limitada ou parser em fluxo **antes de qualquer escala
+horizontal**.
+
+**A `RC-1` continua ABERTA.** O próximo passo é a **reauditoria independente**
+da remediação, feita por uma sessão que não a implementou.

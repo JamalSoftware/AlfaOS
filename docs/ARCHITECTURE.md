@@ -3,7 +3,7 @@
 ## Visão geral
 
 AlfaOS é uma plataforma de Ordens de Serviço (OS) para provedores de
-telecomunicações. Stack: **Next.js 14 (App Router) + TypeScript + Tailwind
+telecomunicações. Stack: **Next.js 15 (App Router) + TypeScript + Tailwind
 CSS + PostgreSQL + Prisma 6**. Autenticação por e-mail/senha com sessão JWT
 (em cookie HttpOnly) e multi-tenancy por empresa.
 
