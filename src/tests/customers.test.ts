@@ -100,7 +100,7 @@ describe("Clientes", () => {
     const tokenA = await createTokenFor(fixture.adminA.id);
     const getRes = await getCustomer(
       apiRequest(`/api/customers/${created.id}`, {}, tokenA),
-      { params: { id: created.id } },
+      { params: Promise.resolve({ id: created.id }) },
     );
     expect(getRes.status).toBe(404);
 
@@ -110,7 +110,7 @@ describe("Clientes", () => {
         { method: "PATCH", body: { name: "Hacked" } },
         tokenA,
       ),
-      { params: { id: created.id } },
+      { params: Promise.resolve({ id: created.id }) },
     );
     expect(patchRes.status).toBe(404);
 
@@ -150,7 +150,7 @@ describe("Clientes", () => {
         { method: "PATCH", body: { active: false } },
         tokenA,
       ),
-      { params: { id: created!.id } },
+      { params: Promise.resolve({ id: created!.id }) },
     );
     expect(editRes.status).toBe(200);
     const edited = await editRes.json();

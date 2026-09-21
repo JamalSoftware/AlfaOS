@@ -613,7 +613,7 @@ describe("rota de sincronização", () => {
         { method: "POST", headers: { Origin: "http://localhost" } },
         token,
       ),
-      { params: { id: customerId } },
+      { params: Promise.resolve({ id: customerId }) },
     );
   }
 
@@ -668,7 +668,7 @@ describe("rota de sincronização", () => {
         { method: "POST", headers: { Origin: "https://evil.example" } },
         await createTokenFor(fixture.adminA.id),
       ),
-      { params: { id: cliente.id } },
+      { params: Promise.resolve({ id: cliente.id }) },
     );
 
     expect(res.status).toBe(403);

@@ -42,7 +42,7 @@ beforeEach(async () => {
 
 async function pagina(searchParams: Record<string, string | string[] | undefined> = {}) {
   const { default: EditCustomerPage } = await import("@/app/(app)/clientes/[id]/editar/page");
-  return EditCustomerPage({ params: { id: cliente.id }, searchParams });
+  return EditCustomerPage({ params: Promise.resolve({ id: cliente.id }), searchParams: Promise.resolve(searchParams) });
 }
 
 /** A seção de histórico dentro da árvore que a página devolveu. */

@@ -23,7 +23,7 @@ const ADMIN_ONLY = [AccessProfile.ADMIN];
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -40,7 +40,7 @@ export async function POST(
 
     const requeued = await requeueFailedOutboxEvent(
       session.companyId,
-      context.params.id,
+      (await context.params).id,
     );
 
     if (!requeued) {
@@ -55,7 +55,7 @@ export async function POST(
       userId: session.id,
       action: "OUTBOX.REQUEUED",
       entity: "OutboxEvent",
-      entityId: context.params.id,
+      entityId: (await context.params).id,
       details: "Evento reenfileirado manualmente.",
     });
 

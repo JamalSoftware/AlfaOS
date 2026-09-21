@@ -400,7 +400,7 @@ describe("Mass assignment do número", () => {
         },
         token,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
 
     expect(res.status).toBe(400);
@@ -445,7 +445,7 @@ describe("Imutabilidade do número", () => {
         },
         token,
       ),
-      { params: { id: created.id } },
+      { params: Promise.resolve({ id: created.id }) },
     );
     expect(assigned.status).toBe(200);
     const assignedOrder = (await assigned.json()).data.serviceOrder;

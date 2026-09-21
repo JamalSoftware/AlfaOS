@@ -42,7 +42,7 @@ describe("Isolamento multi-empresa", () => {
     const token = await createTokenFor(fixture.adminA.id);
 
     const res = await getUser(apiRequest(`/api/users/${fixture.adminB.id}`, {}, token), {
-      params: { id: fixture.adminB.id },
+      params: Promise.resolve({ id: fixture.adminB.id }),
     });
 
     expect(res.status).toBe(404);
@@ -57,7 +57,7 @@ describe("Isolamento multi-empresa", () => {
         { method: "PATCH", body: { active: false, name: "Hacked" } },
         token,
       ),
-      { params: { id: fixture.adminB.id } },
+      { params: Promise.resolve({ id: fixture.adminB.id }) },
     );
 
     expect(res.status).toBe(404);

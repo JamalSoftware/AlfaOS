@@ -41,7 +41,7 @@ import { INT32_MAX } from "@/lib/version";
  */
 export async function PUT(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runFieldApi(async () => {
     const principal = await requireFieldPrincipal(request);
@@ -90,7 +90,7 @@ export async function PUT(
 
     const data = Buffer.from(await file.arrayBuffer());
     const contentHash = createHash("sha256").update(data).digest("hex");
-    const orderId = context.params.id;
+    const orderId = (await context.params).id;
 
     const outcome = await withIdempotency(
       principal,

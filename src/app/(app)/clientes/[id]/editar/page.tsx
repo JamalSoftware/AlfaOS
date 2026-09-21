@@ -126,12 +126,14 @@ function linkVerMais(
 }
 
 export default async function EditCustomerPage({
-  params,
-  searchParams,
+  params: paramsPromise,
+  searchParams: searchParamsPromise,
 }: {
-  params: { id: string };
-  searchParams?: { [key: string]: string | string[] | undefined };
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
+  const params = await paramsPromise;
+  const searchParams = await searchParamsPromise;
   const session = await requirePageProfile(["ADMIN", "DISPATCHER"]);
 
   const customer = await getCompanyCustomer(session.companyId, params.id);

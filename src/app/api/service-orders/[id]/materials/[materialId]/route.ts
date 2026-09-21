@@ -29,7 +29,7 @@ const deleteSchema = z
   .object({ expectedOrderVersion: expectedVersionSchema })
   .strict();
 
-type Ctx = { params: { id: string; materialId: string } };
+type Ctx = { params: Promise<{ id: string; materialId: string }> };
 
 async function guard(request: Request) {
   const csrfBlocked = assertSameOrigin(request);
@@ -63,8 +63,8 @@ export async function PATCH(request: Request, context: Ctx) {
     const material = await updateMaterial(
       g.session.companyId,
       g.session.id,
-      context.params.id,
-      context.params.materialId,
+      (await context.params).id,
+      (await context.params).materialId,
       fields,
       expectedOrderVersion,
     );
@@ -91,8 +91,8 @@ export async function DELETE(request: Request, context: Ctx) {
     await removeMaterial(
       g.session.companyId,
       g.session.id,
-      context.params.id,
-      context.params.materialId,
+      (await context.params).id,
+      (await context.params).materialId,
       parsed.data.expectedOrderVersion,
     );
     return jsonOk({ removed: true });

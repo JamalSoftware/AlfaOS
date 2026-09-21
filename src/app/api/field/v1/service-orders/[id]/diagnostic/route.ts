@@ -41,7 +41,7 @@ import { resolveOwnedOrderCustomer } from "@/lib/field/service-orders";
  */
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runFieldApi(async () => {
     const principal = await requireFieldPrincipal(request);
@@ -51,7 +51,7 @@ export async function POST(
     const owned = await resolveOwnedOrderCustomer(
       principal.user.companyId,
       principal.technician.id,
-      context.params.id,
+      (await context.params).id,
     );
 
     const quota = consumeCapabilityToken(

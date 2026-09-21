@@ -19,7 +19,7 @@ const updateTechnicianSchema = z
 
 export async function GET(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const session = await getSessionUser(request);
@@ -31,7 +31,7 @@ export async function GET(
 
     const technician = await getCompanyTechnician(
       session.companyId,
-      context.params.id,
+      (await context.params).id,
     );
     if (!technician) {
       return jsonError("Técnico não encontrado.", 404);
@@ -42,7 +42,7 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -71,7 +71,7 @@ export async function PATCH(
 
     const technician = await updateCompanyTechnician(
       session.companyId,
-      context.params.id,
+      (await context.params).id,
       parsed.data,
       session.id,
     );

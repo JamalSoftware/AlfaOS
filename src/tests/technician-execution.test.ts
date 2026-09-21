@@ -80,7 +80,7 @@ async function assignedOrderScenario() {
 function startRequest(orderId: string, body: unknown, token: string) {
   return startOrder(
     apiRequest(`/api/service-orders/${orderId}/start`, { method: "POST", body }, token),
-    { params: { id: orderId } },
+    { params: Promise.resolve({ id: orderId }) },
   );
 }
 
@@ -91,7 +91,7 @@ function executionRequest(orderId: string, body: unknown, token: string) {
       { method: "PATCH", body },
       token,
     ),
-    { params: { id: orderId } },
+    { params: Promise.resolve({ id: orderId }) },
   );
 }
 
@@ -485,7 +485,7 @@ describe("Execução do técnico — ownership e perfis", () => {
         method: "POST",
         body: { expectedVersion: order.version },
       }),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(start.status).toBe(401);
 
@@ -494,7 +494,7 @@ describe("Execução do técnico — ownership e perfis", () => {
         method: "PATCH",
         body: { expectedVersion: 0, diagnosis: "x" },
       }),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(execution.status).toBe(401);
   });
@@ -512,7 +512,7 @@ describe("Execução do técnico — ownership e perfis", () => {
         },
         token,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(res.status).toBe(403);
     expect(
@@ -694,7 +694,7 @@ describe("Execução do técnico — multi-tenancy", () => {
 
     const read = await getOrder(
       apiRequest(`/api/service-orders/${order.id}`, {}, tokenB),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(read.status).toBe(404);
 
@@ -1104,7 +1104,7 @@ describe("Execução do técnico — leitura", () => {
       const viewerToken = await createTokenFor(userId);
       const res = await getOrder(
         apiRequest(`/api/service-orders/${order.id}`, {}, viewerToken),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       );
       expect(res.status).toBe(200);
       const payload = await res.json();
@@ -1123,7 +1123,7 @@ describe("Execução do técnico — leitura", () => {
 
     const res = await getOrder(
       apiRequest(`/api/service-orders/${order.id}`, {}, token),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     const payload = await res.json();
     expect(payload.data.serviceOrder.execution).toBeNull();

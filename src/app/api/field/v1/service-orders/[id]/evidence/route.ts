@@ -50,7 +50,7 @@ const EVIDENCE_CATEGORIES = new Set<string>(Object.values(EvidenceCategory));
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runFieldApi(async () => {
     const principal = await requireFieldPrincipal(request);
@@ -135,7 +135,7 @@ export async function POST(
 
     const data = Buffer.from(await file.arrayBuffer());
     const contentHash = createHash("sha256").update(data).digest("hex");
-    const orderId = context.params.id;
+    const orderId = (await context.params).id;
 
     const outcome = await withIdempotency(
       principal,

@@ -50,7 +50,7 @@ const updateConnectionSchema = z
 
 export async function PATCH(
   request: Request,
-  context: { params: { id: string; connectionId: string } },
+  context: { params: Promise<{ id: string; connectionId: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -89,9 +89,9 @@ export async function PATCH(
      */
     const owned = await prisma.customerConnection.findFirst({
       where: {
-        id: context.params.connectionId,
+        id: (await context.params).connectionId,
         companyId: session.companyId,
-        customerId: context.params.id,
+        customerId: (await context.params).id,
       },
       select: { id: true },
     });
@@ -113,7 +113,7 @@ export async function PATCH(
     if (parsed.data.restoreDefaultPassword) {
       const resolved = await resolveDefaultPassword(
         session.companyId,
-        context.params.connectionId,
+        (await context.params).connectionId,
       );
       if (!resolved.password) {
         /**
@@ -136,7 +136,7 @@ export async function PATCH(
 
     const connection = await updateCustomerConnection(
       session.companyId,
-      context.params.connectionId,
+      (await context.params).connectionId,
       session.id,
       {
         username: parsed.data.username,

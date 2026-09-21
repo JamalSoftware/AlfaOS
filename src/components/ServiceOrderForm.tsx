@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -453,12 +454,12 @@ export function ServiceOrderForm({
         >
           {loading ? "Criando..." : "Criar OS"}
         </button>
-        <a
+        <Link
           href="/ordens"
           className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-fg-secondary transition-colors hover:bg-surface-muted"
         >
           Cancelar
-        </a>
+        </Link>
       </div>
     </form>
   );

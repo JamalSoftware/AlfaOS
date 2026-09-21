@@ -759,7 +759,7 @@ describe("Evidências", () => {
         },
         token,
       ),
-      { params: { id: s.order.id, evidenceId: ev.id } },
+      { params: Promise.resolve({ id: s.order.id, evidenceId: ev.id }) },
     );
     expect(res.status).toBe(200);
     expect(
@@ -829,7 +829,7 @@ describe("Materiais", () => {
           },
           token,
         ),
-        { params: { id: s.order.id } },
+        { params: Promise.resolve({ id: s.order.id }) },
       );
       expect(res.status).toBe(400);
     }
@@ -860,7 +860,7 @@ describe("Materiais", () => {
         },
         token,
       ),
-      { params: { id: s.order.id, materialId: m.id } },
+      { params: Promise.resolve({ id: s.order.id, materialId: m.id }) },
     );
     expect(patched.status).toBe(200);
 
@@ -873,7 +873,7 @@ describe("Materiais", () => {
         },
         token,
       ),
-      { params: { id: s.order.id, materialId: m.id } },
+      { params: Promise.resolve({ id: s.order.id, materialId: m.id }) },
     );
     expect(deleted.status).toBe(200);
     expect(
@@ -1129,7 +1129,7 @@ describe("Ownership e multi-tenancy", () => {
         {},
         tokenB,
       ),
-      { params: { id: s.order.id, evidenceId: ev.id } },
+      { params: Promise.resolve({ id: s.order.id, evidenceId: ev.id }) },
     );
     expect(res.status).toBe(404);
     expect(await res.text()).not.toContain("storageKey");
@@ -1173,7 +1173,7 @@ describe("Ownership e multi-tenancy", () => {
         {},
         tokenB,
       ),
-      { params: { id: s.order.id, evidenceId: ev.id } },
+      { params: Promise.resolve({ id: s.order.id, evidenceId: ev.id }) },
     );
     expect(res.status).toBe(404);
 
@@ -1200,7 +1200,7 @@ describe("Ownership e multi-tenancy", () => {
         {},
         s.token,
       ),
-      { params: { id: s.order.id, evidenceId: ev.id } },
+      { params: Promise.resolve({ id: s.order.id, evidenceId: ev.id }) },
     );
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("image/jpeg");
@@ -1224,7 +1224,7 @@ describe("Ownership e multi-tenancy", () => {
         {},
         admin,
       ),
-      { params: { id: s.order.id, evidenceId: ev.id } },
+      { params: Promise.resolve({ id: s.order.id, evidenceId: ev.id }) },
     );
     expect(read.status).toBe(200);
 
@@ -1242,7 +1242,7 @@ describe("Ownership e multi-tenancy", () => {
         },
         admin,
       ),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(write.status).toBe(403);
 
@@ -1255,7 +1255,7 @@ describe("Ownership e multi-tenancy", () => {
         },
         admin,
       ),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(close.status).toBe(403);
   });
@@ -1349,7 +1349,7 @@ describe("Contratos das rotas", () => {
           },
           token,
         ),
-        { params: { id: s.order.id } },
+        { params: Promise.resolve({ id: s.order.id }) },
       );
       expect(close.status).toBe(400);
 
@@ -1368,7 +1368,7 @@ describe("Contratos das rotas", () => {
           },
           token,
         ),
-        { params: { id: s.order.id } },
+        { params: Promise.resolve({ id: s.order.id }) },
       );
       expect(mat.status).toBe(400);
     }
@@ -1397,7 +1397,7 @@ describe("Contratos das rotas", () => {
         },
         token,
       ),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(close.status).toBe(400);
 
@@ -1413,7 +1413,7 @@ describe("Contratos das rotas", () => {
         },
         token,
       ),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(closeExec.status).toBe(400);
 
@@ -1431,7 +1431,7 @@ describe("Contratos das rotas", () => {
         },
         token,
       ),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(mat.status).toBe(400);
   });
@@ -1445,7 +1445,7 @@ describe("Contratos das rotas", () => {
         method: "POST",
         body: { expectedOrderVersion: 0, expectedExecutionVersion: 0 },
       }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(noSession.status).toBe(401);
 
@@ -1462,13 +1462,13 @@ describe("Contratos das rotas", () => {
         },
         token,
       ),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(crossOrigin.status).toBe(403);
 
     const evidenceNoSession = await addEvidenceRoute(
       formRequest(`/api/service-orders/${s.order.id}/evidence`, new FormData()),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(evidenceNoSession.status).toBe(401);
   });
@@ -1485,7 +1485,7 @@ describe("Contratos das rotas", () => {
 
     const res = await addEvidenceRoute(
       formRequest(`/api/service-orders/${s.order.id}/evidence`, form, token),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(res.status).toBe(201);
 
@@ -1511,7 +1511,7 @@ describe("Contratos das rotas", () => {
         body: form,
       },
     );
-    const res = await putSignatureRoute(req, { params: { id: s.order.id } });
+    const res = await putSignatureRoute(req, { params: Promise.resolve({ id: s.order.id }) });
     expect(res.status).toBe(400);
   });
 });

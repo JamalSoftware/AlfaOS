@@ -38,7 +38,7 @@ function assertAdmin(profile: AccessProfile) {
 
 export async function GET(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const session = await getSessionUser(request);
@@ -48,7 +48,7 @@ export async function GET(
     const denied = assertAdmin(session.profile);
     if (denied) return denied;
 
-    const user = await getCompanyUser(session.companyId, context.params.id);
+    const user = await getCompanyUser(session.companyId, (await context.params).id);
     if (!user) {
       return jsonError("Usuário não encontrado.", 404);
     }
@@ -58,7 +58,7 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -85,7 +85,7 @@ export async function PATCH(
       return jsonError("Dados inválidos.", 400, parsed.error.flatten());
     }
 
-    const targetId = context.params.id;
+    const targetId = (await context.params).id;
 
     const existing = await getCompanyUser(session.companyId, targetId);
     if (!existing) {

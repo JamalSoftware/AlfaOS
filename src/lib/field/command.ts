@@ -143,7 +143,7 @@ export function fieldOrderCommand<S extends z.ZodTypeAny, T>(
   ) => Promise<FieldCommandResult<T>>,
   options: FieldCommandOptions = {},
 ) {
-  return async (request: Request, context: { params: { id: string } }) =>
+  return async (request: Request, context: { params: Promise<{ id: string }> }) =>
     runFieldApi(async () => {
       const principal = await requireFieldPrincipal(request);
       await options.precondition?.(principal);
@@ -153,7 +153,7 @@ export function fieldOrderCommand<S extends z.ZodTypeAny, T>(
       const body = (await readFieldBody(request, schema)) as z.infer<S> & {
         clientMutationId?: string;
       };
-      const orderId = context.params.id;
+      const orderId = (await context.params).id;
 
       const { clientMutationId, ...fingerprintBody } = body;
 

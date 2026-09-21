@@ -263,7 +263,7 @@ describe("Tipos de OS", () => {
         { method: "PATCH", body: { name: "Sequestrado" } },
         tokenB,
       ),
-      { params: { id: fixture.typeA.id } },
+      { params: Promise.resolve({ id: fixture.typeA.id }) },
     );
     expect(res.status).toBe(404);
 
@@ -363,7 +363,7 @@ describe("Tipos de OS", () => {
         { method: "PATCH", body: { active: false, name: "Instalação (antiga)" } },
         token,
       ),
-      { params: { id: fixture.typeA.id } },
+      { params: Promise.resolve({ id: fixture.typeA.id }) },
     );
     expect(res.status).toBe(200);
 
@@ -512,7 +512,7 @@ describe("Customer externalId", () => {
         { method: "PATCH", body: { externalId: "" } },
         token,
       ),
-      { params: { id: customer.id } },
+      { params: Promise.resolve({ id: customer.id }) },
     );
     expect(res.status).toBe(200);
 

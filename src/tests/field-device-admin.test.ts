@@ -162,11 +162,11 @@ describe("POST /api/mobile-devices/:id/revoke", () => {
         { method: "POST" },
         adminToken,
       ),
-      { params: { id: deviceId } },
+      { params: Promise.resolve({ id: deviceId }) },
     );
     expect(revoke.status).toBe(200);
 
-    const params = { params: { id: order.id } };
+    const params = { params: Promise.resolve({ id: order.id }) };
     const chamadas: Array<[string, () => Promise<Response>]> = [
       ["me", () => fieldMe(fieldRequest("/api/field/v1/me", { token: fieldToken }))],
       [
@@ -268,7 +268,7 @@ describe("POST /api/mobile-devices/:id/revoke", () => {
           { method: "POST" },
           adminToken,
         ),
-        { params: { id: deviceId } },
+        { params: Promise.resolve({ id: deviceId }) },
       );
 
     expect((await req()).status).toBe(200);
@@ -285,7 +285,7 @@ describe("POST /api/mobile-devices/:id/revoke", () => {
         { method: "POST" },
         token,
       ),
-      { params: { id: deviceId } },
+      { params: Promise.resolve({ id: deviceId }) },
     );
     // 404, não 403: um ADMIN não descobre por aqui quais aparelhos existem
     // fora da própria empresa.
@@ -307,7 +307,7 @@ describe("POST /api/mobile-devices/:id/revoke", () => {
           { method: "POST" },
           token,
         ),
-        { params: { id: deviceId } },
+        { params: Promise.resolve({ id: deviceId }) },
       );
       expect(response.status).toBe(403);
     }
@@ -328,7 +328,7 @@ describe("POST /api/mobile-devices/:id/revoke", () => {
         { method: "POST", headers: { Origin: "https://evil.example" } },
         token,
       ),
-      { params: { id: deviceId } },
+      { params: Promise.resolve({ id: deviceId }) },
     );
     expect(response.status).toBe(403);
 
@@ -347,7 +347,7 @@ describe("POST /api/mobile-devices/:id/revoke", () => {
         { method: "POST" },
         token,
       ),
-      { params: { id: deviceId } },
+      { params: Promise.resolve({ id: deviceId }) },
     );
 
     const log = await prisma.auditLog.findFirstOrThrow({
@@ -421,7 +421,7 @@ describe("outbox operacional", () => {
         { method: "POST" },
         token,
       ),
-      { params: { id: event.id } },
+      { params: Promise.resolve({ id: event.id }) },
     );
     expect(response.status).toBe(200);
 
@@ -442,7 +442,7 @@ describe("outbox operacional", () => {
         { method: "POST" },
         token,
       ),
-      { params: { id: event.id } },
+      { params: Promise.resolve({ id: event.id }) },
     );
     expect(response.status).toBe(404);
 
@@ -462,7 +462,7 @@ describe("outbox operacional", () => {
           { method: "POST" },
           token,
         ),
-        { params: { id: event.id } },
+        { params: Promise.resolve({ id: event.id }) },
       );
       expect(response.status).toBe(403);
     }
@@ -486,7 +486,7 @@ describe("outbox operacional", () => {
         { method: "POST" },
         token,
       ),
-      { params: { id: pendente.id } },
+      { params: Promise.resolve({ id: pendente.id }) },
     );
     // Já está na fila: reenfileirar à mão criaria a duplicação que o lease
     // existe para evitar.

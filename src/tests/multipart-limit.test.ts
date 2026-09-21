@@ -298,7 +298,7 @@ describe("as cinco rotas recusam antes de materializar", () => {
     });
     const formData = vi.spyOn(req, "formData");
 
-    const res = await webEvidence(req, { params: { id: "os-x" } });
+    const res = await webEvidence(req, { params: Promise.resolve({ id: "os-x" }) });
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/muito grande/i);
     expect(formData).not.toHaveBeenCalled();
@@ -310,7 +310,7 @@ describe("as cinco rotas recusam antes de materializar", () => {
     const { stream } = corpoContado(1024);
     const res = await webEvidence(
       pedido("/api/service-orders/os-x/evidence", { body: stream, contentLength: GIGANTE }),
-      { params: { id: "os-x" } },
+      { params: Promise.resolve({ id: "os-x" }) },
     );
     expect(res.status).toBe(401);
   });
@@ -323,7 +323,7 @@ describe("as cinco rotas recusam antes de materializar", () => {
         contentLength: "abc",
         headers: { Cookie: `alfaos_session=${encodeURIComponent(token)}` },
       }),
-      { params: { id: "os-x" } },
+      { params: Promise.resolve({ id: "os-x" }) },
     );
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("Envio inválido.");
@@ -338,7 +338,7 @@ describe("as cinco rotas recusam antes de materializar", () => {
       headers: { Cookie: `alfaos_session=${encodeURIComponent(token)}` },
     });
     const formData = vi.spyOn(req, "formData");
-    const res = await webSignature(req, { params: { id: "os-x" } });
+    const res = await webSignature(req, { params: Promise.resolve({ id: "os-x" }) });
     expect(res.status).toBe(400);
     expect(formData).not.toHaveBeenCalled();
   });
@@ -352,7 +352,7 @@ describe("as cinco rotas recusam antes de materializar", () => {
       headers: { Authorization: `Bearer ${token}`, "Idempotency-Key": "k-multipart-1" },
     });
     const formData = vi.spyOn(req, "formData");
-    const res = await fieldEvidence(req, { params: { id: "os-x" } });
+    const res = await fieldEvidence(req, { params: Promise.resolve({ id: "os-x" }) });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
@@ -370,7 +370,7 @@ describe("as cinco rotas recusam antes de materializar", () => {
       headers: { Authorization: `Bearer ${token}`, "Idempotency-Key": "k-multipart-2" },
     });
     const formData = vi.spyOn(req, "formData");
-    const res = await fieldSignature(req, { params: { id: "os-x" } });
+    const res = await fieldSignature(req, { params: Promise.resolve({ id: "os-x" }) });
     expect(res.status).toBe(400);
     expect((await res.json()).error.code).toBe("VALIDATION_ERROR");
     expect(formData).not.toHaveBeenCalled();
@@ -388,7 +388,7 @@ describe("as cinco rotas recusam antes de materializar", () => {
       headers: { Cookie: `alfaos_session=${encodeURIComponent(token)}` },
     });
     const formData = vi.spyOn(req, "formData");
-    const res = await ctoPhoto(req, { params: { id: "cto-x" } });
+    const res = await ctoPhoto(req, { params: Promise.resolve({ id: "cto-x" }) });
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/muito grande/i);
     expect(formData).not.toHaveBeenCalled();
@@ -428,7 +428,7 @@ describe("as cinco rotas recusam antes de materializar", () => {
         contentLength: String(bytes.byteLength),
         headers: { Cookie: `alfaos_session=${encodeURIComponent(token)}` },
       }),
-      { params: { id: ordem.id } },
+      { params: Promise.resolve({ id: ordem.id }) },
     );
     expect(res.status).toBe(201);
     expect(await prisma.serviceOrderEvidence.count({ where: { serviceOrderId: ordem.id } })).toBe(1);

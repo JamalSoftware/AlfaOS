@@ -25,7 +25,7 @@ function patchRequest(targetId: string, body: unknown, token: string) {
       { method: "PATCH", body, headers: { Origin: "http://localhost" } },
       token,
     ),
-    { params: { id: targetId } },
+    { params: Promise.resolve({ id: targetId }) },
   );
 }
 
@@ -63,7 +63,7 @@ describe("Edição de usuário", () => {
         },
         token,
       ),
-      { params: { id: fixture.techA.id } },
+      { params: Promise.resolve({ id: fixture.techA.id }) },
     );
 
     expect(res.status).toBe(200);
@@ -87,7 +87,7 @@ describe("Edição de usuário", () => {
         },
         token,
       ),
-      { params: { id: fixture.techA.id } },
+      { params: Promise.resolve({ id: fixture.techA.id }) },
     );
     expect(res.status).toBe(200);
 
@@ -121,7 +121,7 @@ describe("Edição de usuário", () => {
         },
         token,
       ),
-      { params: { id: fixture.adminB.id } },
+      { params: Promise.resolve({ id: fixture.adminB.id }) },
     );
 
     expect(res.status).toBe(404);
@@ -140,7 +140,7 @@ describe("Edição de usuário", () => {
         },
         token,
       ),
-      { params: { id: fixture.techA.id } },
+      { params: Promise.resolve({ id: fixture.techA.id }) },
     );
 
     expect(res.status).toBe(409);
@@ -177,7 +177,7 @@ describe("Edição de usuário", () => {
         },
         token,
       ),
-      { params: { id: fixture.adminA.id } },
+      { params: Promise.resolve({ id: fixture.adminA.id }) },
     );
 
     expect(res.status).toBe(403);

@@ -62,7 +62,10 @@ export async function getSessionUser(
   if (request) {
     token = getTokenFromRequest(request);
   } else {
-    token = cookies().get(SESSION_COOKIE_NAME)?.value ?? null;
+    // Next 15: `cookies()` é assíncrona (`SEC-003`). O acesso síncrono ainda
+    // funciona como compatibilidade temporária, com aviso, e sai no 16 — então
+    // o `await` é o que mantém a leitura da sessão estável entre versões.
+    token = (await cookies()).get(SESSION_COOKIE_NAME)?.value ?? null;
   }
 
   if (!token) {

@@ -59,7 +59,7 @@ async function patch(ctoId: string, body: Record<string, unknown>) {
       { method: "PATCH", body, headers: { ...ORIGIN } },
       adminToken,
     ),
-    { params: { id: ctoId } },
+    { params: Promise.resolve({ id: ctoId }) },
   );
   return { status: res.status, body: await res.json() };
 }

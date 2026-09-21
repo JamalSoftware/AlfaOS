@@ -60,12 +60,12 @@ async function ordem(status: ServiceOrderStatus) {
 
 async function paginaPacote(id: string) {
   const { default: Page } = await import("@/app/(app)/ordens/[id]/pacote/page");
-  return Page({ params: { id } });
+  return Page({ params: Promise.resolve({ id }) });
 }
 
 async function paginaOs(id: string) {
   const { default: Page } = await import("@/app/(app)/ordens/[id]/page");
-  return Page({ params: { id }, searchParams: {} });
+  return Page({ params: Promise.resolve({ id }), searchParams: Promise.resolve({}) });
 }
 
 function achar(no: ReactNode, pred: (el: ReactElement) => boolean): ReactElement | null {

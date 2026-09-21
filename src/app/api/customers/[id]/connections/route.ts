@@ -39,7 +39,7 @@ const createConnectionSchema = z
 
 export async function GET(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const session = await getSessionUser(request);
@@ -51,7 +51,7 @@ export async function GET(
 
     const customer = await getCompanyCustomer(
       session.companyId,
-      context.params.id,
+      (await context.params).id,
     );
     if (!customer) {
       return jsonError("Cliente não encontrado.", 404);
@@ -60,7 +60,7 @@ export async function GET(
     // Shape público: username e um booleano. Nunca a senha.
     const connections = await listCustomerConnections(
       session.companyId,
-      context.params.id,
+      (await context.params).id,
     );
     return jsonOk({ connections });
   });
@@ -68,7 +68,7 @@ export async function GET(
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -103,7 +103,7 @@ export async function POST(
       session.companyId,
       session.id,
       {
-        customerId: context.params.id,
+        customerId: (await context.params).id,
         username: parsed.data.username,
         password: parsed.data.password ?? null,
       },

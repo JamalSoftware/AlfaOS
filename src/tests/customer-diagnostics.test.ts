@@ -408,7 +408,7 @@ describe("Autorização e multi-tenancy", () => {
     });
     const res = await getDiagnostic(
       apiRequest(`/api/service-orders/${order.id}/diagnostic`, {}),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(res.status).toBe(401);
   });
@@ -429,7 +429,7 @@ describe("Autorização e multi-tenancy", () => {
     const tokenB = await createTokenFor(fixture.adminB.id);
     const read = await getDiagnostic(
       apiRequest(`/api/service-orders/${order.id}/diagnostic`, {}, tokenB),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(read.status).toBe(404);
     expect(await read.text()).not.toContain("ONLINE");
@@ -440,7 +440,7 @@ describe("Autorização e multi-tenancy", () => {
         { method: "POST", body: {} },
         tokenB,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(refresh.status).toBe(404);
   });
@@ -464,7 +464,7 @@ describe("Autorização e multi-tenancy", () => {
     const tokenB = await createTokenFor(fixture.techB.id);
     const read = await getDiagnostic(
       apiRequest(`/api/service-orders/${order.id}/diagnostic`, {}, tokenB),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(read.status).toBe(404);
     const body = await read.text();
@@ -477,7 +477,7 @@ describe("Autorização e multi-tenancy", () => {
         { method: "POST", body: {} },
         tokenB,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(refresh.status).toBe(404);
   });
@@ -499,7 +499,7 @@ describe("Autorização e multi-tenancy", () => {
         { method: "POST", body: {} },
         token,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(refresh.status).toBe(200);
     const payload = await refresh.json();
@@ -508,7 +508,7 @@ describe("Autorização e multi-tenancy", () => {
 
     const read = await getDiagnostic(
       apiRequest(`/api/service-orders/${order.id}/diagnostic`, {}, token),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(read.status).toBe(200);
   });
@@ -527,7 +527,7 @@ describe("Autorização e multi-tenancy", () => {
         { method: "POST", body: {} },
         token,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(res.status).toBe(200);
     expect((await res.json()).data.diagnostic.connectivityStatus).toBe("OFFLINE");
@@ -569,7 +569,7 @@ describe("Contrato da rota", () => {
           { method: "POST", body: { [field]: "evil" } },
           s.token,
         ),
-        { params: { id: s.order.id } },
+        { params: Promise.resolve({ id: s.order.id }) },
       );
       expect(res.status, `campo ${field}`).toBe(400);
     }
@@ -593,7 +593,7 @@ describe("Contrato da rota", () => {
         },
         s.token,
       ),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(res.status).toBe(403);
   });
@@ -612,7 +612,7 @@ describe("Contrato da rota", () => {
         { method: "POST", body: {} },
         token,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     const text = await res.text();
     expect(res.status).toBe(200);

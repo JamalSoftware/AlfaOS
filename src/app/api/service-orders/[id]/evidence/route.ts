@@ -19,7 +19,7 @@ const TECHNICIAN_PROFILES = [AccessProfile.TECHNICIAN];
  */
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -73,7 +73,7 @@ export async function POST(
     const evidence = await addEvidence(
       session.companyId,
       session.id,
-      context.params.id,
+      (await context.params).id,
       {
         data,
         declaredMimeType: file.type,

@@ -126,7 +126,7 @@ async function renderOrderPage(orderId: string) {
   const { default: OrderDetailPage } = await import(
     "@/app/(app)/ordens/[id]/page"
   );
-  return OrderDetailPage({ params: { id: orderId } });
+  return OrderDetailPage({ params: Promise.resolve({ id: orderId }) });
 }
 
 interface Cenario {

@@ -86,7 +86,7 @@ async function osComAssinatura() {
 async function baixar(orderId: string, userId: string) {
   const token = await createTokenFor(userId);
   return baixarAssinatura(apiRequest(`/api/service-orders/${orderId}/signature`, {}, token), {
-    params: { id: orderId },
+    params: Promise.resolve({ id: orderId }),
   });
 }
 

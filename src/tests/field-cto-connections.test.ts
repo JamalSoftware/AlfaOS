@@ -209,7 +209,7 @@ describe("CTO-2.4 · CONNECT", () => {
         expectedVersion: c.version,
         ctoPortId: p.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     expect(res.status).toBe(201);
@@ -231,7 +231,7 @@ describe("CTO-2.4 · CONNECT", () => {
         expectedVersion: c.version,
         ctoPortId: p.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     const linha = await prisma.customerNetworkConnection.findFirstOrThrow({
@@ -258,7 +258,7 @@ describe("CTO-2.4 · CONNECT", () => {
         expectedVersion: c.version,
         ctoPortId: p.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(409);
     expect(await ativos({ customerId: c.customerId })).toBe(0);
@@ -274,7 +274,7 @@ describe("CTO-2.4 · CONNECT", () => {
         expectedVersion: c.version,
         ctoPortId: p.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(409);
     expect(await ativos({ customerId: c.customerId })).toBe(0);
@@ -294,7 +294,7 @@ describe("CTO-2.4 · CONNECT", () => {
         expectedVersion: await versaoDe(c.orderId),
         ctoPortId: p.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(409);
     expect(await ativos({ customerId: c.customerId })).toBe(0);
@@ -313,7 +313,7 @@ describe("CTO-2.4 · CONNECT", () => {
         expectedVersion: c.version,
         ctoPortId: p.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(404);
     expect(await ativos({ customerId: c.customerId })).toBe(0);
@@ -358,7 +358,7 @@ describe("CTO-2.4 · CONNECT", () => {
         expectedVersion: c.version,
         ctoPortId: p.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(404);
   });
@@ -384,7 +384,7 @@ describe("CTO-2.4 · CONNECT", () => {
         ctoPortId: p.id,
         [campo]: campo === "source" ? "WEB" : "valor-hostil",
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     expect(res.status).toBe(400);
@@ -415,7 +415,7 @@ describe("CTO-2.4 · CONNECT", () => {
         ctoPortId: (await porta(cto.id, 1)).id,
         customerId: alheio.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(comCliente.status).toBe(400);
     expect(await ativos({ customerId: alheio.id })).toBe(0);
@@ -426,7 +426,7 @@ describe("CTO-2.4 · CONNECT", () => {
         ctoPortId: (await porta(cto.id, 1)).id,
         technicianId: technicianB.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(comTecnico.status).toBe(400);
     expect(await ativos({ technicianId: technicianB.id })).toBe(0);
@@ -437,7 +437,7 @@ describe("CTO-2.4 · CONNECT", () => {
         expectedVersion: c.version,
         ctoPortId: (await porta(cto.id, 1)).id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(ok.status).toBe(201);
     const linha = await prisma.customerNetworkConnection.findFirstOrThrow({
@@ -458,7 +458,7 @@ describe("CTO-2.4 · CONNECT", () => {
         expectedVersion: c.version,
         ctoPortId: p.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(409);
   });
@@ -482,7 +482,7 @@ describe("CTO-2.4 · CONNECT", () => {
           expectedVersion: c.version,
           ctoPortId: p.id,
         }, tokenA),
-        { params: { id: c.orderId } },
+        { params: Promise.resolve({ id: c.orderId }) },
       );
       expect(res.status).toBe(409);
     },
@@ -503,7 +503,7 @@ describe("CTO-2.4 · CONNECT", () => {
         expectedVersion: c.version,
         ctoPortId: p.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(409);
     expect(await ativos({ ctoPortId: p.id })).toBe(1);
@@ -522,7 +522,7 @@ describe("CTO-2.4 · CONNECT", () => {
         expectedVersion: c.version,
         ctoPortId: (await porta(cto.id, 2)).id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(409);
     expect(await ativos({ customerId: c.customerId })).toBe(1);
@@ -542,7 +542,7 @@ describe("CTO-2.4 · CONNECT", () => {
           token: tokenA,
         },
       ),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(400);
   });
@@ -556,7 +556,7 @@ describe("CTO-2.4 · CONNECT", () => {
         expectedVersion: c.version,
         ctoPortId: (await porta(cto.id, 1)).id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(primeira.status).toBe(201);
 
@@ -570,7 +570,7 @@ describe("CTO-2.4 · CONNECT", () => {
           })
         ).id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(segunda.status).toBe(409);
     expect(await ativos({ customerId: c.customerId })).toBe(1);
@@ -601,7 +601,7 @@ describe("CTO-2.4 · DISCONNECT", () => {
         expectedVersion: c.version,
         expectedConnectionId: vinculo.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     expect(res.status).toBe(200);
@@ -625,7 +625,7 @@ describe("CTO-2.4 · DISCONNECT", () => {
         expectedVersion: c.version,
         expectedConnectionId: vinculo.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     const daOs = (await eventos(c.orderId)).map((e) => e.event);
@@ -650,7 +650,7 @@ describe("CTO-2.4 · DISCONNECT", () => {
         expectedVersion: await versaoDe(c.orderId),
         expectedConnectionId: vinculo.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     expect(res.status).toBe(409);
@@ -677,7 +677,7 @@ describe("CTO-2.4 · DISCONNECT", () => {
         expectedVersion: c.version,
         expectedConnectionId: alheio.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     expect(res.status).toBe(409);
@@ -710,7 +710,7 @@ describe("CTO-2.4 · DISCONNECT", () => {
         expectedVersion: c.version,
         expectedConnectionId: vinculoB.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     expect(res.status).toBe(409);
@@ -733,7 +733,7 @@ describe("CTO-2.4 · DISCONNECT", () => {
         expectedVersion: c.version,
         expectedConnectionId: vinculo.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(404);
     expect(await ativos({ id: vinculo.id })).toBe(1);
@@ -754,7 +754,7 @@ describe("CTO-2.4 · DISCONNECT", () => {
         tokenA,
         key,
       ),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(primeira.status).toBe(200);
 
@@ -771,7 +771,7 @@ describe("CTO-2.4 · DISCONNECT", () => {
         tokenA,
         key,
       ),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(replay.status).toBe(200);
 
@@ -798,7 +798,7 @@ describe("CTO-2.4 · DISCONNECT", () => {
         expectedVersion: c.version,
         expectedConnectionId: vinculo.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(200);
     expect(await ativos({ customerId: c.customerId })).toBe(0);
@@ -831,7 +831,7 @@ describe("CTO-2.4 · MOVE", () => {
         expectedConnectionId: vinculo.id,
         targetCtoPortId: destino.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     expect(res.status).toBe(200);
@@ -860,7 +860,7 @@ describe("CTO-2.4 · MOVE", () => {
         expectedConnectionId: vinculo.id,
         targetCtoPortId: destino.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(200);
     expect(await ativos({ ctoPortId: destino.id })).toBe(1);
@@ -877,7 +877,7 @@ describe("CTO-2.4 · MOVE", () => {
         expectedConnectionId: vinculo.id,
         targetCtoPortId: (await porta(outra.id, 1)).id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(200);
   });
@@ -893,7 +893,7 @@ describe("CTO-2.4 · MOVE", () => {
         expectedConnectionId: vinculo.id,
         targetCtoPortId: (await porta(outra.id, 1)).id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(409);
   });
@@ -907,7 +907,7 @@ describe("CTO-2.4 · MOVE", () => {
         expectedConnectionId: vinculo.id,
         targetCtoPortId: port.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(409);
     expect((await eventos(c.orderId)).map((e) => e.event)).not.toContain(
@@ -931,7 +931,7 @@ describe("CTO-2.4 · MOVE", () => {
         expectedConnectionId: vinculo.id,
         targetCtoPortId: terceira.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     expect(res.status).toBe(409);
@@ -957,7 +957,7 @@ describe("CTO-2.4 · MOVE", () => {
         expectedConnectionId: vinculo.id,
         targetCtoPortId: destino.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(409);
   });
@@ -981,7 +981,7 @@ describe("CTO-2.4 · MOVE", () => {
           expectedConnectionId: vinculo.id,
           targetCtoPortId: destino.id,
         }, tokenA),
-        { params: { id: c.orderId } },
+        { params: Promise.resolve({ id: c.orderId }) },
       );
       expect(res.status).toBe(409);
     },
@@ -1001,7 +1001,7 @@ describe("CTO-2.4 · MOVE", () => {
         expectedConnectionId: alheio.id,
         targetCtoPortId: (await porta(cto.id, 7)).id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     expect(res.status).toBe(409);
@@ -1028,7 +1028,7 @@ describe("CTO-2.4 · MOVE", () => {
         tokenA,
         key,
       ),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     const replay = await moveRoute(
       post(
@@ -1037,7 +1037,7 @@ describe("CTO-2.4 · MOVE", () => {
         tokenA,
         key,
       ),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(replay.status).toBe(200);
 
@@ -1069,7 +1069,7 @@ describe("CTO-2.4 · leitura", () => {
       fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network`, {
         token: tokenA,
       }),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     expect(res.status).toBe(200);
@@ -1090,7 +1090,7 @@ describe("CTO-2.4 · leitura", () => {
       fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network`, {
         token: tokenA,
       }),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(200);
     expect((await corpo(res)).data).toEqual({ connection: null });
@@ -1116,7 +1116,7 @@ describe("CTO-2.4 · leitura", () => {
         `/api/field/v1/service-orders/${c.orderId}/network?customerId=${alheio.id}`,
         { token: tokenA },
       ),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     const data = (await corpo(res)).data as {
@@ -1134,7 +1134,7 @@ describe("CTO-2.4 · leitura", () => {
       fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network/ctos`, {
         token: tokenA,
       }),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     const data = (await corpo(res)).data as { ctos: { name: string }[] };
@@ -1168,7 +1168,7 @@ describe("CTO-2.4 · leitura", () => {
       fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network/ctos`, {
         token: tokenA,
       }),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     const data = (await corpo(res)).data as {
       ctos: { availablePorts: number }[];
@@ -1185,7 +1185,7 @@ describe("CTO-2.4 · leitura", () => {
       fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network/ctos`, {
         token: tokenA,
       }),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect((await corpo(res)).data).toEqual({ ctos: [] });
   });
@@ -1210,7 +1210,7 @@ describe("CTO-2.4 · leitura", () => {
       fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network`, {
         token: tokenA,
       }),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     const data = (await corpo(res)).data as {
       connection: {
@@ -1249,7 +1249,7 @@ describe("CTO-2.4 · leitura", () => {
       fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network`, {
         token: tokenA,
       }),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     const data = (await corpo(leitura)).data as {
       connection: {
@@ -1264,7 +1264,7 @@ describe("CTO-2.4 · leitura", () => {
         expectedVersion: c.version,
         expectedConnectionId: vinculo.id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(200);
   });
@@ -1293,20 +1293,20 @@ describe("CTO-2.4 · leitura", () => {
         fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network`, {
           token: tokenA,
         }),
-        { params: { id: c.orderId } },
+        { params: Promise.resolve({ id: c.orderId }) },
       ),
       ctosRoute(
         fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network/ctos`, {
           token: tokenA,
         }),
-        { params: { id: c.orderId } },
+        { params: Promise.resolve({ id: c.orderId }) },
       ),
       ctoDetailRoute(
         fieldRequest(
           `/api/field/v1/service-orders/${c.orderId}/network/ctos/${cto.id}`,
           { token: tokenA },
         ),
-        { params: { id: c.orderId, ctoId: cto.id } },
+        { params: Promise.resolve({ id: c.orderId, ctoId: cto.id }) },
       ),
     ]);
 
@@ -1329,7 +1329,7 @@ describe("CTO-2.4 · leitura", () => {
         `/api/field/v1/service-orders/${c.orderId}/network/ctos/${cto.id}`,
         { token: tokenA },
       ),
-      { params: { id: c.orderId, ctoId: cto.id } },
+      { params: Promise.resolve({ id: c.orderId, ctoId: cto.id }) },
     );
 
     expect(espia).toHaveBeenCalledTimes(1);
@@ -1355,7 +1355,7 @@ describe("CTO-2.4 · leitura", () => {
         `/api/field/v1/service-orders/${c.orderId}/network/ctos/${cto.id}`,
         { token: tokenA },
       ),
-      { params: { id: c.orderId, ctoId: cto.id } },
+      { params: Promise.resolve({ id: c.orderId, ctoId: cto.id }) },
     );
 
     const texto = await res.text();
@@ -1370,7 +1370,7 @@ describe("CTO-2.4 · leitura", () => {
       fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network`, {
         token: tokenA,
       }),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(409);
   });
@@ -1386,7 +1386,7 @@ describe("CTO-2.4 · leitura", () => {
         `/api/field/v1/service-orders/${c.orderId}/network/ctos/${cto.id}`,
         { token: tokenA },
       ),
-      { params: { id: c.orderId, ctoId: cto.id } },
+      { params: Promise.resolve({ id: c.orderId, ctoId: cto.id }) },
     );
     const data = (await corpo(res)).data as {
       cto: { ports: { number: number }[] };
@@ -1411,7 +1411,7 @@ describe("CTO-2.4 · ataques", () => {
         expectedVersion: c.version,
         ctoPortId: (await porta(cto.id, 1)).id,
       }, tokenB),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(escrita.status).toBe(404);
 
@@ -1419,7 +1419,7 @@ describe("CTO-2.4 · ataques", () => {
       fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network`, {
         token: tokenB,
       }),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(leitura.status).toBe(404);
     expect(await ativos({ customerId: c.customerId })).toBe(0);
@@ -1430,7 +1430,7 @@ describe("CTO-2.4 · ataques", () => {
         expectedVersion: c.version,
         ctoPortId: (await porta(cto.id, 1)).id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(dono.status).toBe(201);
   });
@@ -1444,7 +1444,7 @@ describe("CTO-2.4 · ataques", () => {
         expectedVersion: c.version,
         ctoPortId: (await porta(cto.id, 1)).id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
 
     const auditoria = await prisma.auditLog.findFirstOrThrow({
@@ -1477,14 +1477,14 @@ describe("CTO-2.4 · ataques", () => {
         `/api/field/v1/service-orders/${c.orderId}/network/ctos/${ctoB.id}`,
         { token: tokenA },
       ),
-      { params: { id: c.orderId, ctoId: ctoB.id } },
+      { params: Promise.resolve({ id: c.orderId, ctoId: ctoB.id }) },
     );
     const inexistente = await ctoDetailRoute(
       fieldRequest(
         `/api/field/v1/service-orders/${c.orderId}/network/ctos/nao-existe`,
         { token: tokenA },
       ),
-      { params: { id: c.orderId, ctoId: "nao-existe" } },
+      { params: Promise.resolve({ id: c.orderId, ctoId: "nao-existe" }) },
     );
 
     expect(doOutro.status).toBe(404);
@@ -1502,7 +1502,7 @@ describe("CTO-2.4 · ataques", () => {
         `/api/field/v1/service-orders/${c.orderId}/network/ctos/${cto.id}`,
         { token: tokenA },
       ),
-      { params: { id: c.orderId, ctoId: cto.id } },
+      { params: Promise.resolve({ id: c.orderId, ctoId: cto.id }) },
     );
     expect(res.status).toBe(200);
   });
@@ -1517,7 +1517,7 @@ describe("CTO-2.4 · ataques", () => {
         expectedVersion: c.version,
         ctoPortId: (await porta(outraEmpresa.id, 1)).id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(404);
     expect(await ativos({ customerId: c.customerId })).toBe(0);
@@ -1528,7 +1528,7 @@ describe("CTO-2.4 · ataques", () => {
         expectedVersion: c.version,
         ctoPortId: (await porta(minha.id, 1)).id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(ok.status).toBe(201);
   });
@@ -1546,7 +1546,7 @@ describe("CTO-2.4 · ataques", () => {
         tokenA,
         key,
       ),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     expect(primeira.status).toBe(201);
 
@@ -1557,7 +1557,7 @@ describe("CTO-2.4 · ataques", () => {
         tokenA,
         key,
       ),
-      { params: { id: b.orderId } },
+      { params: Promise.resolve({ id: b.orderId }) },
     );
 
     // A OS entra na impressão digital: mesma chave, OS diferente, conflito
@@ -1590,7 +1590,7 @@ describe("CTO-2.4 · ataques", () => {
       fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network`, {
         token,
       }),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(401);
   });
@@ -1608,7 +1608,7 @@ describe("CTO-2.4 · ataques", () => {
         expectedVersion: c.version,
         ctoPortId: (await porta(cto.id, 1)).id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(escrita.status).toBe(403);
 
@@ -1616,7 +1616,7 @@ describe("CTO-2.4 · ataques", () => {
       fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network`, {
         token: tokenA,
       }),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(leitura.status).toBe(200);
   });
@@ -1635,7 +1635,7 @@ describe("CTO-2.4 · ataques", () => {
         expectedConnectionId: "qualquer",
         targetCtoPortId: (await porta(cto.id, 1)).id,
       }, tokenA),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect(res.status).toBe(409);
     expect((await eventos(c.orderId)).map((e) => e.event)).not.toContain(
@@ -1656,7 +1656,7 @@ describe("CTO-2.4 · ataques", () => {
       fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network`, {
         token: tokenA,
       }),
-      { params: { id: c.orderId } },
+      { params: Promise.resolve({ id: c.orderId }) },
     );
     expect((await corpo(res)).data).toEqual({ connection: null });
   });
@@ -1688,7 +1688,7 @@ describe("CTO-2.4 · ataques", () => {
           expectedVersion: c.version,
           ctoPortId: valor,
         }, tokenA),
-        { params: { id: c.orderId } },
+        { params: Promise.resolve({ id: c.orderId }) },
       );
       expect(res.status).toBe(400);
       const body = await corpo(res);
@@ -1706,21 +1706,21 @@ describe("CTO-2.4 · ataques", () => {
           expectedVersion: c.version,
           ctoPortId: "inexistente",
         }, tokenA),
-        { params: { id: c.orderId } },
+        { params: Promise.resolve({ id: c.orderId }) },
       ),
       await disconnectRoute(
         post(`/api/field/v1/service-orders/${c.orderId}/network/disconnect`, {
           expectedVersion: c.version,
           expectedConnectionId: "inexistente",
         }, tokenA),
-        { params: { id: c.orderId } },
+        { params: Promise.resolve({ id: c.orderId }) },
       ),
       await ctoDetailRoute(
         fieldRequest(
           `/api/field/v1/service-orders/${c.orderId}/network/ctos/inexistente`,
           { token: tokenA },
         ),
-        { params: { id: c.orderId, ctoId: "inexistente" } },
+        { params: Promise.resolve({ id: c.orderId, ctoId: "inexistente" }) },
       ),
     ];
     for (const res of respostas) {
@@ -1743,11 +1743,11 @@ describe("CTO-2.4 · ataques", () => {
     const semToken = [
       networkRoute(
         fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network`),
-        { params: { id: c.orderId } },
+        { params: Promise.resolve({ id: c.orderId }) },
       ),
       ctosRoute(
         fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network/ctos`),
-        { params: { id: c.orderId } },
+        { params: Promise.resolve({ id: c.orderId }) },
       ),
       connectRoute(
         fieldRequest(
@@ -1758,7 +1758,7 @@ describe("CTO-2.4 · ataques", () => {
             idempotencyKey: novaChave(),
           },
         ),
-        { params: { id: c.orderId } },
+        { params: Promise.resolve({ id: c.orderId }) },
       ),
     ];
     for (const res of await Promise.all(semToken)) {
@@ -1779,20 +1779,20 @@ describe("CTO-2.4 · ataques", () => {
         fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network`, {
           token: tokenA,
         }),
-        { params: { id: c.orderId } },
+        { params: Promise.resolve({ id: c.orderId }) },
       ),
       ctosRoute(
         fieldRequest(`/api/field/v1/service-orders/${c.orderId}/network/ctos`, {
           token: tokenA,
         }),
-        { params: { id: c.orderId } },
+        { params: Promise.resolve({ id: c.orderId }) },
       ),
       connectRoute(
         post(`/api/field/v1/service-orders/${c.orderId}/network/connect`, {
           expectedVersion: c.version,
           ctoPortId: (await porta(cto.id, 1)).id,
         }, tokenA),
-        { params: { id: c.orderId } },
+        { params: Promise.resolve({ id: c.orderId }) },
       ),
     ]);
 

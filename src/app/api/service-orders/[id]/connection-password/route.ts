@@ -26,7 +26,7 @@ const revealSchema = z
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -62,7 +62,7 @@ export async function POST(
     const password = await revealConnectionPasswordForOrder(
       session.companyId,
       { userId: session.id, profile: session.profile },
-      context.params.id,
+      (await context.params).id,
       parsed.data.connectionId,
     );
 

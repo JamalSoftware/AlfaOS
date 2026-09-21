@@ -14,7 +14,7 @@ import { loadEvidenceForDownload } from "@/lib/service-order-closing";
  */
 export async function GET(
   request: Request,
-  context: { params: { id: string; evidenceId: string } },
+  context: { params: Promise<{ id: string; evidenceId: string }> },
 ) {
   return runApi(async () => {
     const session = await getSessionUser(request);
@@ -31,8 +31,8 @@ export async function GET(
 
     const file = await loadEvidenceForDownload(
       session.companyId,
-      context.params.id,
-      context.params.evidenceId,
+      (await context.params).id,
+      (await context.params).evidenceId,
       { isStaff, technicianId: technician?.id ?? null },
     );
 

@@ -35,7 +35,7 @@ describe("Revalidação imediata de sessão", () => {
         },
         adminToken,
       ),
-      { params: { id: fixture.techA.id } },
+      { params: Promise.resolve({ id: fixture.techA.id }) },
     );
     expect(res.status).toBe(200);
 
@@ -57,7 +57,7 @@ describe("Revalidação imediata de sessão", () => {
         },
         adminToken,
       ),
-      { params: { id: fixture.dispatcherA.id } },
+      { params: Promise.resolve({ id: fixture.dispatcherA.id }) },
     );
     expect(res.status).toBe(200);
 
@@ -96,7 +96,7 @@ describe("Revalidação imediata de sessão", () => {
         },
         adminToken,
       ),
-      { params: { id: other.id } },
+      { params: Promise.resolve({ id: other.id }) },
     );
     expect(demote.status).toBe(200);
 

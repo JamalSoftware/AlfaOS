@@ -281,7 +281,7 @@ describe("API · DISCONNECT", () => {
 
     const res = await disconnectRoute(
       post(`/api/cto-connections/${aberta.id}/disconnect`, { reason: "mudou" }, adminToken),
-      { params: { id: aberta.id } },
+      { params: Promise.resolve({ id: aberta.id }) },
     );
     expect(res.status).toBe(200);
 
@@ -307,13 +307,13 @@ describe("API · DISCONNECT", () => {
 
     const movida = await moveRoute(
       post(`/api/cto-connections/${antiga.id}/move`, { targetCtoPortId: p2.id }, adminToken),
-      { params: { id: antiga.id } },
+      { params: Promise.resolve({ id: antiga.id }) },
     );
     expect(movida.status).toBe(200);
 
     const res = await disconnectRoute(
       post(`/api/cto-connections/${antiga.id}/disconnect`, {}, adminToken),
-      { params: { id: antiga.id } },
+      { params: Promise.resolve({ id: antiga.id }) },
     );
     expect(res.status).toBe(409);
     expect((await corpo(res)).error).toContain("mudou desde que a tela");
@@ -332,7 +332,7 @@ describe("API · DISCONNECT", () => {
 
     const um = await disconnectRoute(
       post(`/api/cto-connections/${primeira.id}/disconnect`, {}, adminToken, { key }),
-      { params: { id: primeira.id } },
+      { params: Promise.resolve({ id: primeira.id }) },
     );
     expect(um.status).toBe(200);
 
@@ -340,7 +340,7 @@ describe("API · DISCONNECT", () => {
     const segunda = await conectar(cliente.id, p1.id);
     const dois = await disconnectRoute(
       post(`/api/cto-connections/${primeira.id}/disconnect`, {}, adminToken, { key }),
-      { params: { id: primeira.id } },
+      { params: Promise.resolve({ id: primeira.id }) },
     );
     expect(dois.status).toBe(200);
 
@@ -363,7 +363,7 @@ describe("API · DISCONNECT", () => {
 
     const res = await disconnectRoute(
       post(`/api/cto-connections/${daB.id}/disconnect`, {}, adminToken),
-      { params: { id: daB.id } },
+      { params: Promise.resolve({ id: daB.id }) },
     );
     expect(res.status).toBe(404);
     expect(await ativas({ id: daB.id })).toBe(1);
@@ -377,13 +377,13 @@ describe("API · DISCONNECT", () => {
     const antiga = await conectar(cliente.id, p1.id);
     await moveRoute(
       post(`/api/cto-connections/${antiga.id}/move`, { targetCtoPortId: p2.id }, adminToken),
-      { params: { id: antiga.id } },
+      { params: Promise.resolve({ id: antiga.id }) },
     );
     const antes = await auditoria("CTO_CONNECTION.DISCONNECTED");
 
     await disconnectRoute(
       post(`/api/cto-connections/${antiga.id}/disconnect`, {}, adminToken),
-      { params: { id: antiga.id } },
+      { params: Promise.resolve({ id: antiga.id }) },
     );
     expect(await auditoria("CTO_CONNECTION.DISCONNECTED")).toBe(antes);
   });
@@ -401,7 +401,7 @@ describe("API · MOVE", () => {
 
     const dentro = await moveRoute(
       post(`/api/cto-connections/${c1.id}/move`, { targetCtoPortId: pa2.id }, adminToken),
-      { params: { id: c1.id } },
+      { params: Promise.resolve({ id: c1.id }) },
     );
     expect(dentro.status).toBe(200);
     const move1 = (await corpo(dentro)).data!.move as Record<string, Record<string, unknown>>;
@@ -411,7 +411,7 @@ describe("API · MOVE", () => {
     const c2 = move1.to.id as string;
     const entre = await moveRoute(
       post(`/api/cto-connections/${c2}/move`, { targetCtoPortId: pb1.id }, adminToken),
-      { params: { id: c2 } },
+      { params: Promise.resolve({ id: c2 }) },
     );
     expect(entre.status).toBe(200);
     expect(await ativas({ ctoPortId: pb1.id })).toBe(1);
@@ -429,14 +429,14 @@ describe("API · MOVE", () => {
 
     const saida = await moveRoute(
       post(`/api/cto-connections/${c1.id}/move`, { targetCtoPortId: pd.id }, adminToken),
-      { params: { id: c1.id } },
+      { params: Promise.resolve({ id: c1.id }) },
     );
     expect(saida.status).toBe(200);
 
     const c2 = ((await corpo(saida)).data!.move as Record<string, Record<string, unknown>>).to.id as string;
     const volta = await moveRoute(
       post(`/api/cto-connections/${c2}/move`, { targetCtoPortId: po.id }, adminToken),
-      { params: { id: c2 } },
+      { params: Promise.resolve({ id: c2 }) },
     );
     expect(volta.status).toBe(409);
   });
@@ -455,7 +455,7 @@ describe("API · MOVE", () => {
     for (const alvo of [p1.id, p2.id, p3.id]) {
       const res = await moveRoute(
         post(`/api/cto-connections/${c1.id}/move`, { targetCtoPortId: alvo }, adminToken),
-        { params: { id: c1.id } },
+        { params: Promise.resolve({ id: c1.id }) },
       );
       expect(res.status, alvo).toBe(409);
     }
@@ -474,12 +474,12 @@ describe("API · MOVE", () => {
     const antiga = await conectar(cliente.id, p1.id);
     await moveRoute(
       post(`/api/cto-connections/${antiga.id}/move`, { targetCtoPortId: p2.id }, adminToken),
-      { params: { id: antiga.id } },
+      { params: Promise.resolve({ id: antiga.id }) },
     );
 
     const res = await moveRoute(
       post(`/api/cto-connections/${antiga.id}/move`, { targetCtoPortId: p3.id }, adminToken),
-      { params: { id: antiga.id } },
+      { params: Promise.resolve({ id: antiga.id }) },
     );
     expect(res.status).toBe(409);
     expect(await ativas({ ctoPortId: p2.id })).toBe(1);
@@ -496,11 +496,11 @@ describe("API · MOVE", () => {
 
     const um = await moveRoute(
       post(`/api/cto-connections/${c1.id}/move`, { targetCtoPortId: p2.id }, adminToken, { key }),
-      { params: { id: c1.id } },
+      { params: Promise.resolve({ id: c1.id }) },
     );
     const dois = await moveRoute(
       post(`/api/cto-connections/${c1.id}/move`, { targetCtoPortId: p2.id }, adminToken, { key }),
-      { params: { id: c1.id } },
+      { params: Promise.resolve({ id: c1.id }) },
     );
     expect(um.status).toBe(200);
     expect(dois.status).toBe(200);
@@ -521,11 +521,11 @@ describe("API · MOVE", () => {
 
     await moveRoute(
       post(`/api/cto-connections/${c1.id}/move`, { targetCtoPortId: p2.id }, adminToken, { key }),
-      { params: { id: c1.id } },
+      { params: Promise.resolve({ id: c1.id }) },
     );
     const res = await moveRoute(
       post(`/api/cto-connections/${c1.id}/move`, { targetCtoPortId: p3.id }, adminToken, { key }),
-      { params: { id: c1.id } },
+      { params: Promise.resolve({ id: c1.id }) },
     );
     expect(res.status).toBe(409);
   });
@@ -568,7 +568,7 @@ describe("API · auditoria e timeline", () => {
     const id = ((await corpo(res)).data!.connection as Record<string, unknown>).id as string;
     await moveRoute(
       post(`/api/cto-connections/${id}/move`, { targetCtoPortId: p2.id }, adminToken),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
 
     expect(
@@ -588,7 +588,7 @@ describe("API · leitura da rede do cliente", () => {
     const c1 = await conectar(cliente.id, p1.id);
     await moveRoute(
       post(`/api/cto-connections/${c1.id}/move`, { targetCtoPortId: p2.id }, adminToken),
-      { params: { id: c1.id } },
+      { params: Promise.resolve({ id: c1.id }) },
     );
 
     const res = await networkRoute(get(`/api/cto-connections?customerId=${cliente.id}`, adminToken));
@@ -622,7 +622,7 @@ describe("API · leitura da rede do cliente", () => {
 describe("API · read model da CTO", () => {
   async function detalhe(ctoId: string, token = adminToken) {
     const res = await ctoDetailRoute(get(`/api/ctos/${ctoId}`, token), {
-      params: { id: ctoId },
+      params: Promise.resolve({ id: ctoId }),
     });
     return { res, body: await corpo(res) };
   }

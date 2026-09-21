@@ -29,7 +29,7 @@ import { getFileStorage, MIME_EXTENSIONS } from "@/lib/storage";
  */
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -72,7 +72,7 @@ export async function POST(
     await setCtoPhoto(
       access.session.companyId,
       access.session.id,
-      context.params.id,
+      (await context.params).id,
       {
         data: Buffer.from(await file.arrayBuffer()),
         declaredMimeType: file.type,
@@ -89,7 +89,7 @@ export async function POST(
     */
     const detail = await getOperationalCtoDetail(
       access.session.companyId,
-      context.params.id,
+      (await context.params).id,
     );
     return jsonOk({ cto: detail });
   });
@@ -104,7 +104,7 @@ export async function POST(
  */
 export async function GET(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const access = await requireCtoAccess(request);
@@ -112,7 +112,7 @@ export async function GET(
 
     const key = await getCtoPhotoKey(
       access.session.companyId,
-      context.params.id,
+      (await context.params).id,
     );
     if (!key) {
       return jsonError("Foto não encontrada.", 404);

@@ -21,7 +21,7 @@ const TECHNICIAN_PROFILES = [AccessProfile.TECHNICIAN];
  */
 export async function PUT(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -81,7 +81,7 @@ export async function PUT(
     const signature = await putSignature(
       session.companyId,
       session.id,
-      context.params.id,
+      (await context.params).id,
       {
         signerName: signerNameRaw,
         data,
@@ -96,7 +96,7 @@ export async function PUT(
 /** Authorized read of the signature image — same rules as evidence content. */
 export async function GET(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const session = await getSessionUser(request);
@@ -113,7 +113,7 @@ export async function GET(
 
     const file = await loadSignatureForDownload(
       session.companyId,
-      context.params.id,
+      (await context.params).id,
       { isStaff, technicianId: technician?.id ?? null },
     );
 

@@ -197,7 +197,7 @@ describe("Jornada completa do atendimento", () => {
           idempotencyKey: key("start"),
           body: { expectedVersion: order.version },
         }),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "iniciar",
     );
@@ -212,7 +212,7 @@ describe("Jornada completa do atendimento", () => {
             `/api/field/v1/service-orders/${order.id}/execution`,
             { token },
           ),
-          { params: { id: order.id } },
+          { params: Promise.resolve({ id: order.id }) },
         ),
         "ler execução",
       );
@@ -247,7 +247,7 @@ describe("Jornada completa do atendimento", () => {
             },
           },
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "corrigir localização",
     );
@@ -269,7 +269,7 @@ describe("Jornada completa do atendimento", () => {
             accuracyMeters: 12,
           },
         }),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "check-in",
     );
@@ -294,7 +294,7 @@ describe("Jornada completa do atendimento", () => {
             body: { expectedVersion: version(), valueBoolean: true },
           },
         ),
-        { params: { id: order.id, itemId: booleano.id } },
+        { params: Promise.resolve({ id: order.id, itemId: booleano.id }) },
       ),
       "responder checklist",
     );
@@ -323,7 +323,7 @@ describe("Jornada completa do atendimento", () => {
             body: form,
           },
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "anexar foto",
     );
@@ -344,7 +344,7 @@ describe("Jornada completa do atendimento", () => {
             quantity: 35.5,
           },
         }),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "baixar material",
     );
@@ -375,7 +375,7 @@ describe("Jornada completa do atendimento", () => {
             body: etiqueta,
           },
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "anexar etiqueta",
     );
@@ -397,7 +397,7 @@ describe("Jornada completa do atendimento", () => {
             labelEvidenceId: (etiquetaCriada.data?.evidence as { id: string }).id,
           },
         }),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "registrar equipamento",
     );
@@ -419,7 +419,7 @@ describe("Jornada completa do atendimento", () => {
             notes: "Cliente orientado sobre o posicionamento do roteador.",
           },
         }),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "salvar relatório",
     );
@@ -453,7 +453,7 @@ describe("Jornada completa do atendimento", () => {
             body: signForm,
           },
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "assinar",
     );
@@ -477,7 +477,7 @@ describe("Jornada completa do atendimento", () => {
             expectedExecutionVersion: executionVersionNow,
           },
         }),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "concluir",
     );
@@ -578,7 +578,7 @@ describe("Jornada completa do atendimento", () => {
           idempotencyKey: key("start2"),
           body: { expectedVersion: order.version },
         }),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "iniciar",
     );
@@ -600,7 +600,7 @@ describe("Jornada completa do atendimento", () => {
           ).version,
         },
       }),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
 
     expect(response.status).toBe(400);

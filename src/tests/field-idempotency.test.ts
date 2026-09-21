@@ -84,7 +84,7 @@ async function callStart(
   expectedVersion: number,
 ) {
   return startOrder(startRequest(orderId, token, key, expectedVersion), {
-    params: { id: orderId },
+    params: Promise.resolve({ id: orderId }),
   });
 }
 
@@ -150,7 +150,7 @@ describe("mesma chave, mesmo payload — uma única mutação", () => {
         token: s.token,
         body: { expectedVersion: s.order.version },
       }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
 
     expect(response.status).toBe(400);

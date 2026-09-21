@@ -18,10 +18,11 @@ export const metadata: Metadata = {
  * de novo, porque esconder o campo do menu é conveniência e não controle.
  */
 export default async function GlobalSearchPage({
-  searchParams,
+  searchParams: searchParamsPromise,
 }: {
-  searchParams: { [key: string]: string | string[] | undefined };
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
+  const searchParams = await searchParamsPromise;
   const session = await requirePageProfile([...GLOBAL_SEARCH_PROFILES]);
   const viewer = { companyId: session.companyId, profile: session.profile };
 

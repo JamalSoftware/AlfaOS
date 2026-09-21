@@ -36,7 +36,7 @@ const schema = z
 
 export async function POST(
   request: Request,
-  context: { params: { id: string; evidenceId: string } },
+  context: { params: Promise<{ id: string; evidenceId: string }> },
 ) {
   return runFieldApi(async () => {
     const principal = await requireFieldPrincipal(request);
@@ -44,7 +44,7 @@ export async function POST(
 
     const key = parseIdempotencyKey(request);
     const body = await readFieldBody(request, schema);
-    const { id: orderId, evidenceId } = context.params;
+    const { id: orderId, evidenceId } = await context.params;
 
     const outcome = await withIdempotency(
       principal,

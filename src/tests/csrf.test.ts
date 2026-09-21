@@ -57,7 +57,7 @@ describe("Proteção CSRF (same-origin)", () => {
         },
         token,
       ),
-      { params: { id: fixture.techA.id } },
+      { params: Promise.resolve({ id: fixture.techA.id }) },
     );
 
     expect(res.status).toBe(403);

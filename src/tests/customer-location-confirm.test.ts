@@ -565,7 +565,7 @@ describe("a rota de confirmação", () => {
         idempotencyKey: `rc1c-${Date.now()}-${Math.random()}`,
         body,
       }),
-      { params: { id: orderId } },
+      { params: Promise.resolve({ id: orderId }) },
     );
   }
 
@@ -632,7 +632,7 @@ describe("a rota de confirmação", () => {
     const { token } = await registerTestDevice(fixture.techA.id);
     const r = await executionRoute(
       fieldRequest(`/api/field/v1/service-orders/${s.order.id}/execution`, { token }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(r.status).toBe(200);
     const b = await corpo(r);
@@ -862,7 +862,7 @@ describe("RC-1C-HOTFIX — pela rota: um cliente sabotado não contorna a precis
         idempotencyKey: `hotfix-${Date.now()}-${Math.random()}`,
         body,
       }),
-      { params: { id: orderId } },
+      { params: Promise.resolve({ id: orderId }) },
     );
   }
 
@@ -914,7 +914,7 @@ describe("RC-1C-HOTFIX — pela rota: um cliente sabotado não contorna a precis
     const { token } = await registerTestDevice(fixture.techA.id);
     const r = await executionRoute(
       fieldRequest(`/api/field/v1/service-orders/${s.order.id}/execution`, { token }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     const b = await corpo(r);
     expect((b.data?.location as Record<string, unknown>).gpsMaxAccuracyMeters).toBe(50);

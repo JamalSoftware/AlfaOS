@@ -107,7 +107,7 @@ describe("a posição do aparelho não sai na leitura da OS", () => {
     const { order } = await confirmada();
     const token = await createTokenFor(quem());
     const res = await orderDetailRoute(apiRequest(`/api/service-orders/${order.id}`, {}, token), {
-      params: { id: order.id },
+      params: Promise.resolve({ id: order.id }),
     });
     expect(res.status).toBe(200);
     const texto = await res.text();

@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   request: Request,
-  context: { params: { id: string; ctoId: string } },
+  context: { params: Promise<{ id: string; ctoId: string }> },
 ) {
   return runFieldApi(async () => {
     const principal = await requireFieldPrincipal(request);
@@ -30,13 +30,13 @@ export async function GET(
     await resolveOwnedOrderCustomer(
       principal.user.companyId,
       principal.technician.id,
-      context.params.id,
+      (await context.params).id,
       { requireInProgress: true },
     );
 
     const cto = await getFieldCandidateCto(
       principal.user.companyId,
-      context.params.ctoId,
+      (await context.params).ctoId,
     );
     if (!cto) {
       throw new FieldError("NOT_FOUND", "CTO não encontrada.");

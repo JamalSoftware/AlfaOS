@@ -80,7 +80,7 @@ async function moverPeloMapa(
       { method: "PATCH", body, headers: { ...ORIGIN } },
       token,
     ),
-    { params: { id: ctoId } },
+    { params: Promise.resolve({ id: ctoId }) },
   );
   return { status: res.status, body: await res.json() };
 }
@@ -264,7 +264,7 @@ describe("POS-05..POS-09 — o que o servidor recusa, e o que sobra depois", () 
           },
           body: `{"latitude":${valor},"longitude":${LON_NOVA}}`,
         }),
-        { params: { id: cto.id } },
+        { params: Promise.resolve({ id: cto.id }) },
       );
       expect(res.status, `${valor} passou`).toBe(400);
     }

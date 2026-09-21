@@ -72,7 +72,7 @@ describe("Guards de página — /tecnicos", () => {
     );
 
     session.token = await createTokenFor(fixture.dispatcherA.id);
-    await expect(TechniciansPage({ searchParams: {} })).resolves.toBeTruthy();
+    await expect(TechniciansPage({ searchParams: Promise.resolve({}) })).resolves.toBeTruthy();
   });
 });
 
@@ -86,7 +86,7 @@ describe("Guards de página — /tecnicos", () => {
 */
 describe("Guards de página — TECHNICIAN não entra em tela administrativa", () => {
   const PAGINAS: Array<[string, () => Promise<unknown>]> = [
-    ["/ctos", async () => (await import("@/app/(app)/ctos/page")).default({ searchParams: {} })],
+    ["/ctos", async () => (await import("@/app/(app)/ctos/page")).default({ searchParams: Promise.resolve({}) })],
     [
       "/ctos/[id]",
       async () =>
@@ -103,7 +103,7 @@ describe("Guards de página — TECHNICIAN não entra em tela administrativa", (
     ["/despacho", async () => (await import("@/app/(app)/despacho/page")).default()],
     [
       "/clientes",
-      async () => (await import("@/app/(app)/clientes/page")).default({ searchParams: {} }),
+      async () => (await import("@/app/(app)/clientes/page")).default({ searchParams: Promise.resolve({}) }),
     ],
   ];
 

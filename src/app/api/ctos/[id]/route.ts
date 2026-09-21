@@ -40,7 +40,7 @@ const updateCtoSchema = z
 
 export async function GET(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const access = await requireCtoAccess(request);
@@ -51,7 +51,7 @@ export async function GET(
     // dimensões sem que nenhum dos dois módulos conheça o outro.
     const cto = await getOperationalCtoDetail(
       access.session.companyId,
-      context.params.id,
+      (await context.params).id,
     );
     if (!cto) {
       // 404 e não 403: id de outra empresa não pode ser distinguido de id
@@ -64,7 +64,7 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -93,7 +93,7 @@ export async function PATCH(
     await updateCto(
       access.session.companyId,
       access.session.id,
-      context.params.id,
+      (await context.params).id,
       {
         ...("name" in raw ? { name: parsed.data.name } : {}),
         ...("code" in raw ? { code: parsed.data.code ?? null } : {}),
@@ -120,7 +120,7 @@ export async function PATCH(
     */
     const detail = await getOperationalCtoDetail(
       access.session.companyId,
-      context.params.id,
+      (await context.params).id,
     );
     return jsonOk({ cto: detail });
   });

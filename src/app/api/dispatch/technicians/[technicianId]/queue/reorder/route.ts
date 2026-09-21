@@ -57,7 +57,7 @@ const schema = z
 
 export async function POST(
   request: Request,
-  context: { params: { technicianId: string } },
+  context: { params: Promise<{ technicianId: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -86,7 +86,7 @@ export async function POST(
     // quem monta a requisição aqui é um formulário, e o operador precisa ver
     // "dados inválidos" quando os dados estão inválidos.
     const key = parseIdempotencyKey(request);
-    const technicianId = context.params.technicianId;
+    const technicianId = (await context.params).technicianId;
 
     const outcome = await withIdempotency(
       idempotencyActor(session.companyId, session.id),

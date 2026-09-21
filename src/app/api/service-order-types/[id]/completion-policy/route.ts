@@ -58,7 +58,7 @@ const schema = z
 
 export async function PUT(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -86,7 +86,7 @@ export async function PUT(
     const policy = await putCompletionPolicy(
       session.companyId,
       session.id,
-      context.params.id,
+      (await context.params).id,
       parsed.data,
     );
 

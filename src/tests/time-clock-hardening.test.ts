@@ -55,7 +55,7 @@ function criar(
       { method: "POST", body, headers: { ...ORIGEM, "Idempotency-Key": k } },
       token,
     ),
-    { params: { userId } },
+    { params: Promise.resolve({ userId }) },
   );
 }
 
@@ -363,7 +363,7 @@ describe("A5: decisão cross-tenant pela ROTA", () => {
         { method: "POST", body: { decision: "APPROVED" }, headers: ORIGEM },
         await createTokenFor(fixture.adminB.id),
       ),
-      { params: { id: pedido.id } },
+      { params: Promise.resolve({ id: pedido.id }) },
     );
 
     expect(r.status).toBe(404);
@@ -385,7 +385,7 @@ describe("A5: decisão cross-tenant pela ROTA", () => {
         { method: "POST", body: { decision: "APPROVED" }, headers: ORIGEM },
         await createTokenFor(fixture.adminA.id),
       ),
-      { params: { id: pedido.id } },
+      { params: Promise.resolve({ id: pedido.id }) },
     );
     expect(ok.status).toBe(200);
   });

@@ -40,7 +40,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -72,7 +72,7 @@ export async function POST(
     const adjustment = await decideTimeAdjustment(
       session.companyId,
       session.id,
-      context.params.id,
+      (await context.params).id,
       parsed.data.decision,
       parsed.data.decisionReason ?? null,
     );

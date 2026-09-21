@@ -459,7 +459,7 @@ describe("DISPATCHER e ADMIN não ganham escrita de localização", () => {
         idempotencyKey: `rc1c-perfil-c-${Math.random()}`,
         body: { expectedVersion: s.location!.version, observedLatitude: A.latitude, observedLongitude: A.longitude },
       }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     const corrigir = await correctRoute(
       fieldRequest(`/api/field/v1/service-orders/${s.order.id}/location/correct`, {
@@ -474,7 +474,7 @@ describe("DISPATCHER e ADMIN não ganham escrita de localização", () => {
           source: "TECHNICIAN_GPS",
         },
       }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect([401, 403, 404]).toContain(confirmar.status);
     expect([401, 403, 404]).toContain(corrigir.status);
@@ -635,7 +635,7 @@ describe("RC-1C-HOTFIX — corrigir com GPS exige precisão ≤ 50 m", () => {
           source: "TECHNICIAN_GPS",
         },
       }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(r.status).toBe(400);
     const b = (await r.json()) as { error?: { code: string } };

@@ -61,12 +61,14 @@ function minutes(total: number): string {
 }
 
 export default async function MemberWorkdayPage({
-  params,
-  searchParams,
+  params: paramsPromise,
+  searchParams: searchParamsPromise,
 }: {
-  params: { userId: string };
-  searchParams: { date?: string };
+  params: Promise<{ userId: string }>;
+  searchParams: Promise<{ date?: string }>;
 }) {
+  const params = await paramsPromise;
+  const searchParams = await searchParamsPromise;
   const session = await requirePageProfile(["ADMIN"]);
 
   /*

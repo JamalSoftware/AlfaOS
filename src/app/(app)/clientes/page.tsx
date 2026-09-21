@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 };
 
 interface PageProps {
-  searchParams: { [key: string]: string | string[] | undefined };
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
 const CONNECTIVITY_BADGE_CLASS = {
@@ -68,7 +68,8 @@ function ConnectivityCell({
   );
 }
 
-export default async function CustomersPage({ searchParams }: PageProps) {
+export default async function CustomersPage({ searchParams: searchParamsPromise }: PageProps) {
+  const searchParams = await searchParamsPromise;
   const session = await requirePageProfile(["ADMIN", "DISPATCHER"]);
 
   const search = typeof searchParams.search === "string" ? searchParams.search : "";

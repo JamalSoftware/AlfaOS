@@ -19,10 +19,11 @@ export const metadata: Metadata = {
 // `Intl` formata no fuso do processo — em produção, UTC.
 
 interface PageProps {
-  searchParams: { [key: string]: string | string[] | undefined };
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
-export default async function TechniciansPage({ searchParams }: PageProps) {
+export default async function TechniciansPage({ searchParams: searchParamsPromise }: PageProps) {
+  const searchParams = await searchParamsPromise;
   const session = await requirePageProfile(["ADMIN", "DISPATCHER"]);
   const timezone = await companyTimezone(session.companyId);
   // Only ADMIN can create technicians (POST /api/technicians).

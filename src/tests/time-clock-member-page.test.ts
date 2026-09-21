@@ -91,7 +91,7 @@ function pedir(userId: string, token: string, body = corpo()) {
       },
       token,
     ),
-    { params: { userId } },
+    { params: Promise.resolve({ userId }) },
   );
 }
 
@@ -118,8 +118,8 @@ describe("ATAQUE: guard da página /jornada/[userId]", () => {
     // `notFound()` sinaliza por exceção marcada, como `redirect()`.
     await expect(
       MemberWorkdayPage({
-        params: { userId: fixture.techA.id },
-        searchParams: {},
+        params: Promise.resolve({ userId: fixture.techA.id }),
+        searchParams: Promise.resolve({}),
       }),
     ).rejects.toMatchObject({ digest: "NEXT_NOT_FOUND" });
   });
@@ -132,8 +132,8 @@ describe("ATAQUE: guard da página /jornada/[userId]", () => {
 
     await expect(
       MemberWorkdayPage({
-        params: { userId: fixture.techA.id },
-        searchParams: {},
+        params: Promise.resolve({ userId: fixture.techA.id }),
+        searchParams: Promise.resolve({}),
       }),
     ).rejects.toMatchObject({
       digest: expect.stringContaining("NEXT_REDIRECT"),
@@ -147,8 +147,8 @@ describe("ATAQUE: guard da página /jornada/[userId]", () => {
     session.token = await createTokenFor(fixture.adminA.id);
 
     const arvore = await MemberWorkdayPage({
-      params: { userId: fixture.techA.id },
-      searchParams: {},
+      params: Promise.resolve({ userId: fixture.techA.id }),
+      searchParams: Promise.resolve({}),
     });
     expect(arvore).toBeTruthy();
   });
@@ -161,8 +161,8 @@ describe("ATAQUE: guard da página /jornada/[userId]", () => {
 
     for (const raw of ["9999-99-99", "abc", "", "2026-13-45", "../../etc"]) {
       const arvore = await MemberWorkdayPage({
-        params: { userId: fixture.techA.id },
-        searchParams: { date: raw },
+        params: Promise.resolve({ userId: fixture.techA.id }),
+        searchParams: Promise.resolve({ date: raw }),
       });
       expect(arvore).toBeTruthy();
     }

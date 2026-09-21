@@ -127,7 +127,7 @@ function pedirComoGestor(
       },
       token,
     ),
-    { params: { userId } },
+    { params: Promise.resolve({ userId }) },
   );
 }
 
@@ -254,7 +254,7 @@ describe("o gestor abre a correção, e ela é um PEDIDO", () => {
         },
         await createTokenFor(fixture.adminA.id),
       ),
-      { params: { id: pedidoId } },
+      { params: Promise.resolve({ id: pedidoId }) },
     );
     expect(decisao.status).toBe(200);
 
@@ -302,7 +302,7 @@ describe("o gestor abre a correção, e ela é um PEDIDO", () => {
         },
         await createTokenFor(fixture.adminA.id),
       ),
-      { params: { id: pedidoId } },
+      { params: Promise.resolve({ id: pedidoId }) },
     );
 
     const v = await view();
@@ -343,7 +343,7 @@ describe("o gestor abre a correção, e ela é um PEDIDO", () => {
         },
         await createTokenFor(fixture.adminA.id),
       ),
-      { params: { id: pedidoId } },
+      { params: Promise.resolve({ id: pedidoId }) },
     );
     expect(decisao.status).toBe(400);
     expect(
@@ -380,7 +380,7 @@ describe("RBAC e tenancy da correção administrativa", () => {
         `/api/time-clock/members/${fixture.techA.id}/adjustments`,
         { method: "POST", body: corpoDoPedido(), headers: MESMA_ORIGEM },
       ),
-      { params: { userId: fixture.techA.id } },
+      { params: Promise.resolve({ userId: fixture.techA.id }) },
     );
     expect(r.status).toBe(401);
   });
@@ -627,7 +627,7 @@ describe("E2E da correção — Field pede, painel decide, Field relê", () => {
         },
         await createTokenFor(fixture.adminA.id),
       ),
-      { params: { id: pedidoId } },
+      { params: Promise.resolve({ id: pedidoId }) },
     );
     expect(decisao.status).toBe(200);
 
@@ -710,7 +710,7 @@ describe("E2E da correção — Field pede, painel decide, Field relê", () => {
         },
         await createTokenFor(fixture.adminA.id),
       ),
-      { params: { id: pedidoId } },
+      { params: Promise.resolve({ id: pedidoId }) },
     );
 
     const hoje = await todayRoute(
@@ -792,7 +792,7 @@ describe("a criação administrativa é idempotente", () => {
         },
         await createTokenFor(fixture.adminA.id),
       ),
-      { params: { userId: fixture.techA.id } },
+      { params: Promise.resolve({ userId: fixture.techA.id }) },
     );
 
     expect(r.status).toBe(400);

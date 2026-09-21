@@ -258,7 +258,7 @@ describe("GET /service-orders/:id — posse e minimização", () => {
       fieldRequest(`/api/field/v1/service-orders/${s.order.id}`, {
         token: s.token,
       }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(response.status).toBe(200);
 
@@ -283,7 +283,7 @@ describe("GET /service-orders/:id — posse e minimização", () => {
       fieldRequest(`/api/field/v1/service-orders/${s.order.id}`, {
         token: s.token,
       }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
 
     const serial = JSON.stringify(await body(response));
@@ -304,7 +304,7 @@ describe("GET /service-orders/:id — posse e minimização", () => {
       fieldRequest(`/api/field/v1/service-orders/${daOutra.id}`, {
         token: s.token,
       }),
-      { params: { id: daOutra.id } },
+      { params: Promise.resolve({ id: daOutra.id }) },
     );
     expect(response.status).toBe(404);
     expect((await body(response)).error?.code).toBe("NOT_FOUND");
@@ -326,7 +326,7 @@ describe("GET /service-orders/:id — posse e minimização", () => {
       fieldRequest(`/api/field/v1/service-orders/${ordemB.id}`, {
         token: s.token,
       }),
-      { params: { id: ordemB.id } },
+      { params: Promise.resolve({ id: ordemB.id }) },
     );
     expect(response.status).toBe(404);
   });
@@ -345,7 +345,7 @@ describe("GET /service-orders/:id — posse e minimização", () => {
       fieldRequest(`/api/field/v1/service-orders/${externa.id}`, {
         token: s.token,
       }),
-      { params: { id: externa.id } },
+      { params: Promise.resolve({ id: externa.id }) },
     );
     expect(response.status).toBe(200);
 
@@ -383,7 +383,7 @@ describe("GET /service-orders/:id — posse e minimização", () => {
       fieldRequest(`/api/field/v1/service-orders/${s.order.id}`, {
         token: s.token,
       }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
 
     /*
@@ -435,7 +435,7 @@ describe("comandos respeitam posse", () => {
         idempotencyKey: "start-alheia-0001",
         body: { expectedVersion: daOutra.version },
       }),
-      { params: { id: daOutra.id } },
+      { params: Promise.resolve({ id: daOutra.id }) },
     );
     expect(response.status).toBe(404);
 
@@ -470,7 +470,7 @@ describe("comandos respeitam posse", () => {
         token: s.token,
         body: { connectionId: conexao.id },
       }),
-      { params: { id: daOutra.id } },
+      { params: Promise.resolve({ id: daOutra.id }) },
     );
     expect(response.status).toBe(404);
   });
@@ -482,7 +482,7 @@ describe("comandos respeitam posse", () => {
         method: "POST",
         body: { connectionId: "qualquer" },
       }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(response.status).toBe(401);
   });

@@ -34,7 +34,7 @@ beforeEach(async () => {
 
 async function pagina(q?: string) {
   const { default: Page } = await import("@/app/(app)/busca/page");
-  return Page({ searchParams: q === undefined ? {} : { q } });
+  return Page({ searchParams: Promise.resolve(q === undefined ? {} : { q }) });
 }
 
 function achar(no: ReactNode, pred: (el: ReactElement) => boolean): ReactElement | null {

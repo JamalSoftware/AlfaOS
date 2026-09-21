@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   request: Request,
-  context: { params: { userId: string } },
+  context: { params: Promise<{ userId: string }> },
 ) {
   return runApi(async () => {
     const session = await getSessionUser(request);
@@ -50,7 +50,7 @@ export async function GET(
 
     const workday = await getMemberWorkdayView(
       session.companyId,
-      context.params.userId,
+      (await context.params).userId,
       instant,
     );
     return jsonOk({ workday });

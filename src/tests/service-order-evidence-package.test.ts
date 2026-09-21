@@ -148,7 +148,7 @@ async function enviarFoto(
         headers: { Authorization: `Bearer ${token}`, "Idempotency-Key": key("foto") },
         body: form,
       }),
-      { params: { id: orderId } },
+      { params: Promise.resolve({ id: orderId }) },
     ),
     `foto ${category}`,
   );
@@ -212,7 +212,7 @@ async function jornada(opcoes: OpcoesJornada = {}): Promise<Jornada> {
         idempotencyKey: key("start"),
         body: { expectedVersion: order.version },
       }),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     ),
     "iniciar",
   );
@@ -222,7 +222,7 @@ async function jornada(opcoes: OpcoesJornada = {}): Promise<Jornada> {
   const reler = async () => {
     const res = await ok(
       await executionBundle(fieldRequest(`/api/field/v1/service-orders/${order.id}/execution`, { token }), {
-        params: { id: order.id },
+        params: Promise.resolve({ id: order.id }),
       }),
       "ler execução",
     );
@@ -252,7 +252,7 @@ async function jornada(opcoes: OpcoesJornada = {}): Promise<Jornada> {
             source: "TECHNICIAN_GPS",
           },
         }),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "corrigir ponto",
     );
@@ -267,7 +267,7 @@ async function jornada(opcoes: OpcoesJornada = {}): Promise<Jornada> {
         idempotencyKey: key("checkin"),
         body: { expectedVersion: versao(), latitude: -3.1191, longitude: -60.0218, accuracyMeters: 12 },
       }),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     ),
     "check-in",
   );
@@ -285,7 +285,7 @@ async function jornada(opcoes: OpcoesJornada = {}): Promise<Jornada> {
             idempotencyKey: key("checklist"),
             body: { expectedVersion: versao(), ...body },
           }),
-          { params: { id: order.id, itemId: item.id } },
+          { params: Promise.resolve({ id: order.id, itemId: item.id }) },
         ),
         `checklist ${label}`,
       );
@@ -324,7 +324,7 @@ async function jornada(opcoes: OpcoesJornada = {}): Promise<Jornada> {
             labelEvidenceId: etiqueta,
           },
         }),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "equipamento",
     );
@@ -343,7 +343,7 @@ async function jornada(opcoes: OpcoesJornada = {}): Promise<Jornada> {
           idempotencyKey: key("remover"),
           body: { expectedVersion: versao() },
         }),
-        { params: { id: order.id, equipmentId: errado.equipamento } },
+        { params: Promise.resolve({ id: order.id, equipmentId: errado.equipamento }) },
       ),
       "remover equipamento",
     );
@@ -378,7 +378,7 @@ async function jornada(opcoes: OpcoesJornada = {}): Promise<Jornada> {
           idempotencyKey: key("material"),
           body: { expectedVersion: versao(), itemId: item.id, quantity: 35.5 },
         }),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "material",
     );
@@ -398,7 +398,7 @@ async function jornada(opcoes: OpcoesJornada = {}): Promise<Jornada> {
           notes: "Cliente orientado sobre o roteador.\nSegunda linha.",
         },
       }),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     ),
     "relatório",
   );
@@ -415,7 +415,7 @@ async function jornada(opcoes: OpcoesJornada = {}): Promise<Jornada> {
         headers: { Authorization: `Bearer ${token}`, "Idempotency-Key": key("assinatura") },
         body: assinatura,
       }),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     ),
     "assinatura",
   );
@@ -430,7 +430,7 @@ async function jornada(opcoes: OpcoesJornada = {}): Promise<Jornada> {
           idempotencyKey: key("concluir"),
           body: { expectedVersion: versao(), expectedExecutionVersion: bundle.executionVersion as number },
         }),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
       "concluir",
     );
@@ -792,8 +792,8 @@ describe("EV-FILE — as imagens do pacote pelas rotas autorizadas", () => {
     const m = /\/api\/service-orders\/([^/]+)\/(?:evidence\/([^/]+)\/content|signature)$/.exec(url)!;
     const [, orderId, evidenceId] = m;
     return evidenceId
-      ? evidenceContent(apiRequest(url, {}, token), { params: { id: orderId, evidenceId } })
-      : signatureContent(apiRequest(url, {}, token), { params: { id: orderId } });
+      ? evidenceContent(apiRequest(url, {}, token), { params: Promise.resolve({ id: orderId, evidenceId }) })
+      : signatureContent(apiRequest(url, {}, token), { params: Promise.resolve({ id: orderId }) });
   }
 
   it("EV-FILE-01 — empresa certa lê; outra empresa e outro técnico recebem 404; sem sessão, 401", async () => {

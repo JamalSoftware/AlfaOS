@@ -30,7 +30,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runFieldApi(async () => {
     const principal = await requireFieldPrincipal(request);
@@ -41,7 +41,7 @@ export async function GET(
     const network = await getFieldOrderNetwork(
       principal.user.companyId,
       principal.technician.id,
-      context.params.id,
+      (await context.params).id,
     );
 
     return noStore(fieldOk(network));

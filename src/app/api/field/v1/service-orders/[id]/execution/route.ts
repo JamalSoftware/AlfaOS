@@ -29,14 +29,14 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runFieldApi(async () => {
     const principal = await requireFieldPrincipal(request);
     const bundle = await getFieldExecutionBundle(
       principal.user.companyId,
       principal.technician.id,
-      context.params.id,
+      (await context.params).id,
     );
     return fieldOk(bundle);
   });
@@ -81,7 +81,7 @@ const reportSchema = z
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runFieldApi(async () => {
     const principal = await requireFieldPrincipal(request);
@@ -89,7 +89,7 @@ export async function POST(
 
     const key = parseIdempotencyKey(request);
     const body = await readFieldBody(request, reportSchema);
-    const orderId = context.params.id;
+    const orderId = (await context.params).id;
 
     const outcome = await withIdempotency(
       principal,

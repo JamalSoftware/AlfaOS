@@ -192,7 +192,7 @@ describe("A1 · cursor de paginação não vaza linha alheia", () => {
 describe("A2 · token de outra empresa não alcança nada daqui", () => {
   it("detalhe, start, reveal e diagnóstico respondem 404", async () => {
     const t = await twoTenants();
-    const params = { params: { id: t.osA.id } };
+    const params = { params: Promise.resolve({ id: t.osA.id }) };
 
     const detalhe = await getOrder(
       fieldRequest(`/api/field/v1/service-orders/${t.osA.id}`, {
@@ -242,7 +242,7 @@ describe("A2 · token de outra empresa não alcança nada daqui", () => {
         idempotencyKey: "cross-tenant-start-02",
         body: { expectedVersion: t.osA.version },
       }),
-      { params: { id: t.osA.id } },
+      { params: Promise.resolve({ id: t.osA.id }) },
     );
 
     const os = await prisma.serviceOrder.findUniqueOrThrow({
@@ -280,7 +280,7 @@ describe("A3 · o corpo do comando não decide autorização nem estado", () => 
           idempotencyKey: `mass-assign-${String(i).padStart(6, "0")}`,
           body: hostil,
         }),
-        { params: { id: t.osA.id } },
+        { params: Promise.resolve({ id: t.osA.id }) },
       );
       expect(response.status).toBe(400);
       expect((await body(response)).error?.code).toBe("VALIDATION_ERROR");
@@ -312,7 +312,7 @@ describe("A3 · o corpo do comando não decide autorização nem estado", () => 
         token: t.tokenA,
         body: { connectionId: conexao.id, companyId: fixture.companyB.id },
       }),
-      { params: { id: t.osA.id } },
+      { params: Promise.resolve({ id: t.osA.id }) },
     );
     expect(response.status).toBe(400);
   });
@@ -340,7 +340,7 @@ describe("A4 · o Field não contorna a máquina de estados", () => {
           idempotencyKey: `estado-${status.toLowerCase()}-0001`,
           body: { expectedVersion: os.version },
         }),
-        { params: { id: os.id } },
+        { params: Promise.resolve({ id: os.id }) },
       );
 
       expect(response.status).toBe(409);
@@ -387,7 +387,7 @@ describe("A5 · reveal não aceita conexão de outro cliente", () => {
         token: t.tokenA,
         body: { connectionId: conexaoAlheia.id },
       }),
-      { params: { id: t.osA.id } },
+      { params: Promise.resolve({ id: t.osA.id }) },
     );
 
     expect(response.status).toBe(404);
@@ -436,7 +436,7 @@ describe("A6 · token", () => {
           fieldRequest(`/api/field/v1/service-orders/${t.osA.id}`, {
             token: t.tokenA,
           }),
-          { params: { id: t.osA.id } },
+          { params: Promise.resolve({ id: t.osA.id }) },
         ),
       () =>
         notificationsRoute(
@@ -464,7 +464,7 @@ describe("A7 · cota não é gasta por quem não tem acesso", () => {
           method: "POST",
           body: { connectionId: "x" },
         }),
-        { params: { id: t.osA.id } },
+        { params: Promise.resolve({ id: t.osA.id }) },
       );
       expect(response.status).toBe(401);
     }
@@ -489,7 +489,7 @@ describe("A7 · cota não é gasta por quem não tem acesso", () => {
         token: t.tokenA,
         body: { connectionId: conexao.id },
       }),
-      { params: { id: t.osA.id } },
+      { params: Promise.resolve({ id: t.osA.id }) },
     );
     expect(response.status).not.toBe(429);
   });
@@ -503,7 +503,7 @@ describe("A7 · cota não é gasta por quem não tem acesso", () => {
           `/api/field/v1/service-orders/${t.osColega.id}/diagnostic`,
           { method: "POST", token: t.tokenA },
         ),
-        { params: { id: t.osColega.id } },
+        { params: Promise.resolve({ id: t.osColega.id }) },
       );
       expect(response.status).toBe(404);
     }
@@ -515,7 +515,7 @@ describe("A7 · cota não é gasta por quem não tem acesso", () => {
         method: "POST",
         token: t.tokenA,
       }),
-      { params: { id: t.osA.id } },
+      { params: Promise.resolve({ id: t.osA.id }) },
     );
     expect(legitima.status).not.toBe(429);
   });
@@ -581,7 +581,7 @@ describe("A9 · corpo de erro não vaza interno", () => {
         fieldRequest("/api/field/v1/service-orders/nao-existe", {
           token: t.tokenA,
         }),
-        { params: { id: "nao-existe" } },
+        { params: Promise.resolve({ id: "nao-existe" }) },
       ),
       fieldMe(fieldRequest("/api/field/v1/me", { token: "invalido" })),
       startOrder(
@@ -591,7 +591,7 @@ describe("A9 · corpo de erro não vaza interno", () => {
           idempotencyKey: "erro-vazamento-0001",
           body: { expectedVersion: 0 },
         }),
-        { params: { id: t.osColega.id } },
+        { params: Promise.resolve({ id: t.osColega.id }) },
       ),
     ]);
 

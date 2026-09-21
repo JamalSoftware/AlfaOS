@@ -29,7 +29,7 @@ const stateSchema = z
 
 export async function POST(
   request: Request,
-  context: { params: { id: string; portId: string } },
+  context: { params: Promise<{ id: string; portId: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -53,8 +53,8 @@ export async function POST(
     await setPortAdministrativeState(
       access.session.companyId,
       access.session.id,
-      context.params.id,
-      context.params.portId,
+      (await context.params).id,
+      (await context.params).portId,
       parsed.data.administrativeState,
     );
     /*
@@ -68,7 +68,7 @@ export async function POST(
     */
     const detail = await getOperationalCtoDetail(
       access.session.companyId,
-      context.params.id,
+      (await context.params).id,
     );
     return jsonOk({ cto: detail });
   });

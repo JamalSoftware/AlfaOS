@@ -106,7 +106,7 @@ describe("CTO1-01 · capability desligada", () => {
     // Controle positivo: ligada, o ADMIN lê.
     const ok = await getCtoRoute(
       apiRequest(`/api/ctos/${cto.id}`, {}, adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(ok.status).toBe(200);
 
@@ -117,7 +117,7 @@ describe("CTO1-01 · capability desligada", () => {
 
     const depois = await getCtoRoute(
       apiRequest(`/api/ctos/${cto.id}`, {}, adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(depois.status).toBe(404);
   });
@@ -172,7 +172,7 @@ describe("CTO1-02 · caminho autorizado", () => {
     const cto = await semeiaCto();
     const res = await getCtoRoute(
       apiRequest(`/api/ctos/${cto.id}`, {}, adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     const texto = JSON.stringify(await res.json());
     expect(texto).not.toContain("photoStorageKey");
@@ -224,7 +224,7 @@ describe("CTO1-14 / CTO1-15 · perfis que não mutam", () => {
           { method: "POST", body: { capacity: 16 }, headers: { ...ORIGIN } },
           token(),
         ),
-        { params: { id: cto.id } },
+        { params: Promise.resolve({ id: cto.id }) },
       );
       expect(cap.status).toBe(403);
 
@@ -238,7 +238,7 @@ describe("CTO1-14 / CTO1-15 · perfis que não mutam", () => {
           },
           token(),
         ),
-        { params: { id: cto.id, portId: porta.id } },
+        { params: Promise.resolve({ id: cto.id, portId: porta.id }) },
       );
       expect(est.status).toBe(403);
 
@@ -248,7 +248,7 @@ describe("CTO1-14 / CTO1-15 · perfis que não mutam", () => {
           { method: "POST", body: { active: false }, headers: { ...ORIGIN } },
           token(),
         ),
-        { params: { id: cto.id } },
+        { params: Promise.resolve({ id: cto.id }) },
       );
       expect(inat.status).toBe(403);
 
@@ -276,14 +276,14 @@ describe("CTO1-16 · IDOR pela rota", () => {
 
     const res = await getCtoRoute(
       apiRequest(`/api/ctos/${cto.id}`, {}, adminBToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(res.status).toBe(404);
 
     // Controle positivo: o ADMIN de A lê a mesma CTO.
     const ok = await getCtoRoute(
       apiRequest(`/api/ctos/${cto.id}`, {}, adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(ok.status).toBe(200);
   });
@@ -299,7 +299,7 @@ describe("CTO1-16 · IDOR pela rota", () => {
             { method: "PATCH", body: { name: "invadida" }, headers: { ...ORIGIN } },
             adminBToken,
           ),
-          { params: { id: cto.id } },
+          { params: Promise.resolve({ id: cto.id }) },
         ),
       () =>
         capacityRoute(
@@ -308,7 +308,7 @@ describe("CTO1-16 · IDOR pela rota", () => {
             { method: "POST", body: { capacity: 32 }, headers: { ...ORIGIN } },
             adminBToken,
           ),
-          { params: { id: cto.id } },
+          { params: Promise.resolve({ id: cto.id }) },
         ),
       () =>
         activeRoute(
@@ -317,7 +317,7 @@ describe("CTO1-16 · IDOR pela rota", () => {
             { method: "POST", body: { active: false }, headers: { ...ORIGIN } },
             adminBToken,
           ),
-          { params: { id: cto.id } },
+          { params: Promise.resolve({ id: cto.id }) },
         ),
     ]) {
       const res = await chamada();
@@ -353,7 +353,7 @@ describe("CTO1-16 · IDOR pela rota", () => {
         },
         adminBToken,
       ),
-      { params: { id: cto.id, portId: porta.id } },
+      { params: Promise.resolve({ id: cto.id, portId: porta.id }) },
     );
     expect(res.status).toBe(404);
   });
@@ -422,7 +422,7 @@ describe("CTO1-17 / CTO1-18 · mass assignment", () => {
         { method: "PATCH", body: { capacity: 64 }, headers: { ...ORIGIN } },
         adminToken,
       ),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(res.status).toBe(400);
     const linha = await prisma.cTO.findUniqueOrThrow({ where: { id: cto.id } });
@@ -444,7 +444,7 @@ describe("CTO1-17 / CTO1-18 · mass assignment", () => {
         },
         adminToken,
       ),
-      { params: { id: cto.id, portId: porta.id } },
+      { params: Promise.resolve({ id: cto.id, portId: porta.id }) },
     );
     expect(res.status).toBe(400);
     const depois = await prisma.cTOPort.findUniqueOrThrow({
@@ -469,7 +469,7 @@ describe("CTO1-17 / CTO1-18 · mass assignment", () => {
         },
         adminToken,
       ),
-      { params: { id: cto.id, portId: porta.id } },
+      { params: Promise.resolve({ id: cto.id, portId: porta.id }) },
     );
     expect(res.status).toBe(400);
   });
@@ -512,12 +512,12 @@ describe("a rota de FOTO entra nas mesmas varreduras", () => {
 
     const get = await photoGetRoute(
       apiRequest(`/api/ctos/${cto.id}/photo`, {}, adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(get.status).toBe(404);
 
     const post = await photoPostRoute(envioDeFoto(cto.id, adminToken), {
-      params: { id: cto.id },
+      params: Promise.resolve({ id: cto.id }),
     });
     expect(post.status).toBe(404);
 
@@ -530,13 +530,13 @@ describe("a rota de FOTO entra nas mesmas varreduras", () => {
     const cto = await semeiaCto();
 
     const post = await photoPostRoute(envioDeFoto(cto.id, dispatcherToken), {
-      params: { id: cto.id },
+      params: Promise.resolve({ id: cto.id }),
     });
     expect(post.status).toBe(403);
 
     const get = await photoGetRoute(
       apiRequest(`/api/ctos/${cto.id}/photo`, {}, dispatcherToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(get.status).toBe(403);
   });
@@ -547,7 +547,7 @@ describe("a rota de FOTO entra nas mesmas varreduras", () => {
     const cto = await semeiaCto();
 
     const post = await photoPostRoute(envioDeFoto(cto.id, adminBToken), {
-      params: { id: cto.id },
+      params: Promise.resolve({ id: cto.id }),
     });
     expect(post.status).toBe(404);
 
@@ -574,7 +574,7 @@ describe("a rota de FOTO entra nas mesmas varreduras", () => {
       body: form,
     });
 
-    const res = await photoPostRoute(req, { params: { id: cto.id } });
+    const res = await photoPostRoute(req, { params: Promise.resolve({ id: cto.id }) });
     expect(res.status).toBe(403);
   });
 
@@ -583,7 +583,7 @@ describe("a rota de FOTO entra nas mesmas varreduras", () => {
     const cto = await semeiaCto();
     const res = await photoGetRoute(
       apiRequest(`/api/ctos/${cto.id}/photo`, {}, adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(res.status).toBe(404);
   });

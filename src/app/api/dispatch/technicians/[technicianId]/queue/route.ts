@@ -43,7 +43,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   request: Request,
-  context: { params: { technicianId: string } },
+  context: { params: Promise<{ technicianId: string }> },
 ) {
   return runApi(async () => {
     const session = await getSessionUser(request);
@@ -55,7 +55,7 @@ export async function GET(
 
     const queue = await getDispatchQueueView(
       session.companyId,
-      context.params.technicianId,
+      (await context.params).technicianId,
     );
     return jsonOk({ queue });
   });

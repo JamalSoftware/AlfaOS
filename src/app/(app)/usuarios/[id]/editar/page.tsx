@@ -10,10 +10,11 @@ export const metadata: Metadata = {
 };
 
 export default async function EditUserPage({
-  params,
+  params: paramsPromise,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const params = await paramsPromise;
   const session = await requirePageProfile(["ADMIN"]);
   const user = await getCompanyUser(session.companyId, params.id);
 

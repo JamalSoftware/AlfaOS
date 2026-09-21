@@ -189,7 +189,7 @@ describe("Rota de contexto operacional", () => {
     const token = await createTokenFor(userId);
     return receitanetContext(
       apiRequest(`/api/service-orders/${orderId}/receitanet-context`, {}, token),
-      { params: { id: orderId } },
+      { params: Promise.resolve({ id: orderId }) },
     );
   }
 
@@ -218,7 +218,7 @@ describe("Rota de contexto operacional", () => {
     const { order } = await scenario();
     const res = await receitanetContext(
       apiRequest(`/api/service-orders/${order.id}/receitanet-context`, {}),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(res.status).toBe(401);
   });

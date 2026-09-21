@@ -802,7 +802,7 @@ describe("NAVMAP-01/02/03/09 — de onde o operador veio", () => {
     searchParams?: Record<string, string | string[] | undefined>,
   ) => {
     const { default: Pagina } = await import("@/app/(app)/ctos/[id]/page");
-    return Pagina({ params: { id }, searchParams });
+    return Pagina({ params: Promise.resolve({ id }), searchParams: searchParams && Promise.resolve(searchParams) });
   };
 
   /** Procura um nó da árvore de React pelo `data-testid`. */

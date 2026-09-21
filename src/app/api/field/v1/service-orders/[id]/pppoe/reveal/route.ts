@@ -50,7 +50,7 @@ const revealSchema = z
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runFieldApi(async () => {
     const principal = await requireFieldPrincipal(request);
@@ -80,7 +80,7 @@ export async function POST(
     const password = await revealConnectionPasswordForOrder(
       principal.user.companyId,
       { userId: principal.user.id, profile: AccessProfile.TECHNICIAN },
-      context.params.id,
+      (await context.params).id,
       body.connectionId,
     );
 

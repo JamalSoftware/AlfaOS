@@ -71,10 +71,10 @@ async function authorizeOrder(request: Request, orderId: string) {
 
 export async function GET(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
-    const auth = await authorizeOrder(request, context.params.id);
+    const auth = await authorizeOrder(request, (await context.params).id);
     if (auth.error) return auth.error;
 
     const diagnostic = await getCustomerDiagnostic(
@@ -90,13 +90,13 @@ const refreshSchema = z.object({}).strict();
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
     if (csrfBlocked) return csrfBlocked;
 
-    const auth = await authorizeOrder(request, context.params.id);
+    const auth = await authorizeOrder(request, (await context.params).id);
     if (auth.error) return auth.error;
 
     // `.strict()` on an empty object: a caller trying to steer the refresh by

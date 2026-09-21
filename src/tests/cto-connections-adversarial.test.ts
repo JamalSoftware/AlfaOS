@@ -83,7 +83,7 @@ describe("ataques", () => {
 
     const res = await disconnectRoute(
       post(`/api/cto-connections/${daB.id}/disconnect`, {}, adminToken),
-      { params: { id: daB.id } },
+      { params: Promise.resolve({ id: daB.id }) },
     );
     expect(res.status).toBe(404);
     const linha = await prisma.customerNetworkConnection.findUniqueOrThrow({ where: { id: daB.id } });
@@ -100,7 +100,7 @@ describe("ataques", () => {
     */
     const inexistente = await disconnectRoute(
       post("/api/cto-connections/nao-existe-em-lugar-nenhum/disconnect", {}, adminToken),
-      { params: { id: "nao-existe-em-lugar-nenhum" } },
+      { params: Promise.resolve({ id: "nao-existe-em-lugar-nenhum" }) },
     );
     expect(inexistente.status).toBe(404);
     expect(await res.text()).toBe(await inexistente.text());
@@ -111,7 +111,7 @@ describe("ataques", () => {
     const antigo = await connectCustomerToPort(ctxA, { customerId: cA.id, ctoPortId: pA.id });
     await moveRoute(
       post(`/api/cto-connections/${antigo.id}/move`, { targetCtoPortId: pA2.id }, adminToken),
-      { params: { id: antigo.id } },
+      { params: Promise.resolve({ id: antigo.id }) },
     );
 
     /*
@@ -121,7 +121,7 @@ describe("ataques", () => {
     */
     const res = await disconnectRoute(
       post(`/api/cto-connections/${antigo.id}/disconnect`, {}, adminToken),
-      { params: { id: antigo.id } },
+      { params: Promise.resolve({ id: antigo.id }) },
     );
     expect(res.status).toBe(409);
     expect(
@@ -207,10 +207,10 @@ describe("ataques", () => {
       (await connectRoute(post("/api/cto-connections", { customerId: outro.id, ctoPortId: pA2.id }, adminToken, mau))).status,
     ).toBe(403);
     expect(
-      (await disconnectRoute(post(`/api/cto-connections/${ativo.id}/disconnect`, {}, adminToken, mau), { params: { id: ativo.id } })).status,
+      (await disconnectRoute(post(`/api/cto-connections/${ativo.id}/disconnect`, {}, adminToken, mau), { params: Promise.resolve({ id: ativo.id }) })).status,
     ).toBe(403);
     expect(
-      (await moveRoute(post(`/api/cto-connections/${ativo.id}/move`, { targetCtoPortId: pA2.id }, adminToken, mau), { params: { id: ativo.id } })).status,
+      (await moveRoute(post(`/api/cto-connections/${ativo.id}/move`, { targetCtoPortId: pA2.id }, adminToken, mau), { params: Promise.resolve({ id: ativo.id }) })).status,
     ).toBe(403);
 
     const linha = await prisma.customerNetworkConnection.findUniqueOrThrow({ where: { id: ativo.id } });
@@ -224,7 +224,7 @@ describe("ataques", () => {
     await connectCustomerToPort(ctxB, { customerId: cB.id, ctoPortId: pB.id });
 
     const res = await ctoDetailRoute(get(`/api/ctos/${ctoB.id}`, adminToken), {
-      params: { id: ctoB.id },
+      params: Promise.resolve({ id: ctoB.id }),
     });
     expect(res.status).toBe(404);
     const texto = await res.text();
@@ -234,7 +234,7 @@ describe("ataques", () => {
 
     // Controle positivo: o ADMIN de B lê normalmente.
     const legitimo = await ctoDetailRoute(get(`/api/ctos/${ctoB.id}`, adminBToken), {
-      params: { id: ctoB.id },
+      params: Promise.resolve({ id: ctoB.id }),
     });
     expect(legitimo.status).toBe(200);
     expect(await legitimo.text()).toContain("Da B");
@@ -270,7 +270,7 @@ describe("ataques", () => {
     }
 
     const res = await ctoDetailRoute(get(`/api/ctos/${cheia.id}`, adminToken), {
-      params: { id: cheia.id },
+      params: Promise.resolve({ id: cheia.id }),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {

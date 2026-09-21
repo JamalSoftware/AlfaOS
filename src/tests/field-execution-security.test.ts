@@ -173,7 +173,7 @@ describe("B1 · o corpo não escolhe empresa, técnico nem versão", () => {
         idempotencyKey: `sec-strict-${Date.now()}-${Math.random()}`,
         body: { expectedVersion: a.orderVersion, ...extra },
       }),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
 
     expect(response.status).toBe(400);
@@ -188,7 +188,7 @@ describe("B1 · o corpo não escolhe empresa, técnico nem versão", () => {
         idempotencyKey: `sec-ok-${Date.now()}-${Math.random()}`,
         body: { expectedVersion: a.orderVersion },
       }),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     expect(ok.status).toBe(201);
   });
@@ -215,7 +215,7 @@ describe("B1 · o corpo não escolhe empresa, técnico nem versão", () => {
           technicianId: "outro",
         },
       }),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     expect(response.status).toBe(400);
     expect((await body(response)).error?.code).toBe("VALIDATION_ERROR");
@@ -239,7 +239,7 @@ describe("B1 · o corpo não escolhe empresa, técnico nem versão", () => {
           source: "IMPORTED",
         },
       }),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     expect(response.status).toBe(400);
   });
@@ -259,7 +259,7 @@ describe("B2 · GPS hostil pela rota", () => {
         idempotencyKey: `sec-gps-${Date.now()}-${Math.random()}`,
         body: { expectedVersion: a.orderVersion, latitude, longitude },
       }),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     expect(response.status).toBe(400);
 
@@ -283,7 +283,7 @@ describe("B2 · GPS hostil pela rota", () => {
           accuracyMeters: -1,
         },
       }),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     expect(response.status).toBe(400);
   });
@@ -307,7 +307,7 @@ describe("B3 · idempotência não é oráculo sobre operação alheia", () => {
         idempotencyKey: sharedKey,
         body: { expectedVersion: a.orderVersion },
       }),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     expect(first.status).toBe(201);
     const firstBody = await body(first);
@@ -321,7 +321,7 @@ describe("B3 · idempotência não é oráculo sobre operação alheia", () => {
         idempotencyKey: sharedKey,
         body: { expectedVersion: b.orderVersion },
       }),
-      { params: { id: b.orderId } },
+      { params: Promise.resolve({ id: b.orderId }) },
     );
     expect(second.status).toBe(201);
     const secondBody = await body(second);
@@ -342,7 +342,7 @@ describe("B3 · idempotência não é oráculo sobre operação alheia", () => {
         idempotencyKey: key,
         body: { expectedVersion: a.orderVersion, latitude: -23.5, longitude: -46.6 },
       }),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     expect(first.status).toBe(201);
 
@@ -353,7 +353,7 @@ describe("B3 · idempotência não é oráculo sobre operação alheia", () => {
         idempotencyKey: key,
         body: { expectedVersion: a.orderVersion, latitude: -10.0, longitude: -40.0 },
       }),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     expect(second.status).toBe(409);
     expect((await body(second)).error?.code).toBe("IDEMPOTENCY_CONFLICT");
@@ -371,7 +371,7 @@ describe("B3 · idempotência não é oráculo sobre operação alheia", () => {
         idempotencyKey: key,
         body: payload,
       }),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     const second = await checkInRoute(
       fieldRequest(`/api/field/v1/service-orders/${a.orderId}/check-in`, {
@@ -380,7 +380,7 @@ describe("B3 · idempotência não é oráculo sobre operação alheia", () => {
         idempotencyKey: key,
         body: payload,
       }),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
 
     expect(first.status).toBe(201);
@@ -409,7 +409,7 @@ describe("B4 · upload não confia em nada que o cliente diz", () => {
         a.token,
         `sec-exe-${Date.now()}`,
       ),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
 
     expect(response.status).toBe(400);
@@ -442,7 +442,7 @@ describe("B4 · upload não confia em nada que o cliente diz", () => {
         a.token,
         `sec-trav-${Date.now()}`,
       ),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     expect(response.status).toBe(201);
 
@@ -472,7 +472,7 @@ describe("B4 · upload não confia em nada que o cliente diz", () => {
         a.token,
         `sec-cat-${Date.now()}`,
       ),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     expect(response.status).toBe(400);
   });
@@ -515,7 +515,7 @@ describe("B4 · upload não confia em nada que o cliente diz", () => {
           a.token,
           `sec-proto-${categoria}-${Date.now()}`,
         ),
-        { params: { id: a.orderId } },
+        { params: Promise.resolve({ id: a.orderId }) },
       );
       const parsed = await body(response);
 
@@ -557,7 +557,7 @@ describe("B4 · upload não confia em nada que o cliente diz", () => {
         a.token,
         `sec-cat-ok-${Date.now()}`,
       ),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     expect(response.status).toBe(201);
     const evidence = await prisma.serviceOrderEvidence.findFirstOrThrow({
@@ -583,7 +583,7 @@ describe("B4 · upload não confia em nada que o cliente diz", () => {
         a.token,
         `sec-extra-${Date.now()}`,
       ),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     expect(response.status).toBe(201);
 
@@ -611,7 +611,7 @@ describe("B5 · IDOR nos recursos-filhos", () => {
         b.token,
         `sec-b-${Date.now()}`,
       ),
-      { params: { id: b.orderId } },
+      { params: Promise.resolve({ id: b.orderId }) },
     );
     const alheia = await prisma.serviceOrderEvidence.findFirstOrThrow({
       where: { serviceOrderId: b.orderId },
@@ -628,7 +628,7 @@ describe("B5 · IDOR nos recursos-filhos", () => {
           body: { expectedVersion: a.orderVersion },
         },
       ),
-      { params: { id: a.orderId, evidenceId: alheia.id } },
+      { params: Promise.resolve({ id: a.orderId, evidenceId: alheia.id }) },
     );
 
     expect(response.status).toBe(404);
@@ -660,7 +660,7 @@ describe("B5 · IDOR nos recursos-filhos", () => {
         b.token,
         `sec-etiqueta-${Date.now()}`,
       ),
-      { params: { id: b.orderId } },
+      { params: Promise.resolve({ id: b.orderId }) },
     );
     const labelBody = (await labelResponse.json()) as {
       data?: { evidence?: { id: string } };
@@ -686,7 +686,7 @@ describe("B5 · IDOR nos recursos-filhos", () => {
           labelEvidenceId,
         },
       }),
-      { params: { id: b.orderId } },
+      { params: Promise.resolve({ id: b.orderId }) },
     );
     const alheio = await prisma.serviceOrderEquipment.findFirstOrThrow({
       where: { serviceOrderId: b.orderId },
@@ -702,7 +702,7 @@ describe("B5 · IDOR nos recursos-filhos", () => {
           body: { expectedVersion: a.orderVersion },
         },
       ),
-      { params: { id: a.orderId, equipmentId: alheio.id } },
+      { params: Promise.resolve({ id: a.orderId, equipmentId: alheio.id }) },
     );
 
     expect(response.status).toBe(404);
@@ -719,7 +719,7 @@ describe("B5 · IDOR nos recursos-filhos", () => {
       fieldRequest(`/api/field/v1/service-orders/${b.orderId}/execution`, {
         token: a.token,
       }),
-      { params: { id: b.orderId } },
+      { params: Promise.resolve({ id: b.orderId }) },
     );
 
     // 403 confirmaria que o id existe — o fato que um técnico sondando ids não
@@ -738,7 +738,7 @@ describe("B6 · o Field não recebe o que não precisa", () => {
       fieldRequest(`/api/field/v1/service-orders/${a.orderId}/execution`, {
         token: a.token,
       }),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
     expect(response.status).toBe(200);
 
@@ -830,7 +830,7 @@ describe("B7 · pendências de conclusão saem estruturadas", () => {
           expectedExecutionVersion: a.executionVersion,
         },
       }),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
 
     expect(response.status).toBe(400);
@@ -872,7 +872,7 @@ describe("B8 · token", () => {
       },
     );
 
-    const response = await checkInRoute(request, { params: { id: a.orderId } });
+    const response = await checkInRoute(request, { params: Promise.resolve({ id: a.orderId }) });
     expect(response.status).toBe(401);
     expect((await body(response)).error?.code).toBe("UNAUTHENTICATED");
   });
@@ -891,7 +891,7 @@ describe("B8 · token", () => {
         idempotencyKey: "sec-revogado-1234",
         body: { expectedVersion: a.orderVersion },
       }),
-      { params: { id: a.orderId } },
+      { params: Promise.resolve({ id: a.orderId }) },
     );
 
     expect(response.status).toBe(401);

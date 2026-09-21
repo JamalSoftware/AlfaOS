@@ -27,10 +27,11 @@ export const metadata: Metadata = {
 };
 
 interface PageProps {
-  searchParams: { [key: string]: string | string[] | undefined };
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
-export default async function CtosPage({ searchParams }: PageProps) {
+export default async function CtosPage({ searchParams: searchParamsPromise }: PageProps) {
+  const searchParams = await searchParamsPromise;
   const session = await requirePageProfile(["ADMIN"]);
 
   /*

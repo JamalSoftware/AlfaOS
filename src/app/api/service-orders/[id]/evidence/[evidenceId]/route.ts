@@ -14,7 +14,7 @@ const deleteSchema = z
 
 export async function DELETE(
   request: Request,
-  context: { params: { id: string; evidenceId: string } },
+  context: { params: Promise<{ id: string; evidenceId: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -41,8 +41,8 @@ export async function DELETE(
     await removeEvidence(
       session.companyId,
       session.id,
-      context.params.id,
-      context.params.evidenceId,
+      (await context.params).id,
+      (await context.params).evidenceId,
       parsed.data.expectedOrderVersion,
     );
     return jsonOk({ removed: true });

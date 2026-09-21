@@ -91,7 +91,7 @@ function newKey(prefix = "dq3"): string {
 function callGet(technicianId: string, token: string) {
   return getQueue(
     apiRequest(`/api/dispatch/technicians/${technicianId}/queue`, {}, token),
-    { params: { technicianId } },
+    { params: Promise.resolve({ technicianId }) },
   );
 }
 
@@ -107,7 +107,7 @@ function callReorder(
       { method: "POST", body, headers: { "Idempotency-Key": key } },
       token,
     ),
-    { params: { technicianId } },
+    { params: Promise.resolve({ technicianId }) },
   );
 }
 
@@ -123,7 +123,7 @@ function callPriority(
       { method: "POST", body, headers: { "Idempotency-Key": key } },
       token,
     ),
-    { params: { id: orderId } },
+    { params: Promise.resolve({ id: orderId }) },
   );
 }
 
@@ -134,7 +134,7 @@ function callAssign(orderId: string, token: string, body: unknown) {
       { method: "POST", body },
       token,
     ),
-    { params: { id: orderId } },
+    { params: Promise.resolve({ id: orderId }) },
   );
 }
 
@@ -171,7 +171,7 @@ describe("GET da fila", () => {
   it("sem sessão é 401", async () => {
     const res = await getQueue(
       apiRequest(`/api/dispatch/technicians/${techA1.id}/queue`),
-      { params: { technicianId: techA1.id } },
+      { params: Promise.resolve({ technicianId: techA1.id }) },
     );
     expect(res.status).toBe(401);
   });
@@ -732,7 +732,7 @@ describe("reorder", () => {
         },
         adminToken,
       ),
-      { params: { technicianId: techA1.id } },
+      { params: Promise.resolve({ technicianId: techA1.id }) },
     );
     expect(res.status).toBe(400);
   });

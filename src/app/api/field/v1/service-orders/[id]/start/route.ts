@@ -46,7 +46,7 @@ const startSchema = z
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runFieldApi(async () => {
     const principal = await requireFieldPrincipal(request);
@@ -56,7 +56,7 @@ export async function POST(
 
     const key = parseIdempotencyKey(request);
     const body = await readFieldBody(request, startSchema);
-    const orderId = context.params.id;
+    const orderId = (await context.params).id;
 
     const outcome = await withIdempotency(
       principal,

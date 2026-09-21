@@ -1373,7 +1373,7 @@ describe("MAPAPI — permissões e tenancy pelas rotas", () => {
 
     const ok = await GET(
       apiRequest(`/api/ctos/${minha.id}/customers`, { headers: { ...ORIGIN } }, admin),
-      { params: { id: minha.id } },
+      { params: Promise.resolve({ id: minha.id }) },
     );
     expect(ok.status).toBe(200);
     expect((await ok.json()).data.customers).toHaveLength(1);
@@ -1384,7 +1384,7 @@ describe("MAPAPI — permissões e tenancy pelas rotas", () => {
         { headers: { ...ORIGIN } },
         dispatcher,
       ),
-      { params: { id: minha.id } },
+      { params: Promise.resolve({ id: minha.id }) },
     );
     expect(negado.status).toBe(403);
 
@@ -1400,7 +1400,7 @@ describe("MAPAPI — permissões e tenancy pelas rotas", () => {
         { headers: { ...ORIGIN } },
         admin,
       ),
-      { params: { id: alheia.id } },
+      { params: Promise.resolve({ id: alheia.id }) },
     );
     expect(cruzado.status).toBe(404);
   });

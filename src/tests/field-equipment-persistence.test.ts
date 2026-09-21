@@ -97,7 +97,7 @@ async function cenario() {
       idempotencyKey: key("start"),
       body: { expectedVersion: order.version },
     }),
-    { params: { id: order.id } },
+    { params: Promise.resolve({ id: order.id }) },
   );
 
   return { order, customer, technician, token };
@@ -114,7 +114,7 @@ async function versionOf(orderId: string) {
 async function bundleOf(orderId: string, token: string) {
   const response = await executionBundle(
     fieldRequest(`/api/field/v1/service-orders/${orderId}/execution`, { token }),
-    { params: { id: orderId } },
+    { params: Promise.resolve({ id: orderId }) },
   );
   expect(response.status).toBe(200);
   const payload = await body(response);
@@ -153,7 +153,7 @@ async function etiqueta(orderId: string, token: string): Promise<string> {
         body: form,
       },
     ),
-    { params: { id: orderId } },
+    { params: Promise.resolve({ id: orderId }) },
   );
   expect(response.status).toBe(201);
   const payload = await body(response);
@@ -173,7 +173,7 @@ function post(
       idempotencyKey,
       body: payload,
     }),
-    { params: { id: orderId } },
+    { params: Promise.resolve({ id: orderId }) },
   );
 }
 

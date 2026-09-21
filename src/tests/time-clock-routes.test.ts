@@ -412,7 +412,7 @@ describe("Field + painel — o ataque completo, pelas rotas", () => {
         },
         await createTokenFor(fixture.adminA.id),
       ),
-      { params: { id: pedidoId } },
+      { params: Promise.resolve({ id: pedidoId }) },
     );
     expect(decisao.status).toBe(200);
 
@@ -487,7 +487,7 @@ describe("Field + painel — o ataque completo, pelas rotas", () => {
         },
         await createTokenFor(fixture.adminA.id),
       ),
-      { params: { id: primeiroId } },
+      { params: Promise.resolve({ id: primeiroId }) },
     );
 
     // Segundo pedido apontando para a marcação que já foi superada.
@@ -686,7 +686,7 @@ describe("E2E — o dia inteiro e a correção, pelas rotas", () => {
         },
         await createTokenFor(segundoAdmin.id),
       ),
-      { params: { id: pedidoId } },
+      { params: Promise.resolve({ id: pedidoId }) },
     );
     expect(decisao.status).toBe(200);
 

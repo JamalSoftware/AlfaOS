@@ -275,7 +275,7 @@ describe("Administração da conexão", () => {
         },
         token,
       ),
-      { params: { id: customer.id } },
+      { params: Promise.resolve({ id: customer.id }) },
     );
     expect(created.status).toBe(201);
     const createdBody = await created.text();
@@ -288,7 +288,7 @@ describe("Administração da conexão", () => {
         { method: "PATCH", body: { password: "outra-senha-diferente" } },
         token,
       ),
-      { params: { id: customer.id, connectionId } },
+      { params: Promise.resolve({ id: customer.id, connectionId }) },
     );
     expect(replaced.status).toBe(200);
     expect(await replaced.text()).not.toContain("outra-senha-diferente");
@@ -325,7 +325,7 @@ describe("Administração da conexão", () => {
 
     const res = await listConnectionsRoute(
       apiRequest(`/api/customers/${customer.id}/connections`, {}, token),
-      { params: { id: customer.id } },
+      { params: Promise.resolve({ id: customer.id }) },
     );
     expect(res.status).toBe(200);
     const body = await res.text();
@@ -343,7 +343,7 @@ describe("Administração da conexão", () => {
           { method: "POST", body: { username: "x@y", password: SECRET } },
           token,
         ),
-        { params: { id: customer.id } },
+        { params: Promise.resolve({ id: customer.id }) },
       );
       expect(res.status).toBe(403);
     }
@@ -369,7 +369,7 @@ describe("Administração da conexão", () => {
           },
           token,
         ),
-        { params: { id: customer.id } },
+        { params: Promise.resolve({ id: customer.id }) },
       );
       expect(res.status).toBe(400);
     }
@@ -390,7 +390,7 @@ describe("Administração da conexão", () => {
         },
         token,
       ),
-      { params: { id: customer.id } },
+      { params: Promise.resolve({ id: customer.id }) },
     );
     expect(res.status).toBe(403);
     expect(await prisma.customerConnection.count()).toBe(0);
@@ -411,7 +411,7 @@ describe("Administração da conexão", () => {
         { method: "PATCH", body: { username: "sequestrado" } },
         tokenB,
       ),
-      { params: { id: customer.id, connectionId: connection.id } },
+      { params: Promise.resolve({ id: customer.id, connectionId: connection.id }) },
     );
     expect(res.status).toBe(404);
 
@@ -438,7 +438,7 @@ describe("Administração da conexão", () => {
         { method: "PATCH", body: { username: "trocado" } },
         token,
       ),
-      { params: { id: a.id, connectionId: connectionB.id } },
+      { params: Promise.resolve({ id: a.id, connectionId: connectionB.id }) },
     );
     expect(res.status).toBe(404);
   });
@@ -461,7 +461,7 @@ describe("Revelação da senha", () => {
           { method: "POST", body: { connectionId: connection.id } },
           token,
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       );
       expect(res.status).toBe(200);
       const payload = await res.json();
@@ -482,7 +482,7 @@ describe("Revelação da senha", () => {
         { method: "POST", body: { connectionId: connection.id } },
         techToken,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(denied.status).toBe(403);
     expect(await denied.text()).not.toContain(SECRET);
@@ -495,7 +495,7 @@ describe("Revelação da senha", () => {
         { method: "POST", body: { connectionId: connection.id } },
         adminToken,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(allowed.status).toBe(200);
     expect((await allowed.json()).data.password).toBe(SECRET);
@@ -511,7 +511,7 @@ describe("Revelação da senha", () => {
         { method: "POST", body: { connectionId: connection.id } },
         tokenOutro,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(res.status).toBe(404);
     expect(await res.text()).not.toContain(SECRET);
@@ -527,7 +527,7 @@ describe("Revelação da senha", () => {
         { method: "POST", body: { connectionId: connection.id } },
         tokenB,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(res.status).toBe(404);
   });
@@ -548,7 +548,7 @@ describe("Revelação da senha", () => {
         { method: "POST", body: { connectionId: conexaoAlheia.id } },
         token,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(res.status).toBe(404);
     expect(await res.text()).not.toContain("senha-alheia");
@@ -564,7 +564,7 @@ describe("Revelação da senha", () => {
         { method: "POST", body: { connectionId: connection.id } },
         token,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(res.status).toBe(403);
     expect(await res.text()).not.toContain(SECRET);
@@ -577,7 +577,7 @@ describe("Revelação da senha", () => {
         method: "POST",
         body: { connectionId: connection.id },
       }),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(res.status).toBe(401);
   });
@@ -597,7 +597,7 @@ describe("Revelação da senha", () => {
           { method: "POST", body: { connectionId: connection.id, ...extra } },
           token,
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       );
       expect(res.status).toBe(400);
     }
@@ -617,7 +617,7 @@ describe("Revelação da senha", () => {
         },
         token,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(res.status).toBe(403);
     expect(await res.text()).not.toContain(SECRET);
@@ -695,7 +695,7 @@ describe("Auditoria e vazamento", () => {
         { method: "POST", body: { connectionId: connection.id } },
         token,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
 
     expect(
@@ -719,7 +719,7 @@ describe("Auditoria e vazamento", () => {
           { method: "POST", body: { connectionId: connection.id } },
           token,
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       );
 
       // Caminho de credencial corrompida: força o erro de decrypt.
@@ -734,7 +734,7 @@ describe("Auditoria e vazamento", () => {
           { method: "POST", body: { connectionId: connection.id } },
           ownerToken,
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       );
       expect(broken.status).toBe(500);
       expect(await broken.text()).not.toContain(SECRET);
@@ -882,7 +882,7 @@ describe("Transplante de ciphertext", () => {
           { method: "POST", body: { connectionId: target.id } },
           tokenB,
         ),
-        { params: { id: orderB.id } },
+        { params: Promise.resolve({ id: orderB.id }) },
       );
       expect(res.status).toBe(500);
       expect(await res.text()).not.toContain(SECRET);
@@ -992,7 +992,7 @@ describe("H-1 — elegibilidade do técnico no reveal", () => {
           { method: "POST", body: { connectionId: connection.id } },
           token,
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       );
 
     // Controle positivo: enquanto ativo, revela.
@@ -1033,7 +1033,7 @@ describe("H-1 — elegibilidade do técnico no reveal", () => {
           { method: "POST", body: { connectionId: connection.id } },
           token,
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       );
 
     await prisma.technician.update({
@@ -1065,7 +1065,7 @@ describe("H-1 — elegibilidade do técnico no reveal", () => {
         { method: "POST", body: { connectionId: connection.id } },
         token,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(res.status).toBe(401);
     expect(await res.text()).not.toContain(SECRET);
@@ -1093,7 +1093,7 @@ describe("H-1 — elegibilidade do técnico no reveal", () => {
         { method: "POST", body: { connectionId: connection.id } },
         token,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     // 404 e não 403: a posse é checada ANTES da elegibilidade, então um técnico
     // inelegível não consegue distinguir "OS existe" de "OS não existe".
@@ -1124,7 +1124,7 @@ describe("M-1 — auditoria obrigatória no reveal", () => {
         { method: "POST", body: { connectionId: connection.id } },
         token,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(res.status).toBe(200);
     expect((await res.json()).data.password).toBe(SECRET);
@@ -1147,7 +1147,7 @@ describe("M-1 — auditoria obrigatória no reveal", () => {
           { method: "POST", body: { connectionId: connection.id } },
           token,
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       );
 
       // 503: a operação era legítima, o pré-requisito de infraestrutura falhou.
@@ -1176,7 +1176,7 @@ describe("M-1 — auditoria obrigatória no reveal", () => {
           { method: "POST", body: { connectionId: connection.id } },
           token,
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       );
       const body = await res.text();
 
@@ -1234,7 +1234,7 @@ describe("M-1 — auditoria obrigatória no reveal", () => {
             { method: "POST", body: { connectionId: connection.id } },
             token,
           ),
-          { params: { id: order.id } },
+          { params: Promise.resolve({ id: order.id }) },
         ),
       ),
     );

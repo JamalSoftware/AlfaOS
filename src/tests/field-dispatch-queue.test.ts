@@ -130,7 +130,7 @@ async function webReorder(
       },
       adminToken,
     ),
-    { params: { technicianId } },
+    { params: Promise.resolve({ technicianId }) },
   );
   return res.status;
 }
@@ -261,7 +261,7 @@ describe("FQ-5 · mudança de prioridade aparece no Field", () => {
         },
         adminToken,
       ),
-      { params: { id: n2.id } },
+      { params: Promise.resolve({ id: n2.id }) },
     );
     expect(res.status).toBe(200);
 

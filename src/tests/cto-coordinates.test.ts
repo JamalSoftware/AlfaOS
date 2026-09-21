@@ -126,7 +126,7 @@ describe("CTO1PV-03 · o detalhe também devolve null", () => {
 
     const res = await getCtoRoute(
       apiRequest(`/api/ctos/${cto.id}`, {}, adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -154,7 +154,7 @@ describe("CTO1PV-05 / CTO1PV-06 · outras edições não preenchem coordenada", 
         },
         adminToken,
       ),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(res.status).toBe(200);
 
@@ -176,7 +176,7 @@ describe("CTO1PV-05 / CTO1PV-06 · outras edições não preenchem coordenada", 
         { method: "POST", body: { capacity: 16 }, headers: { ...ORIGIN } },
         cto.id ? adminToken : adminToken,
       ),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(res.status).toBe(200);
 
@@ -240,7 +240,7 @@ describe("CTO1PV-07 · coordenada explícita continua funcionando", () => {
         },
         adminToken,
       ),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(res.status).toBe(200);
 
@@ -278,7 +278,7 @@ describe("CTO1PV-08 · a semântica da CTO-1.1 é preservada", () => {
         },
         adminToken,
       ),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
 
     const depois = await prisma.cTO.findUniqueOrThrow({ where: { id: cto.id } });

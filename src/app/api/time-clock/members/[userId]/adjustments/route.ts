@@ -83,7 +83,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(
   request: Request,
-  context: { params: { userId: string } },
+  context: { params: Promise<{ userId: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -139,11 +139,11 @@ export async function POST(
       idempotencyActor(session.companyId, session.id),
       "time-clock.admin-adjustment",
       key,
-      { userId: context.params.userId, ...parsed.data },
+      { userId: (await context.params).userId, ...parsed.data },
       async () => {
         const adjustment = await requestTimeAdjustment(
           session.companyId,
-          context.params.userId,
+          (await context.params).userId,
           {
             requestedType: parsed.data.requestedType,
             requestedEntryType: parsed.data.requestedEntryType,

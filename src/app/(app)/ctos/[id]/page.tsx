@@ -75,12 +75,14 @@ function resolverVolta(
 }
 
 export default async function CtoDetailPage({
-  params,
-  searchParams,
+  params: paramsPromise,
+  searchParams: searchParamsPromise,
 }: {
-  params: { id: string };
-  searchParams?: Record<string, string | string[] | undefined>;
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const params = await paramsPromise;
+  const searchParams = await searchParamsPromise;
   const session = await requirePageProfile(["ADMIN"]);
 
   if (!(await isCtoNetworkEnabled(session.companyId))) {

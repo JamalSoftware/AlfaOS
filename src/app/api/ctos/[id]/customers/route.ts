@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const access = await requireCtoAccess(request, [AccessProfile.ADMIN]);
@@ -41,7 +41,7 @@ export async function GET(
       a diferença entre lista vazia e 404 confirma a existência da caixa alheia.
     */
     const cto = await prisma.cTO.findFirst({
-      where: { id: context.params.id, companyId: access.session.companyId },
+      where: { id: (await context.params).id, companyId: access.session.companyId },
       select: { id: true },
     });
     if (!cto) {

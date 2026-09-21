@@ -39,10 +39,11 @@ export const metadata: Metadata = {
  * ele nunca escolhe a URL do provedor.
  */
 export default async function MapaOperacionalPage({
-  searchParams,
+  searchParams: searchParamsPromise,
 }: {
-  searchParams?: Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const searchParams = await searchParamsPromise;
   /*
     Perfil primeiro, capability depois — a ordem das PÁGINAS do módulo, e ela
     difere da das rotas de API de propósito.

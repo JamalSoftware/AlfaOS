@@ -87,7 +87,7 @@ describe("RBAC das rotas administrativas", () => {
 
     const espelho = await memberRoute(
       apiRequest(`/api/time-clock/members/${fixture.techA.id}`, {}, admin),
-      { params: { userId: fixture.techA.id } },
+      { params: Promise.resolve({ userId: fixture.techA.id }) },
     );
     expect(espelho.status).toBe(200);
   });
@@ -130,7 +130,7 @@ describe("RBAC das rotas administrativas", () => {
     const token = await createTokenFor(fixture.dispatcherA.id);
     const response = await memberRoute(
       apiRequest(`/api/time-clock/members/${fixture.techA.id}`, {}, token),
-      { params: { userId: fixture.techA.id } },
+      { params: Promise.resolve({ userId: fixture.techA.id }) },
     );
     // Minimização: o despacho precisa do estado, não do minuto a minuto.
     expect(response.status).toBe(403);
@@ -146,7 +146,7 @@ describe("RBAC das rotas administrativas", () => {
         { method: "POST", body: { decision: "APPROVED" } },
         token,
       ),
-      { params: { id: pedido.id } },
+      { params: Promise.resolve({ id: pedido.id }) },
     );
     expect(response.status).toBe(403);
 
@@ -166,7 +166,7 @@ describe("RBAC das rotas administrativas", () => {
       await adminAdjustmentsRoute(apiRequest("/api/time-clock/adjustments")),
       await memberRoute(
         apiRequest(`/api/time-clock/members/${fixture.techA.id}`),
-        { params: { userId: fixture.techA.id } },
+        { params: Promise.resolve({ userId: fixture.techA.id }) },
       ),
       await decisionRoute(
         apiRequest(`/api/time-clock/adjustments/${pedido.id}/decision`, {
@@ -174,7 +174,7 @@ describe("RBAC das rotas administrativas", () => {
           body: { decision: "APPROVED" },
           headers: { Origin: "http://localhost", Host: "localhost" },
         }),
-        { params: { id: pedido.id } },
+        { params: Promise.resolve({ id: pedido.id }) },
       ),
     ]) {
       expect(response.status).toBe(401);
@@ -201,7 +201,7 @@ describe("CSRF na decisão de ajuste", () => {
         },
         admin,
       ),
-      { params: { id: pedido.id } },
+      { params: Promise.resolve({ id: pedido.id }) },
     );
 
     expect(response.status).toBe(403);
@@ -228,7 +228,7 @@ describe("CSRF na decisão de ajuste", () => {
         },
         admin,
       ),
-      { params: { id: pedido.id } },
+      { params: Promise.resolve({ id: pedido.id }) },
     );
 
     expect(response.status).toBe(200);
@@ -261,7 +261,7 @@ describe("Isolamento entre empresas nas rotas", () => {
         },
         adminB,
       ),
-      { params: { id: pedido.id } },
+      { params: Promise.resolve({ id: pedido.id }) },
     );
 
     // 404 e não 403: confirmar que o id existe noutra empresa é o que uma
@@ -282,7 +282,7 @@ describe("Isolamento entre empresas nas rotas", () => {
 
     const response = await memberRoute(
       apiRequest(`/api/time-clock/members/${fixture.techA.id}`, {}, adminB),
-      { params: { userId: fixture.techA.id } },
+      { params: Promise.resolve({ userId: fixture.techA.id }) },
     );
     expect(response.status).toBe(404);
   });
@@ -450,7 +450,7 @@ describe("ATAQUE: o ADMIN decide a correção que abriu para si mesmo", () => {
         },
         await createTokenFor(userId),
       ),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
 
   it("o POST direto é recusado com 403, nas duas decisões", async () => {

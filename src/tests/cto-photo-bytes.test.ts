@@ -83,7 +83,7 @@ function envio(ctoId: string, bytes: Buffer, mime: string, token: string) {
 
 async function leFoto(ctoId: string, token = adminToken) {
   return photoGetRoute(apiRequest(`/api/ctos/${ctoId}/photo`, {}, token), {
-    params: { id: ctoId },
+    params: Promise.resolve({ id: ctoId }),
   });
 }
 
@@ -98,7 +98,7 @@ describe("CTO1PV-PHOTO-BYTES · o corpo servido", () => {
     const cto = await semeiaCto();
     const envioOk = await photoPostRoute(
       envio(cto.id, montarPngReal(24, 16), "image/png", adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(envioOk.status).toBe(200);
 
@@ -122,7 +122,7 @@ describe("CTO1PV-PHOTO-BYTES · o corpo servido", () => {
     const cto = await semeiaCto();
     await photoPostRoute(
       envio(cto.id, montarPngReal(24, 16), "image/png", adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
 
     const res = await leFoto(cto.id);
@@ -144,7 +144,7 @@ describe("CTO1PV-PHOTO-BYTES · o corpo servido", () => {
     const cto = await semeiaCto();
     await photoPostRoute(
       envio(cto.id, montarPngReal(30, 20), "image/png", adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
 
     const linha = await prisma.cTO.findUniqueOrThrow({
@@ -164,7 +164,7 @@ describe("CTO1PV-PHOTO-BYTES · o corpo servido", () => {
     const cto = await semeiaCto();
     const png = montarPngReal(40, 28);
     await photoPostRoute(envio(cto.id, png, "image/png", adminToken), {
-      params: { id: cto.id },
+      params: Promise.resolve({ id: cto.id }),
     });
 
     const res = await leFoto(cto.id);
@@ -191,7 +191,7 @@ describe("CTO1PV-PHOTO-BYTES · o corpo servido", () => {
     const cto = await semeiaCto();
     await photoPostRoute(
       envio(cto.id, montarPngReal(48, 32), "image/png", adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
 
     const corpo = Buffer.from(await (await leFoto(cto.id)).arrayBuffer());
@@ -218,13 +218,13 @@ describe("CTO1PV-PHOTO-BYTES · o corpo servido", () => {
     const cto = await semeiaCto();
     await photoPostRoute(
       envio(cto.id, montarPngReal(48, 32), "image/png", adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     const primeira = Buffer.from(await (await leFoto(cto.id)).arrayBuffer());
 
     await photoPostRoute(
       envio(cto.id, montarPngReal(20, 60), "image/png", adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     const segunda = Buffer.from(await (await leFoto(cto.id)).arrayBuffer());
 
@@ -238,7 +238,7 @@ describe("CTO1PV-PHOTO-BYTES · o corpo servido", () => {
     const cto = await semeiaCto();
     await photoPostRoute(
       envio(cto.id, montarPngReal(36, 24), "image/png", adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     const antes = Buffer.from(await (await leFoto(cto.id)).arrayBuffer());
     const chaveAntes = (
@@ -255,7 +255,7 @@ describe("CTO1PV-PHOTO-BYTES · o corpo servido", () => {
         "image/png",
         adminToken,
       ),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(lixo.status).toBe(400);
 
@@ -276,7 +276,7 @@ describe("CTO1PV-PHOTO-BYTES · o corpo servido", () => {
     const cto = await semeiaCto();
     await photoPostRoute(
       envio(cto.id, montarPngReal(24, 16), "image/png", adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
 
     // Controle POSITIVO: o caminho autorizado devolve a imagem de verdade —
@@ -298,7 +298,7 @@ describe("CTO1PV-PHOTO-BYTES · o corpo servido", () => {
     const cto = await semeiaCto();
     await photoPostRoute(
       envio(cto.id, montarPngReal(24, 16), "image/png", adminToken),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     const linha = await prisma.cTO.findUniqueOrThrow({
       where: { id: cto.id },
@@ -330,7 +330,7 @@ describe("CTO1PV-PHOTO-BYTES · o corpo servido", () => {
     expect(lerExif(comGps).tagsGps.length).toBeGreaterThan(0);
 
     await photoPostRoute(envio(cto.id, comGps, "image/jpeg", adminToken), {
-      params: { id: cto.id },
+      params: Promise.resolve({ id: cto.id }),
     });
 
     const servido = Buffer.from(await (await leFoto(cto.id)).arrayBuffer());

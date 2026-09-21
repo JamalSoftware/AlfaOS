@@ -173,7 +173,7 @@ describe("CTO1-HIST · porta histórica não aceita mutação", () => {
         },
         adminToken,
       ),
-      { params: { id: cto.id, portId: historica.id } },
+      { params: Promise.resolve({ id: cto.id, portId: historica.id }) },
     );
 
     expect(res.status).toBe(409);
@@ -381,7 +381,7 @@ describe("CTO1-HIST-12 · concorrência entre capacidade e estado", () => {
         },
         adminBToken,
       ),
-      { params: { id: cto.id, portId: historica.id } },
+      { params: Promise.resolve({ id: cto.id, portId: historica.id }) },
     );
     expect(res.status).toBe(404);
     expect(await res.text()).not.toContain("capacidade");

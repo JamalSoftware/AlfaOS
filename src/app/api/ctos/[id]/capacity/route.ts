@@ -28,7 +28,7 @@ const capacitySchema = z
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -52,7 +52,7 @@ export async function POST(
     await changeCtoCapacity(
       access.session.companyId,
       access.session.id,
-      context.params.id,
+      (await context.params).id,
       parsed.data.capacity,
     );
     /*
@@ -66,7 +66,7 @@ export async function POST(
     */
     const detail = await getOperationalCtoDetail(
       access.session.companyId,
-      context.params.id,
+      (await context.params).id,
     );
     return jsonOk({ cto: detail });
   });

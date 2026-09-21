@@ -105,7 +105,7 @@ async function cenario() {
 function abrir(orderId: string, token: string) {
   return getOrder(
     fieldRequest(`/api/field/v1/service-orders/${orderId}`, { token }),
-    { params: { id: orderId } },
+    { params: Promise.resolve({ id: orderId }) },
   );
 }
 

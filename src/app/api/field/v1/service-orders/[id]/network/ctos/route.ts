@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runFieldApi(async () => {
     const principal = await requireFieldPrincipal(request);
@@ -38,7 +38,7 @@ export async function GET(
     await resolveOwnedOrderCustomer(
       principal.user.companyId,
       principal.technician.id,
-      context.params.id,
+      (await context.params).id,
       { requireInProgress: true },
     );
 

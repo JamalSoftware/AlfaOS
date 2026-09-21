@@ -27,7 +27,7 @@ const completeSchema = z
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -57,13 +57,13 @@ export async function POST(
     await completeServiceOrder(
       session.companyId,
       session.id,
-      context.params.id,
+      (await context.params).id,
       parsed.data,
     );
 
     const serviceOrder = await getCompanyServiceOrder(
       session.companyId,
-      context.params.id,
+      (await context.params).id,
     );
     return jsonOk({ serviceOrder });
   });

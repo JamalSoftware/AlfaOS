@@ -29,7 +29,7 @@ const STAFF_PROFILES = [AccessProfile.ADMIN, AccessProfile.DISPATCHER];
 
 export async function GET(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const session = await getSessionUser(request);
@@ -40,7 +40,7 @@ export async function GET(
     const denied = assertProfile(session.profile, STAFF_PROFILES);
     if (denied) return denied;
 
-    const order = await getCompanyServiceOrder(session.companyId, context.params.id);
+    const order = await getCompanyServiceOrder(session.companyId, (await context.params).id);
     if (!order) {
       return jsonError("Ordem de serviço não encontrada.", 404);
     }

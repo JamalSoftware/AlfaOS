@@ -155,7 +155,7 @@ describe("CTO1H-04 · alteração de capacidade respeita a faixa", () => {
         },
         adminToken,
       ),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
 
     expect(res.status).toBe(400);
@@ -273,7 +273,7 @@ describe("CTO1H-06 / CTO1H-07 · coordenada inválida não apaga a existente", (
           },
           adminToken,
         ),
-        { params: { id: cto.id } },
+        { params: Promise.resolve({ id: cto.id }) },
       );
       expect(res.status).toBe(400);
     }
@@ -292,7 +292,7 @@ describe("CTO1H-06 / CTO1H-07 · coordenada inválida não apaga a existente", (
         },
         adminToken,
       ),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(res.status).toBe(400);
     await coordenadaIntacta(cto.id);
@@ -311,7 +311,7 @@ describe("CTO1H-06 / CTO1H-07 · coordenada inválida não apaga a existente", (
         },
         adminToken,
       ),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
     expect(res.status).toBe(400);
     await coordenadaIntacta(cto.id);
@@ -415,7 +415,7 @@ describe("CTO1H-10 · campo realmente vazio remove a coordenada", () => {
         },
         adminToken,
       ),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
 
     expect(res.status).toBe(200);
@@ -444,7 +444,7 @@ describe("CTO1H-10 · campo realmente vazio remove a coordenada", () => {
         },
         adminToken,
       ),
-      { params: { id: cto.id } },
+      { params: Promise.resolve({ id: cto.id }) },
     );
 
     expect(res.status).toBe(200);

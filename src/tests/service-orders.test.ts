@@ -73,7 +73,7 @@ describe("Ordens de serviço", () => {
 
     const detail = await getOrder(
       apiRequest(`/api/service-orders/${id}`, {}, token),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
     expect(detail.status).toBe(200);
     const payload = await detail.json();
@@ -287,7 +287,7 @@ describe("Ordens de serviço", () => {
         { method: "POST", body: { technicianId: tech.id } },
         token,
       ),
-      { params: { id: os!.id } },
+      { params: Promise.resolve({ id: os!.id }) },
     );
     expect(assignRes.status).toBe(200);
 
@@ -323,12 +323,12 @@ describe("Ordens de serviço", () => {
         { method: "POST", body: { technicianId: tech.id } },
         token,
       ),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
     expect(res.status).toBe(200);
 
     const detail = await getOrder(apiRequest(`/api/service-orders/${id}`, {}, token), {
-      params: { id },
+      params: Promise.resolve({ id }),
     });
     const payload = await detail.json();
     const order = payload.data.serviceOrder;
@@ -355,7 +355,7 @@ describe("Ordens de serviço", () => {
         { method: "POST", body: { technicianId: techA.id } },
         token,
       ),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
 
     const changeRes = await assignOrder(
@@ -364,12 +364,12 @@ describe("Ordens de serviço", () => {
         { method: "POST", body: { technicianId: techB.id } },
         token,
       ),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
     expect(changeRes.status).toBe(200);
 
     const detail = await getOrder(apiRequest(`/api/service-orders/${id}`, {}, token), {
-      params: { id },
+      params: Promise.resolve({ id }),
     });
     const payload = await detail.json();
     const order = payload.data.serviceOrder;
@@ -398,7 +398,7 @@ describe("Ordens de serviço", () => {
         { method: "POST", body: { technicianId: tech.id } },
         token,
       ),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
 
     const again = await assignOrder(
@@ -407,7 +407,7 @@ describe("Ordens de serviço", () => {
         { method: "POST", body: { technicianId: tech.id } },
         token,
       ),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
     expect(again.status).toBe(409);
   });
@@ -431,7 +431,7 @@ describe("Ordens de serviço", () => {
         { method: "POST", body: { technicianId: tech.id } },
         token,
       ),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
     expect(res.status).toBe(409);
   });
@@ -450,7 +450,7 @@ describe("Ordens de serviço", () => {
         { method: "POST", body: { technicianId: techB.id } },
         token,
       ),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
     expect(res.status).toBe(404);
   });
@@ -470,20 +470,20 @@ describe("Ordens de serviço", () => {
         { method: "POST", body: { technicianId: techA.id } },
         adminToken,
       ),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
 
     const ownerToken = await createTokenFor(fixture.techA.id);
     const ownerRes = await getOrder(
       apiRequest(`/api/service-orders/${id}`, {}, ownerToken),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
     expect(ownerRes.status).toBe(200);
 
     const otherToken = await createTokenFor(fixture.techB.id);
     const otherRes = await getOrder(
       apiRequest(`/api/service-orders/${id}`, {}, otherToken),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
     expect(otherRes.status).toBe(404);
   });
@@ -498,7 +498,7 @@ describe("Ordens de serviço", () => {
     const tokenB = await createTokenFor(fixture.adminB.id);
     const res = await getOrder(
       apiRequest(`/api/service-orders/${id}`, {}, tokenB),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
     expect(res.status).toBe(404);
 
@@ -740,7 +740,7 @@ describe("Ordens de serviço", () => {
     const readVersion = async (): Promise<number> => {
       const res = await getOrder(
         apiRequest(`/api/service-orders/${id}`, {}, token),
-        { params: { id } },
+        { params: Promise.resolve({ id }) },
       );
       expect(res.status).toBe(200);
       const payload = await res.json();
@@ -762,7 +762,7 @@ describe("Ordens de serviço", () => {
           },
           token,
         ),
-        { params: { id } },
+        { params: Promise.resolve({ id }) },
       );
 
     // Despachantes A e B abrem a MESMA OS e leem a MESMA versão.
@@ -828,7 +828,7 @@ describe("Ordens de serviço", () => {
           { method: "POST", body: { technicianId } },
           token,
         ),
-        { params: { id } },
+        { params: Promise.resolve({ id }) },
       );
 
     expect((await assignWithoutVersion(tech1.id)).status).toBe(200);
@@ -864,7 +864,7 @@ describe("Ordens de serviço", () => {
           },
           token,
         ),
-        { params: { id } },
+        { params: Promise.resolve({ id }) },
       );
       expect(res.status).toBe(400);
     }

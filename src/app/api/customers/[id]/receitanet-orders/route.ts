@@ -26,7 +26,7 @@ const STAFF_PROFILES = [AccessProfile.ADMIN, AccessProfile.DISPATCHER];
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -67,7 +67,7 @@ export async function POST(
     const sync = await syncReceitaNetServiceOrdersForCustomer(
       session.companyId,
       session.id,
-      context.params.id,
+      (await context.params).id,
     );
 
     return jsonOk({ sync });

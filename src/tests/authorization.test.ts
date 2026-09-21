@@ -50,7 +50,7 @@ describe("Autorização por perfil de acesso", () => {
         { method: "PATCH", body: { active: false, name: "Novo Tecnico Inativo" } },
         token,
       ),
-      { params: { id: created.id } },
+      { params: Promise.resolve({ id: created.id }) },
     );
     expect(updatedRes.status).toBe(200);
     const updated = (await updatedRes.json()).data.user;
@@ -69,7 +69,7 @@ describe("Autorização por perfil de acesso", () => {
         { method: "PATCH", body: { active: false } },
         token,
       ),
-      { params: { id: fixture.adminA.id } },
+      { params: Promise.resolve({ id: fixture.adminA.id }) },
     );
     expect(updateRes.status).toBe(403);
 

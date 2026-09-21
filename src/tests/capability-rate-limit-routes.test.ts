@@ -183,7 +183,7 @@ describe("Diagnóstico: o técnico não atualiza sem limite", () => {
           { method: "POST", body: {}, headers: { ...ORIGIN } },
           token,
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       );
 
     const dentro = await fire(CAPABILITY_LIMIT, call);
@@ -202,7 +202,7 @@ describe("Diagnóstico: o técnico não atualiza sem limite", () => {
           { method: "POST", body: {}, headers: { ...ORIGIN } },
           token,
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       );
 
     await fire(CAPABILITY_LIMIT, call);
@@ -238,7 +238,7 @@ describe("Diagnóstico: o técnico não atualiza sem limite", () => {
     const status = await fire(CAPABILITY_LIMIT * 3, () =>
       diagnosticGet(
         apiRequest(`/api/service-orders/${order.id}/diagnostic`, {}, token),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
     );
     expect(status.every((s) => s === 200)).toBe(true);
@@ -250,7 +250,7 @@ describe("Diagnóstico: o técnico não atualiza sem limite", () => {
         { method: "POST", body: {}, headers: { ...ORIGIN } },
         token,
       ),
-      { params: { id: order.id } },
+      { params: Promise.resolve({ id: order.id }) },
     );
     expect(refresh.status).not.toBe(429);
   });
@@ -423,7 +423,7 @@ describe("Sondagem não autorizada não consome cota de ninguém", () => {
           { method: "POST", body: {}, headers: { ...ORIGIN } },
           tokenIntruso,
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
     );
     expect(sondagens.every((s) => s === 404)).toBe(true);
@@ -437,7 +437,7 @@ describe("Sondagem não autorizada não consome cota de ninguém", () => {
           { method: "POST", body: {}, headers: { ...ORIGIN } },
           tokenDono,
         ),
-        { params: { id: order.id } },
+        { params: Promise.resolve({ id: order.id }) },
       ),
     );
     expect(status.filter((s) => s === 429)).toHaveLength(0);

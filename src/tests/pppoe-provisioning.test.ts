@@ -821,7 +821,7 @@ describe("PATCH da conexão: restaurar padrão e procedência", () => {
         { method: "PATCH", body },
         token,
       ),
-      { params: { id: customerId, connectionId } },
+      { params: Promise.resolve({ id: customerId, connectionId }) },
     );
   }
 

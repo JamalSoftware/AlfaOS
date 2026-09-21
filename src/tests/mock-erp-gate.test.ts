@@ -165,7 +165,7 @@ describe("teste de conexão", () => {
 describe("a tela", () => {
   async function paginaDeOrdens() {
     const { default: Page } = await import("@/app/(app)/ordens/page");
-    return Page({ searchParams: {} });
+    return Page({ searchParams: Promise.resolve({}) });
   }
 
   it("fora de produção, o ADMIN vê o botão (controle positivo)", async () => {

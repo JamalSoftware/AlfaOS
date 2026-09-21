@@ -96,7 +96,7 @@ describe("START-01 · reatribuição logo após o commit", () => {
         idempotencyKey: "start-janela-reatrib1",
         body: { expectedVersion: s.order.version },
       }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
 
     expect(response.status).toBe(200);
@@ -136,7 +136,7 @@ describe("START-01 · reatribuição logo após o commit", () => {
       fieldRequest(`/api/field/v1/service-orders/${s.order.id}`, {
         token: s.token,
       }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     expect(antes.status).toBe(200);
 
@@ -149,7 +149,7 @@ describe("START-01 · reatribuição logo após o commit", () => {
       fieldRequest(`/api/field/v1/service-orders/${s.order.id}`, {
         token: s.token,
       }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
     /*
       Aqui o 404 é CORRETO, e a distinção é o ponto do achado: negar uma
@@ -180,7 +180,7 @@ describe("START-01 · reatribuição logo após o commit", () => {
         idempotencyKey: "start-sem-pessoal-001",
         body: { expectedVersion: s.order.version },
       }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
 
     const serial = JSON.stringify(await response.json());
@@ -207,7 +207,7 @@ describe("START-01 · reatribuição logo após o commit", () => {
           idempotencyKey: "start-repeticao-00001",
           body: { expectedVersion: s.order.version },
         }),
-        { params: { id: s.order.id } },
+        { params: Promise.resolve({ id: s.order.id }) },
       );
 
     const primeiro = await (await chamada()).json();
@@ -243,7 +243,7 @@ describe("IDM-01 · retry após reserva abandonada não duplica a mutação", ()
           idempotencyKey: key,
           body: { expectedVersion: s.order.version },
         }),
-        { params: { id: s.order.id } },
+        { params: Promise.resolve({ id: s.order.id }) },
       );
 
     expect((await chamada()).status).toBe(200);
@@ -323,7 +323,7 @@ describe("IDM-01 · retry após reserva abandonada não duplica a mutação", ()
         idempotencyKey: key,
         body: { expectedVersion: s.order.version },
       }),
-      { params: { id: s.order.id } },
+      { params: Promise.resolve({ id: s.order.id }) },
     );
 
     /*

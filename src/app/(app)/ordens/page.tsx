@@ -40,10 +40,11 @@ function formatDate(date: Date | null, timezone: string): string {
 }
 
 interface PageProps {
-  searchParams: { [key: string]: string | string[] | undefined };
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
-export default async function OrdersPage({ searchParams }: PageProps) {
+export default async function OrdersPage({ searchParams: searchParamsPromise }: PageProps) {
+  const searchParams = await searchParamsPromise;
   const session = await requirePageProfile(["ADMIN", "DISPATCHER"]);
   const timezone = await companyTimezone(session.companyId);
   const isAdmin = session.profile === AccessProfile.ADMIN;

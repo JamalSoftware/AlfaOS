@@ -16,10 +16,11 @@ export const metadata: Metadata = {
  * dela — o pacote não é um atalho para o que a OS não mostraria.
  */
 export default async function EvidencePackagePage({
-  params,
+  params: paramsPromise,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const params = await paramsPromise;
   const session = await requirePageProfile(["ADMIN", "DISPATCHER", "TECHNICIAN"]);
 
   const section = await loadServiceOrderEvidencePackage(

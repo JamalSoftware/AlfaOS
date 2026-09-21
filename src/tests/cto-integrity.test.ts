@@ -718,7 +718,7 @@ describe("CTO-2.6 · a recusa não deixa rastro", () => {
           { method: "POST", body: { administrativeState: "RESERVED" } },
           token,
         ),
-        { params: { id: cto.id, portId: p.id } },
+        { params: Promise.resolve({ id: cto.id, portId: p.id }) },
       ),
       await capacityRoute(
         apiRequest(
@@ -726,7 +726,7 @@ describe("CTO-2.6 · a recusa não deixa rastro", () => {
           { method: "POST", body: { capacity: 4 } },
           token,
         ),
-        { params: { id: cto.id } },
+        { params: Promise.resolve({ id: cto.id }) },
       ),
     ];
 

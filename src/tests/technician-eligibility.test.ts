@@ -159,7 +159,7 @@ describe("Elegibilidade do técnico para nova atribuição", () => {
         { method: "POST", body: { technicianId: tech.id } },
         token,
       ),
-      { params: { id: orderId } },
+      { params: Promise.resolve({ id: orderId }) },
     );
 
     expect(res.status).toBe(400);

@@ -32,7 +32,7 @@ const schema = z
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   return runApi(async () => {
     const csrfBlocked = assertSameOrigin(request);
@@ -54,7 +54,7 @@ export async function POST(
 
     const target = await resolveConnectionTarget(
       access.session.companyId,
-      context.params.id,
+      (await context.params).id,
     );
     if (!target) {
       return jsonError("Vínculo não encontrado.", 404);
@@ -65,7 +65,7 @@ export async function POST(
       idempotencyActor(access.session.companyId, access.session.id),
       "cto.move",
       key,
-      { connectionId: context.params.id, ...parsed.data },
+      { connectionId: (await context.params).id, ...parsed.data },
       async () => {
         const result = await moveCustomerToPort(
           {
@@ -74,7 +74,7 @@ export async function POST(
           },
           {
             customerId: target.customerId,
-            expectedConnectionId: context.params.id,
+            expectedConnectionId: (await context.params).id,
             targetCtoPortId: parsed.data.targetCtoPortId,
             reason: parsed.data.reason ?? null,
           },
