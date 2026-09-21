@@ -162,7 +162,12 @@ describe("GS-UI — a tela", () => {
 
   it("GS-UI-04 — o formulário é um GET para /busca, com rótulo e o termo preenchido", () => {
     const html = render({ state: "ok", term: "Ana", groups: [] });
-    expect(html).toMatch(/<form[^>]*method="get"[^>]*action="\/busca"/);
+    // A ORDEM dos atributos é do renderizador: o React 19 emite `action` antes
+    // de `method`, porque passou a tratar `action` de formulário de forma
+    // especial. O que importa é a MESMA tag `<form>` ter os dois.
+    const form = /<form\b[^>]*>/.exec(html)?.[0] ?? "";
+    expect(form).toContain('method="get"');
+    expect(form).toContain('action="/busca"');
     expect(html).toContain('<label for="global-search-page"');
     expect(html).toMatch(/<input[^>]*id="global-search-page"[^>]*name="q"[^>]*value="Ana"/);
   });
