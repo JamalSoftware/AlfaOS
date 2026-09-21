@@ -8,10 +8,15 @@ import nextConfig from "../../next.config.mjs";
  *
  * ## Por quê
  *
- * `next@14.2.35` carrega um aviso **crítico** de RCE não autenticado na API de
- * otimização de imagem com arquivos AVIF (`GHSA-2xp9-vwfh-vxw4`), mais três
+ * `next@14.2.35` carregava um aviso **crítico** de RCE não autenticado na API
+ * de otimização de imagem com arquivos AVIF (`GHSA-2xp9-vwfh-vxw4`), mais três
  * avisos de negação de serviço no mesmo caminho. O AlfaOS não usa `next/image`
  * — o otimizador estava ligado por ser o padrão, não por ser necessário.
+ *
+ * O `SEC-003` foi fechado por VERSÃO (`next@15.5.25`, ver
+ * `next-framework-security.test.ts`), e o otimizador continua desligado como
+ * defesa em profundidade: não custa nada, e o próximo aviso dele já nasce fora
+ * do alcance.
  *
  * ## O que estes testes guardam
  *

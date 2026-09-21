@@ -11,9 +11,12 @@
  *
  * ## Por que a aplicação consegue recusar de verdade
  *
- * O Next 14 entrega ao route handler o corpo EM FLUXO: sem middleware, nada o
- * lê antes do handler (`next/dist/server/body-streams.js` só bufferiza quando
- * precisa clonar o corpo para um middleware, e o projeto não tem nenhum). Então:
+ * O Next entrega ao route handler o corpo EM FLUXO: sem middleware, nada o lê
+ * antes do handler (`next/dist/server/body-streams.js` só bufferiza quando
+ * precisa clonar o corpo para um middleware, e o projeto não tem nenhum).
+ * Verificado no 14 e REVERIFICADO no `next@15.5.25` (`SEC-003`): o 15
+ * acrescentou um caminho de middleware no runtime Node que clona o corpo, e ele
+ * também só roda se houver middleware — ausência que `SEC-003-11` afirma. Então:
  *
  * 1. `Content-Length` presente: formato validado e teto conferido SEM ler um
  *    byte do corpo;

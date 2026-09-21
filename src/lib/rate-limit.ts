@@ -113,10 +113,12 @@ function normalizeIp(raw: string): string | null {
 /**
  * IP of the actual TCP connection, when the runtime exposes it.
  *
- * Limitation: the Next.js 14 App Router does not give route handlers access to
- * the socket. `NextRequest.ip` is only populated when the hosting adapter fills
- * it in (e.g. Vercel), and it is never client-settable. On a self-hosted
- * `next start` there is no reliable connection IP at all — hence the sentinel.
+ * Limitation: the App Router does not give route handlers access to the socket.
+ * On Next 14, `NextRequest.ip` was only populated when the hosting adapter
+ * filled it in (e.g. Vercel); Next 15 REMOVED the property (`SEC-003`). Either
+ * way a self-hosted `next start` has no reliable connection IP — hence the
+ * sentinel. The read below stays, typed defensively, so a runtime that does
+ * provide it is still used; on ours it is always `undefined`, as before.
  */
 function connectionIp(request: Request): string | null {
   const candidate = (request as Request & { ip?: unknown }).ip;

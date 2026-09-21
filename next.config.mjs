@@ -4,8 +4,8 @@
  * Security headers applied to every route.
  *
  * CSP notes:
- *  - `script-src 'unsafe-inline'` is required by Next.js 14 App Router, which
- *    injects inline bootstrap scripts. A nonce-based CSP is the recommended
+ *  - `script-src 'unsafe-inline'` is required by the Next.js App Router (14 and
+ *    15 alike), which injects inline bootstrap scripts. A nonce-based CSP is the recommended
  *    migration path and is tracked for a future release.
  *  - `style-src 'unsafe-inline'` is required by Tailwind/Next injected styles.
  *  - `img-src` inclui a ORIGEM do provedor de tiles, derivada da mesma
@@ -89,18 +89,21 @@ const nextConfig = {
    *
    * ## Por que ISTO é mitigação de verdade, e não maquiagem
    *
-   * Verificado no código instalado (`next/dist/server/next-server.js`): com
-   * `unoptimized`, o manipulador de `/_next/image` responde **404 antes** de
-   * `validateParams` — antes de buscar, decodificar ou olhar formato. O caminho
-   * inteiro do otimizador fica inalcançável, e com ele o AVIF. Não é uma
+   * Verificado no código instalado (`next/dist/server/next-server.js`), no 14
+   * e de novo no 15: com `unoptimized`, o manipulador de `/_next/image`
+   * responde **404 antes** de `validateParams` — antes de buscar, decodificar ou
+   * olhar formato. O caminho inteiro do otimizador fica inalcançável. Não é uma
    * allowlist vazia que ainda processa a requisição: é o endereço deixar de
    * existir.
    *
-   * ## O que isto NÃO resolve
+   * ## Depois do upgrade, continua desligado — e de propósito
    *
-   * Os avisos de RSC e o RCE de servidor **hospedado em Windows** não passam
-   * por aqui. Eles não têm correção na linha 14.x — `14.2.35` já é a última —,
-   * então a decisão é do dono. Ver `docs/SECURITY.md` §8.27.
+   * A decisão do dono fechou o `SEC-003` por VERSÃO: `next@15.5.25`, que a base
+   * de avisos do registro não lista como afetada por nenhum aviso. O
+   * desligamento fica mesmo assim, como defesa em profundidade: ele não custa
+   * nada (não há consumidor), e o próximo aviso do otimizador não vai precisar
+   * de upgrade de emergência para sair do alcance. `SEC-003-01` falha se alguém
+   * o religar. Ver `docs/SECURITY.md` §8.27.
    */
   images: {
     unoptimized: true,
