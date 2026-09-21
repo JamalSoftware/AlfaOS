@@ -94,49 +94,129 @@ function isPrivateIPv4(ip: string): boolean {
   return false;
 }
 
-function isPrivateIPv6(ip: string): boolean {
-  const v = ip.toLowerCase().replace(/^\[|\]$/g, "");
-  if (v === "::" || v === "::1") return true; // não especificado, loopback
-  if (v.startsWith("fe8") || v.startsWith("fe9") || v.startsWith("fea") || v.startsWith("feb")) {
-    return true; // link-local fe80::/10
+/**
+ * Os 16 BYTES de um IPv6 textual, ou `null` quando não dá para classificar.
+ *
+ * # Por que bytes, e não prefixo de texto (`SEC-007`)
+ *
+ * A versão anterior decidia por `startsWith` e por duas expressões regulares, e
+ * a revisão de segurança independente mostrou o que toda comparação de texto de
+ * IPv6 deixa passar: **o mesmo endereço tem muitas grafias**. A regra do IPv4
+ * embutido exigia exatamente dois grupos hexadecimais no fim
+ * (`^::ffff:HHHH:HHHH$`), então a forma NÃO comprimida —
+ * `0:0:0:0:0:ffff:7f00:1`, que é o que uma resolução de DNS pode devolver, sem
+ * passar pela normalização do parser de URL — não casava e era ACEITA. E
+ * `fec0::/10` e `2002::/16` não tinham regra nenhuma.
+ *
+ * Com os bytes na mão, a classificação é aritmética de prefixo: uma regra por
+ * faixa, insensível a como o endereço foi escrito. É o que o `isIP` do Node
+ * valida e o que esta função entrega.
+ */
+function bytesDeIPv6(ip: string): number[] | null {
+  let v = ip.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  // Identificador de zona (`%eth0`) não faz parte do endereço.
+  const zona = v.indexOf("%");
+  if (zona !== -1) v = v.slice(0, zona);
+  if (isIP(v) !== 6) return null;
+
+  // IPv4 na cauda (`::ffff:1.2.3.4`) vira dois grupos hexadecimais.
+  const pontuado = v.match(/^(.*:)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (pontuado) {
+    const octetos = pontuado[2].split(".").map(Number);
+    if (octetos.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+    const alto = ((octetos[0] << 8) | octetos[1]).toString(16);
+    const baixo = ((octetos[2] << 8) | octetos[3]).toString(16);
+    v = `${pontuado[1]}${alto}:${baixo}`;
   }
-  if (v.startsWith("fc") || v.startsWith("fd")) return true; // unique-local fc00::/7
-  if (v.startsWith("ff")) return true; // multicast
-  /**
-   * IPv4 mapeado/embutido (`::ffff:127.0.0.1`, `64:ff9b::7f00:1`). Sem esta
-   * ramificação, o loopback entraria por IPv6 e passaria pelas regras acima.
-   *
-   * ## As DUAS formas, e por que a pontuada sozinha não bastava
-   *
-   * Esta função recebia só a forma pontuada, e a auditoria de release mostrou
-   * que é justamente a forma que **nunca chega aqui** vinda de uma URL: o
-   * parser WHATWG normaliza `[::ffff:127.0.0.1]` para o hostname
-   * `[::ffff:7f00:1]` — hexadecimal, sem ponto nenhum. A regex não casava, a
-   * função devolvia `false`, e `https://[::ffff:127.0.0.1]` era ACEITO.
-   *
-   * Reproduzido: loopback, `169.254.169.254` (metadados de nuvem), RFC1918 e
-   * NAT64 atravessavam, enquanto `127.0.0.1` e `[::1]` eram corretamente
-   * recusados — o teste existia, mas no nível da função auxiliar, onde o
-   * defeito não aparece.
-   */
-  const pontuado = v.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-  if (pontuado) return isPrivateIPv4(pontuado[1]);
+
+  const lados = v.split("::");
+  if (lados.length > 2) return null;
+  const separar = (parte: string) => (parte === "" ? [] : parte.split(":"));
+  const esquerda = separar(lados[0]);
+  const direita = lados.length === 2 ? separar(lados[1]) : [];
+  const faltando = 8 - (esquerda.length + direita.length);
+  if (faltando < 0 || (lados.length === 1 && faltando !== 0)) return null;
+
+  const grupos = [
+    ...esquerda,
+    ...Array.from({ length: lados.length === 2 ? faltando : 0 }, () => "0"),
+    ...direita,
+  ];
+  if (grupos.length !== 8) return null;
+
+  const bytes: number[] = [];
+  for (const grupo of grupos) {
+    if (!/^[0-9a-f]{1,4}$/.test(grupo)) return null;
+    const valor = Number.parseInt(grupo, 16);
+    bytes.push(valor >> 8, valor & 0xff);
+  }
+  return bytes;
+}
+
+/** O IPv4 embutido a partir de `inicio`, julgado pela tabela do IPv4. */
+function ipv4Embutido(bytes: number[], inicio: number): boolean {
+  return isPrivateIPv4(bytes.slice(inicio, inicio + 4).join("."));
+}
+
+function isPrivateIPv6(ip: string): boolean {
+  const b = bytesDeIPv6(ip);
+  /*
+    Não conseguimos classificar: recusa. Aceitar o que não se entende é o
+    oposto do que este módulo existe para fazer.
+
+    **Medido: este ramo é INALCANÇÁVEL pelo caminho de hoje.** O único chamador
+    é `isPrivateAddress`, que só entra aqui depois de `isIP(ip) === 6`, e
+    `bytesDeIPv6` devolve `null` justamente quando `isIP` recusa. Uma sabotagem
+    que o invertesse para `false` não derruba teste nenhum, e não há teste a
+    escrever: um caso que o produto não consegue produzir não se prova.
+
+    Fica porque é o padrão certo para um chamador futuro que não passe pelo
+    `isIP` — e fica DOCUMENTADO como redundante para que ninguém o leia como
+    proteção ativa.
+  */
+  if (b === null) return true;
+
+  const zerados = (ate: number) => b.slice(0, ate).every((x) => x === 0);
+
+  // `::/128` não especificado e `::1/128` loopback.
+  if (zerados(15) && (b[15] === 0 || b[15] === 1)) return true;
 
   /*
-    A forma hexadecimal: os 32 bits baixos de um endereço que embute IPv4.
-
-    `::ffff:a.b.c.d` (mapeado), `::a.b.c.d` (compatível, obsoleto e ainda
-    roteável em pilhas antigas) e `64:ff9b::a.b.c.d` (NAT64) — os três chegam
-    como dois grupos hexadecimais no fim. Reconstruímos o IPv4 e devolvemos a
-    decisão para a mesma tabela que já governa o resto.
+    As três faixas que EMBUTEM um IPv4. A decisão vai para a mesma tabela que
+    governa o IPv4, então loopback, RFC1918, CGNAT e `169.254.169.254` são
+    barrados por qualquer uma das portas, e um IPv4 público embutido continua
+    aceito — que é o controle positivo do `SGP1-11c`.
   */
-  const hex = v.match(/^(?:::ffff:|::|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (hex) {
-    const alto = parseInt(hex[1], 16);
-    const baixo = parseInt(hex[2], 16);
-    const ipv4 = [alto >> 8, alto & 0xff, baixo >> 8, baixo & 0xff].join(".");
-    return isPrivateIPv4(ipv4);
+  // `::ffff:0:0/96` — IPv4 mapeado, em QUALQUER grafia.
+  if (zerados(10) && b[10] === 0xff && b[11] === 0xff) return ipv4Embutido(b, 12);
+  // `::/96` — IPv4 compatível: obsoleto, e ainda roteável em pilha antiga.
+  if (zerados(12)) return ipv4Embutido(b, 12);
+  // `64:ff9b::/96` — NAT64. `64:ff9b:1::/48` é uso local: barra inteiro.
+  if (b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b) {
+    return b[4] === 0x00 && b[5] === 0x01 ? true : ipv4Embutido(b, 12);
   }
+  // `2002::/16` — 6to4: aqui o IPv4 mora nos bytes 2..5, não na cauda.
+  if (b[0] === 0x20 && b[1] === 0x02) return ipv4Embutido(b, 2);
+
+  /*
+    `2001::/32` — Teredo. O IPv4 do cliente vem ofuscado (XOR) nos bytes
+    finais, e nenhuma instalação de ERP é servida por Teredo. Barra a faixa em
+    vez de desofuscar: menos código para o mesmo efeito.
+  */
+  if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x00 && b[3] === 0x00) return true;
+
+  // `fe80::/10` link-local (inclui o equivalente de `169.254.169.254`).
+  if (b[0] === 0xfe && (b[1] & 0xc0) === 0x80) return true;
+  // `fec0::/10` site-local: depreciado pela RFC 3879 e ainda roteado por
+  // pilhas antigas — era a faixa que faltava.
+  if (b[0] === 0xfe && (b[1] & 0xc0) === 0xc0) return true;
+  // `fc00::/7` unique-local.
+  if ((b[0] & 0xfe) === 0xfc) return true;
+  // `ff00::/8` multicast.
+  if (b[0] === 0xff) return true;
+  // `100::/64` descarte e `2001:db8::/32` documentação: nunca são um host real.
+  if (b[0] === 0x01 && b[1] === 0x00 && b.slice(2, 8).every((x) => x === 0)) return true;
+  if (b[0] === 0x20 && b[1] === 0x01 && b[2] === 0x0d && b[3] === 0xb8) return true;
 
   return false;
 }

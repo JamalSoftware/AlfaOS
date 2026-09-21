@@ -9,6 +9,10 @@ import { supportsServiceTickets } from "@/integrations/service-tickets";
 import { SgpAdapter } from "@/integrations/SgpAdapter";
 import type { FetchLike } from "@/integrations/sgp/SgpClient";
 import { resolveCompanyAdapter, readConfiguredApp } from "@/lib/erp-adapter";
+import {
+  assertSafeOutboundUrl,
+  UnsafeOutboundUrlError,
+} from "@/lib/safe-outbound-url";
 import { getCredentialFor, saveCredentialFor } from "@/lib/erp-credential-store";
 import {
   getActiveIntegration,
@@ -410,6 +414,133 @@ describe("SSRF", () => {
     for (const url of [
       "https://[::ffff:8.8.8.8]",
       "https://[2001:4860:4860::8888]",
+    ]) {
+      let recusadoPeloGuarda = false;
+      try {
+        await testCandidateConnection({
+          provider: "SGP",
+          candidate: { baseUrl: url, app: APP, token: TOKEN },
+        });
+      } catch (erro) {
+        recusadoPeloGuarda = erro instanceof DomainError;
+      }
+      expect(recusadoPeloGuarda, `${url} não deveria ser barrado`).toBe(false);
+    }
+  });
+
+  it("SEC-007: as faixas IPv6 que faltavam são recusadas", async () => {
+    /*
+      Achado da revisão de segurança independente (`SEC-007`).
+
+      A classificação era por prefixo de TEXTO, e IPv6 tem muitas grafias para
+      o mesmo endereço:
+
+      - `fec0::/10` — site-local, depreciado pela RFC 3879 e ainda roteado por
+        pilha antiga. Não havia regra nenhuma.
+      - `2002::/16` — 6to4, onde o IPv4 mora nos bytes 2..5 e NÃO na cauda:
+        `2002:7f00:1::` é 127.0.0.1 e atravessava inteiro.
+      - `::ffff:0:0/96` — a regra existia e exigia exatamente dois grupos
+        hexadecimais no fim, então a forma NÃO comprimida
+        (`0:0:0:0:0:ffff:7f00:1`) passava. Ela importa porque uma resolução de
+        DNS pode devolvê-la sem passar pela normalização do parser de URL.
+
+      A asserção vive AQUI, no nível do guarda, pela lição do `SGP1-11b`:
+      testar `isPrivateAddress` direto não exercita a normalização da URL.
+    */
+    for (const url of [
+      // fec0::/10 — site-local
+      "https://[fec0::1]",
+      "https://[feff:ffff::1]",
+      // 2002::/16 — 6to4 com IPv4 privado embutido
+      "https://[2002:7f00:1::]", // 127.0.0.1
+      "https://[2002:a9fe:a9fe::]", // 169.254.169.254
+      "https://[2002:a00:5::]", // 10.0.0.5
+      "https://[2002:c0a8:101::]", // 192.168.1.1
+      // ::ffff:0:0/96 em grafia não comprimida
+      "https://[0:0:0:0:0:ffff:7f00:1]",
+      "https://[0:0:0:0:0:ffff:a9fe:a9fe]",
+      // NAT64 de uso local e faixas que nunca são host real
+      "https://[64:ff9b:1::7f00:1]",
+      "https://[100::1]",
+      "https://[2001:db8::1]",
+      "https://[2001:0:1234::1]", // Teredo
+    ]) {
+      await expect(
+        testCandidateConnection({
+          provider: "SGP",
+          candidate: { baseUrl: url, app: APP, token: TOKEN },
+        }),
+        `deveria recusar ${url}`,
+      ).rejects.toBeInstanceOf(DomainError);
+    }
+  });
+
+  it("SEC-007c: endereço RESOLVIDO por DNS é classificado em qualquer grafia", async () => {
+    /*
+      O vetor que o literal de URL NÃO alcança, e por isso ele tem teste
+      próprio.
+
+      O parser WHATWG normaliza o hostname: `[0:0:0:0:0:ffff:7f00:1]` chega ao
+      guarda já comprimido como `::ffff:7f00:1`. Então a grafia longa só
+      importa no OUTRO caminho — o endereço que vem da RESOLUÇÃO de DNS, que
+      não passa por normalização nenhuma e é exatamente o que
+      `dns.lookup` pode devolver.
+
+      Medido: uma sabotagem que exigisse a forma comprimida passava por todos
+      os testes de literal. O resolvedor é injetado, então nada consulta a rede.
+      Este é o guarda, não uma função auxiliar — o que muda é a porta de
+      entrada.
+    */
+    const longas = [
+      "0:0:0:0:0:ffff:7f00:1", // 127.0.0.1 mapeado, sem comprimir
+      "0:0:0:0:0:ffff:a9fe:a9fe", // 169.254.169.254
+      "0000:0000:0000:0000:0000:ffff:0a00:0005", // 10.0.0.5, com zeros à esquerda
+      "fec0:0:0:0:0:0:0:1", // site-local, sem comprimir
+      "2002:7f00:0001:0:0:0:0:0", // 6to4 de 127.0.0.1, sem comprimir
+    ];
+    for (const endereco of longas) {
+      await expect(
+        assertSafeOutboundUrl("https://sgp.exemplo.com.br", async () => [
+          { address: endereco },
+        ]),
+        `deveria recusar o endereço resolvido ${endereco}`,
+      ).rejects.toBeInstanceOf(UnsafeOutboundUrlError);
+    }
+
+    // CONTROLE POSITIVO: público resolvido, também sem comprimir, passa.
+    await expect(
+      assertSafeOutboundUrl("https://sgp.exemplo.com.br", async () => [
+        { address: "2001:4860:4860:0:0:0:0:8888" },
+      ]),
+    ).resolves.toMatchObject({ hostname: "sgp.exemplo.com.br" });
+  });
+
+  it("SEC-007d: UM endereço interno entre vários resolvidos já recusa", async () => {
+    // A ordem não pode importar: o cliente HTTP escolhe qual usar.
+    for (const enderecos of [
+      [{ address: "8.8.8.8" }, { address: "fec0::1" }],
+      [{ address: "fec0::1" }, { address: "8.8.8.8" }],
+      [{ address: "2001:4860:4860::8888" }, { address: "0:0:0:0:0:ffff:7f00:1" }],
+    ]) {
+      await expect(
+        assertSafeOutboundUrl("https://sgp.exemplo.com.br", async () => enderecos),
+      ).rejects.toBeInstanceOf(UnsafeOutboundUrlError);
+    }
+  });
+
+  it("SEC-007b: o endereço IPv6 público continua aceito", async () => {
+    /*
+      Controle positivo, e ele é o que impede a correção de virar "recusa todo
+      IPv6". `2001:4860:...` do Google compartilha os dois primeiros bytes com
+      o Teredo (`2001:0::/32`) e com a documentação (`2001:db8::/32`) — se a
+      classificação olhasse só `2001`, um SGP legítimo em IPv6 pararia de
+      funcionar sem ninguém entender por quê.
+    */
+    for (const url of [
+      "https://[2001:4860:4860::8888]",
+      "https://[2606:4700:4700::1111]",
+      "https://[2002:808:808::]", // 6to4 com IPv4 PÚBLICO embutido (8.8.8.8)
+      "https://[0:0:0:0:0:ffff:808:808]", // mapeado, público, não comprimido
     ]) {
       let recusadoPeloGuarda = false;
       try {
