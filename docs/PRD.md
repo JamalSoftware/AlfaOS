@@ -514,7 +514,8 @@ Mudanças de major version deverão ser avaliadas separadamente.
 > separada de major que esta seção exige foi feita, e o dono aprovou o upgrade
 > para a **menor versão prática corrigida**: `next@15.5.25` (a linha 15, e não
 > a 16, porque a 15 corrigida existe; nenhum aviso do registro afeta
-> `15.5.24`/`15.5.25`). React continua 18 no pacote instalado. Registro técnico
+> `15.5.24`/`15.5.25`). React vai a 19 e `react-leaflet` a 5: o App Router do 15
+> já roda React 19 vendorizado, e o `react-leaflet@4` quebrava o mapa nele. Registro técnico
 > em `docs/SECURITY.md` §8.27.
 
 ---

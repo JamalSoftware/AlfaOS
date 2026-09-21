@@ -1888,8 +1888,9 @@ como sucesso), `SEC-013` (release do Field com URL de laboratório) e o INFO
 
 **`SEC-003` — remediado por versão**, com decisão do dono: `next@14.2.35` →
 **`next@15.5.25`**, a menor versão prática corrigida (a linha 14 não tem versão
-corrigida; a 15 tem, então a 16 não foi necessária). React instalado continua
-18. O upgrade exigiu a migração assíncrona de `params`/`searchParams`/
+corrigida; a 15 tem, então a 16 não foi necessária). React 19 e
+`react-leaflet@5`, porque o App Router do 15 já roda React 19 vendorizado e o
+`react-leaflet@4` quebrava o mapa nele — achado pelo E2E. O upgrade exigiu a migração assíncrona de `params`/`searchParams`/
 `cookies()` em rotas e páginas, feita de forma mecânica e sem mover nenhuma
 regra de autorização. Registro no PRD §13 (`DECISION UPDATED`).
 

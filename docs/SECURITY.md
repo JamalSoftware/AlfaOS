@@ -3578,14 +3578,29 @@ uma vez no topo, para que nenhuma linha do corpo mude). Os testes que chamam
 handler direto passaram a entregar `Promise.resolve(...)` — o MESMO formato que
 o Next entrega em produção.
 
-**React: o pacote instalado continua 18, e isso tem uma consequência que
-precisa ser dita.** O Next 15 aceita `react@^18.2.0` no `peerDependencies`, então
-o upgrade de React não é exigido — e `react-leaflet@4` (que pede React 18)
-fica. MAS o App Router **não usa o React instalado**: usa um React vendorizado
-dentro do Next. No 14 era `18.3.0-canary`; no 15 é **`19.2.0-canary`**. Ou seja,
-em runtime a aplicação roda em React 19 de qualquer forma, com
-`react-leaflet@4` por cima. Quem prova que isso funciona é a suíte E2E do Mapa
-Operacional, não o `peerDependencies`.
+**React: 18 → 19, e o motivo NÃO é o `peerDependencies` do Next.** O Next 15
+aceita `react@^18.2.0`, e a primeira versão deste upgrade manteve o React 18
+instalado e o `react-leaflet@4` — tudo instalou sem aviso, os tipos passaram e
+a suíte Vitest inteira passou (3281). **O E2E derrubou o Mapa Operacional**:
+`Error: Map container is already initialized.`, lançado de
+`react-leaflet/lib/MapContainer.js` via `commitAttachRef`.
+
+A causa é que o App Router **não usa o React instalado**: usa um React
+vendorizado dentro do Next — `18.3.0-canary` no 14, **`19.2.0-canary`** no 15.
+Em runtime a aplicação já rodava React 19. O `react-leaflet@4` cria o mapa num
+callback de ref memorizado com `[]`, e o StrictMode do React 19 reanexa refs
+na montagem: a segunda anexação vê o `context` antigo (`null`) e cria o mapa
+de novo no mesmo nó.
+
+**A correção é o componente certo, não desligar o StrictMode.** Desligá-lo
+faria o teste passar escondendo a incompatibilidade — e esconder erro é o que
+o projeto proíbe. `react-leaflet@5` é a linha feita para o React 19, e exige
+React 19 instalado: `react`/`react-dom` 19.3 e `@types/react`/`@types/react-dom`
+19. Custo medido: **zero erro de tipo e zero linha de produção alterada** — o
+AlfaOS usa só a API central (`MapContainer`, `TileLayer`, `Marker`, `Popup`,
+`Tooltip`, `useMap`, `useMapEvents`) e nenhuma API que o React 19 removeu. E
+agora a suíte Vitest roda no MESMO React que a produção, o que antes não era
+verdade. Dois testes guardam isso (`SEC-003-12`/`13`).
 
 **Reverificado no código do Next 15, porque controles de segurança dependem
 dele:**

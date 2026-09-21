@@ -124,6 +124,58 @@ describe("SEC-003 · versão do framework", () => {
 });
 
 /**
+ * # `SEC-003` · a biblioteca do mapa suporta o React que o App Router RODA
+ *
+ * O upgrade expôs uma armadilha que o `peerDependencies` esconde: o App Router
+ * **não usa o React instalado** — usa um React vendorizado dentro do Next. No
+ * 14 era 18.3-canary; no 15 é **19.2-canary**. Com o pacote `react` ainda em 18,
+ * tudo instalava sem aviso, os tipos passavam, a suíte Vitest passava, e o
+ * Mapa Operacional caía no navegador: `Error: Map container is already
+ * initialized.`, lançado de `react-leaflet/lib/MapContainer.js` via
+ * `commitAttachRef`. O `react-leaflet@4` cria o mapa num callback de ref
+ * memorizado com `[]`, e o StrictMode do React 19 reanexa refs na montagem —
+ * a segunda anexação vê o `context` antigo e cria o mapa de novo no mesmo nó.
+ *
+ * Quem pegou foi o E2E. Este teste pega antes, sem navegador: a biblioteca do
+ * mapa precisa declarar suporte à MAJOR do React vendorizado, e o React
+ * instalado — que é o que a suíte Vitest usa — precisa ser a mesma major, para
+ * que os testes rodem no React que a produção roda.
+ */
+describe("SEC-003 · React do runtime × bibliotecas", () => {
+  function majorVendorizada(): number {
+    const fonte = readFileSync(
+      path.join(RAIZ, "node_modules/next/dist/compiled/react/cjs/react.production.js"),
+      "utf8",
+    );
+    const m = /exports\.version\s*=\s*"(\d+)\./.exec(fonte);
+    if (!m) throw new Error("não achei a versão do React vendorizado pelo Next");
+    return Number(m[1]);
+  }
+
+  /** Maiores aceitas por uma faixa simples de peer (`^19.0.0 || ^18.2.0`). */
+  function majoresAceitas(faixa: string): number[] {
+    return Array.from(faixa.matchAll(/\^(\d+)\./g), (m) => Number(m[1]));
+  }
+
+  it("SEC-003-12 · react-leaflet declara suporte à major do React do App Router", () => {
+    const vendorizada = majorVendorizada();
+    const peers = lerJson<{ peerDependencies: Record<string, string> }>(
+      "node_modules/react-leaflet/package.json",
+    ).peerDependencies;
+    expect(
+      majoresAceitas(peers.react),
+      `react-leaflet aceita react "${peers.react}", mas o App Router roda React ${vendorizada}. ` +
+        "Com o react-leaflet@4 sob React 19 o mapa quebra no navegador.",
+    ).toContain(vendorizada);
+  });
+
+  it("SEC-003-13 · o React instalado é a MESMA major do React do App Router", () => {
+    const instalada = partes(lerJson<{ version: string }>("node_modules/react/package.json").version)[0];
+    expect(instalada, "a suíte Vitest usaria outro React que a produção").toBe(majorVendorizada());
+  });
+});
+
+/**
  * # `SEC-003` · o corpo da requisição continua chegando EM FLUXO
  *
  * O teto de upload (`RC-STO-01`, e o limite declarado do `SEC-009`) só é real
