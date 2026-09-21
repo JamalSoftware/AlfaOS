@@ -17,6 +17,31 @@ upstream alfaos_app {
     keepalive 16;
 }
 
+# Host DESCONHECIDO não é atendido — `SEC-010`.
+#
+# Sem um `default_server` explícito, o Nginx elege o PRIMEIRO bloco da porta
+# como padrão, e era o bloco 80 de baixo que assumia esse papel. Requisição com
+# `Host: atacante.exemplo` casava nele, e o `return 301 https://$host...`
+# devolvia um redirecionamento para o domínio do atacante — assinado pelo nosso
+# servidor, e pronto para ser colado num e-mail de phishing.
+#
+# `444` fecha a conexão sem resposta: não há corpo para o atacante mostrar.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 444;
+}
+
+# Idem em TLS: `ssl_reject_handshake` recusa o aperto de mão antes de qualquer
+# requisição, então um `Host` forjado nem chega à aplicação.
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+    ssl_reject_handshake on;
+}
+
 server {
     listen 80;
     listen [::]:80;
@@ -28,7 +53,13 @@ server {
     }
 
     location / {
-        return 301 https://$host$request_uri;
+        # O destino é o domínio CONFIGURADO, nunca `$host` (`SEC-010`).
+        #
+        # `$host` vem do cabeçalho `Host` da requisição, que é do cliente. Este
+        # bloco só responde para `ALFAOS_DOMAIN`, então usar a constante não
+        # muda nada no caminho legítimo — e remove a única variável de entrada
+        # do atacante de dentro de um `Location:`.
+        return 301 https://ALFAOS_DOMAIN$request_uri;
     }
 }
 

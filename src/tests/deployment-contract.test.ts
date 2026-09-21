@@ -92,7 +92,37 @@ describe("OPS-SYSTEMD — o serviço web", () => {
 
   it("OPS-SYSTEMD-06 · o storage é o único caminho gravável concedido", () => {
     expect(diretivas(UNIT, "ReadWritePaths")).toEqual([STORAGE_DIR]);
-    expect(diretivas(UNIT, "ProtectSystem")[0]).toMatch(/full|strict/);
+  });
+
+  /**
+   * `SEC-011` — o processo não pode reescrever o próprio código implantado.
+   *
+   * `ProtectSystem=full` deixa `/usr`, `/boot` e `/etc` só-leitura e **não
+   * toca `/opt`**, que é onde o release mora (§2 do runbook). O Node podia
+   * reescrever a aplicação que ele mesmo executa: um defeito que permitisse
+   * escrita de arquivo viraria execução persistente, sobrevivendo a restart, e
+   * o `.next` deixaria de corresponder ao commit implantado.
+   *
+   * A asserção antiga aceitava `full|strict`, então o valor fraco passava.
+   */
+  it("SEC-011-01 · ProtectSystem é strict: nem /opt fica gravável", () => {
+    expect(diretivas(UNIT, "ProtectSystem")).toEqual(["strict"]);
+  });
+
+  it("SEC-011-02 · o release NÃO está entre os caminhos graváveis", () => {
+    /*
+      Com `strict`, a escrita volta apenas pelo que `ReadWritePaths` concede.
+      Conceder o diretório da aplicação desfaria a proteção sem mudar o valor
+      de `ProtectSystem` — que é onde alguém olharia.
+    */
+    for (const caminho of diretivas(UNIT, "ReadWritePaths")) {
+      expect(caminho).not.toMatch(/^\/opt\//);
+    }
+    for (const chave of ["ReadWriteDirectories", "ReadOnlyPaths", "InaccessiblePaths"]) {
+      expect(diretivas(UNIT, chave), `${chave} inesperada`).toEqual([]);
+    }
+    // E o temporário gravável vem do systemd, não de uma liberação de caminho.
+    expect(diretivas(UNIT, "PrivateTmp")).toEqual(["true"]);
   });
 
   /**
@@ -170,6 +200,59 @@ describe("OPS-NGINX — o proxy reverso", () => {
     // Menor que isso: o técnico recebe um 413 de HTML do Nginx em vez da recusa
     // tipada da aplicação, e o aplicativo não sabe o que fazer com ela.
     expect(bytes).toBeGreaterThanOrEqual(maiorCorpo);
+  });
+
+  /**
+   * `SEC-010` — o redirecionamento não reflete o `Host` do cliente.
+   *
+   * O bloco da porta 80 fazia `return 301 https://$host$request_uri`, e `$host`
+   * vem do cabeçalho `Host`. Sem um `default_server` explícito o Nginx elege o
+   * PRIMEIRO bloco da porta como padrão, então uma requisição com
+   * `Host: atacante.exemplo` casava ali e recebia um redirecionamento para o
+   * domínio do atacante — assinado pelo nosso servidor.
+   */
+  it("SEC-010-01 · o redirecionamento aponta para o domínio configurado", () => {
+    const blocos = semComentarios(NGINX).match(/return\s+301[^;]*;/g) ?? [];
+    expect(blocos.length).toBeGreaterThan(0);
+    for (const redirecionamento of blocos) {
+      expect(redirecionamento, redirecionamento).not.toMatch(/\$host|\$http_host/);
+      expect(redirecionamento).toMatch(/https:\/\/ALFAOS_DOMAIN\$request_uri/);
+    }
+  });
+
+  it("SEC-010-02 · existe default_server que recusa Host desconhecido", () => {
+    const limpo = semComentarios(NGINX);
+    // Porta 80: fecha a conexão sem corpo.
+    expect(limpo).toMatch(/listen\s+80\s+default_server;/);
+    expect(limpo).toMatch(/server_name\s+_;[\s\S]*?return\s+444;/);
+    // Porta 443: recusa o aperto de mão antes de qualquer requisição.
+    expect(limpo).toMatch(/listen\s+443\s+ssl\s+default_server;/);
+    expect(limpo).toMatch(/ssl_reject_handshake\s+on;/);
+  });
+
+  it("SEC-010-03 · o catch-all NÃO encaminha para a aplicação", () => {
+    /*
+      Um `default_server` que fizesse `proxy_pass` seria pior que a ausência
+      dele: daria à aplicação um `Host` arbitrário com aparência de legítimo.
+      O bloco do domínio real é o único com `proxy_pass`.
+    */
+    const servidores = semComentarios(NGINX)
+      .split(/^server\s*\{/m)
+      .slice(1);
+    const catchAll = servidores.filter((s) => /server_name\s+_;/.test(s));
+    expect(catchAll.length).toBe(2);
+    for (const bloco of catchAll) {
+      expect(bloco).not.toMatch(/proxy_pass/);
+    }
+  });
+
+  it("SEC-010-04 · o desafio do ACME continua respondendo no domínio real", () => {
+    // O catch-all não pode quebrar a renovação do certificado.
+    const dominio = semComentarios(NGINX)
+      .split(/^server\s*\{/m)
+      .find((s) => /server_name\s+ALFAOS_DOMAIN;/.test(s) && /listen\s+80;/.test(s));
+    expect(dominio).toBeDefined();
+    expect(dominio).toMatch(/\.well-known\/acme-challenge/);
   });
 
   it("OPS-NGINX-04 · o storage NUNCA é servido como estático", () => {

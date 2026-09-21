@@ -46,8 +46,28 @@ TimeoutStopSec=30
 # Privilégio mínimo: o processo não é root e só escreve onde precisa.
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
+#
+# `strict`, e não `full` — `SEC-011`.
+#
+# `ProtectSystem=full` deixa `/usr`, `/boot` e `/etc` só-leitura e **não toca
+# `/opt`**, que é justamente onde o release mora. O processo podia reescrever o
+# próprio código: um defeito que permitisse escrita de arquivo viraria execução
+# persistente, sobrevivendo a restart e a `systemctl reload`, e o `.next` não
+# corresponderia mais ao commit implantado.
+#
+# `strict` torna TODO o sistema de arquivos só-leitura e devolve a escrita
+# apenas onde `ReadWritePaths` concede. O release fica imutável para quem o
+# executa; o deploy continua escrevendo normalmente, porque ele roda fora deste
+# serviço (§8 do runbook) e não herda estas restrições.
+ProtectSystem=strict
 ProtectHome=true
+#
+# O storage é o ÚNICO caminho gravável concedido.
+#
+# `PrivateTmp=true` já dá um `/tmp` próprio e gravável, então o Node tem onde
+# escrever temporário sem que `/opt` precise ser liberado. `next start` não
+# escreve no release: o `.next` é lido, e quem o produz é o `npm run build` do
+# deploy.
 ReadWritePaths=/srv/alfaos/storage
 
 StandardOutput=journal
