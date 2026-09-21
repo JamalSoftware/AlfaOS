@@ -176,7 +176,74 @@ export function validateEnv(): ValidatedEnv {
     resolveStorageRoot();
   }
 
+  validateAppOrigins(nodeEnv);
+
   return { nodeEnv, databaseUrl, authSecret, loginLimits };
+}
+
+/**
+ * `APP_ORIGINS` (`SEC-038`, INFO da revisão de segurança).
+ *
+ * ## Por que em produção ela é obrigatória
+ *
+ * Sem ela, `csrf.ts` cai na política de comparar `Origin` × `Host` — que é uma
+ * defesa real, e é por isso que **nada aqui a enfraquece**. Mas ela depende de
+ * um cabeçalho da requisição, e a allowlist explícita não: com as origens
+ * fixadas na configuração, a decisão deixa de ter qualquer entrada do cliente.
+ *
+ * O runbook já lista `APP_ORIGINS` no mínimo de produção. A diferença é que
+ * esquecê-la passava em silêncio, com a aplicação rodando na política mais
+ * fraca sem nada dizer — o mesmo padrão de falha do `TRUSTED_PROXY_HOPS`
+ * inválido e do limitador de login com `NaN`.
+ *
+ * ## Entrada malformada também derruba
+ *
+ * `configuredOrigins` DESCARTA o que não é origem absoluta. Uma vírgula
+ * sobrando, um `app.exemplo.com.br` sem esquema ou uma barra a mais reduziam a
+ * allowlist em silêncio — no limite, a zero, que é indistinguível de não ter
+ * configurado. Aqui cada entrada é conferida e a recusa NOMEIA a que está
+ * errada.
+ *
+ * Fora de produção nada é exigido: desenvolvimento e teste alcançam a aplicação
+ * por `localhost`, por IP de rede local e pela porta do Playwright.
+ */
+function validateAppOrigins(nodeEnv: string): void {
+  const raw = process.env.APP_ORIGINS;
+
+  if (raw !== undefined && raw.trim().length > 0) {
+    const entradas = raw.split(",").map((valor) => valor.trim());
+    const invalidas = entradas.filter((valor) => {
+      if (valor.length === 0) return true;
+      try {
+        const url = new URL(valor);
+        // Precisa ser uma ORIGEM: esquema web e sem caminho, busca ou fragmento.
+        return (
+          (url.protocol !== "https:" && url.protocol !== "http:") ||
+          url.hash.length > 0 ||
+          url.search.length > 0 ||
+          (url.pathname !== "/" && url.pathname !== "")
+        );
+      } catch {
+        return true;
+      }
+    });
+    if (invalidas.length > 0) {
+      throw new Error(
+        `APP_ORIGINS tem entrada inválida: ${invalidas.map((v) => JSON.stringify(v)).join(", ")}. ` +
+          "Use origens absolutas separadas por vírgula, sem caminho — " +
+          "por exemplo https://app.exemplo.com.br,https://exemplo.com.br",
+      );
+    }
+    return;
+  }
+
+  if (nodeEnv === "production") {
+    throw new Error(
+      "APP_ORIGINS é obrigatória em produção: sem ela a proteção de origem cai " +
+        "na comparação Origin × Host, que depende de cabeçalho da requisição. " +
+        "Defina as origens da aplicação, por exemplo https://app.exemplo.com.br",
+    );
+  }
 }
 
 /** AES-256 key length, in bytes. */

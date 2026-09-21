@@ -176,6 +176,7 @@ const VARIAVEIS = [
   "CUSTOMER_CREDENTIAL_ENCRYPTION_KEY",
   "ERP_CREDENTIAL_ENCRYPTION_KEY",
   "STORAGE_ROOT",
+  "APP_ORIGINS",
 ] as const;
 
 /*
@@ -193,6 +194,10 @@ beforeEach(() => {
   env.DATABASE_URL = "postgresql://user:pass@localhost:5432/db";
   env.AUTH_SECRET = "a-production-secret-that-is-long-enough-123";
   env.STORAGE_ROOT = RAIZ_FIXTURE;
+  // Produção exige `APP_ORIGINS` (`SEC-038`); os testes daqui exercitam as
+  // OUTRAS variáveis, então ela entra como fixture. A regra dela é testada
+  // no bloco `ORIGINS-ENV` abaixo.
+  env.APP_ORIGINS = "https://app.exemplo.com.br";
   delete env.TRUSTED_PROXY_HOPS;
   delete env.CUSTOMER_CREDENTIAL_ENCRYPTION_KEY;
   delete env.ERP_CREDENTIAL_ENCRYPTION_KEY;
@@ -261,5 +266,96 @@ describe("CUSTOMER-KEY-ENV — CUSTOMER_CREDENTIAL_ENCRYPTION_KEY", () => {
     expect(mensagem).toMatch(/CUSTOMER_CREDENTIAL_ENCRYPTION_KEY/);
     expect(mensagem).toMatch(/16/);
     expect(mensagem).not.toContain(errada);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SEC-038 — APP_ORIGINS
+// ---------------------------------------------------------------------------
+
+/**
+ * # `SEC-038` (INFO) — a allowlist de origem é obrigatória em produção
+ *
+ * Sem `APP_ORIGINS`, `csrf.ts` cai na política de comparar `Origin` × `Host`.
+ * Ela é uma defesa REAL — e nada aqui a enfraquece —, mas depende de um
+ * cabeçalho da requisição, enquanto a allowlist explícita não depende de
+ * nenhum.
+ *
+ * O runbook já lista a variável no mínimo de produção. O que mudou é que
+ * esquecê-la passava em silêncio, com a aplicação rodando na política mais
+ * fraca sem nada dizer — o mesmo padrão de falha do `TRUSTED_PROXY_HOPS`
+ * inválido.
+ */
+describe("ORIGINS-ENV — APP_ORIGINS", () => {
+  it("ORIGINS-ENV-01 · ausente em PRODUÇÃO derruba a subida", () => {
+    delete env.APP_ORIGINS;
+    expect(() => validateEnv()).toThrow(/APP_ORIGINS é obrigatória em produção/);
+  });
+
+  it("ORIGINS-ENV-02 · vazia em produção é o mesmo que ausente", () => {
+    for (const vazia of ["", "   "]) {
+      env.APP_ORIGINS = vazia;
+      expect(() => validateEnv(), `aceitou ${JSON.stringify(vazia)}`).toThrow(
+        /APP_ORIGINS/,
+      );
+    }
+  });
+
+  it("ORIGINS-ENV-03 · fora de produção NÃO é exigida", () => {
+    // Desenvolvimento e teste alcançam a aplicação por localhost, por IP de
+    // rede local e pela porta do Playwright.
+    env.NODE_ENV = "development";
+    delete env.APP_ORIGINS;
+    expect(() => validateEnv()).not.toThrow();
+  });
+
+  it("ORIGINS-ENV-04 · CONTROLE POSITIVO: uma ou várias origens são aceitas", () => {
+    for (const valor of [
+      "https://app.exemplo.com.br",
+      "https://app.exemplo.com.br,https://exemplo.com.br",
+      " https://app.exemplo.com.br , https://exemplo.com.br ",
+      "https://app.exemplo.com.br:8443",
+      "http://localhost:3000",
+    ]) {
+      env.APP_ORIGINS = valor;
+      expect(() => validateEnv(), `recusou ${valor}`).not.toThrow();
+    }
+  });
+
+  it("ORIGINS-ENV-05 · entrada malformada derruba, e a mensagem NOMEIA qual", () => {
+    /*
+      `configuredOrigins` DESCARTA o que não é origem absoluta. Uma vírgula
+      sobrando ou um host sem esquema reduziam a allowlist em silêncio — no
+      limite a zero, que é indistinguível de não ter configurado.
+    */
+    const casos: [string, string][] = [
+      ["app.exemplo.com.br", "app.exemplo.com.br"],
+      ["https://ok.exemplo.com.br,semEsquema", "semEsquema"],
+      ["https://ok.exemplo.com.br,", ""],
+      [",https://ok.exemplo.com.br", ""],
+      ["https://ok.exemplo.com.br/caminho", "https://ok.exemplo.com.br/caminho"],
+      ["ftp://ok.exemplo.com.br", "ftp://ok.exemplo.com.br"],
+    ];
+    for (const [valor, culpada] of casos) {
+      env.APP_ORIGINS = valor;
+      let mensagem = "";
+      try {
+        validateEnv();
+      } catch (erro) {
+        mensagem = (erro as Error).message;
+      }
+      expect(mensagem, `aceitou ${JSON.stringify(valor)}`).toMatch(/APP_ORIGINS/);
+      expect(mensagem, `não nomeou a entrada ruim de ${valor}`).toContain(
+        JSON.stringify(culpada),
+      );
+    }
+  });
+
+  it("ORIGINS-ENV-06 · a regra de formato vale FORA de produção também", () => {
+    // Uma allowlist malformada em desenvolvimento esconderia o mesmo defeito
+    // até o dia do deploy.
+    env.NODE_ENV = "development";
+    env.APP_ORIGINS = "semEsquema";
+    expect(() => validateEnv()).toThrow(/APP_ORIGINS/);
   });
 });
