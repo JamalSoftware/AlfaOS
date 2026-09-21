@@ -8,6 +8,7 @@ import {
 import { workdayDateOf } from "@/lib/workday";
 import { POST as adminAdjustmentRoute } from "@/app/api/time-clock/members/[userId]/adjustments/route";
 import { apiRequest, createTokenFor, seedTestData, type TestFixture } from "./helpers";
+import { NOT_FOUND_DIGEST } from "./support/next-not-found";
 
 /**
  * # A tela do gestor sobre a jornada de UM funcionário
@@ -121,7 +122,7 @@ describe("ATAQUE: guard da página /jornada/[userId]", () => {
         params: Promise.resolve({ userId: fixture.techA.id }),
         searchParams: Promise.resolve({}),
       }),
-    ).rejects.toMatchObject({ digest: "NEXT_NOT_FOUND" });
+    ).rejects.toMatchObject({ digest: NOT_FOUND_DIGEST });
   });
 
   it("DISPATCHER é redirecionado, não renderiza", async () => {

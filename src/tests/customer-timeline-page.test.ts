@@ -6,6 +6,7 @@ import { connectCustomerToPort } from "@/lib/cto-connections";
 import { CustomerTimelineSection } from "@/components/CustomerTimelineSection";
 import type { CustomerTimelineSection as TimelineSection } from "@/lib/customer-timeline";
 import { createTokenFor, seedTestData, type TestFixture } from "./helpers";
+import { NOT_FOUND_DIGEST } from "./support/next-not-found";
 
 /**
  * # TL-1 — a seção dentro da tela do cliente
@@ -108,7 +109,7 @@ describe("TL-PAGE-UI — a seção na tela do cliente", () => {
 
   it("TL-AUTH-02 — ADMIN de outra empresa recebe 404 para o cliente de A", async () => {
     session.token = await createTokenFor(fixture.adminB.id);
-    expect(await digestDe(() => pagina())).toBe("NEXT_NOT_FOUND");
+    expect(await digestDe(() => pagina())).toBe(NOT_FOUND_DIGEST);
   });
 
   it("TL-AUTH-03 — a página passa o perfil da SESSÃO: CTO e porta só para o ADMIN", async () => {

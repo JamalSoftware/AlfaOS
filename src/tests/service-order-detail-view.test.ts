@@ -10,6 +10,7 @@ import {
   seedTestData,
   type TestFixture,
 } from "./helpers";
+import { NOT_FOUND_DIGEST } from "./support/next-not-found";
 
 /**
  * Tela da OS: número operacional e acesso PPPoE.
@@ -134,7 +135,7 @@ async function renderOrderPage(orderId: string) {
 }
 
 async function expectNotFound(run: () => Promise<unknown>): Promise<void> {
-  await expect(run()).rejects.toMatchObject({ digest: "NEXT_NOT_FOUND" });
+  await expect(run()).rejects.toMatchObject({ digest: NOT_FOUND_DIGEST });
 }
 
 // ---------------------------------------------------------------------------

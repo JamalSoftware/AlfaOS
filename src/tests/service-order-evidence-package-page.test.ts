@@ -10,6 +10,7 @@ import {
   seedTestData,
   type TestFixture,
 } from "./helpers";
+import { NOT_FOUND_DIGEST } from "./support/next-not-found";
 
 /**
  * # EV-1 — a página `/ordens/[id]/pacote` e o botão na OS
@@ -107,13 +108,13 @@ describe("EV-PAGE — quem abre o pacote", () => {
 
     await prisma.technician.create({ data: { companyId: fixture.companyA.id, userId: fixture.techB.id } });
     session.token = await createTokenFor(fixture.techB.id);
-    expect(await digestDe(() => paginaPacote(os.id))).toBe("NEXT_NOT_FOUND");
+    expect(await digestDe(() => paginaPacote(os.id))).toBe(NOT_FOUND_DIGEST);
   });
 
   it("EV-PAGE-02 — ADMIN de outra empresa recebe 404; ADMIN e DISPATCHER da empresa abrem", async () => {
     const os = await ordem("COMPLETED");
     session.token = await createTokenFor(fixture.adminB.id);
-    expect(await digestDe(() => paginaPacote(os.id))).toBe("NEXT_NOT_FOUND");
+    expect(await digestDe(() => paginaPacote(os.id))).toBe(NOT_FOUND_DIGEST);
 
     session.token = await createTokenFor(fixture.adminA.id);
     expect(secaoDe(await paginaPacote(os.id)).state).toBe("ok");
