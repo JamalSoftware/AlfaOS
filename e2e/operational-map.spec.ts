@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Request } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { assertTestDatabase } from "./test-db-guard";
 
@@ -4784,12 +4784,46 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
   test("LOADUX-07 · resposta instantânea não faz a pílula piscar", async ({
     page,
   }) => {
+    /*
+      A medição começa com o mapa OCIOSO — e ocioso é PROVADO, não esperado.
+
+      A pílula é UMA só para as três camadas. Se a leitura inicial de qualquer
+      uma delas ainda estiver em voo quando o relógio começa, a pílula que o
+      teste vê é a DELA, e não a da resposta instantânea. Foi o que a suíte de
+      desenvolvimento mostrou sob carga (`SEC-003`): `1,0,0,…` — presente na
+      primeira amostra, antes de o arrasto começar, quando a resposta
+      instantânea ainda nem tinha sido pedida. Um tempo fixo não prova nada
+      num servidor lento; contar as leituras do mapa em voo prova.
+    */
+    const leiturasEmVoo = new Set<Request>();
+    page.on("request", (r) => {
+      const url = r.url();
+      if (url.includes("/api/map/") || url.includes("/api/ctos/map")) leiturasEmVoo.add(r);
+    });
+    const terminou = (r: Request) => leiturasEmVoo.delete(r);
+    page.on("requestfinished", terminou);
+    page.on("requestfailed", terminou);
+    const ultimaResposta = new Map<string, string>();
+    page.on("response", (res) => {
+      const caminho = new URL(res.url()).pathname;
+      if (res.status() !== 200) return;
+      if (caminho !== "/api/ctos/map" && caminho !== "/api/map/service-orders") return;
+      void res
+        .text()
+        .then((corpo) => ultimaResposta.set(caminho, corpo))
+        .catch(() => undefined);
+    });
+
     await abrirCamadas(page, ADMIN_EMAIL, 17);
     await page.getByTestId("map-layer-customers").check();
     await expect(page.locator(".leaflet-marker-pane svg.cto-dot").first()).toBeVisible({
       timeout: 15_000,
     });
+    await expect.poll(() => leiturasEmVoo.size, { timeout: 30_000 }).toBe(0);
+    // Atraso para aparecer (250 ms) + tempo mínimo na tela (300 ms), com folga:
+    // uma pílula que ainda fosse nascer da última leitura já nasceu e sumiu.
     await page.waitForTimeout(600);
+    await expect(page.getByTestId("map-updating")).toHaveCount(0);
 
     /*
       O atraso é SÓ da interface.
@@ -4816,6 +4850,27 @@ test.describe("Mapa Operacional — camadas de cliente e OS", () => {
         }),
       }),
     );
+
+    /*
+      E as OUTRAS duas camadas também respondem na hora.
+
+      A pílula é UMA para as três camadas. Com CTOs e OS indo ao servidor de
+      verdade, qualquer leitura acima de 250 ms a faz aparecer — e é o que ela
+      DEVE fazer. Medido no Next 15 em desenvolvimento (`SEC-003`): depois do
+      arraste, as duas levaram de 120 a 390 ms, e a pílula apareceu exatamente
+      nas rodadas em que passaram de 250 ms. A premissa do teste — resposta
+      instantânea — vale para as três, e não só para a de clientes. As duas
+      repetem a última resposta REAL, para o mapa não mudar de conteúdo.
+    */
+    for (const caminho of ["/api/ctos/map", "/api/map/service-orders"]) {
+      const corpo = ultimaResposta.get(caminho);
+      expect(corpo, `sem resposta real de ${caminho} para repetir`).toBeTruthy();
+      await page.route(
+        (url) => url.pathname === caminho,
+        (route) =>
+          route.fulfill({ status: 200, contentType: "application/json", body: corpo! }),
+      );
+    }
 
     const aparicoes: number[] = [];
     const relogio = setInterval(() => {
