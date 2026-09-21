@@ -27,7 +27,16 @@ User=alfaos
 Group=alfaos
 WorkingDirectory=/opt/alfaos/current
 EnvironmentFile=/etc/alfaos/alfaos.env
-ExecStart=/usr/bin/npm run start
+# LOOPBACK, e isso é segurança, não estilo (`SEC-005`).
+#
+# `next start` sem `--hostname` escuta em 0.0.0.0: a porta 3000 fica acessível
+# direto da rede, e quem chega por ali NÃO passa pelo Nginx. Com isso caem
+# juntos o teto de corpo do proxy, o HTTPS e — o pior — a aritmética do
+# limitador: `TRUSTED_PROXY_HOPS=1` supõe UM proxy que ACRESCENTA a
+# `x-forwarded-for`, então numa requisição direta o cliente escolhe o IP que o
+# limitador vai contar. O firewall é a segunda camada; esta é a primeira, e não
+# depende de o operador ter acertado o `ufw`.
+ExecStart=/usr/bin/npm run start -- --hostname 127.0.0.1
 # Só falha reinicia. Uma parada pedida pelo operador continua parada.
 Restart=on-failure
 RestartSec=5

@@ -94,6 +94,43 @@ describe("OPS-SYSTEMD — o serviço web", () => {
     expect(diretivas(UNIT, "ReadWritePaths")).toEqual([STORAGE_DIR]);
     expect(diretivas(UNIT, "ProtectSystem")[0]).toMatch(/full|strict/);
   });
+
+  /**
+   * `SEC-005` — o ouvinte do Next é de LOOPBACK, afirmado na DIRETIVA.
+   *
+   * O detector antigo olhava o `upstream` do Nginx e a palavra "loopback" no
+   * runbook. Nenhum dos dois é o processo: `next start` sem `--hostname` escuta
+   * em `0.0.0.0`, e quem chega direto na porta 3000 não passa pelo proxy. Caem
+   * juntos o teto de corpo, o HTTPS e a aritmética do limitador —
+   * `TRUSTED_PROXY_HOPS=1` supõe UM proxy que ACRESCENTA a `x-forwarded-for`,
+   * então numa requisição direta o cliente escolhe o IP a ser contado.
+   */
+  it("SEC-005-01 · ExecStart prende o ouvinte ao loopback", () => {
+    const [execStart] = diretivas(UNIT, "ExecStart");
+    expect(execStart).toMatch(/--hostname[= ]127\.0\.0\.1(\s|$)/);
+    expect(execStart).not.toMatch(/--hostname[= ]0\.0\.0\.0/);
+  });
+
+  it("SEC-005-02 · nenhuma diretiva reabre o ouvinte para todas as interfaces", () => {
+    /*
+      `next start` também aceita `HOSTNAME` pelo ambiente. Uma diretiva
+      `Environment=HOSTNAME=0.0.0.0` desfaria o `--hostname` sem tocar o
+      `ExecStart` — o lugar onde alguém olharia.
+    */
+    for (const ambiente of diretivas(UNIT, "Environment")) {
+      expect(ambiente).not.toMatch(/^HOSTNAME=(?!127\.0\.0\.1)/);
+    }
+    expect(semComentarios(UNIT)).not.toMatch(/0\.0\.0\.0|::/);
+  });
+
+  it("SEC-005-03 · o alvo do proxy é o MESMO endereço que o serviço escuta", () => {
+    // Duas afirmações que precisam concordar: o Nginx encaminha para
+    // 127.0.0.1:<porta> e o serviço escuta nesse endereço. Divergir daria um
+    // 502 no deploy, ou — pior — um ouvinte público que ninguém procurou.
+    const [execStart] = diretivas(UNIT, "ExecStart");
+    const host = /--hostname[= ](\S+)/.exec(execStart)?.[1];
+    expect(NGINX).toContain(`server ${host}:3000;`);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -224,8 +261,17 @@ describe("OPS-CRON — o agendamento", () => {
     for (const e of ENTRADAS) {
       expect(e.comando, e.comando).toMatch(/^\/opt\/alfaos\/bin\/alfaos-(job|backup)\.sh/);
     }
-    // O invólucro é quem carrega o arquivo de ambiente e entra no diretório.
-    expect(WRAPPER).toMatch(/set -a[\s\S]*\. "\$ENV_FILE"[\s\S]*set \+a/);
+    /*
+      O invólucro é quem carrega o arquivo de ambiente e entra no diretório.
+
+      Esta asserção exigia `set -a; . "$ENV_FILE"; set +a` — ela pedia
+      textualmente o defeito do `SEC-006`, porque `.` EXECUTA o arquivo como
+      shell. Passou a exigir o parser literal compartilhado: a propriedade
+      desejada sempre foi "o invólucro usa a MESMA fonte do serviço", nunca
+      "por meio de `source`".
+    */
+    expect(WRAPPER).toMatch(/alfaos_carregar_ambiente "\$ENV_FILE"/);
+    expect(WRAPPER).toMatch(/ENV_FILE="\$\{ALFAOS_ENV_FILE:-\/etc\/alfaos\/alfaos\.env\}"/);
     expect(WRAPPER).toMatch(/cd "\$APP_DIR"/);
     // PATH explícito: o cron não tem o do shell interativo.
     expect(CRONTAB).toMatch(/^PATH=\S+/m);
@@ -366,9 +412,76 @@ describe("OPS-NET — a superfície de rede documentada", () => {
 
 describe("OPS-BACKUP — o que o backup precisa conter", () => {
   it("OPS-BACKUP-01 · inclui o banco, e a credencial não vai em argumento", () => {
+    /*
+      `SEC-001` mudou o mecanismo, então a asserção passou a ser sobre a
+      PROPRIEDADE e não sobre o texto.
+      Antes: "a string `PGPASSWORD=` não aparece no script". Isso confundia
+      "senha em argumento de processo" — o risco real, porque `ps` é legível por
+      qualquer usuário do host — com "senha numa variável de ambiente", que só
+      o dono do processo lê em `/proc/<pid>/environ`. A regra literal barraria a
+      correção e deixaria passar o que importa.
+    */
     expect(BACKUP).toMatch(/pg_dump/);
-    expect(BACKUP).not.toMatch(/PGPASSWORD=|--password|-W\b/);
-    expect(RUNBOOK).toMatch(/pgpass/i);
+    // O ALVO é explícito: era a ausência dele o achado.
+    expect(BACKUP).toMatch(/pg_dump --dbname="\$ALFAOS_PG_DATABASE"/);
+
+    // A senha nunca entra na linha de comando de nada.
+    const linhasDeComando = semComentarios(BACKUP)
+      .split("\n")
+      .filter((l) => /pg_dump|psql|pg_restore/.test(l));
+    expect(linhasDeComando.length).toBeGreaterThan(0);
+    for (const linha of linhasDeComando) {
+      expect(linha).not.toMatch(/--password|-W\b/);
+      expect(linha).not.toMatch(/\$(\{)?PGPASSWORD/);
+      expect(linha).not.toMatch(/\$(\{)?DATABASE_URL/);
+    }
+    // E a URL autoritativa nunca é ecoada.
+    expect(semComentarios(BACKUP)).not.toMatch(/echo.*DATABASE_URL|log.*DATABASE_URL/);
+  });
+
+  /**
+   * `SEC-006` — o ambiente é lido LITERALMENTE, nunca executado.
+   *
+   * `. "$ENV_FILE"` fazia de cada valor do arquivo de configuração código de
+   * shell — e o `alfaos-backup.sh` roda como ROOT. O systemd lê o MESMO arquivo
+   * literalmente, então os dois lados resolviam valores diferentes para a mesma
+   * chave sempre que ela tivesse `$`, backtick, `\` ou aspas.
+   */
+  it("SEC-006-11 · nenhum invólucro EXECUTA o arquivo de ambiente", () => {
+    for (const [nome, script] of [
+      ["alfaos-job.sh", WRAPPER],
+      ["alfaos-backup.sh", BACKUP],
+    ] as const) {
+      const corpo = semComentarios(script);
+      // `. "$ENV_FILE"` e `source "$ENV_FILE"`, em qualquer forma.
+      expect(corpo, nome).not.toMatch(/^\s*(\.|source)\s+["']?\$\{?ENV_FILE/m);
+      expect(corpo, nome).not.toMatch(/set -a/);
+      // E usa o parser compartilhado.
+      expect(corpo, nome).toMatch(/alfaos_carregar_ambiente "\$ENV_FILE"/);
+    }
+  });
+
+  it("SEC-006-12 · o runbook não ensina o operador a executar o ambiente", () => {
+    // O runbook mandava `set -a; . /etc/alfaos/alfaos.env; set +a` no deploy —
+    // um terceiro caminho com a mesma falha, desta vez sob `sudo`.
+    expect(RUNBOOK).not.toMatch(/set -a\s*;\s*\.\s+\/etc\/alfaos\/alfaos\.env/);
+  });
+
+  it("SEC-006-13 · a biblioteca de ambiente chega ao servidor junto dos invólucros", () => {
+    // Os dois scripts a carregam por caminho relativo ao próprio diretório: se
+    // o runbook não a instalar, os dois quebram na primeira execução.
+    expect(RUNBOOK).toMatch(/alfaos-env\.sh/);
+    for (const script of [WRAPPER, BACKUP]) {
+      expect(script).toMatch(/ENV_LIB="\$\(dirname "\$0"\)\/alfaos-env\.sh"/);
+    }
+  });
+
+  it("SEC-001-13 · o alvo do dump não vem de estado herdado do ambiente", () => {
+    // `unset` antes de ler o arquivo: um `PGDATABASE` no ambiente faria o libpq
+    // usá-lo mesmo com o arquivo correto, e a geração sairia COMPLETE com o
+    // banco errado dentro.
+    expect(BACKUP).toMatch(/unset DATABASE_URL STORAGE_ROOT/);
+    expect(BACKUP).toMatch(/unset PGDATABASE PGHOST PGPORT PGUSER PGPASSWORD/);
   });
 
   it("OPS-BACKUP-02 · inclui o storage, pela raiz de produção", () => {

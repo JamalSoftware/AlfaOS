@@ -25,16 +25,19 @@ if [ -z "$JOB" ]; then
   exit 2
 fi
 
-if [ ! -r "$ENV_FILE" ]; then
-  echo "[alfaos] ambiente ilegivel: $ENV_FILE" >&2
+# O ambiente é lido LITERALMENTE, nunca executado (`SEC-006`): `. "$ENV_FILE"`
+# fazia de cada valor do arquivo de configuração código de shell, e uma senha
+# com `$`, backtick ou `\` era reescrita aqui e não no systemd — a MESMA fonte
+# resolvendo para valores diferentes.
+ENV_LIB="$(dirname "$0")/alfaos-env.sh"
+if [ ! -r "$ENV_LIB" ]; then
+  echo "[alfaos] biblioteca de ambiente ausente: $ENV_LIB" >&2
   exit 78 # EX_CONFIG
 fi
+# shellcheck source=deploy/bin/alfaos-env.sh
+. "$ENV_LIB"
 
-# `set -a` exporta o que o arquivo definir; ele é a MESMA fonte do serviço web.
-set -a
-# shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
+alfaos_carregar_ambiente "$ENV_FILE" || exit 78
 
 cd "$APP_DIR" || {
   echo "[alfaos] diretorio da aplicacao inacessivel" >&2

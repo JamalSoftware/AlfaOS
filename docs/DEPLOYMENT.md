@@ -38,7 +38,7 @@ processo — não é assunto da V1.
 ```text
 /opt/alfaos/releases/<data-hora>/   release (checkout + node_modules + .next)
 /opt/alfaos/current  -> releases/…  link simbólico: o release em uso
-/opt/alfaos/bin/                    alfaos-job.sh · alfaos-backup.sh
+/opt/alfaos/bin/                    alfaos-env.sh · alfaos-job.sh · alfaos-backup.sh
 /etc/alfaos/alfaos.env              ambiente — ÚNICA fonte, fora do Git
 /srv/alfaos/storage/                STORAGE_ROOT — fotos, assinaturas
 /var/backups/alfaos/                backups locais (daily · weekly · monthly)
@@ -83,6 +83,39 @@ por `EnvironmentFile`; o `cron` o lê pelo invólucro `alfaos-job.sh`. Duas font
 seriam duas verdades — e a divergente seria descoberta num upload perdido ou num
 diagnóstico que não roda.
 
+### 4.1 O arquivo é LIDO, nunca EXECUTADO (`SEC-006`)
+
+Os invólucros carregavam o ambiente com `. "$ENV_FILE"`, que **executa** o
+arquivo como código de shell — e o `alfaos-backup.sh` roda como **root**. O
+systemd lê o mesmo arquivo literalmente, então os dois lados resolviam valores
+diferentes para a mesma chave sempre que ela tivesse `$`, backtick, `\` ou
+aspas. Um valor como `DB_PASSWORD=sen$(id)ha` é senha para um lado e comando
+para o outro.
+
+Quem lê agora é `deploy/bin/alfaos-env.sh`, um parser literal em bash puro —
+por isso ele é **instalado junto** dos invólucros, em `/opt/alfaos/bin/`.
+
+A gramática suportada, e ela é deliberadamente estreita:
+
+| forma | resultado |
+|---|---|
+| `# comentário`, `; comentário`, linha vazia | ignorada |
+| `CHAVE=valor`, `export CHAVE=valor` | valor **literal**, até o fim da linha |
+| `CHAVE="valor"`, `CHAVE='valor'` | um par de aspas que envolve o valor inteiro é removido |
+| espaço à direita, sem aspas | removido (como no systemd) |
+| `\` entre aspas duplas | **recusa o arquivo** |
+| continuação de linha (`\` no fim) | **recusa o arquivo** |
+| nome de variável inválido, linha sem `=` | **recusa o arquivo** |
+
+As duas últimas recusas são o ponto: onde a gramática do systemd faria algo que
+este parser não faz, a resposta é **erro**, nunca um palpite. Duas fontes
+divergindo em silêncio é o defeito original; falhar alto mantém as duas
+honestas. Se você precisa de um valor com `\` literal, use aspas simples.
+
+**Não volte a usar `. arquivo` nem `set -a`** para carregar este arquivo — em
+script, em runbook ou à mão. Há teste permanente cobrando isso
+(`SEC-006-11`/`SEC-006-12`).
+
 ```bash
 install -o root -g alfaos -m 0640 /dev/null /etc/alfaos/alfaos.env
 ```
@@ -123,13 +156,25 @@ sudo -u postgres createdb --owner=alfaos alfaos
 - **Não exponha a porta 5432 à internet.** `listen_addresses = 'localhost'` (o
   padrão da distribuição) e regra de firewall (§11).
 - Banco e usuário dedicados, senha forte.
-- A senha do backup vai em **`/root/.pgpass`** (`0600`) — o backup roda como
-  root (§9.4) —, nunca em argumento de processo: `ps` é legível por qualquer
-  usuário do host.
+- **O backup conecta pela `DATABASE_URL`, e só por ela** (`SEC-001`). O
+  `alfaos-env.sh` a traduz para as variáveis do libpq — `PGHOST`, `PGPORT`,
+  `PGUSER`, `PGPASSWORD` — e passa o nome do banco em `--dbname`. A senha vai
+  pelo **ambiente** do processo, nunca em argumento: `ps` é legível por qualquer
+  usuário do host, `/proc/<pid>/environ` só pelo dono.
 
-```text
-localhost:5432:alfaos:alfaos:<senha>
-```
+  Antes o `pg_dump` era chamado **sem alvo nenhum**: sem `--dbname` e sem
+  `PGDATABASE`, o libpq cai no nome do usuário do sistema — `root`, que é quem
+  roda o backup —, e o backup diário nunca teria funcionado. Pior que falhar:
+  com um `PGDATABASE` qualquer no ambiente, a geração sairia rotulada
+  `COMPLETE` com o banco errado dentro. Por isso o script faz `unset` das
+  variáveis `PG*` antes de ler o arquivo: a fonte é o arquivo, nunca o ambiente
+  herdado.
+
+- **`/root/.pgpass` deixou de ser necessário.** Uma cópia à parte da senha é uma
+  segunda autoridade: ela diverge na rotação, e a divergência só aparece no dia
+  da restauração. Se a sua `DATABASE_URL` não traz senha (autenticação `peer`,
+  socket local), não há o que configurar — o libpq segue o caminho dele, e
+  `~/.pgpass` continua funcionando como sempre.
 
 Migrations em produção: **`npx prisma migrate deploy`**, nunca `migrate dev`,
 nunca `db push`.
@@ -178,11 +223,14 @@ REL=/opt/alfaos/releases/$(date -u +%Y%m%d%H%M%S)
 sudo -u alfaos git clone --depth 1 <repo> "$REL"      # ou envio do artefato
 cd "$REL"
 sudo -u alfaos npm ci                                  # COM devDependencies
-set -a; . /etc/alfaos/alfaos.env; set +a
+# Ambiente LIDO, nunca executado (SEC-006) — ver §4.1
+. "$REL"/deploy/bin/alfaos-env.sh
+alfaos_carregar_ambiente /etc/alfaos/alfaos.env
 sudo -u alfaos --preserve-env npx prisma migrate deploy
 sudo -u alfaos --preserve-env npm run build            # next build + build:worker
 sudo -u alfaos ln -sfn "$REL" /opt/alfaos/current
 sudo install -o root -g alfaos -m 0755 \
+  "$REL"/deploy/bin/alfaos-env.sh \
   "$REL"/deploy/bin/alfaos-job.sh "$REL"/deploy/bin/alfaos-backup.sh /opt/alfaos/bin/
 sudo systemctl restart alfaos-web
 ```
@@ -207,7 +255,7 @@ Script: `deploy/bin/alfaos-backup.sh`, disparado por `alfaos-backup.timer` às
 
 **Conteúdo obrigatório:**
 
-1. **Banco** — `pg_dump` comprimido, autenticando por `.pgpass`.
+1. **Banco** — `pg_dump` comprimido, com alvo e credencial derivados da `DATABASE_URL` (§5).
 2. **Storage** — `tar` da raiz de produção, com permissões.
 3. **Chaves de cifra** — **fora deste backup, guardadas pelo dono à parte**. Um
    backup que as carrega transforma o roubo do backup no roubo das credenciais
@@ -285,8 +333,8 @@ O backup roda como **root**, por `alfaos-backup.service` + `alfaos-backup.timer`
 (`deploy/systemd/`), e não pelo `cron` do usuário de serviço. Parar e subir uma
 unidade é operação de root; a alternativa seria dar sudo ao `alfaos`, e aí a
 conta que atende a internet passaria a mexer em unidades do sistema. **O
-`alfaos` continua sem sudo**, e a credencial do banco fica em `/root/.pgpass`
-(`0600`).
+`alfaos` continua sem sudo**, e a credencial do banco vem da `DATABASE_URL` do
+arquivo de ambiente, por variável do libpq e nunca por argumento (§5).
 
 ```bash
 install -m 0644 deploy/systemd/alfaos-backup.service /etc/systemd/system/

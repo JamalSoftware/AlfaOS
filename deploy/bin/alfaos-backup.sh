@@ -37,7 +37,12 @@
 #
 # Este script roda como ROOT, por `alfaos-backup.service`/`.timer` — é o mínimo
 # que consegue parar e subir o serviço. O usuário `alfaos` NÃO ganha sudo.
-# Credencial do banco vem de `/root/.pgpass` (0600); nada de senha em argumento.
+#
+# O alvo e a credencial do banco vêm de `DATABASE_URL`, a fonte autoritativa
+# (`docs/DEPLOYMENT.md` §4), traduzida para variáveis do libpq por
+# `alfaos-env.sh`. NADA de senha em argumento: `ps` é legível por qualquer
+# usuário do host, e `/proc/<pid>/environ` só pelo dono. Quando a URL não traz
+# senha, o libpq segue o caminho dele (`~/.pgpass`, peer) sem escolha nossa.
 set -uo pipefail
 
 ENV_FILE="${ALFAOS_ENV_FILE:-/etc/alfaos/alfaos.env}"
@@ -52,20 +57,37 @@ erro() { echo "[alfaos-backup] $*" >&2; }
 # Ambiente
 # ---------------------------------------------------------------------------
 
-if [ ! -r "$ENV_FILE" ]; then
-  erro "ambiente ilegivel: $ENV_FILE"
+# O ambiente é lido LITERALMENTE, nunca executado (`SEC-006`). Este script roda
+# como root: `. "$ENV_FILE"` transformava cada valor do arquivo de configuração
+# em código de shell privilegiado.
+ENV_LIB="$(dirname "$0")/alfaos-env.sh"
+if [ ! -r "$ENV_LIB" ]; then
+  erro "biblioteca de ambiente ausente: $ENV_LIB"
   exit 78 # EX_CONFIG
 fi
-set -a
-# shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
+# shellcheck source=deploy/bin/alfaos-env.sh
+. "$ENV_LIB"
+
+# A fonte é o ARQUIVO, nunca o ambiente herdado (`SEC-001`).
+#
+# `unset` antes de ler: um `DATABASE_URL` exportado por engano na sessão faria o
+# backup copiar OUTRO banco, e um `PGDATABASE` qualquer no ambiente faria o
+# libpq usá-lo mesmo com o arquivo correto — a geração sairia rotulada
+# `COMPLETE` com o banco errado dentro. O systemd e o cron entregam ambiente
+# limpo; esta linha vale para o operador que roda o script à mão.
+unset DATABASE_URL STORAGE_ROOT
+unset PGDATABASE PGHOST PGPORT PGUSER PGPASSWORD PGSERVICE PGSERVICEFILE
+alfaos_carregar_ambiente "$ENV_FILE" || exit 78
 
 STORAGE="${STORAGE_ROOT:-}"
 if [ -z "$STORAGE" ] || [ ! -d "$STORAGE" ]; then
   erro "STORAGE_ROOT ausente ou inexistente — backup incompleto nao serve"
   exit 78
 fi
+
+# O alvo do dump vem de DATABASE_URL (`SEC-001`). Antes de parar o serviço: um
+# erro de configuração não pode custar uma janela de manutenção.
+alfaos_exportar_alvo_pg || exit 78
 
 # ---------------------------------------------------------------------------
 # Estado e recuperação
@@ -136,8 +158,14 @@ parar_web() {
 }
 
 dump_banco() {
-  log "dump do banco"
-  if ! pg_dump --format=plain --no-owner --no-privileges | gzip -9 > "$DB_TMP"; then
+  # O ALVO é explícito (`SEC-001`). Sem `--dbname`, o libpq cai no nome do
+  # usuário do sistema — `root` aqui —, e um alvo adivinhado é pior que um erro:
+  # com um `PGDATABASE` qualquer no ambiente, a geração sairia rotulada
+  # `COMPLETE` com o banco errado dentro. O nome não é segredo e pode ir em
+  # argumento; a senha vai pelo ambiente, porque `ps` é público.
+  log "dump do banco alvo=$ALFAOS_PG_DATABASE"
+  if ! pg_dump --dbname="$ALFAOS_PG_DATABASE" \
+      --format=plain --no-owner --no-privileges | gzip -9 > "$DB_TMP"; then
     erro "pg_dump FALHOU — geracao $GERACAO descartada"
     return 1
   fi
@@ -172,13 +200,33 @@ promover_geracao() {
 
   mv "$DB_TMP" "$ST_TMP" "$MAN_TMP" "$DEST/daily/" || return 1
   log "geracao $GERACAO completa em $DEST/daily"
+  return 0
+}
 
-  if [ "$(date -u +%u)" = "7" ]; then
-    cp -p "$DEST/daily/alfaos-$GERACAO-"* "$DEST/daily/alfaos-$GERACAO.manifest" "$DEST/weekly/"
+# Promove a geração do dia para uma faixa de retenção.
+#
+# `SEC-012`: a versão anterior chamava `cp -p` e IGNORAVA o resultado — disco
+# cheio, permissão, ponto de montagem ausente, e o script seguia para a poda e
+# terminava com `exit=0`. O operador lia "fim exit=0" enquanto o semanal não
+# tinha sido criado, e a poda então empurrava o último semanal BOM para fora da
+# retenção. É a pior forma de perder backup: silenciosa e com relatório verde.
+copiar_para_faixa() {
+  local faixa="$1"
+  local id="alfaos-$GERACAO"
+  if ! cp -p \
+      "$DEST/daily/$id-db.sql.gz" \
+      "$DEST/daily/$id-storage.tar.gz" \
+      "$DEST/daily/$id.manifest" \
+      "$DEST/$faixa/"; then
+    erro "copia para $faixa FALHOU — a faixa NAO foi podada e a geracao anterior fica"
+    return 1
   fi
-  if [ "$(date -u +%d)" = "01" ]; then
-    cp -p "$DEST/daily/alfaos-$GERACAO-"* "$DEST/daily/alfaos-$GERACAO.manifest" "$DEST/monthly/"
+  # Manifesto por último também aqui: até ele chegar, a cópia não é geração.
+  if [ ! -s "$DEST/$faixa/$id.manifest" ]; then
+    erro "copia para $faixa incompleta — a faixa NAO foi podada"
+    return 1
   fi
+  log "geracao $GERACAO copiada para $faixa"
   return 0
 }
 
@@ -228,8 +276,25 @@ arquivar_storage || exit 1
 restaurar_web || exit 1
 promover_geracao || exit 1
 podar "$DEST/daily" 7
-podar "$DEST/weekly" 4
-podar "$DEST/monthly" 3
+
+# Cada faixa só é podada se a PRÓPRIA promoção dela deu certo (`SEC-012`).
+# Podar uma faixa onde a cópia falhou joga fora a última geração boa dela para
+# abrir espaço a uma geração que não chegou.
+faixa_falhou=0
+if [ "$(date -u +%u)" = "7" ]; then
+  if copiar_para_faixa weekly; then podar "$DEST/weekly" 4; else faixa_falhou=1; fi
+fi
+if [ "$(date -u +%d)" = "01" ]; then
+  if copiar_para_faixa monthly; then podar "$DEST/monthly" 3; else faixa_falhou=1; fi
+fi
+
 copia_externa || exit 1
+
+# A geração diária está completa, então o dia não é uma perda total — mas
+# terminar com 0 diria que a retenção está em ordem, e ela não está.
+if [ "$faixa_falhou" = 1 ]; then
+  erro "fim geracao=$GERACAO exit=1 — diaria COMPLETA, retencao de faixa INCOMPLETA"
+  exit 1
+fi
 
 log "fim geracao=$GERACAO exit=0"
