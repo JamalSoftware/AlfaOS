@@ -1,4 +1,8 @@
-import { stripImageMetadata, UnparseableImageError } from "./image-metadata";
+import {
+  percorrerJpeg,
+  stripImageMetadata,
+  UnparseableImageError,
+} from "./image-metadata";
 
 /**
  * # O que uma imagem JÁ GRAVADA ainda carrega (`RC-1E`)
@@ -47,7 +51,15 @@ export function inspectStoredImage(data: Buffer, mimeType: string): ImageInspect
   };
 }
 
-/** Os blocos TIFF de EXIF que o contêiner carrega, sem confiar em nada deles. */
+/**
+ * Os blocos TIFF de EXIF que o contêiner carrega, sem confiar em nada deles.
+ *
+ * Só é alcançado DEPOIS de [stripImageMetadata] ter aceitado o arquivo, e a
+ * ordem é parte da proteção (`SEC-002`): os percursos de PNG e de WebP daqui
+ * procuram um chunk específico e não têm orçamento próprio, então é a recusa do
+ * sanitizador que impede uma enxurrada de chunks forjados de ser percorrida
+ * duas vezes. Inverter a ordem devolveria o custo.
+ */
 function blocosExif(data: Buffer, mimeType: string): Buffer[] {
   switch (mimeType) {
     case "image/jpeg":
@@ -61,23 +73,30 @@ function blocosExif(data: Buffer, mimeType: string): Buffer[] {
   }
 }
 
+/**
+ * Os blocos Exif de um JPEG — pelo MESMO percurso do sanitizador (`SEC-004`).
+ *
+ * A versão anterior tinha um percurso próprio, e ele parava no `SOS`. O
+ * resultado é que um arquivo com EXIF depois dos dados de scan atravessava a
+ * limpeza **e** era declarado limpo pela auditoria de storage: o sanitizador
+ * não tirava, e o inspetor dizia que não havia nada para tirar. Duas
+ * afirmações erradas com a mesma causa — dois percursos respondendo à mesma
+ * pergunta.
+ *
+ * Agora quem decide o que é um segmento é [percorrerJpeg], e os dois lados
+ * herdam a resposta. É por isso que `needsSanitization` e `hasGps` não têm como
+ * discordar sobre a POSIÇÃO de um bloco.
+ */
 function exifDoJpeg(data: Buffer): Buffer[] {
   const blocos: Buffer[] = [];
-  let i = 2;
-  while (i + 4 <= data.length && data[i] === 0xff) {
-    const codigo = data[i + 1];
-    if (codigo === 0xda || codigo === 0xd9) break;
-    if (codigo === 0x01 || (codigo >= 0xd0 && codigo <= 0xd7)) {
-      i += 2;
-      continue;
+  for (const unidade of percorrerJpeg(data)) {
+    if (
+      unidade.tipo === "segmento" &&
+      unidade.codigo === 0xe1 &&
+      unidade.carga.subarray(0, 6).toString("ascii") === "Exif\0\0"
+    ) {
+      blocos.push(unidade.carga.subarray(6));
     }
-    const tamanho = data.readUInt16BE(i + 2);
-    if (tamanho < 2 || i + 2 + tamanho > data.length) break;
-    const carga = data.subarray(i + 4, i + 2 + tamanho);
-    if (codigo === 0xe1 && carga.subarray(0, 6).toString("ascii") === "Exif\0\0") {
-      blocos.push(carga.subarray(6));
-    }
-    i += 2 + tamanho;
   }
   return blocos;
 }

@@ -61,6 +61,75 @@ export class UnparseableImageError extends Error {
 
 const TAG_ORIENTATION = 0x0112;
 
+// ---------------------------------------------------------------------------
+// Orçamento estrutural (`SEC-002`)
+// ---------------------------------------------------------------------------
+
+/**
+ * # O percurso custa um valor LIMITADO, e não um valor escolhido por quem envia
+ *
+ * Todo percurso aqui anda sobre bytes que o cliente controla. Uma unidade
+ * estrutural — um segmento de JPEG, um chunk de PNG, um chunk de RIFF — pode
+ * ser forjada com **tamanho zero**, e aí cada uma custa um punhado de bytes ao
+ * atacante e uma iteração mais uma fatia ao servidor. A conta não fecha a nosso
+ * favor: 8 MB de chunks vazios são cerca de um milhão de unidades.
+ *
+ * A revisão de segurança independente mediu o preço disso, e o JPEG — que já
+ * tinha teto desde o `PC-1` — mostra o contraste:
+ *
+ * | forma | unidades | custo |
+ * |---|---|---|
+ * | JPEG normal de 8 MB | dezenas | ~17 ms |
+ * | PNG, chunks de tamanho zero | ~699 mil | ~326 ms |
+ * | WebP, chunks de topo | ~1,05 milhão | ~738 ms |
+ * | WebP, quadros `ANMF` | ~350 mil | ~805 ms |
+ *
+ * Em Node isso não é uma requisição lenta: é a thread única parada, e com ela a
+ * aplicação inteira, para todos os tenants. O AlfaOS roda em **instância
+ * única** (`docs/DEPLOYMENT.md`), então não existe um segundo processo para
+ * atender enquanto este percorre um milhão de chunks inventados.
+ *
+ * ## Um contrato, dois números
+ *
+ * O mecanismo é um só — o mesmo orçamento, gasto por unidade, atravessando o
+ * aninhamento. Os tetos são dois porque a estrutura legítima dos formatos é
+ * diferente, e um número só teria de afrouxar o JPEG ou reprovar PNG de
+ * verdade:
+ *
+ * - **JPEG** — segmentos são cabeçalhos. Uma câmera escreve dezenas; o maior
+ *   JPEG do acervo real do AlfaOS tem **11**.
+ * - **PNG e WebP** — chunks carregam os BYTES DA IMAGEM. `libpng` escreve
+ *   `IDAT` em pedaços do tamanho do buffer de compressão (8 KB no padrão),
+ *   então um PNG de 8 MB pode ter ~1024 chunks legítimos, e um WebP animado
+ *   tem um `ANMF` por quadro. O teto fica uma ordem de grandeza acima disso.
+ */
+export const MAX_JPEG_SEGMENTS = 1024;
+
+/** Ver [MAX_JPEG_SEGMENTS]: o teto de chunks de PNG e de WebP, `IDAT` incluso. */
+export const MAX_STRUCTURAL_CHUNKS = 16384;
+
+/**
+ * O orçamento, mutável de propósito.
+ *
+ * Passar o contador ADIANTE, em vez de devolver um número, é o que faz o teto do
+ * WebP valer para o **total**: um orçamento recriado dentro de cada quadro
+ * `ANMF` aceitaria `N quadros × teto` unidades, que é a mesma vulnerabilidade
+ * com outra aritmética.
+ */
+interface OrcamentoEstrutural {
+  restante: number;
+}
+
+function orcamento(teto: number): OrcamentoEstrutural {
+  return { restante: teto };
+}
+
+function gastarUnidade(conta: OrcamentoEstrutural, mensagem: string): void {
+  if (--conta.restante < 0) {
+    throw new UnparseableImageError(mensagem);
+  }
+}
+
 /**
  * Remove o metadado de uma imagem, preservando o que ela mostra.
  *
@@ -92,36 +161,93 @@ function isStandaloneMarker(code: number): boolean {
 }
 
 /**
- * Teto de segmentos antes do scan.
+ * Uma unidade da estrutura de um JPEG, na ordem em que o arquivo a traz.
  *
- * Um JPEG de câmera tem dezenas de segmentos antes do `SOS` — nunca mil. O teto
- * existe porque o percurso trabalha sobre bytes escolhidos por quem envia:
- * marcadores isolados (`FF D0`–`FF D9`) ocupam **dois bytes**, e um arquivo de
- * 8 MB feito só deles produz quatro milhões de iterações e de fatias, cada uma
- * virando um elemento do `concat` final.
- *
- * A auditoria independente mediu: **1452 ms de event loop bloqueado** para 8 MB,
- * contra 2 ms de um JPEG normal — 726 vezes. Em Node isso não é lentidão de uma
- * requisição, é a aplicação inteira parada, para todos os tenants, porque a
- * thread é uma só. Com o teto, o pior caso volta à ordem do `sniff` e do
- * SHA-256, que já rodam sobre a mesma entrada.
+ * `antesDoScan` existe por causa da orientação: a posição de um bloco Exif
+ * decide se algum decodificador o honra, e é o que impede que metadado colocado
+ * por quem forja o arquivo escolha como a foto aparece.
  */
-const MAX_SEGMENTOS = 1024;
+export type UnidadeJpeg =
+  | {
+      tipo: "segmento";
+      codigo: number;
+      inicio: number;
+      fim: number;
+      carga: Buffer;
+      antesDoScan: boolean;
+    }
+  | { tipo: "isolado"; codigo: number; inicio: number; fim: number }
+  | { tipo: "scan"; inicio: number; fim: number }
+  | { tipo: "eoi"; inicio: number; fim: number };
 
-function stripJpeg(data: Buffer): Buffer {
+/**
+ * # Onde terminam os dados de entropia (`SEC-004`)
+ *
+ * Dentro de um scan, três coisas — e só estas três — começam com `FF` sem serem
+ * fronteira de marcador:
+ *
+ * - `FF 00` — um byte `0xFF` literal da imagem, escapado. É por isso que um
+ *   `EOI` não pode aparecer por acidente no meio dos dados comprimidos.
+ * - `FF D0`–`FF D7` — reinício (`RST`). São marcadores e moram DENTRO do scan.
+ * - `FF FF` — preenchimento legal antes do próximo código.
+ *
+ * Qualquer outro código depois de um `FF` encerra os dados de entropia, e dali
+ * em diante a gramática do JPEG volta a ser estrutural. Tratar todo `FF` como
+ * fronteira cortaria a imagem no meio; tratar nenhum é o que deixava o metadado
+ * de depois do scan atravessar a limpeza.
+ *
+ * `FF 01` (`TEM`) é tratado como parte do scan: ele só aparece em codificação
+ * aritmética, e é mais seguro seguir lendo do que cortar a imagem por causa de
+ * um caso que nenhuma câmera produz.
+ */
+function limiteDoScan(data: Buffer, inicio: number): number {
+  let p = inicio;
+  while (p < data.length) {
+    if (data[p] !== 0xff) {
+      p++;
+      continue;
+    }
+    let q = p + 1;
+    while (q < data.length && data[q] === 0xff) q++;
+    if (q >= data.length) return data.length;
+    const codigo = data[q];
+    if (codigo === 0x00 || codigo === 0x01 || (codigo >= 0xd0 && codigo <= 0xd7)) {
+      p = q + 1;
+      continue;
+    }
+    // O preenchimento pertence ao marcador, então a fronteira é o primeiro `FF`.
+    return p;
+  }
+  return data.length;
+}
+
+/**
+ * # A estrutura de um JPEG, percorrida UMA vez para os dois lados (`SEC-004`)
+ *
+ * O sanitizador e a inspeção de storage precisam concordar sobre o que é um
+ * segmento: enquanto tinham percursos próprios, discordaram — a limpeza parava
+ * no `SOS` e a inspeção também, então um arquivo com EXIF depois do scan
+ * atravessava a limpeza **e** era declarado limpo pela auditoria. Duas
+ * afirmações erradas, uma causa. Quem responde "o que há neste arquivo?" é
+ * esta função, e só ela.
+ *
+ * O percurso PARA no `EOI`: o que vem depois não é imagem, é anexo, e anexo não
+ * fica (é ali que a Motion Photo do Samsung e do Google guarda o MP4 com
+ * coordenada). Sem `EOI`, o arquivo está truncado nos DADOS e não na estrutura
+ * — o que há continua sendo uma imagem legível até onde vai.
+ */
+export function percorrerJpeg(data: Buffer): UnidadeJpeg[] {
   if (data.length < 4 || data[0] !== 0xff || data[1] !== 0xd8) {
     throw new UnparseableImageError("JPEG sem SOI.");
   }
 
-  const saida: Buffer[] = [data.subarray(0, 2)];
-  let orientacao: number | null = null;
-  let segmentos = 0;
+  const unidades: UnidadeJpeg[] = [];
+  const conta = orcamento(MAX_JPEG_SEGMENTS);
+  let viuScan = false;
   let i = 2;
 
   while (i < data.length) {
-    if (++segmentos > MAX_SEGMENTOS) {
-      throw new UnparseableImageError("JPEG com segmentos demais.");
-    }
+    gastarUnidade(conta, "JPEG com segmentos demais.");
     if (data[i] !== 0xff) {
       throw new UnparseableImageError("marcador JPEG esperado.");
     }
@@ -133,8 +259,13 @@ function stripJpeg(data: Buffer): Buffer {
     }
     const codigo = data[j];
 
+    if (codigo === 0xd9) {
+      unidades.push({ tipo: "eoi", inicio: i, fim: j + 1 });
+      return unidades;
+    }
+
     if (isStandaloneMarker(codigo)) {
-      saida.push(data.subarray(i, j + 1));
+      unidades.push({ tipo: "isolado", codigo, inicio: i, fim: j + 1 });
       i = j + 1;
       continue;
     }
@@ -146,34 +277,45 @@ function stripJpeg(data: Buffer): Buffer {
     if (tamanho < 2 || j + 1 + tamanho > data.length) {
       throw new UnparseableImageError("segmento JPEG truncado.");
     }
-    const carga = data.subarray(j + 3, j + 1 + tamanho);
+
+    unidades.push({
+      tipo: "segmento",
+      codigo,
+      inicio: i,
+      fim: j + 1 + tamanho,
+      carga: data.subarray(j + 3, j + 1 + tamanho),
+      antesDoScan: !viuScan,
+    });
+    i = j + 1 + tamanho;
 
     if (codigo === 0xda) {
       /*
-        Início do scan: daqui em diante vêm os dados comprimidos, que NÃO são
-        segmentos e não podem ser percorridos. Nenhum pixel é tocado.
-
-        Mas o arquivo NÃO termina necessariamente na imagem. Copiar até o fim do
-        buffer — que era o que esta linha fazia — deixava passar tudo o que
-        estivesse anexado DEPOIS do `EOI`, e é ali que Samsung e Google gravam o
-        MP4 da Motion Photo, cujo átomo `moov/udta/©xyz` guarda coordenada. A
-        auditoria independente provou a sobrevivência: um bloco arbitrário
-        colado após o `EOI` atravessava a limpeza intacto, no mesmo arquivo em
-        que GPS, thumbnail e IPTC eram corretamente removidos.
-
-        Cortar no `EOI` fecha isso sem decodificar nada. `FF D9` não aparece
-        dentro dos dados comprimidos: ali o `FF` é escapado como `FF 00`, e os
-        únicos marcadores permitidos são os de reinício, `FF D0`–`FF D7`.
-
-        Sem `EOI` o arquivo está truncado nos DADOS, não na estrutura — copiamos
-        o que há, como antes, porque isso continua sendo uma imagem legível até
-        onde vai.
+        Os dados comprimidos não são segmentos e nenhum pixel é tocado — mas o
+        arquivo NÃO termina necessariamente neles. A gramática do JPEG permite
+        segmentos depois de um scan: é assim que um JPEG progressivo encadeia
+        varreduras, e é dali que um decodificador de verdade continua lendo.
       */
-      const fimDaImagem = indiceDoEoi(data, i);
-      saida.push(fimDaImagem === -1 ? data.subarray(i) : data.subarray(i, fimDaImagem + 2));
-      break;
+      viuScan = true;
+      const fim = limiteDoScan(data, i);
+      unidades.push({ tipo: "scan", inicio: i, fim });
+      i = fim;
+    }
+  }
+
+  return unidades;
+}
+
+function stripJpeg(data: Buffer): Buffer {
+  const saida: Buffer[] = [data.subarray(0, 2)];
+  let orientacao: number | null = null;
+
+  for (const unidade of percorrerJpeg(data)) {
+    if (unidade.tipo !== "segmento") {
+      saida.push(data.subarray(unidade.inicio, unidade.fim));
+      continue;
     }
 
+    const { codigo, carga } = unidade;
     const ehMetadado =
       (codigo >= 0xe0 && codigo <= 0xef) || codigo === 0xfe; // APPn ou COM
     /*
@@ -201,23 +343,25 @@ function stripJpeg(data: Buffer): Buffer {
         primeiro, e a foto aparecia deitada. Perdia-se exatamente o que esta
         limpeza existe para preservar.
 
-        O primeiro é o que um decodificador honra: por especificação o Exif é o
-        primeiro `APP1` depois do `SOI`. Ausência num bloco posterior não é
-        decisão, e por isso não apaga nada.
+        E só **antes do scan** (`SEC-004`): é a posição em que a especificação
+        põe o Exif e a única que um decodificador honra. Um bloco depois do scan
+        é removido e não opina — aproveitar a orientação dele deixaria quem
+        forja o arquivo escolher como a foto aparece, e reinjetá-la na frente
+        faria o AlfaOS afirmar, com a própria assinatura, algo que a câmera não
+        disse.
       */
       if (
         orientacao === null &&
+        unidade.antesDoScan &&
         codigo === 0xe1 &&
         carga.subarray(0, 6).toString("ascii") === "Exif\0\0"
       ) {
         orientacao = lerOrientacao(carga.subarray(6));
       }
-      i = j + 1 + tamanho;
       continue;
     }
 
-    saida.push(data.subarray(i, j + 1 + tamanho));
-    i = j + 1 + tamanho;
+    saida.push(data.subarray(unidade.inicio, unidade.fim));
   }
 
   if (orientacao !== null) {
@@ -234,14 +378,6 @@ function stripJpeg(data: Buffer): Buffer {
   }
 
   return Buffer.concat(saida);
-}
-
-/** Onde termina a imagem. `-1` quando o arquivo não tem `EOI`. */
-function indiceDoEoi(data: Buffer, inicio: number): number {
-  for (let p = inicio; p + 1 < data.length; p++) {
-    if (data[p] === 0xff && data[p + 1] === 0xd9) return p;
-  }
-  return -1;
 }
 
 /** Lê `Orientation` de um bloco TIFF, sem confiar em nada dele. */
@@ -343,10 +479,14 @@ function stripPng(data: Buffer): Buffer {
   }
 
   const saida: Buffer[] = [data.subarray(0, 8)];
+  const conta = orcamento(MAX_STRUCTURAL_CHUNKS);
   let i = 8;
   let terminou = false;
 
   while (i + 8 <= data.length) {
+    // Ver [MAX_STRUCTURAL_CHUNKS]: um chunk de tamanho zero custa 12 bytes a
+    // quem envia e uma iteração mais uma fatia a nós (`SEC-002`).
+    gastarUnidade(conta, "PNG com chunks demais.");
     const tamanho = data.readUInt32BE(i);
     const tipo = data.toString("ascii", i + 4, i + 8);
     const fim = i + 12 + tamanho; // tamanho + tipo + dados + CRC
@@ -411,11 +551,20 @@ function chunksRiff(
   inicio: number,
   fim: number,
   permitidos: Set<string>,
+  conta: OrcamentoEstrutural,
 ): Buffer[] {
   const pedacos: Buffer[] = [];
   let i = inicio;
 
   while (i + 8 <= fim) {
+    /*
+      O orçamento vem de FORA e atravessa o aninhamento (`SEC-002`).
+
+      Um contador criado aqui valeria por nível, e aí `N quadros × teto` traria
+      de volta o percurso sem limite — a mesma vulnerabilidade com outra
+      aritmética. Um chunk de tamanho zero custa oito bytes a quem envia.
+    */
+    gastarUnidade(conta, "WebP com chunks demais.");
     const tamanho = data.readUInt32LE(i + 4);
     const comPadding = tamanho + (tamanho % 2); // RIFF alinha em 2 bytes
     const termino = i + 8 + comPadding;
@@ -426,7 +575,7 @@ function chunksRiff(
 
     if (permitidos.has(tipo)) {
       if (tipo === "ANMF") {
-        pedacos.push(quadroSemMetadado(data, i, tamanho));
+        pedacos.push(quadroSemMetadado(data, i, tamanho, conta));
       } else {
         const bloco = Buffer.from(data.subarray(i, termino));
         if (tipo === "VP8X" && bloco.length >= 9) {
@@ -446,7 +595,12 @@ function chunksRiff(
  * fixos vêm chunks. Copiá-lo inteiro deixaria um chunk desconhecido atravessar
  * escondido dentro de um permitido — a lista valeria só no primeiro nível.
  */
-function quadroSemMetadado(data: Buffer, inicio: number, tamanho: number): Buffer {
+function quadroSemMetadado(
+  data: Buffer,
+  inicio: number,
+  tamanho: number,
+  conta: OrcamentoEstrutural,
+): Buffer {
   if (tamanho < ANMF_CABECALHO) {
     throw new UnparseableImageError("quadro ANMF truncado.");
   }
@@ -456,6 +610,7 @@ function quadroSemMetadado(data: Buffer, inicio: number, tamanho: number): Buffe
     dados + ANMF_CABECALHO,
     dados + tamanho,
     WEBP_CHUNKS_DO_QUADRO,
+    conta,
   );
   const carga = Buffer.concat([
     data.subarray(dados, dados + ANMF_CABECALHO),
@@ -497,7 +652,13 @@ function stripWebp(data: Buffer): Buffer {
     throw new UnparseableImageError("WebP sem chunk de imagem.");
   }
 
-  const pedacos = chunksRiff(data, 12, fimDoRiff, WEBP_CHUNKS_PERMITIDOS);
+  const pedacos = chunksRiff(
+    data,
+    12,
+    fimDoRiff,
+    WEBP_CHUNKS_PERMITIDOS,
+    orcamento(MAX_STRUCTURAL_CHUNKS),
+  );
 
   const corpo = Buffer.concat(pedacos);
   const cabecalho = Buffer.alloc(12);

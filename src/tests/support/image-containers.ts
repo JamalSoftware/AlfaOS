@@ -87,6 +87,27 @@ export function tiffComGps(orientacao: number | null = null): Buffer {
   return t;
 }
 
+/**
+ * O valor de `Orientation` na IFD0, ou `null`. Leitura independente.
+ *
+ * Percorre as entradas em vez de ler um deslocamento fixo: um teste que
+ * hardcoda a posição do campo passa a falhar quando o bloco reinjetado muda de
+ * forma, sem que nada esteja errado — e, pior, pode continuar passando por
+ * casar com outro campo.
+ */
+export function tiffOrientacao(tiff: Buffer): number | null {
+  if (tiff.length < 8 || tiff.toString("ascii", 0, 2) !== "II") return null;
+  const ifd0 = tiff.readUInt32LE(4);
+  if (ifd0 + 2 > tiff.length) return null;
+  const n = tiff.readUInt16LE(ifd0);
+  for (let k = 0; k < n; k++) {
+    const p = ifd0 + 2 + k * 12;
+    if (p + 12 > tiff.length) return null;
+    if (tiff.readUInt16LE(p) === 0x0112) return tiff.readUInt16LE(p + 8);
+  }
+  return null;
+}
+
 /** A IFD0 do TIFF aponta para uma IFD de GPS? Leitura independente. */
 export function tiffTemGps(tiff: Buffer): boolean {
   if (tiff.length < 8 || tiff.toString("ascii", 0, 2) !== "II") return false;
@@ -356,4 +377,155 @@ export function jpegComMetadado(base: Buffer, orientacao: number | null = null):
     jpeg.subarray(2),
     Buffer.from("ftypmp42 moov udta xyz +12.34-056.78", "ascii"),
   ]);
+}
+
+/** Um segmento JPEG qualquer: marcador, tamanho e carga. */
+export function segmentoJpeg(codigo: number, carga: Buffer): Buffer {
+  const cabecalho = Buffer.from([0xff, codigo, 0, 0]);
+  cabecalho.writeUInt16BE(carga.length + 2, 2);
+  return Buffer.concat([cabecalho, carga]);
+}
+
+/**
+ * Dados de scan com as três coisas que um percurso de entropia precisa saber
+ * distinguir de um marcador (`SEC-004`):
+ *
+ * - `FF 00` — o byte 0xFF literal, escapado; **não** é marcador;
+ * - `FF D0`–`FF D7` — reinício (`RST`), que é marcador e fica DENTRO do scan;
+ * - `FF FF` — preenchimento legal antes do próximo código.
+ *
+ * Um percurso que trate qualquer `FF` como fronteira corta a imagem no meio.
+ */
+export function scanComEscapes(): Buffer {
+  return Buffer.from([
+    0x11, 0x22,
+    0xff, 0x00, // 0xFF literal
+    0x33,
+    0xff, 0xd0, // RST0
+    0x44, 0x55,
+    0xff, 0x00,
+    0xff, 0xd7, // RST7
+    0x66,
+    0xff, 0xff, 0x00, // preenchimento + escape
+    0x77,
+  ]);
+}
+
+/**
+ * JPEG com o metadado DEPOIS dos dados de scan, numa fronteira de marcador
+ * válida (`SEC-004`).
+ *
+ * A gramática do JPEG permite segmentos depois de um scan — é assim que um
+ * JPEG progressivo encadeia varreduras, e é o que um decodificador de verdade
+ * continua lendo. A versão auditada do sanitizador parava no `SOS` e copiava
+ * tudo até o `EOI` sem olhar, então EXIF, GPS e texto livre colocados AQUI
+ * atravessavam a limpeza intactos no mesmo arquivo em que os de antes do scan
+ * eram corretamente removidos.
+ *
+ * `orientacaoAntesDoScan` é a do bloco Exif legítimo, na posição em que a
+ * especificação o coloca. Quando é `null` o arquivo não tem Exif antes do
+ * scan, e a orientação do bloco de DEPOIS não deve ser aproveitada: aquela
+ * posição não é a que um decodificador honra.
+ */
+export function jpegComMetadadoDepoisDoScan(
+  orientacaoAntesDoScan: number | null = null,
+): Buffer {
+  const antes: Buffer[] = [];
+  if (orientacaoAntesDoScan !== null) {
+    antes.push(
+      segmentoJpeg(
+        0xe1,
+        Buffer.concat([
+          Buffer.from("Exif\0\0", "ascii"),
+          tiffComGps(orientacaoAntesDoScan),
+        ]),
+      ),
+    );
+  }
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8]), // SOI
+    ...antes,
+    segmentoJpeg(0xda, Buffer.from([0x01, 0x01, 0x00])), // SOS
+    scanComEscapes(),
+    // --- daqui em diante: fronteira de marcador válida, depois do scan ---
+    segmentoJpeg(
+      0xe1,
+      Buffer.concat([Buffer.from("Exif\0\0", "ascii"), tiffComGps(3)]),
+    ),
+    segmentoJpeg(
+      0xe1,
+      Buffer.concat([
+        Buffer.from("http://ns.adobe.com/xap/1.0/\0", "ascii"),
+        XMP_COM_GPS,
+      ]),
+    ),
+    segmentoJpeg(0xfe, Buffer.from("<html><script>alert(1)</script>", "ascii")),
+    segmentoJpeg(0xed, Buffer.from("Photoshop 3.0\0IPTC lat 12.34 S", "ascii")),
+    Buffer.from([0xff, 0xd9]), // EOI
+    Buffer.from("ftypmp42 moov udta xyz +12.34-056.78", "ascii"),
+  ]);
+}
+
+/**
+ * Os segmentos de um JPEG, lidos AQUI — inclusive os de depois do scan.
+ *
+ * Leitor próprio, de propósito: conferir a saída com o mesmo percurso que a
+ * produziu só provaria que o código concorda consigo mesmo. Este anda pelo
+ * arquivo tratando `FF 00`, `RST` e preenchimento como parte do scan, que é o
+ * que a gramática manda.
+ */
+export function lerSegmentosJpeg(
+  jpeg: Buffer,
+): { codigo: number; carga: Buffer }[] {
+  const segmentos: { codigo: number; carga: Buffer }[] = [];
+  let i = 2;
+  while (i + 1 < jpeg.length) {
+    if (jpeg[i] !== 0xff) break;
+    let j = i;
+    while (j < jpeg.length && jpeg[j] === 0xff) j++;
+    if (j >= jpeg.length) break;
+    const codigo = jpeg[j];
+    if (codigo === 0xd9) {
+      segmentos.push({ codigo, carga: Buffer.alloc(0) });
+      break;
+    }
+    if (codigo === 0x01 || (codigo >= 0xd0 && codigo <= 0xd8)) {
+      segmentos.push({ codigo, carga: Buffer.alloc(0) });
+      i = j + 1;
+      continue;
+    }
+    if (j + 3 > jpeg.length) break;
+    const tamanho = jpeg.readUInt16BE(j + 1);
+    if (tamanho < 2 || j + 1 + tamanho > jpeg.length) break;
+    segmentos.push({ codigo, carga: jpeg.subarray(j + 3, j + 1 + tamanho) });
+    i = j + 1 + tamanho;
+    if (codigo === 0xda) {
+      // Pula os dados de entropia: só `FF 00`, `RST` e preenchimento moram lá.
+      let p = i;
+      while (p < jpeg.length) {
+        if (jpeg[p] !== 0xff) {
+          p++;
+          continue;
+        }
+        let q = p + 1;
+        while (q < jpeg.length && jpeg[q] === 0xff) q++;
+        if (q >= jpeg.length) {
+          p = jpeg.length;
+          break;
+        }
+        const codigoSeguinte = jpeg[q];
+        if (
+          codigoSeguinte === 0x00 ||
+          codigoSeguinte === 0x01 ||
+          (codigoSeguinte >= 0xd0 && codigoSeguinte <= 0xd7)
+        ) {
+          p = q + 1;
+          continue;
+        }
+        break;
+      }
+      i = p;
+    }
+  }
+  return segmentos;
 }
