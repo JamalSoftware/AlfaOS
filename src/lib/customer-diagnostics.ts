@@ -3,6 +3,7 @@ import { prisma } from "./prisma";
 import { logAudit } from "./audit";
 import { notFound } from "./errors";
 import { resolveCompanyAdapter } from "./erp-adapter";
+import { resolveActiveErpProvider } from "./erp-active-provider";
 import {
   runWithDiagnosticDeadline,
   supportsDiagnostics,
@@ -270,14 +271,15 @@ export async function getCompanyConnectivityStatuses(
  * configured has no provider, which is a "not supported" state rather than a
  * silent fallback to the mock — labelling mock data as if it came from a real
  * ERP is precisely the confusion this avoids.
+ *
+ * A implementação mora em `erp-active-provider.ts` (`SEC-008`): a mesma
+ * pergunta tinha QUATRO respostas espalhadas — esta, a da busca de cliente, a
+ * da sincronização e a do contexto operacional —, e a quarta escolhia o adapter
+ * pelo histórico do cliente, mandando dado para o ERP desativado. Quatro cópias
+ * de uma regra de autorização é uma cópia que alguém esquece de conferir.
  */
 async function resolveProvider(companyId: string): Promise<ERPProvider | null> {
-  const integration = await prisma.eRPIntegration.findFirst({
-    where: { companyId },
-    select: { provider: true, enabled: true },
-  });
-  if (!integration || !integration.enabled) return null;
-  return integration.provider;
+  return resolveActiveErpProvider(companyId);
 }
 
 /**

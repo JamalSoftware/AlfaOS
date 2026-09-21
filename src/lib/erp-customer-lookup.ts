@@ -8,6 +8,7 @@ import { IntegrationError, isIntegrationError } from "@/integrations/errors";
 import { withIntegrationTimeout } from "@/integrations/diagnostics";
 import { logAudit } from "./audit";
 import { resolveCompanyAdapter } from "./erp-adapter";
+import { resolveActiveErpProvider } from "./erp-active-provider";
 import { badRequest, conflict, isUniqueConstraintError, notFound } from "./errors";
 import { prisma } from "./prisma";
 import {
@@ -40,16 +41,15 @@ export interface ErpCustomerSearchResult {
 async function resolveEnabledProvider(
   companyId: string,
 ): Promise<ERPProvider> {
-  const integration = await prisma.eRPIntegration.findUnique({
-    where: { companyId },
-    select: { provider: true, enabled: true },
-  });
-  if (!integration || !integration.enabled) {
+  // A decisão mora em `erp-active-provider.ts` (`SEC-008`); aqui fica só a
+  // tradução de "não há ERP ativo" para a mensagem que este fluxo mostra.
+  const provider = await resolveActiveErpProvider(companyId);
+  if (!provider) {
     throw badRequest(
       "Nenhuma integração de ERP está habilitada para esta empresa.",
     );
   }
-  return integration.provider;
+  return provider;
 }
 
 export async function searchErpCustomers(

@@ -6,6 +6,10 @@ import {
   type ERPServiceTicket,
 } from "@/integrations/service-tickets";
 import { resolveCompanyAdapter } from "./erp-adapter";
+import {
+  matchesActiveProvider,
+  resolveActiveErpProvider,
+} from "./erp-active-provider";
 import { prisma } from "./prisma";
 import { withIntegrationTimeout } from "@/integrations/diagnostics";
 
@@ -84,9 +88,27 @@ export async function loadErpOperationalContext(
     return empty;
   }
 
-  // `externalProvider` e String no schema; o adapter exige o enum. A conversao
-  // acontece uma vez, aqui, em vez de espalhar cast pelo modulo.
-  const provider = customer.externalProvider as ERPProvider;
+  /*
+    O adapter vem do ERP **ATIVO**, nunca do histórico do cliente (`SEC-008`).
+
+    Esta linha lia `customer.externalProvider` — que é registro de ORIGEM, não
+    seleção: uma OS importada do ReceitaNet continua ReceitaNet depois da troca
+    de ERP, porque o campo diz de onde o dado veio. O efeito era que uma empresa
+    já migrada continuava mandando dado operacional de cliente para o provider
+    DESATIVADO, usando a credencial que a troca preserva ociosa justamente para
+    permitir rollback.
+
+    Quando o ativo não é o do histórico, não há o que consultar: o `externalId`
+    guardado só tem significado dentro do provider que o emitiu. O cliente não
+    está vinculado ao ERP atual, e o caminho para isso é reimportá-lo — não
+    falar com o sistema de onde a empresa saiu.
+  */
+  const activeProvider = await resolveActiveErpProvider(companyId);
+  if (!matchesActiveProvider(activeProvider, customer.externalProvider)) {
+    return empty;
+  }
+
+  const provider = activeProvider as ERPProvider;
   const externalId = customer.externalId;
 
   let adapter;

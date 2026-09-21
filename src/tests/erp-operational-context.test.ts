@@ -270,6 +270,23 @@ describe("Detalhe e chamados falham de forma independente", () => {
         externalId: "15678",
       },
     });
+    /*
+      O ReceitaNet precisa estar ATIVO, e não só constar no histórico do
+      cliente (`SEC-008`).
+
+      Estes quatro testes passavam SEM esta linha, com a empresa não tendo
+      integração de ERP nenhuma — porque o módulo escolhia o adapter por
+      `customer.externalProvider`, que é registro de ORIGEM. Eles não
+      conseguiam distinguir "provider ativo" de "rótulo histórico", que é
+      exatamente a distinção que o achado é.
+    */
+    await prisma.eRPIntegration.create({
+      data: {
+        companyId: fixture.companyA.id,
+        provider: "RECEITANET",
+        enabled: true,
+      },
+    });
     vi.doMock("@/lib/erp-adapter", () => ({
       resolveCompanyAdapter: async () => {
         /**
@@ -348,5 +365,146 @@ describe("Detalhe e chamados falham de forma independente", () => {
     expect(ctx.contract.technologyCode).toBe("3");
     expect(JSON.stringify(ctx)).not.toContain("GPON");
     expect(JSON.stringify(ctx)).not.toContain("Fibra ótica");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SEC-008 — chamada ao vivo não sai para provider DESATIVADO
+// ---------------------------------------------------------------------------
+
+/**
+ * # `SEC-008` · o adapter vem do ERP ATIVO, não do histórico do cliente
+ *
+ * `Customer.externalProvider` é registro de ORIGEM, não seleção: uma OS
+ * importada do ReceitaNet continua ReceitaNet depois da troca de ERP, por
+ * decisão de produto. Este módulo escolhia o adapter por esse campo, então uma
+ * empresa que já migrou continuava mandando dado operacional de cliente para o
+ * provider desativado — usando a credencial que a troca preserva ociosa de
+ * propósito, para permitir rollback.
+ *
+ * A prova aqui é sobre a CHAMADA, não sobre o texto da resposta: o transporte
+ * conta quantas requisições saíram. Um teste que só olhasse o DTO passaria
+ * mesmo com a requisição vazando, porque o DTO vazio é o mesmo nos dois casos.
+ */
+describe("SEC-008 — provider desativado não recebe chamada", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  /** Monta a empresa, o cliente e a integração, e CONTA as requisições. */
+  async function carregar(opcoes: {
+    historicoDoCliente: string;
+    integracao: { provider: "RECEITANET" | "MOCK"; enabled: boolean } | null;
+  }) {
+    const customer = await prisma.customer.create({
+      data: {
+        companyId: fixture.companyA.id,
+        name: "Cliente Migrado",
+        externalProvider: opcoes.historicoDoCliente,
+        externalId: "15678",
+      },
+    });
+    if (opcoes.integracao) {
+      await prisma.eRPIntegration.create({
+        data: { companyId: fixture.companyA.id, ...opcoes.integracao },
+      });
+    }
+
+    const requisicoes: string[] = [];
+    vi.doMock("@/lib/erp-adapter", () => ({
+      resolveCompanyAdapter: async () => {
+        const { ReceitanetAdapter: Fresh } = await import(
+          "@/integrations/ReceitanetAdapter"
+        );
+        const fetchImpl: FetchLike = async (url) => {
+          requisicoes.push(String(url));
+          return { ok: true, status: 200, text: async () => "[]" };
+        };
+        return new Fresh({ token: "t", fetchImpl });
+      },
+    }));
+    const mod = await import("@/lib/erp-operational-context");
+    const contexto = await mod.loadErpOperationalContext(
+      fixture.companyA.id,
+      customer.id,
+    );
+    return { contexto, requisicoes };
+  }
+
+  it("SEC-008-01 · empresa que migrou não fala com o ERP anterior", async () => {
+    // Histórico diz RECEITANET; o ERP ativo agora é outro.
+    const { contexto, requisicoes } = await carregar({
+      historicoDoCliente: "RECEITANET",
+      integracao: { provider: "MOCK", enabled: true },
+    });
+
+    expect(requisicoes, "vazou requisição para o provider desativado").toEqual([]);
+    expect(contexto.linked).toBe(false);
+    expect(contexto.provider).toBeNull();
+  });
+
+  it("SEC-008-02 · integração DESABILITADA não recebe chamada", async () => {
+    const { contexto, requisicoes } = await carregar({
+      historicoDoCliente: "RECEITANET",
+      integracao: { provider: "RECEITANET", enabled: false },
+    });
+
+    expect(requisicoes).toEqual([]);
+    expect(contexto.linked).toBe(false);
+  });
+
+  it("SEC-008-03 · empresa sem integração nenhuma não recebe chamada", async () => {
+    const { contexto, requisicoes } = await carregar({
+      historicoDoCliente: "RECEITANET",
+      integracao: null,
+    });
+
+    expect(requisicoes).toEqual([]);
+    expect(contexto.linked).toBe(false);
+  });
+
+  it("SEC-008-04 · CONTROLE POSITIVO: com o ERP ativo, a chamada sai", async () => {
+    /*
+      Sem este controle, a correção passaria mesmo se alguém tivesse parado de
+      consultar o ERP em qualquer circunstância — o contexto operacional
+      inteiro ficaria vazio e os três testes acima continuariam verdes.
+    */
+    const { contexto, requisicoes } = await carregar({
+      historicoDoCliente: "RECEITANET",
+      integracao: { provider: "RECEITANET", enabled: true },
+    });
+
+    expect(requisicoes.length).toBeGreaterThan(0);
+    expect(contexto.linked).toBe(true);
+    expect(contexto.provider).toBe("RECEITANET");
+  });
+
+  it("SEC-008-05 · o histórico do cliente é PRESERVADO", async () => {
+    /*
+      A correção é sobre a chamada ao vivo, e nada mais. Apagar ou converter
+      `externalProvider` destruiria a informação de qual sistema originou cada
+      atendimento — proibido pelo próprio contrato do produto (§33).
+    */
+    const customer = await prisma.customer.create({
+      data: {
+        companyId: fixture.companyA.id,
+        name: "Cliente Migrado",
+        externalProvider: "RECEITANET",
+        externalId: "15678",
+      },
+    });
+    await prisma.eRPIntegration.create({
+      data: { companyId: fixture.companyA.id, provider: "MOCK", enabled: true },
+    });
+
+    const mod = await import("@/lib/erp-operational-context");
+    await mod.loadErpOperationalContext(fixture.companyA.id, customer.id);
+
+    const depois = await prisma.customer.findUniqueOrThrow({
+      where: { id: customer.id },
+      select: { externalProvider: true, externalId: true },
+    });
+    expect(depois.externalProvider).toBe("RECEITANET");
+    expect(depois.externalId).toBe("15678");
   });
 });

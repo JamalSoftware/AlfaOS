@@ -2,6 +2,7 @@ import { ERPProvider } from "@prisma/client";
 import { isIntegrationError } from "@/integrations/errors";
 import { supportsServiceTickets } from "@/integrations/service-tickets";
 import { resolveCompanyAdapter } from "./erp-adapter";
+import { resolveActiveErpProvider } from "./erp-active-provider";
 import { logAudit } from "./audit";
 import { badRequest, notFound } from "./errors";
 import { prisma } from "./prisma";
@@ -110,6 +111,26 @@ export async function syncReceitaNetServiceOrdersForCustomer(
   ) {
     throw badRequest(
       "Este cliente não está vinculado ao ReceitaNet. Importe-o do ERP antes de sincronizar as ordens de serviço.",
+    );
+  }
+
+  /*
+    E o ReceitaNet precisa estar ATIVO agora (`SEC-008`).
+
+    A verificação acima é sobre o HISTÓRICO do cliente, e sozinha ela não
+    responde à pergunta que importa: o vínculo antigo continua gravado depois de
+    a empresa migrar de ERP — é assim por decisão de produto, porque o campo
+    registra de onde o dado veio. Sem esta segunda verificação, um ADMIN de uma
+    empresa já migrada clicaria em sincronizar e o AlfaOS falaria com o
+    ReceitaNet usando a credencial que a troca deixou ociosa de propósito.
+
+    Mesma autoridade do diagnóstico e da busca de cliente, e é a ausência dela
+    aqui que era o defeito — não a falta de uma regra nova.
+  */
+  const activeProvider = await resolveActiveErpProvider(companyId);
+  if (activeProvider !== ERPProvider.RECEITANET) {
+    throw badRequest(
+      "O ReceitaNet não é o ERP ativo desta empresa. Ative-o em Integrações antes de sincronizar as ordens de serviço.",
     );
   }
 

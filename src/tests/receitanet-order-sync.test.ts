@@ -97,6 +97,25 @@ async function clienteVinculado(
   companyId = fixture.companyA.id,
   externalId = ID_CLIENTE,
 ) {
+  /*
+    O ReceitaNet ATIVO na empresa, e não só no histórico do cliente
+    (`SEC-008`).
+
+    Estes testes passavam sem esta linha, com a empresa sem integração de ERP
+    nenhuma, porque a sincronização fixava `RECEITANET` no código e conferia
+    apenas o vínculo do CLIENTE. O vínculo antigo sobrevive à migração de ERP
+    por decisão de produto, então ele não responde "o ReceitaNet está ativo
+    agora?" — e sem essa segunda pergunta uma empresa já migrada falava com o
+    provider anterior.
+
+    `upsert` porque a integração é por empresa e vários clientes da mesma
+    empresa passam por aqui.
+  */
+  await prisma.eRPIntegration.upsert({
+    where: { companyId },
+    create: { companyId, provider: "RECEITANET", enabled: true },
+    update: { provider: "RECEITANET", enabled: true },
+  });
   return prisma.customer.create({
     data: {
       companyId,
@@ -1056,5 +1075,94 @@ describe("SYNC-03: no-op não escreve, mudança real escreve", () => {
       (await prisma.serviceOrderExecution.findUniqueOrThrow({ where: { id: execucao.id } }))
         .diagnosis,
     ).toBe("Cabo rompido no poste.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SEC-008 — sincronizar exige o ReceitaNet ATIVO
+// ---------------------------------------------------------------------------
+
+/**
+ * # `SEC-008` · o vínculo do cliente não autoriza a chamada
+ *
+ * A revisão de segurança independente nomeou o contexto operacional, e esta é a
+ * MESMA classe de defeito no outro caminho: aqui o provider era fixado no
+ * código (`ERPProvider.RECEITANET`) e a única conferência era sobre o
+ * `externalProvider` do CLIENTE.
+ *
+ * Esse campo é registro de ORIGEM e sobrevive à migração de ERP de propósito —
+ * então ele não responde *"o ReceitaNet está ativo agora?"*. Sem a segunda
+ * pergunta, um ADMIN de uma empresa já migrada clicava em sincronizar e o
+ * AlfaOS falava com o ReceitaNet usando a credencial que a troca deixa ociosa
+ * para permitir rollback.
+ */
+describe("SEC-008 — provider desativado não é sincronizado", () => {
+  /** Cliente com vínculo histórico do ReceitaNet, mas outro ERP ativo. */
+  async function clienteMigrado(
+    integracao: { provider: "RECEITANET" | "MOCK"; enabled: boolean } | null,
+  ) {
+    const companyId = fixture.companyA.id;
+    if (integracao) {
+      await prisma.eRPIntegration.upsert({
+        where: { companyId },
+        create: { companyId, ...integracao },
+        update: integracao,
+      });
+    } else {
+      await prisma.eRPIntegration.deleteMany({ where: { companyId } });
+    }
+    return prisma.customer.create({
+      data: {
+        companyId,
+        name: "Cliente Migrado",
+        externalProvider: "RECEITANET",
+        externalId: ID_CLIENTE,
+      },
+    });
+  }
+
+  it("SEC-008-06 · empresa que migrou de ERP não sincroniza pelo anterior", async () => {
+    const cliente = await clienteMigrado({ provider: "MOCK", enabled: true });
+    await expect(runSync(cliente.id, [chamado()])).rejects.toThrow(
+      /não é o ERP ativo/i,
+    );
+    // E nenhuma OS foi criada pelo caminho recusado.
+    expect(
+      await prisma.serviceOrder.count({ where: { customerId: cliente.id } }),
+    ).toBe(0);
+  });
+
+  it("SEC-008-07 · integração desabilitada não sincroniza", async () => {
+    const cliente = await clienteMigrado({ provider: "RECEITANET", enabled: false });
+    await expect(runSync(cliente.id, [chamado()])).rejects.toThrow(
+      /não é o ERP ativo/i,
+    );
+  });
+
+  it("SEC-008-08 · empresa sem integração nenhuma não sincroniza", async () => {
+    const cliente = await clienteMigrado(null);
+    await expect(runSync(cliente.id, [chamado()])).rejects.toThrow(
+      /não é o ERP ativo/i,
+    );
+  });
+
+  it("SEC-008-09 · CONTROLE POSITIVO: com o ReceitaNet ativo, sincroniza", async () => {
+    // Sem este controle, a correção passaria mesmo se a sincronização tivesse
+    // parado de funcionar para todo mundo.
+    const cliente = await clienteMigrado({ provider: "RECEITANET", enabled: true });
+    const r = await runSync(cliente.id, [chamado()]);
+    expect(r).toMatchObject({ fetched: 1, created: 1 });
+  });
+
+  it("SEC-008-10 · a recusa NÃO apaga o vínculo histórico", async () => {
+    const cliente = await clienteMigrado({ provider: "MOCK", enabled: true });
+    await expect(runSync(cliente.id, [chamado()])).rejects.toThrow();
+
+    const depois = await prisma.customer.findUniqueOrThrow({
+      where: { id: cliente.id },
+      select: { externalProvider: true, externalId: true },
+    });
+    expect(depois.externalProvider).toBe("RECEITANET");
+    expect(depois.externalId).toBe(ID_CLIENTE);
   });
 });
