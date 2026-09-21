@@ -280,8 +280,28 @@ test.describe("o ADMIN não foi simplificado junto", () => {
 
     await expect(page.getByRole("link", { name: "Gerenciar acesso" })).toBeVisible();
 
+    /*
+      O que está em teste é o que a página RENDERIZA — então o HTML é lido SEM
+      os `<script>` (`SEC-003`).
+
+      No React 19, em DESENVOLVIMENTO, a carga de RSC que vai em
+      `self.__next_f.push(...)` traz informação de depuração com as PROPS dos
+      Server Components — inclusive a linha `{"label":"Nº no ERP","value":null}`
+      que o `FieldList` recebe e corretamente NÃO desenha. `page.content()`
+      inteiro passava a conter o rótulo sem que a tela o mostrasse.
+
+      Isso é exclusivo do desenvolvimento: rodado contra `next start`, este
+      mesmo teste passa com o HTML INTEIRO. E o `<details>` recolhido continua
+      no DOM, então a primeira asserção segue valendo — `innerText` não serviria
+      para ela, porque ignora conteúdo recolhido.
+    */
+    const html = await page.evaluate(() => {
+      const copia = document.documentElement.cloneNode(true) as HTMLElement;
+      copia.querySelectorAll("script").forEach((s) => s.remove());
+      return copia.outerHTML;
+    });
+
     // Recolhido, não removido: o conteúdo do <details> continua no HTML.
-    const html = await page.content();
     expect(html).toContain("ID interno da OS");
 
     /*
