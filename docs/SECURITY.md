@@ -3302,8 +3302,8 @@ ou não existe, ou tem o arquivo inteiro.
 
 ## 8.27. `RC-1 SECURITY REMEDIATION` — a revisão independente e o que ela mudou
 
-> **Estado: `SECURITY REMEDIATION — READY FOR INDEPENDENT RE-REVIEW`
-> (21/09/2026).**
+> **Estado: `SECURITY REMEDIATION — OWNER VALIDATED / READY FOR INDEPENDENT
+> RE-REVIEW` (21/09/2026).**
 > Uma revisão de segurança independente, em clean-room sobre `6bfd7b7`, fechou
 > **`SECURITY REVIEW FAIL`** com treze achados. Esta seção registra o que foi
 > corrigido, com que prova, e o que ficou em aberto.
@@ -3488,7 +3488,7 @@ Plano de mitigação pré-produção, para a decisão do dono na provisão do VP
 
 ### 8.27.7. `SEC-003` — a decisão do framework é do dono
 
-> **Estado atual: `REMEDIADO` — aguarda a reauditoria independente.** Upgrade para `next@15.5.25` aprovado pelo dono e
+> **Estado atual: `APPROVED` / `REMEDIATED` pelo dono (21/09/2026) — aguarda a reauditoria independente.** Upgrade para `next@15.5.25` aprovado pelo dono e
 > executado (21/09/2026). Ver §8.27.9. O texto abaixo é o registro de quando
 > a decisão estava pendente, e é mantido como história do achado.
 
@@ -3540,6 +3540,10 @@ mandato desta remediação proíbe fazê-lo sem decisão.
 > **Decisão do dono (21/09/2026):** upgrade controlado, na **menor versão
 > prática corrigida**, com preferência pela linha 15 e a 16 só se a 15
 > corrigida não existisse. Registro no PRD §13 (`DECISION UPDATED`).
+>
+> **Validação do dono (21/09/2026): smoke físico `PASS` no Next 15 —
+> `APPROVED` / `REMEDIATED`.** O veredito de segurança continua sendo da
+> reauditoria independente.
 
 **A escolha, com evidência — não pelo `fixAvailable` do `npm audit`.** O
 `npm audit` sugeria `next@16.3.5`, porque ele aponta a versão mais nova que não
@@ -3655,7 +3659,8 @@ de COMPILAÇÃO sobre CSS de entrada controlada pelo atacante, e o CSS do AlfaOS
 é escrito no repositório: não há entrada de terceiro chegando ao `postcss`,
 nem na compilação nem em runtime. Forçar outra versão por `overrides` foi
 descartado por decisão do dono (sem resolução forçada); **ir para a 16 só por
-ele é decisão do dono**, e fica registrada como residual. O
+ele é decisão do dono**, e o dono a aceitou como residual
+**`ACCEPTED / NON-BLOCKING V1`** (21/09/2026). O
 restante (`glob`, `js-yaml`, `deepmerge-ts`/`prisma`, a cadeia do
 `firebase-admin`) é ferramenta de desenvolvimento ou está fora do escopo
 confirmado, como antes.

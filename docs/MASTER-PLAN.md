@@ -766,7 +766,8 @@ E2E EV-E2E-01 no next dev FRIO (gates do SEC-003 / Next 15, 21/09/2026)
   causa    compilação sob demanda do next dev 15 — a OS concluída dispara ao
            mesmo tempo a compilação das rotas de foto e de assinatura, e a do
            pacote espera na fila
-  status   OPEN / DEV-ONLY / NON-BLOCKING — produção não é afetada
+  status   ACCEPTED DEV-ONLY / NON-BLOCKING (decisão do dono, 21/09/2026) —
+           produção não é afetada
   não      o teste NÃO foi afrouxado: um limite maior esconderia também uma
   feito    navegação que de fato não saísse
   opções   aquecer rotas no setup do E2E, ou o dev com Turbopack — decisão do
@@ -1887,8 +1888,9 @@ a prontidão de publicação.
 
 ## 25. `RC-1` — REMEDIAÇÃO DA REVISÃO DE SEGURANÇA INDEPENDENTE
 
-> **Estado: `SECURITY REMEDIATION — READY FOR OWNER VALIDATION AND INDEPENDENT
-> RE-REVIEW` (21/09/2026). Commits locais, sem tag e sem push.**
+> **Estado: `SECURITY REMEDIATION — OWNER VALIDATED / READY FOR INDEPENDENT
+> RE-REVIEW` (21/09/2026). Sem tag; publicação em `origin/main` autorizada pelo
+> dono no fechamento, só fast-forward.**
 > A revisão independente sobre `6bfd7b7` fechou `SECURITY REVIEW FAIL` com
 > treze achados. Registro técnico completo em `docs/SECURITY.md` §8.27.
 
@@ -1910,7 +1912,8 @@ corrigida; a 15 tem, então a 16 não foi necessária). React 19 e
 `cookies()` em rotas e páginas, feita de forma mecânica e sem mover nenhuma
 regra de autorização. Registro no PRD §13 (`DECISION UPDATED`).
 
-**Residual para o dono:** o `postcss@8.4.31` que o `next@15.5.25` fixa sai
+**Residual `postcss` — `ACCEPTED / NON-BLOCKING V1`** (decisão do dono,
+21/09/2026): o `postcss@8.4.31` que o `next@15.5.25` fixa sai
 `high` no `npm audit` — avisos de COMPILAÇÃO sobre CSS controlado pelo
 atacante, e o CSS do AlfaOS é do repositório — e só sai com `next@16`
 (`docs/SECURITY.md` §8.27.9).
@@ -1933,9 +1936,25 @@ servidor novo, porque a suíte inteira num `next dev` só esgota a memória dest
 host (`docs/CONTEXT-MAP.md`). Cada falha do dev foi triada: o `LOADUX-07` era
 defeito do teste (corrigido, com reprodução e sabotagem — a metade do mapa
 passou 126 de 126 depois); o `EV-E2E-01` é
-compilação fria do `next dev` (§12, `OPEN / DEV-ONLY`); e as do fim da metade
+compilação fria do `next dev` (§12, `ACCEPTED DEV-ONLY`); e as do fim da metade
 longa acompanharam o servidor acima de 4 GB — a mesma sequência passou 97 de
 98 com servidor novo. **Nenhum teste foi afrouxado.**
+
+### 25.1 Fechamento — validação do dono (21/09/2026)
+
+**Smoke físico do dono no Next 15: `PASS`** — login, dashboard, cliente e
+histórico, OS, pacote técnico, `/tipos-os`, CTO, mapa, marcadores, popups,
+camadas e Ajustar posição → Cancelar.
+
+| Item | Estado |
+|---|---|
+| `SEC-003` | `APPROVED` / `REMEDIATED` — `next@15.5.25` |
+| Residual `postcss@8.4.31` (`high` no `npm audit`, só sai com `next@16`) | `ACCEPTED` / `NON-BLOCKING V1` |
+| `SEC-009` | `ACCEPTED V1 RESIDUAL` |
+| `EV-E2E-01` no `next dev` frio (§12) | `ACCEPTED DEV-ONLY` / `NON-BLOCKING` |
+
+Nenhuma tag, nenhum deploy, nenhum VPS, nenhum cron e nenhuma chamada a
+provider nesta fase.
 
 **A `RC-1` continua ABERTA.** O próximo passo é a **reauditoria independente**
 da remediação, feita por uma sessão que não a implementou.
