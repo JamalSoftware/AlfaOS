@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "typecheck": "tsc --noEmit",
+    "tenant:bootstrap": "node dist/scripts/bootstrap-tenant.js",
     "outbox:work": "node dist/scripts/outbox-worker.js",
     "evidence:cleanup": "node dist/scripts/evidence-cleanup.js",
     "dispatch:backfill": "node dist/scripts/dispatch-queue-backfill.js",

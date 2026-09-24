@@ -43,11 +43,17 @@
   // arrastar `src/**` para cá traria componentes React e rotas do Next para uma
   // compilação que não sabe lidar com JSX nem com `next/server`.
   "include": [
+    "scripts/bootstrap-tenant.ts",
     "scripts/outbox-worker.ts",
     "scripts/evidence-cleanup.ts",
     "scripts/dispatch-queue-backfill.ts",
     "scripts/connectivity-refresh.ts",
     "scripts/photo-storage-audit.ts",
+    "src/lib/bootstrap.ts",
+    "src/lib/audit.ts",
+    "src/lib/password.ts",
+    "src/lib/workday.ts",
+    "src/lib/errors.ts",
     "src/lib/dispatch-queue.ts",
     "src/lib/dispatch-queue-backfill.ts",
     "src/lib/field/evidence-cleanup.ts",
