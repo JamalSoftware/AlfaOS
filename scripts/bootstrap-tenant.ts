@@ -42,8 +42,11 @@ const FLAGS_DE_SENHA = ["--password", "--senha", "--admin-password"];
 
 const USO = `Uso:
   npm run tenant:bootstrap -- --company "<nome>" --admin-name "<nome>" \\
-      --admin-email <email> [--document <cnpj>] [--timezone <IANA>] \\
-      [--cto-network] [--dry-run]
+      --admin-email <email> --timezone <IANA> \\
+      [--document <cnpj>] [--cto-network] [--dry-run]
+
+--timezone é OBRIGATÓRIO (ex.: America/Sao_Paulo): ele define o dia operacional
+da empresa — jornada, "OS de hoje" e atraso — e não é assumido nem inferido.
 
 A senha é pedida no terminal (eco mascarado) e confirmada.
 Sem terminal interativo, defina ${ENV_PASSWORD} e remova-a do ambiente em
@@ -154,7 +157,10 @@ async function main(): Promise<void> {
     document: valorDaFlag(argv, "--document") ?? null,
     adminName: valorDaFlag(argv, "--admin-name") ?? "",
     adminEmail: valorDaFlag(argv, "--admin-email") ?? "",
-    timezone: valorDaFlag(argv, "--timezone") ?? null,
+    // Ausente vira string vazia e quem RECUSA é o domínio — a regra do fuso
+    // obrigatório mora num lugar só. Um `if` aqui seria uma segunda regra, e a
+    // que divergisse seria a que ninguém revisou.
+    timezone: valorDaFlag(argv, "--timezone") ?? "",
     ctoNetworkEnabled: argv.includes("--cto-network"),
   };
 

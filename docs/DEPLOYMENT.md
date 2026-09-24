@@ -210,12 +210,20 @@ demais comandos operacionais), então ele funciona depois de
 --company       obrigatório
 --admin-name    obrigatório
 --admin-email   obrigatório — é o que vai na tela de login, em minúsculas
+--timezone      OBRIGATÓRIO — nome IANA, validado (ex.: America/Sao_Paulo,
+                America/Manaus, America/Belem)
 --document      opcional
---timezone      opcional; padrão America/Sao_Paulo. Nome IANA, validado.
-                É o fuso que decide o DIA OPERACIONAL da empresa
 --cto-network   opcional; liga a capability de CTO / Rede de Distribuição
 --dry-run       confere tudo e não escreve nada
 ```
+
+**`--timezone` não tem padrão e não é inferido.** Ele é a autoridade do dia
+operacional da empresa: é ele que decide a que dia pertence uma batida das
+23h50, o que entra em "OS de hoje" e o que conta como atrasado. Um valor
+assumido — do servidor, do sistema operacional, do locale ou do documento —
+gravaria essa decisão sem ninguém ter escolhido, e o provedor de Manaus só
+descobriria a escolha quando a jornada do técnico caísse no dia errado.
+Omitindo a flag, o comando **recusa** com saída 2 e **não escreve nada**.
 
 **A senha é pedida no terminal, com eco mascarado, e confirmada.** Ela não é
 aceita em `argv`: `--password` é recusado com saída 2, porque argumento de
@@ -228,7 +236,7 @@ e **é removida do ambiente em seguida**:
 ```bash
 read -rs ALFAOS_BOOTSTRAP_PASSWORD && export ALFAOS_BOOTSTRAP_PASSWORD
 sudo -u alfaos --preserve-env npm run tenant:bootstrap -- --company "…" \
-    --admin-name "…" --admin-email "…"
+    --admin-name "…" --admin-email "…" --timezone America/Sao_Paulo
 unset ALFAOS_BOOTSTRAP_PASSWORD
 ```
 
@@ -242,7 +250,8 @@ O que o comando imprime é `empresa=<id> admin=<id> email=<…> fuso=<…>` — 
 a senha.
 
 Ainda sem superfície administrativa (dívida conhecida, não desta fase): trocar
-o fuso da empresa depois, e ligar `ctoNetworkEnabled` fora do bootstrap.
+o fuso da empresa depois, e ligar `ctoNetworkEnabled` fora do bootstrap. É outra
+razão para o fuso ser conferido agora — corrigi-lo depois é operação de banco.
 
 ---
 

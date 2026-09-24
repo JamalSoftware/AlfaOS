@@ -8,6 +8,8 @@ import {
   BOOTSTRAP_AUDIT_ACTION,
   bootstrapTenant,
   readInstallationInventory,
+  validateBootstrapInput,
+  type BootstrapTenantInput,
 } from "@/lib/bootstrap";
 import { prisma } from "@/lib/prisma";
 import { assertSeedAllowed } from "@/lib/seed-guard";
@@ -186,11 +188,112 @@ describe("BOOT-03 — o fuso é persistido", () => {
     expect(resolveTimezone(empresa.timezone)).toBe("America/Manaus");
   });
 
-  it("sem fuso informado, usa o padrão do projeto", async () => {
-    await bootstrapTenant({ ...ENTRADA, timezone: undefined });
+  it("America/Sao_Paulo é um valor como outro qualquer, não um padrão", async () => {
+    await bootstrapTenant({ ...ENTRADA, timezone: "America/Sao_Paulo" });
     expect((await prisma.company.findFirstOrThrow()).timezone).toBe(
       "America/Sao_Paulo",
     );
+  });
+});
+
+describe("BOOT-TZ — o fuso é explícito, sem queda silenciosa", () => {
+  /**
+   * Um fuso assumido gravaria a autoridade do dia operacional da empresa sem
+   * ninguém ter escolhido: jornada, "OS de hoje" e atraso passam por ele.
+   */
+  const semFuso = (): BootstrapTenantInput => {
+    // Chamador sem tipo — `argv` e JSON são exatamente isso. O tipo exige o
+    // campo; a recusa em tempo de execução é o que cobre quem não compila.
+    const entrada = { ...ENTRADA } as Partial<BootstrapTenantInput>;
+    delete entrada.timezone;
+    return entrada as BootstrapTenantInput;
+  };
+
+  it("BOOT-TZ-01 · sem fuso, recusa", async () => {
+    await expect(bootstrapTenant(semFuso())).rejects.toThrow(
+      /fuso horário da empresa é obrigatório/i,
+    );
+  });
+
+  it("BOOT-TZ-02 · sem fuso, zero escrita", async () => {
+    await expect(bootstrapTenant(semFuso())).rejects.toThrow();
+    await expect(
+      bootstrapTenant({ ...ENTRADA, timezone: "" }),
+    ).rejects.toThrow(/obrigatório/i);
+    await expect(
+      bootstrapTenant({ ...ENTRADA, timezone: "   " }),
+    ).rejects.toThrow(/obrigatório/i);
+
+    expect(await readInstallationInventory()).toEqual({
+      companies: 0,
+      users: 0,
+    });
+    expect(await prisma.auditLog.count()).toBe(0);
+  });
+
+  it("BOOT-TZ-03 · America/Sao_Paulo explícito é aceito e persistido", async () => {
+    const r = await bootstrapTenant({
+      ...ENTRADA,
+      timezone: "America/Sao_Paulo",
+    });
+    expect(r.timezone).toBe("America/Sao_Paulo");
+    expect((await prisma.company.findFirstOrThrow()).timezone).toBe(
+      "America/Sao_Paulo",
+    );
+  });
+
+  it("BOOT-TZ-04 · fuso inválido recusa, com zero escrita", async () => {
+    await expect(
+      bootstrapTenant({ ...ENTRADA, timezone: "Mars/Olympus" }),
+    ).rejects.toThrow(/Fuso horário inválido/);
+    expect(await readInstallationInventory()).toEqual({
+      companies: 0,
+      users: 0,
+    });
+  });
+
+  it("BOOT-TZ-05 · o dry-run também exige o fuso", async () => {
+    const entrada = semFuso();
+    entrada.password = undefined;
+    await expect(bootstrapTenant(entrada, { dryRun: true })).rejects.toThrow(
+      /fuso horário da empresa é obrigatório/i,
+    );
+    expect(await readInstallationInventory()).toEqual({
+      companies: 0,
+      users: 0,
+    });
+
+    // E o comando real, sem --timezone, recusa com saída 2 sem escrever.
+    const r = rodarCli(
+      [
+        "--company",
+        "Provedor CLI",
+        "--admin-name",
+        "Maria Silva",
+        "--admin-email",
+        EMAIL,
+        "--dry-run",
+      ],
+    );
+    expect(r.status).toBe(2);
+    expect(r.saida).toMatch(/RECUSADO: O fuso horário da empresa é obrigatório/);
+    expect(r.saida).not.toMatch(/SIMULADO|APLICADO/);
+    expect(await readInstallationInventory()).toEqual({
+      companies: 0,
+      users: 0,
+    });
+  });
+
+  it("BOOT-TZ-06 · a regra é do DOMÍNIO, não do CLI", () => {
+    // `validateBootstrapInput` é o que o domínio chama antes de tudo: sem fuso
+    // ele recusa mesmo sem passar perto do CLI, e o CLI não tem `if` próprio.
+    expect(() =>
+      validateBootstrapInput(semFuso(), { requirePassword: true }),
+    ).toThrow(/fuso horário da empresa é obrigatório/i);
+
+    const cli = readFileSync(SCRIPT, "utf8");
+    expect(cli).not.toMatch(/timezone[^\n]*\?\?\s*["']America\//);
+    expect(cli).not.toMatch(/RECUSADO[^\n]*fuso/i);
   });
 });
 
@@ -398,6 +501,8 @@ describe("BOOT-10 — dry-run não escreve", () => {
       "Maria Silva",
       "--admin-email",
       EMAIL,
+      "--timezone",
+      "America/Sao_Paulo",
       "--dry-run",
     ]);
 

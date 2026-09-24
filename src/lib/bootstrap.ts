@@ -3,7 +3,7 @@ import { logAuditWithin } from "./audit";
 import { badRequest, conflict } from "./errors";
 import { hashPassword } from "./password";
 import { prisma } from "./prisma";
-import { DEFAULT_TIMEZONE, isValidTimezone } from "./workday";
+import { isValidTimezone } from "./workday";
 
 /**
  * # Inicialização da instalação — a primeira empresa e o primeiro ADMIN
@@ -69,7 +69,15 @@ export interface BootstrapTenantInput {
   adminEmail: string;
   /** Obrigatória fora do `dryRun`. Nunca é registrada, logada nem devolvida. */
   password?: string;
-  timezone?: string | null;
+  /**
+   * Nome IANA, **obrigatório** — inclusive no `dryRun`.
+   *
+   * Sem padrão e sem inferência: é a autoridade do dia operacional da empresa
+   * (`Workday`, "OS de hoje", atraso), e assumir um valor aqui decidiria isso
+   * por ela. Tipo não-opcional para o chamador TypeScript; a recusa em tempo de
+   * execução continua existindo, porque `argv` e JSON não têm tipo.
+   */
+  timezone: string;
   ctoNetworkEnabled?: boolean;
 }
 
@@ -202,15 +210,38 @@ export function validateBootstrapInput(
     }
   }
 
-  const timezone =
+  /*
+    O fuso é OBRIGATÓRIO e EXPLÍCITO — não existe queda silenciosa.
+
+    Ele não é preferência de apresentação: é ele que decide a que dia civil
+    pertence uma batida das 23h50, o que é "OS de hoje" e o que está atrasado.
+    Um padrão assumido aqui gravaria uma autoridade operacional que ninguém
+    escolheu, e a empresa de Manaus só descobriria a escolha quando a jornada
+    do técnico caísse no dia errado.
+
+    Também não se infere: nem do fuso do servidor, nem do sistema operacional,
+    nem do locale, nem do documento da empresa. Todos respondem onde a MÁQUINA
+    está, e a pergunta é qual é o dia operacional da EMPRESA.
+
+    A regra vive aqui, e só aqui: o CLI repassa o que recebeu e quem recusa é o
+    domínio — uma chamada direta sem fuso falha igual.
+  */
+  if (
     input.timezone === undefined ||
     input.timezone === null ||
     String(input.timezone).trim().length === 0
-      ? DEFAULT_TIMEZONE
-      : String(input.timezone).trim();
+  ) {
+    throw badRequest(
+      "O fuso horário da empresa é obrigatório: informe --timezone com um " +
+        "nome IANA (ex.: America/Sao_Paulo). Ele define o dia operacional da " +
+        "empresa e não é assumido.",
+      "timezone",
+    );
+  }
+  const timezone = String(input.timezone).trim();
   if (!isValidTimezone(timezone)) {
     throw badRequest(
-      `Fuso horário inválido: use um nome IANA (ex.: ${DEFAULT_TIMEZONE}).`,
+      "Fuso horário inválido: use um nome IANA (ex.: America/Sao_Paulo).",
       "timezone",
     );
   }

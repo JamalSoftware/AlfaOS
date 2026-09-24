@@ -2057,3 +2057,45 @@ superfície administrativa para trocar `Company.timezone` depois (`JOR-05`, e
 prometer tela.
 
 Registro operacional: `docs/DEPLOYMENT.md` §5.1 (e o passo a mais na §8).
+
+### 26.1 Correção de contrato — o fuso é EXPLÍCITO (24/09/2026)
+
+A primeira entrega caía em `America/Sao_Paulo` quando `--timezone` era omitido.
+**Decisão do dono: isso é desvio de contrato, e foi corrigido antes da
+validação.** O fuso passou a ser **obrigatório**, sem padrão e sem inferência —
+nem do servidor, nem do sistema operacional, nem do locale, nem do documento da
+empresa, que respondem todos onde a MÁQUINA está quando a pergunta é qual é o
+dia operacional da EMPRESA.
+
+Ele não é preferência de apresentação: decide a que dia civil pertence uma
+batida das 23h50, o que entra em "OS de hoje" e o que conta como atrasado. Um
+padrão assumido gravaria essa autoridade sem ninguém ter escolhido, e o
+provedor de Manaus só descobriria a escolha quando a jornada do técnico caísse
+no dia errado — com a agravante de que trocar o fuso depois ainda não tem
+superfície administrativa (`JOR-05`), então a correção seria operação de banco.
+
+**A regra é do DOMÍNIO, e mora num lugar só.** `validateBootstrapInput` recusa
+ausente, vazio e só-espaços; o tipo de entrada deixou de ser opcional
+(`timezone: string`) para o chamador TypeScript, e a recusa em tempo de execução
+continua existindo porque `argv` e JSON não têm tipo. O CLI **não ganhou `if`
+próprio**: ele repassa o que recebeu (ausente vira string vazia) e quem recusa é
+o domínio — um segundo lugar validando seria a regra que diverge, e a que
+divergisse seria a que ninguém revisou. Um teste afirma isso sobre o fonte do
+CLI.
+
+Seis casos novos (`BOOT-TZ-01`–`06`): ausente recusa; ausente, vazio e
+só-espaços com inventário `{0,0}` e zero auditoria; `America/Sao_Paulo`
+explícito aceito e persistido; `Mars/Olympus` recusado sem escrita; o `dry-run`
+exigindo o fuso, inclusive pelo comando real (saída 2, sem `SIMULADO`); e a
+recusa provada pelo domínio, não pelo CLI.
+
+**Sabotagem `S8`:** restaurar o padrão silencioso
+(`bruto.length === 0 ? "America/Sao_Paulo" : bruto`). Ela **compila** — o que
+importa, porque erro de compilação não seria detecção — e derruba exatamente
+`BOOT-TZ-01`, `02`, `05` e `06`. Restaurada byte a byte.
+
+O `DEFAULT_TIMEZONE` de `workday.ts` continua existindo e continua certo no
+lugar dele: `resolveTimezone` responde por coluna já gravada que veio nula ou
+inválida, para não derrubar a batida do técnico. O que a `26.1` proíbe é usar
+esse padrão numa ESCRITA — a própria docstring dele já dizia que quem valida o
+valor é quem o grava.
