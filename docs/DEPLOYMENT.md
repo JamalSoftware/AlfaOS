@@ -179,6 +179,71 @@ sudo -u postgres createdb --owner=alfaos alfaos
 Migrations em produção: **`npx prisma migrate deploy`**, nunca `migrate dev`,
 nunca `db push`.
 
+> **NUNCA RODE `prisma db seed` NEM `migrate reset` CONTRA A BASE REAL.** O seed
+> é de desenvolvimento: ele cria — e reativa — usuários `ADMIN` com uma senha de
+> demonstração escrita no código-fonte. Ele recusa com `NODE_ENV=production`
+> (`RC-OPS-04`) e não tem modo de forçar; a primeira conta da instalação nasce
+> pelo passo da §5.1, que é outro comando.
+
+### 5.1 Inicialização da instalação — primeira empresa e primeiro ADMIN
+
+Base recém-migrada não tem empresa nem usuário, e as duas coisas se exigem:
+criar usuário pela aplicação pede um `ADMIN` de sessão, e não existe rota que
+crie empresa. É o `APP-001`, e o comando abaixo é a única porta:
+
+```bash
+cd /opt/alfaos/current
+sudo -u alfaos --preserve-env npm run tenant:bootstrap -- \
+    --company "Nome do Provedor" \
+    --document "00.000.000/0001-00" \
+    --admin-name "Nome do Administrador" \
+    --admin-email admin@provedor.com.br \
+    --timezone America/Sao_Paulo
+```
+
+A ordem é **`migrate deploy` → `build` → bootstrap → primeiro login**. O
+comando roda a partir de `dist/` (compilado pelo `npm run build`, como os
+demais comandos operacionais), então ele funciona depois de
+`npm prune --omit=dev`.
+
+```text
+--company       obrigatório
+--admin-name    obrigatório
+--admin-email   obrigatório — é o que vai na tela de login, em minúsculas
+--document      opcional
+--timezone      opcional; padrão America/Sao_Paulo. Nome IANA, validado.
+                É o fuso que decide o DIA OPERACIONAL da empresa
+--cto-network   opcional; liga a capability de CTO / Rede de Distribuição
+--dry-run       confere tudo e não escreve nada
+```
+
+**A senha é pedida no terminal, com eco mascarado, e confirmada.** Ela não é
+aceita em `argv`: `--password` é recusado com saída 2, porque argumento de
+linha de comando aparece em `ps`, no histórico do shell e nos logs do sistema.
+Faixa: 8 a 128 caracteres, a mesma da tela `/usuarios`.
+
+Sem terminal interativo (automação), a senha vem de `ALFAOS_BOOTSTRAP_PASSWORD`
+e **é removida do ambiente em seguida**:
+
+```bash
+read -rs ALFAOS_BOOTSTRAP_PASSWORD && export ALFAOS_BOOTSTRAP_PASSWORD
+sudo -u alfaos --preserve-env npm run tenant:bootstrap -- --company "…" \
+    --admin-name "…" --admin-email "…"
+unset ALFAOS_BOOTSTRAP_PASSWORD
+```
+
+**Roda uma vez.** Existindo qualquer empresa ou qualquer usuário, o comando
+recusa (saída 2) e não altera nada — ele não cria um segundo tenant, não
+reativa conta e não troca senha de ninguém. Depois dele, contas se criam em
+`/usuarios` e a capability de rede sai da coluna `Company.ctoNetworkEnabled`.
+
+**Primeiro login:** a tela de login, com o e-mail informado e a senha digitada.
+O que o comando imprime é `empresa=<id> admin=<id> email=<…> fuso=<…>` — nunca
+a senha.
+
+Ainda sem superfície administrativa (dívida conhecida, não desta fase): trocar
+o fuso da empresa depois, e ligar `ctoNetworkEnabled` fora do bootstrap.
+
 ---
 
 ## 6. Nginx e HTTPS
@@ -245,6 +310,10 @@ sudo systemctl restart alfaos-web
   não voltam sozinhas — reverter schema é decisão à parte.
 - **O storage sobrevive porque está fora do release** (§2), e a fase C da
   validação (§13) prova isso com uma foto real.
+- **Na PRIMEIRA instalação, um passo a mais depois do `build`:** a base está
+  migrada e vazia, e ninguém consegue entrar até o bootstrap da §5.1 criar a
+  empresa e o ADMIN. Em deploy de atualização ele não entra na sequência — roda
+  uma vez e recusa nas seguintes.
 
 ---
 

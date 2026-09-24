@@ -1958,3 +1958,102 @@ provider nesta fase.
 
 **A `RC-1` continua ABERTA.** O próximo passo é a **reauditoria independente**
 da remediação, feita por uma sessão que não a implementou.
+
+---
+
+## 26. `APP-R1` — INICIALIZAÇÃO DA INSTALAÇÃO (`APP-001`)
+
+**Estado: `READY FOR OWNER VALIDATION` (24/09/2026).** Commits locais, sem tag e
+sem push. **Zero migration, zero schema, zero dependência, zero rota, zero UI,
+zero Dart.**
+
+Vem da **revisão de produto da V1** (Web + Field, discovery), que encontrou um
+`P0` de publicação: numa base de produção recém-migrada **não havia como criar a
+primeira empresa e o primeiro ADMIN**. Os dois se exigiam — criar usuário pela
+aplicação pede um `ADMIN` de sessão, e nenhuma rota cria empresa —, o seed de
+demonstração recusa em produção (`RC-OPS-04`, e corretamente: ele cria contas
+com senha conhecida no código-fonte), e nenhum script ou passo de runbook
+cobria a lacuna. O único caminho restante era SQL na mão, com um hash de bcrypt
+montado por fora.
+
+**Escopo entregue, e só ele:** `npm run tenant:bootstrap` — uma empresa, um
+ADMIN, o fuso e a capability inicial. Não é cadastro de empresas, não é Super
+Admin, e o seed continua sendo de desenvolvimento e continua recusando em
+produção.
+
+```text
+migrate deploy → build → tenant:bootstrap → primeiro login
+```
+
+Cinco decisões que não devem ser desfeitas:
+
+* **A operação é definida sobre a base VAZIA.** Existindo qualquer empresa ou
+  qualquer usuário, ela recusa com saída 2 e não altera nada — não cria segundo
+  tenant, não reativa conta e não troca senha. A contagem é **global**, porque a
+  pergunta é "esta instalação já foi inicializada?"; um escopo por empresa
+  responderia outra pergunta e viraria criação de tenant, que é escopo recusado.
+* **A senha não entra em `argv`.** `--password` é recusado antes de qualquer
+  leitura, e o valor recebido não é lido nem ecoado: argumento de linha de
+  comando aparece em `ps`, no histórico do shell e nos logs do sistema. O
+  caminho normal é prompt com **eco mascarado** e confirmação, sem dependência
+  nova (a saída do `readline` é um `Writable` que descarta o eco). Para
+  automação existe `ALFAOS_BOOTSTRAP_PASSWORD`, apagada do processo depois de
+  lida — o que não substitui o `unset`, e o runbook diz isso.
+* **Nenhuma autoridade nova.** Senha por `hashPassword` (o bcrypt do login),
+  fuso por `isValidTimezone` de `workday.ts` (que é quem já decide o dia
+  operacional), capability na coluna `Company.ctoNetworkEnabled` (§8.19). A
+  faixa da senha é a mesma da tela `/usuarios` — um mínimo próprio aqui criaria
+  duas políticas para o mesmo campo.
+* **Validação inteira ANTES do hash e da transação.** Fuso inválido e senha
+  inválida precisam sair com zero escrita; validar no meio da transação faria a
+  recusa depender do rollback.
+* **Empresa, ADMIN e auditoria na MESMA transação**, com **lock consultivo**
+  (`pg_advisory_xact_lock`, o mesmo mecanismo do consumo de estoque): duas
+  execuções simultâneas contra a base vazia leriam `empresas=0` as duas e
+  criariam dois tenants. Empresa sem administrador seria uma instalação em que
+  ninguém entra — e que a própria recusa impediria de consertar.
+
+**A mensagem de recusa carrega as DUAS contagens** (`empresas=N usuarios=M`), e
+isso é o que dá detector à verificação de usuários: um usuário só existe com uma
+empresa (`User.companyId` é FK obrigatória), então a verificação de empresa
+sempre chegaria primeiro e apagar a de usuários não quebraria teste nenhum. Por
+isso `BOOT-06` afirma sobre a mensagem, e um teste chama o guarda direto com
+`{companies: 0, users: 3}` — estado que o banco não produz, e cuja regra é do
+guarda, não do schema.
+
+**Um erro meu que só o gate de tipos pegou:** `new DomainError("msg", 400)` —
+a assinatura real é `(status, message)`. Vitest e `tsx` não conferem tipos, então
+os 32 testes passavam com a chamada invertida. Corrigido usando `badRequest`,
+que é o idiom do projeto.
+
+**Testes (`BOOT-01`–`BOOT-12`, 32 casos):** base vazia cria empresa e ADMIN com
+hash `$2…$12$` verificável; **login real pela rota** com a senha digitada, e
+`401` com a senha errada; e-mail normalizado para minúsculas (sem isso o ADMIN
+não entraria); fuso persistido e confirmado por `resolveTimezone`; segunda
+execução recusada sem alterar byte nenhum; duas execuções simultâneas produzindo
+UMA instalação; empresa existente e instalação povoada recusadas; fuso e senha
+inválidos com inventário `{0,0}`; o **comando real em processo separado** criando
+o ADMIN sem imprimir a senha; `--dry-run` com zero escrita; o seed continuando
+bloqueado em produção; e falha depois da empresa criada não deixando empresa sem
+ADMIN.
+
+**Sete sabotagens, sete detectadas**, cada uma restaurada por cópia e conferida
+byte a byte (nunca `git checkout` sobre trabalho não commitado — lição da
+`ERP-1`): tirar a verificação de empresa, tirar a de usuário, criar a empresa
+fora da transação, imprimir a senha no CLI, aceitar fuso inválido, dry-run
+escrevendo, e remover o lock consultivo — esta última derruba exatamente o teste
+de corrida.
+
+**Artefato compilado, não `tsx`:** o comando roda por `node dist/…` como os
+demais operacionais (`OPS-01`), e foi exercido compilado — `--help`, recusa de
+`--password` e `--dry-run` contra a base de desenvolvimento, que respondeu
+`RECUSADO: empresas=3 usuarios=6` com **zero escrita** (conferido depois:
+3 empresas, 6 usuários, nenhuma linha `COMPANY.BOOTSTRAPPED`).
+
+**Dívidas que esta fase NÃO fecha**, e que continuam sendo produto: não existe
+superfície administrativa para trocar `Company.timezone` depois (`JOR-05`, e
+`JOR-B4` continua sendo o motivo de ela não nascer antes) nem para ligar
+`ctoNetworkEnabled` fora do bootstrap. O runbook diz as duas coisas em vez de
+prometer tela.
+
+Registro operacional: `docs/DEPLOYMENT.md` §5.1 (e o passo a mais na §8).
