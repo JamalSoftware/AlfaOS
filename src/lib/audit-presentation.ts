@@ -22,6 +22,9 @@
  */
 
 export const AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
+  // Instalação — acontece uma vez, antes de existir qualquer sessão
+  "COMPANY.BOOTSTRAPPED": "Instalação inicializada",
+
   // Acesso — web
   "AUTH.LOGIN": "Login realizado",
   "AUTH.LOGIN_FAILED": "Tentativa de login recusada",
