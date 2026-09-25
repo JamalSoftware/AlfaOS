@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { EVIDENCE_CATEGORY_LABELS } from "./customer-timeline-presentation";
 import type { EvidenceCategory } from "@prisma/client";
 import { logAudit } from "./audit";
 import { DomainError, notFound } from "./errors";
@@ -419,7 +420,11 @@ export async function validateServiceOrderCompletion(
       if (!present.has(category)) {
         pendencies.push({
           code: "EVIDENCE_CATEGORY_MISSING",
-          message: `Falta a foto da categoria ${category}.`,
+          // Rótulo, não o enum: o técnico lia "Falta a foto da categoria
+          // ONU_ONT" — vocabulário do banco na tela de quem está no poste. A
+          // tabela é a MESMA do resto do produto, e o `code` continua estável,
+          // que é o que o Field de fato consome.
+          message: `Falta a foto: ${EVIDENCE_CATEGORY_LABELS[category]}.`,
           category,
         });
       }
