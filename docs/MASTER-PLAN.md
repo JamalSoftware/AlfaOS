@@ -1963,9 +1963,9 @@ da remediação, feita por uma sessão que não a implementou.
 
 ## 26. `APP-R1` — INICIALIZAÇÃO DA INSTALAÇÃO (`APP-001`)
 
-**Estado: `READY FOR OWNER VALIDATION` (24/09/2026).** Commits locais, sem tag e
-sem push. **Zero migration, zero schema, zero dependência, zero rota, zero UI,
-zero Dart.**
+**Estado: `APPROVED` / `CLOSED` (24/09/2026), validado pelo dono e publicado em
+`origin/main`, sem tag.** **Zero migration, zero schema, zero dependência, zero
+rota, zero UI, zero Dart.** O fechamento está na §26.2.
 
 Vem da **revisão de produto da V1** (Web + Field, discovery), que encontrou um
 `P0` de publicação: numa base de produção recém-migrada **não havia como criar a
@@ -2099,3 +2099,60 @@ lugar dele: `resolveTimezone` responde por coluna já gravada que veio nula ou
 inválida, para não derrubar a batida do técnico. O que a `26.1` proíbe é usar
 esse padrão numa ESCRITA — a própria docstring dele já dizia que quem valida o
 valor é quem o grava.
+
+### 26.2 Fechamento — validação do dono e provas de encerramento (24/09/2026)
+
+**`APP-R1` / `APP-001` — `APPROVED` / `CLOSED`.**
+
+**Validação visual do dono, em instalação limpa e isolada** (`:3200`, base de
+rascunho própria): login com o ADMIN que o bootstrap criou, empresa "Alfa
+Bootstrap Test", usuário Jamal / Administrador, Dashboard abrindo, menus
+**CTOs** e **Mapa Operacional** visíveis com `/ctos` e `/mapa` abrindo, e a
+"Atividade recente" mostrando **"Instalação inicializada"** — que é o
+`COMPANY.BOOTSTRAPPED` com o rótulo que a `26.1` deu a ele. O tenant aparece
+vazio, como tem de aparecer.
+
+**A segunda execução recusa, e a recusa não escreve.** Repetida contra a MESMA
+base, com os mesmos argumentos não secretos e **sem senha em `argv`**:
+
+```text
+[bootstrap] RECUSADO: Instalação já inicializada: empresas=1 usuarios=1.
+A inicialização só roda numa base vazia — use /usuarios para criar contas.
+exit 2
+```
+
+As duas contagens da mensagem são o que prova QUAL base foi atingida: a de
+rascunho tinha `1/1` e o `alfaos_dev` da máquina tem `3/6`. **Zero mutação**
+provada por retrato completo antes e depois — empresa, usuário, auditoria e
+nove contagens de negócio — com **SHA-256 idêntico** (`41c600af…`). A auditoria
+não ganhou nem uma linha: a recusa acontece antes do bcrypt e antes da
+transação, então não existe registro de tentativa a escrever.
+
+**Nota de execução, para quem repetir:** a senha é lida ANTES do guarda. Uma
+segunda execução sem terminal e sem `ALFAOS_BOOTSTRAP_PASSWORD` recusa por
+*"Sem terminal interativo"* e **não** chega à mensagem de instalação já
+inicializada. Para exercitar o guarda de verdade, a senha vai pela variável de
+ambiente — nunca em `argv` — e qualquer valor válido serve, porque ela não é
+comparada com nada: o guarda recusa antes de hashear.
+
+**Higiene de segredo, verificada e não suposta:** o ADMIN tem hash bcrypt
+gravado (formato conferido, valor nunca impresso), e a varredura da auditoria
+não encontra o hash inteiro, nem um prefixo de 20 caracteres dele, nem marca
+`$2a`/`$2b`/`$2y`, nem `senha=`/`password=` com valor. O retrato usado neste
+registro nunca leu a coluna `passwordHash`.
+
+**Estado final da base de rascunho, antes de ser descartada:** empresas=1,
+usuarios=1, primeiro usuário `ADMIN` e `active=true`, empresa com
+`timezone=America/Sao_Paulo` e `ctoNetworkEnabled=true`; clientes=0, OS=0,
+CTOs=0, portas=0, vínculos=0, itens de estoque=0, movimentos=0, técnicos=0,
+tipos de OS=0; **exatamente um** `COMPANY.BOOTSTRAPPED`, mais o `AUTH.LOGIN` da
+própria validação do dono.
+
+**Limpeza:** o servidor isolado de `:3200` foi parado (árvore inteira, por PID
+enumerado), o worktree descartável foi removido e a base
+`alfaos_bootstrap_owner_test` foi derrubada. `alfaos_dev`, `alfaos_test`, o
+contêiner `alfaos-postgres`, a imagem e os volumes **não foram tocados** — o
+comando de descarte tem lista de nomes proibidos e aborta antes de conectar se
+o alvo for um deles. O `node_modules` do worktree era um **link** para o do
+checkout principal: ele foi removido como link, com os 491 pacotes do destino
+conferidos antes e depois.
