@@ -316,6 +316,44 @@ test.describe("POL-ADMIN — requisitos de conclusão pela interface", () => {
     ).not.toBeChecked();
   });
 
+  test("POL-ADMIN-02b · o painel e o atalho da tabela não divergem", async ({
+    page,
+  }) => {
+    /*
+      `requireChecklist` tem DUAS portas: o atalho da coluna, que o dono já
+      validou, e o painel completo. As duas escrevem o mesmo campo pela mesma
+      rota e releem do servidor — mas "deveriam concordar" não é prova, e dois
+      controles para o mesmo estado são exatamente onde uma tela passa a mentir.
+    */
+    await login(page, ADMIN_EMAIL);
+    await abrirRequisitos(page);
+
+    await page.getByTestId(`requisito-requireChecklist-${typeId}`).check();
+    await page.getByTestId(`requisitos-save-${typeId}`).click();
+    await expect(page.getByTestId(`requisitos-aviso-${typeId}`)).toBeVisible();
+
+    // O atalho da tabela passou a refletir o que o painel gravou.
+    await expect(
+      page.getByTestId(`policy-require-checklist-${typeId}`),
+    ).toBeChecked();
+
+    /*
+      E o caminho inverso. `click`, não `uncheck`: o marcador da tabela é
+      CONTROLADO pelo servidor e não vira no próprio clique — ele espera a
+      resposta e a releitura. `uncheck` exige a mudança imediata no DOM e
+      falha contra um controle que, corretamente, não é otimista. A regra já
+      estava escrita no `CHK-UI-03`, logo acima.
+    */
+    const atalho = page.getByTestId(`policy-require-checklist-${typeId}`);
+    await atalho.click();
+    await expect(atalho).not.toBeChecked();
+
+    await abrirRequisitos(page);
+    await expect(
+      page.getByTestId(`requisito-requireChecklist-${typeId}`),
+    ).not.toBeChecked();
+  });
+
   test("POL-ADMIN-16 · falha ao salvar NÃO vira sucesso, e o rascunho fica", async ({
     page,
   }) => {
