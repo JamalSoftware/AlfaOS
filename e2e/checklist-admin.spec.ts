@@ -222,3 +222,133 @@ test.describe("CHK-UI — configuração de checklist pelo ADMIN", () => {
     expect(gravado, "o DISPATCHER gravou um checklist").toBeNull();
   });
 });
+
+/**
+ * # `APP-003` — o ADMIN configura TODOS os requisitos pela tela
+ *
+ * O backend já decidia os sete; a tela expunha um. Estes casos provam a
+ * superfície nova pelo navegador — inclusive que ela não mostra nome de enum,
+ * e que uma falha de gravação não é anunciada como sucesso.
+ */
+test.describe("POL-ADMIN — requisitos de conclusão pela interface", () => {
+  async function abrirRequisitos(page: Page) {
+    await page.goto("/tipos-os");
+    await page.getByTestId(`requisitos-configure-${typeId}`).click();
+    await expect(page.getByTestId(`requisitos-editor-${typeId}`)).toBeVisible();
+  }
+
+  test("POL-ADMIN-01/14 · os sete requisitos aparecem, em português", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirRequisitos(page);
+
+    // Os cinco interruptores.
+    for (const campo of [
+      "requireCheckIn",
+      "requireChecklist",
+      "requireEquipment",
+      "requireMaterials",
+      "requireSignature",
+    ]) {
+      await expect(
+        page.getByTestId(`requisito-${campo}-${typeId}`),
+      ).toBeVisible();
+    }
+    // A quantidade mínima e as categorias.
+    await expect(page.getByTestId(`requisito-min-fotos-${typeId}`)).toBeVisible();
+    await expect(
+      page.getByTestId(`requisito-categoria-ONU_ONT-${typeId}`),
+    ).toBeVisible();
+
+    /*
+      POL-ADMIN-14: o VALOR canônico continua embaixo (é o `data-testid`), e o
+      texto que o operador lê é o rótulo. A asserção olha o painel inteiro:
+      qualquer enum cru que escape aparece aqui.
+    */
+    const painel = page.getByTestId(`requisitos-editor-${typeId}`);
+    await expect(painel).toContainText("ONU / ONT");
+    await expect(painel).toContainText("Leitura óptica");
+    await expect(painel).not.toContainText("ONU_ONT");
+    await expect(painel).not.toContainText("OPTICAL_READING");
+    await expect(painel).not.toContainText("minEvidenceCount");
+    await expect(painel).not.toContainText("requireSignature");
+  });
+
+  test("POL-ADMIN-02/03..08 · o que o ADMIN salva volta depois de recarregar", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirRequisitos(page);
+
+    await page.getByTestId(`requisito-requireSignature-${typeId}`).check();
+    await page.getByTestId(`requisito-requireEquipment-${typeId}`).check();
+    await page.getByTestId(`requisito-requireCheckIn-${typeId}`).check();
+    await page.getByTestId(`requisito-min-fotos-${typeId}`).fill("2");
+    await page.getByTestId(`requisito-categoria-CTO-${typeId}`).check();
+
+    await page.getByTestId(`requisitos-save-${typeId}`).click();
+    // O sucesso é dito DEPOIS do servidor confirmar.
+    await expect(page.getByTestId(`requisitos-aviso-${typeId}`)).toHaveText(
+      "Requisitos salvos.",
+    );
+
+    // A prova é a RELEITURA: o estado local pode estar certo e o banco não.
+    await abrirRequisitos(page);
+    await expect(
+      page.getByTestId(`requisito-requireSignature-${typeId}`),
+    ).toBeChecked();
+    await expect(
+      page.getByTestId(`requisito-requireEquipment-${typeId}`),
+    ).toBeChecked();
+    await expect(
+      page.getByTestId(`requisito-requireCheckIn-${typeId}`),
+    ).toBeChecked();
+    await expect(
+      page.getByTestId(`requisito-min-fotos-${typeId}`),
+    ).toHaveValue("2");
+    await expect(
+      page.getByTestId(`requisito-categoria-CTO-${typeId}`),
+    ).toBeChecked();
+    // E o que não foi marcado continua desmarcado.
+    await expect(
+      page.getByTestId(`requisito-requireMaterials-${typeId}`),
+    ).not.toBeChecked();
+  });
+
+  test("POL-ADMIN-16 · falha ao salvar NÃO vira sucesso, e o rascunho fica", async ({
+    page,
+  }) => {
+    await login(page, ADMIN_EMAIL);
+    await abrirRequisitos(page);
+
+    // O servidor recusa. A tela não pode anunciar que gravou.
+    await page.route(
+      `**/api/service-order-types/${typeId}/completion-policy`,
+      (route) =>
+        route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Falha simulada do servidor." }),
+        }),
+    );
+
+    await page.getByTestId(`requisito-requireMaterials-${typeId}`).check();
+    await page.getByTestId(`requisito-min-fotos-${typeId}`).fill("5");
+    await page.getByTestId(`requisitos-save-${typeId}`).click();
+
+    await expect(page.getByRole("alert")).toContainText("Falha simulada");
+    await expect(
+      page.getByTestId(`requisitos-aviso-${typeId}`),
+    ).toHaveCount(0);
+
+    // O trabalho do operador sobrevive à falha: ele tenta de novo, não
+    // redigita.
+    await expect(
+      page.getByTestId(`requisito-requireMaterials-${typeId}`),
+    ).toBeChecked();
+    await expect(
+      page.getByTestId(`requisito-min-fotos-${typeId}`),
+    ).toHaveValue("5");
+  });
+});
