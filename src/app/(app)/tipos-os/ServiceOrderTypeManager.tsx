@@ -750,7 +750,11 @@ function RequisitosEditor({
       )}
 
       {erro && (
-        <p role="alert" className="text-sm text-danger-fg">
+        <p
+          role="alert"
+          data-testid={`requisitos-erro-${escopo}`}
+          className="text-sm text-danger-fg"
+        >
           {erro}
         </p>
       )}

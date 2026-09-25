@@ -337,7 +337,14 @@ test.describe("POL-ADMIN — requisitos de conclusão pela interface", () => {
     await page.getByTestId(`requisito-min-fotos-${typeId}`).fill("5");
     await page.getByTestId(`requisitos-save-${typeId}`).click();
 
-    await expect(page.getByRole("alert")).toContainText("Falha simulada");
+    /*
+      O erro tem `testid` próprio: `getByRole("alert")` sozinho também casa com
+      o anunciador de rota do Next (`__next-route-announcer__`), e a asserção
+      falhava por ambiguidade — com a tela CERTA por trás.
+    */
+    await expect(page.getByTestId(`requisitos-erro-${typeId}`)).toContainText(
+      "Falha simulada",
+    );
     await expect(
       page.getByTestId(`requisitos-aviso-${typeId}`),
     ).toHaveCount(0);
