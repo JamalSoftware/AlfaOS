@@ -2156,3 +2156,149 @@ comando de descarte tem lista de nomes proibidos e aborta antes de conectar se
 o alvo for um deles. O `node_modules` do worktree era um **link** para o do
 checkout principal: ele foi removido como link, com os 491 pacotes do destino
 conferidos antes e depois.
+
+---
+
+## 27. `APP-R2` — SUPERFÍCIE ADMINISTRATIVA DA POLÍTICA DE CONCLUSÃO (`APP-003`)
+
+**`APP-R2` / `APP-003` — `APPROVED` / `CLOSED` (25/09/2026).** Validação do
+dono: **`PASS`**. A política de conclusão da OS deixou de ser configurável só
+por API: os **sete** campos que o servidor já usava passaram a ter tela em
+`/tipos-os`. **Zero migration, zero dependência, zero chamada a provider.**
+
+### 27.1 Uma autoridade, e ela não mudou
+
+A fase é de **exposição**, não de arquitetura. `validateServiceOrderCompletion`
+continua sendo a única autoridade de conclusão, e os dois consumidores
+continuam atravessando ela — o pacote do Field (`src/lib/field/execution.ts`) e
+o fechamento, dentro da transação (`src/lib/service-order-closing.ts`).
+**Nenhuma regra de conclusão foi reproduzida em React**: a tela escreve
+configuração e relê do servidor.
+
+A rota `PUT /api/service-order-types/:id/completion-policy` **já existia** —
+ADMIN, `assertSameOrigin`, zod `.strict()`, tenant da sessão. Não nasceu rota
+nova; nasceu a tela que faltava.
+
+### 27.2 Os sete campos, com os nomes REAIS
+
+`requireChecklist` · `requireSignature` · `requireMaterials` ·
+`requireEquipment` · `requireCheckIn` · **`minEvidenceCount`** ·
+**`requiredEvidenceCategories`**.
+
+Os dois últimos importam porque a revisão que originou a fase citava
+`minimumPhotos` e `requiredPhotoCategories`, que **não existem no schema**.
+Implementar pelos nomes do relatório teria criado campo duplicado para a mesma
+pergunta. Os nomes vieram do Prisma, não do texto.
+
+### 27.3 A política é DINÂMICA, e a API SUBSTITUI
+
+`validateServiceOrderCompletion` busca a política por `serviceOrderTypeId` **no
+momento da validação** — não há snapshot na OS. É por isso que salvar vale para
+OS já em andamento.
+
+E `putCompletionPolicy` **substitui a política inteira**: mandar só o campo
+alterado apaga os outros seis em silêncio. É a armadilha da §382, agora com
+sete campos em vez de um — o painel reenvia todos a cada gravação, e
+`POL-ADMIN-08b` prova que um campo salvo sozinho não derruba os demais.
+
+### 27.4 Uma lista de categorias, não três
+
+A lista das categorias **configuráveis** estava duplicada em três lugares —
+rota de política, rota de checklist e a tela. Virou
+`src/lib/evidence-category-policy.ts`, client-safe (só `import type` do
+Prisma, o cuidado do `DQ-4`/`CTO-3.2.1b`), e `POL-ADMIN-13b` prova que o
+conjunto **oferecido** é o conjunto **aceito**. Sem isso a tela podia oferecer
+o que o servidor recusa, e a divergência só apareceria na hora de salvar.
+
+**`EQUIPMENT_LABEL` fica FORA das doze**, agora com o motivo escrito: ela não é
+uma foto que o técnico tira sob demanda — nasce `TEMPORARY` e é promovida pelo
+registro do equipamento que ela identifica. Se uma política gravada por fora
+trouxer categoria que a tela não edita, o painel **avisa** e diz que salvar vai
+removê-la, em vez de descartá-la calado.
+
+Dois vazamentos de enum cru foram fechados com o `EVIDENCE_CATEGORY_LABELS`
+canônico que já existia: o `<select>` de foto do checklist (pré-existente,
+nesta mesma tela) e a mensagem de pendência do técnico, que dizia `ONU_ONT` em
+vez de "ONU / ONT".
+
+### 27.5 Validação: o servidor é a autoridade, e recusa não corrompe
+
+`minEvidenceCount` é inteiro `0..10` (`MAX_REQUIRED_EVIDENCE`); a validação do
+cliente é UX. **`POL-ADMIN-12` e `13` partem de uma política VÁLIDA**, porque o
+risco real não é a recusa — é a recusa deixar a configuração anterior pela
+metade.
+
+`POL-ADMIN-15` é a prova que separa "a coluna mudou" de "a conclusão obedece":
+uma OS que fecha sem pendência, o ADMIN liga a assinatura **pela mesma rota da
+tela**, e o motor real passa a devolver `SIGNATURE_REQUIRED`.
+
+### 27.6 Field: contrato intocado
+
+Nenhum arquivo Dart mudou, e nenhum precisava mudar. Os `requirements` do Field
+são projetados da mesma busca de política, e o aplicativo consome **`code`** de
+pendência, nunca `message` — que é o que torna a correção de rótulo segura por
+contrato.
+
+### 27.7 UX aceita para a V1: dois controles para `requireChecklist`
+
+O atalho da tabela (validado na §382) e o painel completo escrevem o **mesmo**
+campo, pela **mesma** rota, e os dois releem do servidor. O dono validou sem
+reportar confusão e decidiu **manter os dois**. `POL-ADMIN-02b` cobre a
+divergência em vez de confiar em que eles concordem. **Não redesenhar isto
+agora.**
+
+### 27.8 `requireMaterials` está exposto, e a `APP-002` continua aberta
+
+O campo aparece e funciona. Ligá-lo bloqueia a conclusão até haver material
+registrado, contra a limitação de estoque/materiais que a **`APP-002`** possui.
+Exposição não é remediação: nenhuma tela de estoque, de almoxarifado ou de
+material do Field foi tocada.
+
+### 27.9 Testes, sabotagem e gates
+
+17 Vitest (`POL-ADMIN-03..15c`) e 4 casos de navegador (`POL-ADMIN-01/14`,
+`02/03..08`, `02b`, `16`). **Sete sabotagens, sete detectadas**, cada uma pelo
+detector pretendido: autorização → `10`, tenant → `11`, motor ignorando a
+política → `15`, categoria inválida → `13`, mínimo inválido → `12`, enum cru na
+tela → `01/14`, sucesso antes da confirmação → `16`.
+
+Gates em **worktree isolado**, porque o `next dev` do dono ocupa o `.next` do
+checkout: `diff --check`, `prisma validate`, `migrate status`, lint, tsc,
+**3338 Vitest (165 arquivos)**, build, `build:worker`, e **Playwright
+`checklist-admin` 8/8**.
+
+**Duas falhas foram minhas, não do produto.** `getByRole("alert")` casava
+também com o anunciador de rota do Next — a mensagem sempre esteve certa, e
+nasceu um testid dedicado. E `uncheck()` falhou porque o marcador da tabela é
+**controlado pelo servidor**, sem otimismo: a regra já estava escrita em
+`CHK-UI-03` e eu não a apliquei.
+
+### 27.10 Fechamento — validação do dono e limpeza (25/09/2026)
+
+**Validação do dono, em `/tipos-os` sobre o tipo descartável `QA Requisitos
+APP-003`:** painel abrindo, `requireCheckIn`, `requireChecklist`,
+`requireEquipment` e `requireSignature` persistindo, `requireMaterials`
+permanecendo desligado, `minEvidenceCount = 2` sobrevivendo ao reload,
+categorias exigidas persistidas, rótulos amigáveis ("ONU / ONT", "Leitura
+óptica") sem enum cru, sucesso só depois de salvar, mínimo `99`/`099` recusado
+com a mensagem da regra (`inteiro entre 0 e 10`) e o estado válido anterior
+intacto.
+
+**Limpeza do dado de QA.** O tipo `QA Requisitos APP-003`
+(`cmugdz6jb0001vujgsy2eeu7v`) foi removido por identidade exata, com os guardas
+DENTRO da transação: nome conferido, `0` OS apontando para ele, `0` template.
+Saíram **duas** linhas — o tipo e a política dele —, e o retrato completo de
+tipos, políticas, templates, itens de checklist e OS ficou **idêntico byte a
+byte** em tudo o mais. Não existe caminho de aplicação que apague tipo de OS
+(`ServiceOrder.typeId` é `Restrict`, e o catálogo se **desativa**), então a
+remoção de fixture é direta no banco, pelo precedente do `DOC-CLOSE-TL1`.
+
+**Integridade dos nove tipos reais: DRIFT ZERO**, comparados campo a campo com
+o retrato tomado ANTES da validação (`dev-policies-antes.json`): identidade,
+`active` e os sete campos da política. O checklist não precisou de retrato
+próprio para ser provado — os dez templates da empresa têm `updatedAt` de
+18 e 20/09, **dias antes** da criação do tipo de QA (25/09), então nenhum deles
+foi tocado na validação.
+
+**Estados:** `APP-003` `APPROVED` / `CLOSED`. **`APP-002` — Stock / Materials
+Operational Surface — continua sendo a próxima, e NÃO foi iniciada.**
