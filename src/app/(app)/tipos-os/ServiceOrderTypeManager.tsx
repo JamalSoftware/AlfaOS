@@ -2,6 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
+import { EVIDENCE_CATEGORY_LABELS } from "@/lib/customer-timeline-presentation";
+import {
+  isPolicyEvidenceCategory,
+  MAX_REQUIRED_EVIDENCE,
+  POLICY_EVIDENCE_CATEGORIES,
+} from "@/lib/evidence-category-policy";
 
 /**
  * # Catálogo de tipos de OS + checklist de execução (PRD §382)
@@ -92,21 +98,6 @@ const TIPOS_DE_ITEM: { valor: ChecklistItemType; rotulo: string }[] = [
   { valor: "TEXT", rotulo: "Texto" },
   { valor: "NUMBER", rotulo: "Número" },
   { valor: "PHOTO", rotulo: "Foto" },
-];
-
-const CATEGORIAS_DE_FOTO = [
-  "BEFORE_SERVICE",
-  "INSTALLATION_LOCATION",
-  "CABLE_ROUTE",
-  "CTO",
-  "ONU_ONT",
-  "ROUTER",
-  "EQUIPMENT",
-  "OPTICAL_READING",
-  "WIFI_TEST",
-  "SPEED_TEST",
-  "AFTER_SERVICE",
-  "OTHER",
 ];
 
 function paraRascunho(items: ItemRow[]): Rascunho[] {
@@ -376,9 +367,15 @@ function ChecklistEditor({
                     className="rounded-lg border border-input-border px-2 py-1.5 text-sm text-fg"
                   >
                     <option value="">—</option>
-                    {CATEGORIAS_DE_FOTO.map((categoria) => (
+                    {/*
+                      Rótulo em português, valor canônico por baixo. A lista
+                      mostrava o enum cru — "ONU_ONT" — para quem configura o
+                      catálogo, e nome interno na tela é vocabulário do banco
+                      vazando para o operador.
+                    */}
+                    {POLICY_EVIDENCE_CATEGORIES.map((categoria) => (
                       <option key={categoria} value={categoria}>
-                        {categoria}
+                        {EVIDENCE_CATEGORY_LABELS[categoria]}
                       </option>
                     ))}
                   </select>
@@ -460,6 +457,326 @@ function ChecklistEditor({
   );
 }
 
+/** Os cinco interruptores, na ordem em que o atendimento acontece. */
+const EXIGENCIAS: {
+  campo:
+    | "requireCheckIn"
+    | "requireChecklist"
+    | "requireEquipment"
+    | "requireMaterials"
+    | "requireSignature";
+  rotulo: string;
+  ajuda: string;
+}[] = [
+  {
+    campo: "requireCheckIn",
+    rotulo: "Exigir check-in no local",
+    ajuda: "O técnico precisa registrar a chegada antes de concluir.",
+  },
+  {
+    campo: "requireChecklist",
+    rotulo: "Exigir checklist preenchido",
+    ajuda: "Todo item obrigatório do checklist precisa estar respondido.",
+  },
+  {
+    campo: "requireEquipment",
+    rotulo: "Exigir equipamento instalado",
+    ajuda: "Ao menos um equipamento precisa estar registrado na OS.",
+  },
+  {
+    campo: "requireMaterials",
+    rotulo: "Exigir material utilizado",
+    ajuda: "Ao menos um material precisa estar registrado na OS.",
+  },
+  {
+    campo: "requireSignature",
+    rotulo: "Exigir assinatura do cliente",
+    ajuda: "A OS não fecha sem a assinatura colhida no aparelho.",
+  },
+];
+
+/** O rascunho local do painel: os mesmos campos que a API grava. */
+interface RascunhoPolitica {
+  requireChecklist: boolean;
+  requireSignature: boolean;
+  requireMaterials: boolean;
+  requireEquipment: boolean;
+  requireCheckIn: boolean;
+  minEvidenceCount: number;
+  requiredEvidenceCategories: string[];
+}
+
+function rascunhoDaPolitica(policy: PolicyRow | undefined): RascunhoPolitica {
+  /*
+    Tipo SEM política é "não exige nada" — é o que
+    `validateServiceOrderCompletion` faz ao sair depois do relatório quando não
+    encontra linha. O painel mostra isso como tudo desmarcado, que é a verdade,
+    e não como um estado especial de "não configurado".
+  */
+  return {
+    requireChecklist: policy?.requireChecklist ?? false,
+    requireSignature: policy?.requireSignature ?? false,
+    requireMaterials: policy?.requireMaterials ?? false,
+    requireEquipment: policy?.requireEquipment ?? false,
+    requireCheckIn: policy?.requireCheckIn ?? false,
+    minEvidenceCount: policy?.minEvidenceCount ?? 0,
+    requiredEvidenceCategories: policy?.requiredEvidenceCategories ?? [],
+  };
+}
+
+/**
+ * O que este tipo de OS exige para o técnico conseguir concluir.
+ *
+ * A tela é CONFIGURAÇÃO — ela não decide nada. Quem responde "esta OS pode
+ * fechar?" continua sendo `validateServiceOrderCompletion`, no servidor, e é o
+ * mesmo motor que o Field consulta e que o fechamento executa dentro da
+ * transação. Reproduzir qualquer pedaço dessa regra aqui criaria uma segunda
+ * autoridade, e a que divergisse seria a que ninguém revisou.
+ *
+ * A política é SUBSTITUÍDA por inteiro pela API, então o painel envia SEMPRE
+ * os sete campos. É a mesma armadilha da §382: mandar só o que mudou apagaria
+ * em silêncio o resto da configuração daquele tipo.
+ */
+function RequisitosEditor({
+  escopo,
+  serviceOrderTypeId,
+  policy,
+}: {
+  escopo: string;
+  serviceOrderTypeId: string;
+  policy: PolicyRow | undefined;
+}) {
+  const router = useRouter();
+  const [rascunho, setRascunho] = useState<RascunhoPolitica>(() =>
+    rascunhoDaPolitica(policy),
+  );
+  const [erro, setErro] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [salvando, setSalvando] = useState(false);
+
+  /*
+    Categoria gravada que esta tela não sabe editar.
+
+    A API recusa `EQUIPMENT_LABEL` como exigência, e a tela oferece exatamente
+    a lista que ela aceita. Mas uma linha gravada por fora pode carregar um
+    valor fora dessa lista, e reenviar sem ele seria apagá-lo em silêncio — o
+    defeito que esta fase existe para não repetir. Então a tela DIZ o que vai
+    acontecer, em vez de decidir sozinha.
+  */
+  const foraDaLista = rascunho.requiredEvidenceCategories.filter(
+    (c) => !isPolicyEvidenceCategory(c),
+  );
+
+  function alterar(mudanca: Partial<RascunhoPolitica>) {
+    setAviso(null);
+    setRascunho((atual) => ({ ...atual, ...mudanca }));
+  }
+
+  function alternarCategoria(categoria: string, marcada: boolean) {
+    alterar({
+      requiredEvidenceCategories: marcada
+        ? [...rascunho.requiredEvidenceCategories, categoria]
+        : rascunho.requiredEvidenceCategories.filter((c) => c !== categoria),
+    });
+  }
+
+  async function salvar() {
+    setErro(null);
+    setAviso(null);
+
+    /*
+      Validação local é UX, não autoridade: ela evita uma ida ao servidor para
+      dizer o óbvio. Quem recusa de verdade é o `zod` da rota, e há teste
+      provando isso pela porta da API.
+    */
+    if (
+      !Number.isInteger(rascunho.minEvidenceCount) ||
+      rascunho.minEvidenceCount < 0 ||
+      rascunho.minEvidenceCount > MAX_REQUIRED_EVIDENCE
+    ) {
+      setErro(
+        `A quantidade mínima de fotos deve ser um número inteiro entre 0 e ${MAX_REQUIRED_EVIDENCE}.`,
+      );
+      return;
+    }
+
+    setSalvando(true);
+    try {
+      const res = await fetch(
+        `/api/service-order-types/${serviceOrderTypeId}/completion-policy`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requireChecklist: rascunho.requireChecklist,
+            requireSignature: rascunho.requireSignature,
+            requireMaterials: rascunho.requireMaterials,
+            requireEquipment: rascunho.requireEquipment,
+            requireCheckIn: rascunho.requireCheckIn,
+            minEvidenceCount: rascunho.minEvidenceCount,
+            requiredEvidenceCategories:
+              rascunho.requiredEvidenceCategories.filter(
+                isPolicyEvidenceCategory,
+              ),
+          }),
+        },
+      );
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        // O rascunho NÃO é descartado: quem acabou de marcar cinco exigências
+        // não pode perdê-las por uma falha de rede.
+        setErro(payload?.error ?? "Falha ao salvar os requisitos.");
+        return;
+      }
+      // O sucesso só é dito DEPOIS da confirmação do servidor.
+      setAviso("Requisitos salvos.");
+      router.refresh();
+    } catch {
+      setErro("Erro de conexão. Tente novamente.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4" data-testid={`requisitos-editor-${escopo}`}>
+      <p className="text-sm text-fg-muted">
+        O técnico só consegue concluir uma OS deste tipo depois de cumprir o que
+        estiver marcado aqui. Nada marcado significa que o relatório do
+        atendimento basta.
+      </p>
+
+      <div className="space-y-2">
+        {EXIGENCIAS.map(({ campo, rotulo, ajuda }) => (
+          <label
+            key={campo}
+            className="flex items-start gap-2 text-sm text-fg-secondary"
+          >
+            <input
+              type="checkbox"
+              checked={rascunho[campo]}
+              disabled={salvando}
+              data-testid={`requisito-${campo}-${escopo}`}
+              onChange={(e) => alterar({ [campo]: e.target.checked })}
+              className="mt-0.5 h-4 w-4 rounded border-input-border"
+            />
+            <span>
+              <span className="font-medium text-fg">{rotulo}</span>
+              <span className="block text-xs text-fg-muted">{ajuda}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+
+      <div className="border-t border-border-subtle pt-4">
+        <h4 className="text-sm font-semibold text-fg">Fotos</h4>
+
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <label
+            htmlFor={`min-fotos-${escopo}`}
+            className="text-sm text-fg-secondary"
+          >
+            Quantidade mínima
+          </label>
+          <input
+            id={`min-fotos-${escopo}`}
+            type="number"
+            min={0}
+            max={MAX_REQUIRED_EVIDENCE}
+            step={1}
+            value={rascunho.minEvidenceCount}
+            disabled={salvando}
+            data-testid={`requisito-min-fotos-${escopo}`}
+            onChange={(e) =>
+              alterar({ minEvidenceCount: Number(e.target.value) })
+            }
+            className="w-20 rounded-lg border border-input-border px-2 py-1.5 text-sm text-fg"
+          />
+          <span className="text-xs text-fg-muted">
+            0 significa sem mínimo. Máximo {MAX_REQUIRED_EVIDENCE}.
+          </span>
+        </div>
+
+        <fieldset className="mt-4">
+          <legend className="text-sm text-fg-secondary">
+            Categorias obrigatórias
+          </legend>
+          <p className="mb-2 text-xs text-fg-muted">
+            Cada categoria marcada exige ao menos uma foto daquele tipo, além da
+            quantidade mínima acima.
+          </p>
+          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
+            {POLICY_EVIDENCE_CATEGORIES.map((categoria) => (
+              <label
+                key={categoria}
+                className="flex items-center gap-2 text-sm text-fg-secondary"
+              >
+                <input
+                  type="checkbox"
+                  checked={rascunho.requiredEvidenceCategories.includes(
+                    categoria,
+                  )}
+                  disabled={salvando}
+                  data-testid={`requisito-categoria-${categoria}-${escopo}`}
+                  onChange={(e) =>
+                    alternarCategoria(categoria, e.target.checked)
+                  }
+                  className="h-4 w-4 rounded border-input-border"
+                />
+                {EVIDENCE_CATEGORY_LABELS[categoria]}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </div>
+
+      {foraDaLista.length > 0 && (
+        <p
+          role="alert"
+          data-testid={`requisitos-fora-da-lista-${escopo}`}
+          className="rounded-lg bg-warning-bg px-3 py-2 text-sm text-warning-fg"
+        >
+          Este tipo exige uma categoria que esta tela não edita (
+          {foraDaLista
+            .map(
+              (c) =>
+                EVIDENCE_CATEGORY_LABELS[
+                  c as keyof typeof EVIDENCE_CATEGORY_LABELS
+                ] ?? c,
+            )
+            .join(", ")}
+          ). Salvar por aqui vai remover essa exigência.
+        </p>
+      )}
+
+      {erro && (
+        <p role="alert" className="text-sm text-danger-fg">
+          {erro}
+        </p>
+      )}
+      {aviso && (
+        <p
+          role="status"
+          data-testid={`requisitos-aviso-${escopo}`}
+          className="text-sm text-success-fg"
+        >
+          {aviso}
+        </p>
+      )}
+
+      <button
+        type="button"
+        onClick={() => void salvar()}
+        disabled={salvando}
+        data-testid={`requisitos-save-${escopo}`}
+        className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-fg transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {salvando ? "Salvando..." : "Salvar requisitos"}
+      </button>
+    </div>
+  );
+}
+
 export function ServiceOrderTypeManager({
   types,
   templates,
@@ -477,6 +794,11 @@ export function ServiceOrderTypeManager({
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [aberto, setAberto] = useState<string | null>(null);
+  // Painel próprio: quem está configurando requisitos não quer o editor de
+  // checklist aberto junto, e vice-versa.
+  const [requisitosAbertosId, setRequisitosAbertos] = useState<
+    string | null
+  >(null);
   const [padraoAberto, setPadraoAberto] = useState(false);
 
   const padrao = templates.find((t) => t.serviceOrderTypeId === null);
@@ -727,6 +1049,7 @@ export function ServiceOrderTypeManager({
               {types.map((type) => {
                 const politica = politicaPorTipo.get(type.id);
                 const expandido = aberto === type.id;
+                const requisitosAbertos = requisitosAbertosId === type.id;
                 return (
                   <React.Fragment key={type.id}>
                     <tr className="border-b border-border-subtle">
@@ -787,6 +1110,18 @@ export function ServiceOrderTypeManager({
                           </button>
                           <button
                             type="button"
+                            onClick={() =>
+                              setRequisitosAbertos(
+                                requisitosAbertos ? null : type.id,
+                              )
+                            }
+                            data-testid={`requisitos-configure-${type.id}`}
+                            className={botaoSecundario}
+                          >
+                            {requisitosAbertos ? "Fechar" : "Requisitos"}
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => toggleActive(type)}
                             disabled={pendingId === type.id}
                             className={botaoSecundario}
@@ -811,6 +1146,20 @@ export function ServiceOrderTypeManager({
                             serviceOrderTypeId={type.id}
                             template={porTipo.get(type.id)}
                             nomeSugerido={`Checklist — ${type.name}`}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    {requisitosAbertos && (
+                      <tr className="border-b border-border-subtle bg-surface-subtle">
+                        <td colSpan={6} className="px-4 py-4">
+                          <h3 className="mb-3 text-sm font-semibold text-fg">
+                            Requisitos para finalizar esta OS — {type.name}
+                          </h3>
+                          <RequisitosEditor
+                            escopo={type.id}
+                            serviceOrderTypeId={type.id}
+                            policy={politica}
                           />
                         </td>
                       </tr>
