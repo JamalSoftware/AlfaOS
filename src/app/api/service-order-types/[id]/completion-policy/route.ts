@@ -2,6 +2,7 @@ import { AccessProfile } from "@prisma/client";
 import { z } from "zod";
 import { assertProfile, jsonError, jsonOk, runApi } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
+import { POLICY_EVIDENCE_CATEGORIES } from "@/lib/evidence-category-policy";
 import { getSessionUser } from "@/lib/session";
 import {
   MAX_REQUIRED_EVIDENCE,
@@ -35,24 +36,12 @@ const schema = z
     requireEquipment: z.boolean(),
     requireCheckIn: z.boolean(),
     minEvidenceCount: z.number().int().min(0).max(MAX_REQUIRED_EVIDENCE),
+    // A lista vive em `evidence-category-policy.ts` e é a MESMA que a tela
+    // oferece: uma categoria que a tela mostra e o servidor recusa vira um
+    // `400` que o operador lê como defeito do produto.
     requiredEvidenceCategories: z
-      .array(
-        z.enum([
-          "BEFORE_SERVICE",
-          "INSTALLATION_LOCATION",
-          "CABLE_ROUTE",
-          "CTO",
-          "ONU_ONT",
-          "ROUTER",
-          "EQUIPMENT",
-          "OPTICAL_READING",
-          "WIFI_TEST",
-          "SPEED_TEST",
-          "AFTER_SERVICE",
-          "OTHER",
-        ]),
-      )
-      .max(12),
+      .array(z.enum(POLICY_EVIDENCE_CATEGORIES))
+      .max(POLICY_EVIDENCE_CATEGORIES.length),
   })
   .strict();
 

@@ -101,8 +101,16 @@ export interface CompletionPolicyInput {
   requiredEvidenceCategories: EvidenceCategory[];
 }
 
-/** Teto do mínimo de evidências: o teto de fotos por OS é 10. */
-export const MAX_REQUIRED_EVIDENCE = 10;
+/**
+ * Teto do mínimo de evidências: o teto de fotos por OS é 10.
+ *
+ * O valor mora em `evidence-category-policy.ts` — módulo sem Prisma — porque a
+ * tela de configuração precisa dele e este arquivo não entra no bundle do
+ * navegador. Reexportado para não mudar o import de nenhum consumidor.
+ */
+import { MAX_REQUIRED_EVIDENCE } from "./evidence-category-policy";
+
+export { MAX_REQUIRED_EVIDENCE };
 
 export interface CompanyCompletionPolicy extends CompletionPolicyInput {
   serviceOrderTypeId: string;

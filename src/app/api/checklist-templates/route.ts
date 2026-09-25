@@ -2,6 +2,7 @@ import { AccessProfile } from "@prisma/client";
 import { z } from "zod";
 import { assertProfile, jsonError, jsonOk, runApi } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/csrf";
+import { POLICY_EVIDENCE_CATEGORIES } from "@/lib/evidence-category-policy";
 import { getSessionUser } from "@/lib/session";
 import {
   listCompanyChecklistTemplates,
@@ -32,21 +33,10 @@ const itemSchema = z
     type: z.enum(["BOOLEAN", "TEXT", "NUMBER", "SELECT", "PHOTO"]),
     required: z.boolean(),
     options: z.array(z.string().min(1).max(120)).max(20).optional().nullable(),
+    // Mesma lista da política de conclusão, pelo mesmo motivo: a etiqueta do
+    // equipamento não é foto que o técnico tira quando decide.
     evidenceCategory: z
-      .enum([
-        "BEFORE_SERVICE",
-        "INSTALLATION_LOCATION",
-        "CABLE_ROUTE",
-        "CTO",
-        "ONU_ONT",
-        "ROUTER",
-        "EQUIPMENT",
-        "OPTICAL_READING",
-        "WIFI_TEST",
-        "SPEED_TEST",
-        "AFTER_SERVICE",
-        "OTHER",
-      ])
+      .enum(POLICY_EVIDENCE_CATEGORIES)
       .optional()
       .nullable(),
   })
